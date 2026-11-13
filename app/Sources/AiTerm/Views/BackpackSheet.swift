@@ -236,7 +236,9 @@ struct BackpackSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        SheetLayout(title: BackpackSheetPresentation.title, height: Sheet.height) {
+        // As tall as what it shows, never past `Sheet.height`: the ask, the checks and the safe card each
+        // change the content's height, and the sheet follows it.
+        SheetLayout(title: BackpackSheetPresentation.title, height: .fitting(upTo: Sheet.height)) {
             SheetSubtitle(BackpackSheetPresentation.subtitle)
         } content: {
             if model.isSafe { safe } else { form }
@@ -263,6 +265,10 @@ struct BackpackSheet: View {
         }
     }
 
+    /// The fields while it connects: disabled, so faded, their labels and help left as they are. A
+    /// `Select` draws its own title, so nothing dims it but its caller.
+    private var fieldFade: Double { model.isConnecting ? Opacity.disabled : 1 }
+
     private var form: some View {
         VStack(alignment: .leading, spacing: Space.section) {
             if let ask = BackpackSheetPresentation.permissionNotice(model.backpack.setup) {
@@ -275,12 +281,14 @@ struct BackpackSheet: View {
                     FormField("Hotspot") {
                         Select(values: model.choices, selection: Binding(get: { model.network }, set: { model.choose($0) }),
                                label: { $0 ?? "None" })
+                            .opacity(fieldFade)
                     }
                     .frame(maxWidth: .infinity)
                     FormField("Password") {
                         Input(placeholder: "The hotspot’s password",
                               text: Binding(get: { model.password }, set: { model.password = $0 }), secure: true,
                               caretAtEnd: true)
+                            .opacity(fieldFade)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -297,6 +305,7 @@ struct BackpackSheet: View {
                                selection: Binding(get: { model.until }, set: { model.until = $0 }),
                                label: BackpackSheetPresentation.untilLabel,
                                detail: model.untilDetail, isSelectable: model.canSelectUntil)
+                            .opacity(fieldFade)
                     }
                     .frame(maxWidth: .infinity)
                     Color.clear.frame(maxWidth: .infinity, maxHeight: 0)

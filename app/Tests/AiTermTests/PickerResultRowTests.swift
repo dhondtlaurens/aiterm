@@ -15,9 +15,13 @@ struct PickerResultRowTests {
         try expectWhite(Surface.accent.secondaryInk, opacity: 0.75)
     }
 
+    /// Off the accent — a highlighted dropdown row declares `.sheet`, and a selected row is neutral —
+    /// the mark keeps its brand colour and the key the link colour.
     @Test func offTheAccentTheMarkAndKeyKeepTheirColours() {
-        #expect(PickerResultRow.logoTint(on: .sheet) == nil)
-        #expect(PickerResultRow.keyInk(on: .sheet) == Palette.link)
+        for surface in [Surface.sheet, .selected, .selectedOnSheet] {
+            #expect(PickerResultRow.logoTint(on: surface) == nil, "\(surface)")
+            #expect(PickerResultRow.keyInk(on: surface) == Palette.link, "\(surface)")
+        }
     }
 
     private func expectWhite(_ color: Color, opacity: CGFloat) throws {

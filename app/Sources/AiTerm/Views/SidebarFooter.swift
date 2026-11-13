@@ -2,16 +2,20 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// The sidebar's foot, on the list's grid: SYSTEM, then USAGE, split by a rule. SYSTEM is the
-/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill — then
-/// the Mac (proposal 1A · 2A · 3A, 6 Oct 2026): its readings, `cpu ◔ 23% · ram ◔ 61%` and `bat` on
-/// battery, under its `macbook` mark, and while Unplugged is on or switching, a line in a
+/// The sidebar's foot, on the list's grid: System, then Usage, split by a rule. System is the
+/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill —
+/// then the Mac (proposal 1A · 2A · 3A, 6 Oct 2026): its readings, `cpu ◔ 23% · ram ◔ 61%` and
+/// `bat` on battery, under its `macbook` mark, and while Unplugged is on or switching, a line in a
 /// `SettingsTone` — `● unplugged`. At the desk there is no such line: the readings row is the
-/// Mac's row, and its click is ⌘U. USAGE is one row per vendor with its account windows:
-/// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected SYSTEM holds the Mac alone.
+/// Mac's row, and its click is ⌘U. Usage is one row per vendor with its account windows:
+/// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected System holds the Mac alone.
+///
+/// Its labels keep their short lowercase forms (`ctx`, `wk`, `5h`, `cpu`, `ram`, `bat`), set with
+/// tabular figures in the system face (`Typography.help.tabular`), on a ground of its own a step
+/// darker than the window (`Palette.sidebarFooter`).
 ///
 /// It sits on the list's grid rather than its own (proposal A, 23 Sep 2026): the headings are the
-/// `PROJECTS` header's treatment, the rows are ``Size/menuRow`` like the header and `DividerRow`,
+/// Projects header's treatment, the rows are ``Size/menuRow`` like the header and `DividerRow`,
 /// and the ink runs from the header's leading edge to the status column's — the list's inset plus
 /// `Space.base` on both sides. Each group has the footer's own padding, `Space.tight` above and
 /// `Space.base` below, so the rule between them reads like the scroll-edge hairline above both.
@@ -75,6 +79,7 @@ struct SidebarFooter: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.sidebarFooter)
         .overlay(alignment: .top) { Hairline() }
     }
 
@@ -129,7 +134,7 @@ struct SidebarFooter: View {
     /// `Space.inset` the snapshot harness stands in for it with — to the rows' `Space.base`.
     private var edge: CGFloat { scale(Space.inset) + scale(Space.base) }
 
-    /// A heading in the `PROJECTS` header's treatment, then its rows, in the footer's own padding.
+    /// A heading in the Projects header's treatment, then its rows, in the footer's own padding.
     private func group(_ title: String, @ViewBuilder rows: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             SidebarHeading(title)
@@ -144,15 +149,14 @@ struct SidebarFooter: View {
     private func vendorMark(_ agent: SessionAgent) -> VendorMark { VendorMark(agent: agent, size: scale(Size.vendorMark)) }
 
     /// One footer line: a mark in the ``Size/vendorMark`` column, then its readings in the
-    /// telemetry's mono face.
+    /// telemetry's face: the system's, with tabular figures so a changing number keeps its width.
     private func telemetryRow(mark: some View, @ViewBuilder readings: () -> some View) -> some View {
         HStack(alignment: .center, spacing: scale(Space.inset)) {
             mark
             readings()
             Spacer(minLength: 0)
         }
-        .font(Typography.mono)
-        .monospacedDigit()
+        .font(Typography.help.tabular)
         .lineLimit(1)
         .frame(height: scale(Size.menuRow), alignment: .leading)
     }

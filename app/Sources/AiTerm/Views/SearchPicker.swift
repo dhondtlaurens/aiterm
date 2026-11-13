@@ -125,7 +125,7 @@ struct PickedItemField<Trailing: View>: View {
     var body: some View {
         HStack(spacing: Space.base) {
             if let mark { Icon(mark, size: Size.pickerLogo) }
-            if let key { Text(key).font(Typography.monoCode).foregroundStyle(Palette.link) }
+            if let key { Text(key).font(Typography.caption.tabular).foregroundStyle(Palette.link) }
             Text(title).font(monospaced ? Typography.monoCode : Typography.body).foregroundStyle(Palette.text)
                 .lineLimit(1).truncationMode(monospaced ? .middle : .tail)
             Spacer(minLength: Space.snug)
@@ -139,8 +139,8 @@ struct PickedItemField<Trailing: View>: View {
 /// A result row of the ticket, merge request and Jira project pickers: the service's mark, a key
 /// in a column of `keyWidth` so the titles after it start on one line, the title, and a trailing
 /// `detail` — a ticket's or merge request's lane. Inked for the ground its row declares: on the
-/// accent everything turns white, as in the prompt's command-and-skill popup; off it, the mark and
-/// the key keep the service's colours.
+/// accent everything turns white; off it — a highlighted dropdown row included, which is neutral —
+/// the mark and the key keep the service's colours.
 struct PickerResultRow: View {
     let mark: IconSource
     let key: String
@@ -153,7 +153,7 @@ struct PickerResultRow: View {
     var body: some View {
         HStack(spacing: Space.base) {
             Icon(mark, size: Size.pickerRowLogo, tint: Self.logoTint(on: surface))
-            Text(key).font(Typography.monoCode).foregroundStyle(Self.keyInk(on: surface))
+            Text(key).font(Typography.caption.tabular).foregroundStyle(Self.keyInk(on: surface))
                 .frame(width: keyWidth, alignment: .leading)
             Text(title).font(Typography.caption).foregroundStyle(surface.ink).lineLimit(1)
             Spacer(minLength: Space.snug)
@@ -171,7 +171,7 @@ struct PickerResultRow: View {
 /// is this app's "needs attention" colour (drifted branch, needs-input chip, usage ≥ 80 %), and a
 /// lane name is neutral information about the item, not a warning about the task.
 ///
-/// Not a `Badge`: a badge sets its label in the mono chip face on a neutral wash, and this is a
+/// Not a `Badge`: a badge sets its label in the chip face on a neutral wash, and this is a
 /// word in the label face on a brand's.
 struct LaneChip: View {
     let lane: String

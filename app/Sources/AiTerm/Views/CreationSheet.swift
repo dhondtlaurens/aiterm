@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// What New Task and New Review share around their steps: the step bar, the command preview under
+/// What New Task and New Review share around their steps: the stepper, at `Sheet.creationHeight`, the command preview under
 /// every step past the first, the destination line that ends the first step and the last, the footer
 /// and its keys, and the loads the sheet starts when it appears. How many steps there are, and which
 /// one picks the agent, is the kind's (`CreationKind.steps`); New Broadcast, which starts no agent of
@@ -36,7 +36,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     }
 
     var body: some View {
-        SteppedSheetFrame(title: title, step: step, stepNames: stepNames,
+        SteppedSheetFrame(title: title, height: Sheet.creationHeight, step: step, stepNames: stepNames,
                           onBackgroundTap: { for picker in pickers { picker.wrappedValue = false } }) {
             content
             if Kind.steps.showsCommand(onStep: step) { CommandPreview(model: model) }

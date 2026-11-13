@@ -73,6 +73,18 @@ import AiTermUI
         #expect(badges.ticket == .init(label: nil, help: "SHOP-12", url: nil))
     }
 
+    /// The badge line's marks sit back in the ink of their words until Settings asks for the vendors'
+    /// colours; the switch changes the ink and nothing a badge says.
+    @Test func theMarksTakeTheirWordsInkUntilBrandColoursAreOn() {
+        let all = row(jiraKey: "SHOP-12", jiraUrl: "https://example.atlassian.net/browse/SHOP-12", mr: mr, diff: diff)
+        let quiet = TaskRowBadges(row: all, details: BadgeDetails())
+        #expect(quiet.markInk == .label)
+        var coloured = TaskRowBadges(row: all, details: BadgeDetails(brandColours: true))
+        #expect(coloured.markInk == .own)
+        coloured.markInk = .label
+        #expect(coloured == quiet)
+    }
+
     @Test func aRowWithNothingToShowWearsNoBadges() {
         let badges = TaskRowBadges(row: row(), details: BadgeDetails())
         #expect(badges.ticket == nil)

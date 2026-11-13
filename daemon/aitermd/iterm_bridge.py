@@ -34,6 +34,9 @@ VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
 # the service's tick lock -- for good.
 ITERM_CALL_SECONDS = 10.0
+# What "Use dark terminal background" paints AiTerm's windows, as 8-bit RGB: #17181B, the app's
+# sidebar ground (`Palette.sidebar`), so the terminal and the sidebar read as one surface.
+AITERM_BACKGROUND = (0x17, 0x18, 0x1B)
 P = ParamSpec("P")
 T = TypeVar("T")
 
@@ -678,9 +681,9 @@ class ItermBridge:
                     if session_id not in self._background_restore_profiles:
                         self._background_restore_profiles[session_id] = await session.async_get_profile()
                     change = iterm2.LocalWriteOnlyProfile()
-                    color = iterm2.Color(30, 30, 30)
-                    # Populate every iTerm2 profile slot so the requested #1E1E1E background
-                    # stays fixed regardless of iTerm2's own appearance settings.
+                    color = iterm2.Color(*AITERM_BACKGROUND)
+                    # Populate every iTerm2 profile slot so the requested background stays fixed
+                    # regardless of iTerm2's own appearance settings.
                     change.set_background_color(color)
                     change.set_background_color_light(color)
                     change.set_background_color_dark(color)

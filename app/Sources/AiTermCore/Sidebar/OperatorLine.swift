@@ -105,7 +105,7 @@ public struct OperatorLine: Equatable, Sendable {
     }
 
     /// The most characters a line says before its detail is cut: what the sidebar's status line holds, in
-    /// `Typography.monoChip`, at the sidebar's narrowest.
+    /// `Typography.chip`, at the sidebar's narrowest.
     public static let maxLength = 40
 
     /// The broadcast's line while every task is done and the goal is still to check (`check_goal`): the board's band

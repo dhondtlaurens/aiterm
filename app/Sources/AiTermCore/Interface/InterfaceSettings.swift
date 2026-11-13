@@ -1,7 +1,8 @@
 import Foundation
 
-/// Which sidebar badges print their detail beside their mark. A badge whose detail is off keeps its
-/// mark, its click and its tooltip; it only stops spending width on the text. All on by default.
+/// Which sidebar badges print their detail beside their mark, and how those marks are inked. A badge
+/// whose detail is off keeps its mark, its click and its tooltip; it only stops spending width on
+/// the text. The details are all on by default; the brand colours are off.
 public struct BadgeDetails: Equatable, Sendable {
     /// The linked Jira project count on a project header, `2`.
     public var jiraProject: Bool
@@ -11,12 +12,17 @@ public struct BadgeDetails: Equatable, Sendable {
     public var mergeRequest: Bool
     /// The lines changed on the VS Code badge, `+12 −3`.
     public var diff: Bool
+    /// The Jira, GitLab, GitHub and VS Code marks in their vendor's colours. Off, each takes the ink
+    /// of the words beside it, so the only colour on a row is its status.
+    public var brandColours: Bool
 
-    public init(jiraProject: Bool = true, jiraTicket: Bool = true, mergeRequest: Bool = true, diff: Bool = true) {
+    public init(jiraProject: Bool = true, jiraTicket: Bool = true, mergeRequest: Bool = true, diff: Bool = true,
+                brandColours: Bool = false) {
         self.jiraProject = jiraProject
         self.jiraTicket = jiraTicket
         self.mergeRequest = mergeRequest
         self.diff = diff
+        self.brandColours = brandColours
     }
 }
 
@@ -55,6 +61,7 @@ public enum InterfaceSettings {
     private static let interfaceSizeKey = "interfaceSize"
     private static let badgeDetailKeys = (jiraProject: "badgeDetail.jiraProject", jiraTicket: "badgeDetail.jiraTicket",
                                           mergeRequest: "badgeDetail.mergeRequest", diff: "badgeDetail.diff")
+    private static let badgeBrandColoursKey = "badge.brandColours"
 
     /// Off by default so installing AiTerm never changes an existing iTerm2 appearance unasked.
     public static func matchItermBackground(defaults: UserDefaults) -> Bool {
@@ -65,12 +72,13 @@ public enum InterfaceSettings {
         defaults.set(enabled, forKey: matchItermBackgroundKey)
     }
 
-    /// A key that was never written reads as on, so the sidebar looks as it always has until a
-    /// badge is turned off.
+    /// A detail whose key was never written reads as on, so every badge prints its text until one
+    /// is turned off. The brand colours read as off until they are asked for.
     public static func badgeDetails(defaults: UserDefaults) -> BadgeDetails {
         func read(_ key: String) -> Bool { defaults.object(forKey: key) as? Bool ?? true }
         return BadgeDetails(jiraProject: read(badgeDetailKeys.jiraProject), jiraTicket: read(badgeDetailKeys.jiraTicket),
-                            mergeRequest: read(badgeDetailKeys.mergeRequest), diff: read(badgeDetailKeys.diff))
+                            mergeRequest: read(badgeDetailKeys.mergeRequest), diff: read(badgeDetailKeys.diff),
+                            brandColours: defaults.bool(forKey: badgeBrandColoursKey))
     }
 
     /// Default until changed. A value this version does not know also reads as Default.
@@ -87,5 +95,6 @@ public enum InterfaceSettings {
         defaults.set(details.jiraTicket, forKey: badgeDetailKeys.jiraTicket)
         defaults.set(details.mergeRequest, forKey: badgeDetailKeys.mergeRequest)
         defaults.set(details.diff, forKey: badgeDetailKeys.diff)
+        defaults.set(details.brandColours, forKey: badgeBrandColoursKey)
     }
 }

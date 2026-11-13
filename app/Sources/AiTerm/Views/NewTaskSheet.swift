@@ -67,8 +67,8 @@ extension NewTaskSheet {
 struct NewTaskFirstStep: View {
     @Bindable var model: TaskCreationModel
     @Binding var ticketsOpen: Bool
-    /// The branch-type popup's column: its longest type, `chore`, in monospace plus the popup's
-    /// chevron and bezel — no wider, since every point it takes comes out of the branch name
+    /// The branch-type select's column: its longest type, `chore`, in monospace plus the select's
+    /// inset and chevrons — no wider, since every point it takes comes out of the branch name
     /// beside it.
     private static let branchTypeWidth: CGFloat = 96
     /// The base-branch popup's column: room for `main`, `develop` or a short release branch in

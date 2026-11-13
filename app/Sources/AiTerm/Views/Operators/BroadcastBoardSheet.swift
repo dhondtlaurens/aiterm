@@ -88,10 +88,10 @@ struct BoardFooter: Equatable {
 }
 
 /// The broadcast's sheet (spec §4, §13; the Operator sheet, 21 Oct 2026), `Sheet.width` by `Sheet.height` in
-/// `SheetLayout`'s anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; then a
+/// `SheetLayout`'s anatomy: the title; under it the broadcast's `BroadcastStatusLine` as its row says it; then a
 /// line each for Asked, the Goal and Each task, `Space.base` apart, each cut at its end with the whole of it in its
-/// tooltip; then, `Space.block` under them, the tab bar, Settings' `SegmentedControl` in its accent style at
-/// `Size.control`, Board · Activity · Summary, picked by click or ⌘1–⌘3 (the broadcast's sheet, 1A, 29 Oct 2026). It
+/// tooltip; then, `Space.block` under them and standing on the header's rule, the tab bar, Settings' underline
+/// `TabBar`, Board · Activity · Summary, picked by click, ← → or ⌘1–⌘3 (the broadcast's sheet, 1A, 29 Oct 2026). It
 /// opens on `BroadcastBoard.firstTab` and stays where you put it; Summary is dimmed until the broadcast reached it.
 /// Board is the columns, each `Sheet.boardColumn` wide, and the board scrolls as one, down and sideways, between the
 /// rules and from edge to edge (2B); once every task is done they all sit in Done. A card's click closes the sheet
@@ -166,14 +166,14 @@ struct BroadcastBoardSheet: View, Equatable {
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
         let shown = Self.shownTab(tab, on: board)
         ScrollViewReader { proxy in
-        SheetLayout(title: board.title, height: Sheet.height, bandHeight: nil,
+        SheetLayout(title: board.title, height: .fixed(Sheet.height), headerEndsInTabs: true,
                     scrolls: shown == .board ? [.horizontal, .vertical] : .vertical, contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.block) {
                 VStack(alignment: .leading, spacing: Space.base) {
                     BroadcastStatusLine(line: board.band, progress: board.progress)
                     ForEach(board.headerLines, id: \.label) { Self.headerLine($0) }
                 }
-                tabBar.frame(height: Size.control)
+                tabBar
             }
         } content: {
             switch shown {
@@ -200,7 +200,7 @@ struct BroadcastBoardSheet: View, Equatable {
                 }
             }
         }
-        // ⌘1–⌘3, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's segments are not buttons of their own.
+        // ⌘1–⌘3, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's tabs are not buttons of their own.
         .modifier(TabShortcuts(items: BroadcastBoard.Tab.allCases, title: \.title, key: Self.key(of:), select: select))
 
         // A question asked for: Board, then its block, once the tab has drawn it.
@@ -213,12 +213,11 @@ struct BroadcastBoardSheet: View, Equatable {
         }
     }
 
-    /// Settings' tab bar: the same `SegmentedControl` in its accent style, labels in `Typography.body` that the
-    /// control inks, Summary dimmed and disabled until there is one to read.
+    /// Settings' tab bar, the underline `TabBar`, Summary faded and disabled until there is one to read.
     private var tabBar: some View {
-        SegmentedControl(values: BroadcastBoard.Tab.allCases, selection: Binding(get: { Self.shownTab(tab, on: board) }, set: { select($0) }),
-                         style: .accent, isSelectable: board.isSelectable) { item, _ in
-            Text(item.title).font(Typography.body)
+        TabBar(values: BroadcastBoard.Tab.allCases, selection: Binding(get: { Self.shownTab(tab, on: board) }, set: { select($0) }),
+               isSelectable: board.isSelectable) { item in
+            Text(item.title)
         }
     }
 
@@ -291,7 +290,7 @@ private struct ActivityFeedView: View {
     var body: some View { BroadcastActivityView(entries: feed.entries, titles: titles) }
 }
 
-/// A column's head: a `SidebarHeading` and its count in `Typography.monoChip`,
+/// A column's head: a `SidebarHeading` and its count in `Typography.chip.tabular`,
 /// `Size.menuRow` tall.
 struct BoardHeading: View {
     let title: String
@@ -300,7 +299,7 @@ struct BoardHeading: View {
     var body: some View {
         HStack(spacing: Space.snug) {
             SidebarHeading(title)
-            Text(verbatim: "\(count)").font(Typography.monoChip).foregroundStyle(Palette.muted)
+            Text(verbatim: "\(count)").font(Typography.chip.tabular).foregroundStyle(Palette.muted)
         }
         .frame(height: Size.menuRow)
         .accessibilityElement(children: .ignore)
@@ -319,7 +318,7 @@ struct BoardHeading: View {
 /// tabs lists them under a `Hairline` (`BoardTabLine`), each its own button, the card's click above them.
 ///
 /// On a broadcast set up with the Task step (14A, 17A), the first worker's model and reasoning sit on a line of their
-/// own under the badges, in `Typography.monoCode` and `Palette.muted`, never cut short (a card with several tabs puts
+/// own under the badges, in `Typography.caption` and `Palette.muted`, never cut short (a card with several tabs puts
 /// each under its tab's key instead); and while the task runs, `ends at` and its end as a `Badge` on the line under
 /// that, whose menu picks another, Merge and Local merge disabled while the Merge slice is off. The badge takes its own
 /// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
@@ -363,7 +362,7 @@ struct BoardCardView: View, Equatable {
             if hasFoot { foot }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
+        .groupChrome(fill: hovered ? Palette.cardHoverSolid : Palette.surfaceRaised,
                      edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
         .help(card.modelTooltip ?? "")
     }
@@ -440,18 +439,18 @@ struct BoardCardView: View, Equatable {
                 HStack(spacing: Space.gap) {
                     TaskBadges(ticket: card.ticket, ticketSummary: card.ticketSummary, mr: card.mr, mrHost: card.mrHost, mrTitle: card.mrTitle)
                     if let project = card.project {
-                        Text(project).font(Typography.mono).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
+                        Text(project).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
                     }
                 }
                 .frame(height: Size.chip)
             }
             if let combination = card.combination {
-                Text(verbatim: combination).font(Typography.monoCode).foregroundStyle(Palette.muted)
+                Text(verbatim: combination).font(Typography.caption).foregroundStyle(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let end = card.end { BoardEndLine(title: card.title, end: end) { actions.changeEnd(card.id, $0) } }
             if card.takenOver {
-                Text("taken over").font(Typography.mono).foregroundStyle(Palette.muted).frame(height: Size.chip)
+                Text("taken over").font(Typography.help).foregroundStyle(Palette.muted).frame(height: Size.chip)
             } else if let line = card.line {
                 OperatorBadge(line: line)
             }
@@ -484,7 +483,7 @@ private extension View {
     }
 }
 
-/// A running card's end line (17A), a `Size.chip` line: `ends at` in `Typography.monoCode` and `Palette.muted`, then
+/// A running card's end line (17A), a `Size.chip` line: `ends at` in `Typography.caption` and `Palette.muted`, then
 /// `Space.base` on its end as a `Badge` whose menu, headed `Cart drawer ends at`, lists the four ends, the current one
 /// ticked and those the Merge slice keeps out disabled. No test clicks the badge: AppKit's menu tracking blocks inside
 /// `sendEvent` until the menu closes.
@@ -495,7 +494,7 @@ struct BoardEndLine: View {
 
     var body: some View {
         HStack(spacing: Space.base) {
-            Text("ends at").font(Typography.monoCode).foregroundStyle(Palette.muted)
+            Text("ends at").font(Typography.caption).foregroundStyle(Palette.muted)
             Badge(end.current.displayName, accessibilityLabel: "Ends at \(end.current.displayName)") {
                 Section("\(title) ends at") {
                     ForEach(TaskEnd.allCases, id: \.self) { item in
@@ -511,10 +510,10 @@ struct BoardEndLine: View {
 }
 
 /// One worker tab on a card (P5 A), a `Size.chip` line: the tab's agent's `VendorMark` at `Size.inlineMark`,
-/// centred under the card's `Size.avatar` mark; its key in `Typography.monoChip` and `Palette.text` on the
+/// centred under the card's `Size.avatar` mark; its key in `Typography.chip.tabular` and `Palette.text` on the
 /// title's leading edge; its state `Space.base` after it, an `OperatorBadge` (needs you in the attention chip);
 /// its `StatusMark` at `Size.statusMarkSmall` trailing; under it, on a broadcast set up with the Agents step, the tab's
-/// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.monoCode` and `Palette.muted`.
+/// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.caption` and `Palette.muted`.
 /// Hovered, `Palette.badgeHovered` at `Radius.chip`, `Space.tight` beyond the line. Its click closes the board and
 /// brings the tab forward; a closed tab is muted, with no mark, and is no button.
 struct BoardTabLine: View {
@@ -537,7 +536,7 @@ struct BoardTabLine: View {
                 line
             }
             if let combination = tab.combination {
-                Text(verbatim: combination).font(Typography.monoCode).foregroundStyle(Palette.muted)
+                Text(verbatim: combination).font(Typography.caption).foregroundStyle(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, Size.avatar + Space.base).frame(minHeight: Size.chip)
             }
@@ -547,7 +546,7 @@ struct BoardTabLine: View {
     private var line: some View {
         HStack(spacing: 0) {
             VendorMark(agent: tab.agent.session, size: Size.inlineMark).frame(width: Size.avatar)
-            Text(verbatim: tab.key).font(Typography.monoChip).foregroundStyle(tab.isClosed ? Palette.muted : Palette.text)
+            Text(verbatim: tab.key).font(Typography.chip.tabular).foregroundStyle(tab.isClosed ? Palette.muted : Palette.text)
                 .lineLimit(1).fixedSize().padding(.leading, Space.base)
             OperatorBadge(line: tab.line).padding(.leading, Space.base)
             Spacer(minLength: Space.tight)

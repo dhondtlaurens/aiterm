@@ -38,12 +38,16 @@ import Testing
         #expect(try pixels(in: kbd) != pixels(in: blank))
     }
 
-    /// Off the accent the caps take the surface's badge wash, the hairline and its ink; on it, the
-    /// keycap washes and white. Each token is checked, so neither ground borrows the other's.
+    /// Off the accent the caps take the surface's badge wash, the hairline and its ink — a selected
+    /// row's stronger wash and white title ink; on it, the keycap washes and white. Each token is
+    /// checked, so no ground borrows another's.
     @Test func theCapsInkForTheSurfaceTheySitOn() {
         #expect(Kbd.ink(.sheet) == Palette.text)
         #expect(Kbd.fill(.sheet) == Palette.badge)
         #expect(Kbd.stroke(.sheet) == Palette.border)
+        #expect(Kbd.ink(.selected) == Palette.onAccent)
+        #expect(Kbd.fill(.selected) == Palette.badgeSelected)
+        #expect(Kbd.stroke(.selected) == Palette.border)
         #expect(Kbd.ink(.accent) == Palette.onAccent)
         #expect(Kbd.fill(.accent) == Palette.keycapFill)
         #expect(Kbd.stroke(.accent) == Palette.keycapStroke)

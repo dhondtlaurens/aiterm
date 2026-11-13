@@ -1,11 +1,11 @@
 import SwiftUI
 import AiTermUI
 
-/// What sits under `PROJECTS` while there are none: what to add, what that gives you, and the
-/// header's own Add Project action as a push button. Its text starts where the heading's does.
+/// What sits under Projects while there are none: what to add, what that gives you, and the
+/// header's own Add Project action as the house secondary push button. Its text starts where the
+/// heading's does.
 ///
-/// It is in the sidebar, so it reads its tokens through `scale`; the push button is an AppKit
-/// bezel, which stops at `.large`, so it steps from `.regular` at ×1 to `.large` above it.
+/// It is in the sidebar, so it reads its tokens through `scale`, and the push button scales its own.
 struct SidebarEmptyState: View {
     let canAdd: Bool
     let add: () -> Void
@@ -19,8 +19,7 @@ struct SidebarEmptyState: View {
                 HelpText("Each task gets its own worktree and iTerm2 window.")
             }
             Button("Add Project…", action: add)
-                .buttonStyle(.bordered)
-                .controlSize(scale == .standard ? .regular : .large)
+                .buttonStyle(.push(.secondary))
                 .disabled(!canAdd)
                 .padding(.top, scale(Space.tight))
         }

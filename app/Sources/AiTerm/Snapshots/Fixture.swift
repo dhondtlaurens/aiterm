@@ -76,15 +76,16 @@ struct Fixture {
             branchByCwd: [working.worktreePath: working.branch, piTask.worktreePath: piTask.branch, "/r": "main"],
             projectBranch: [project.id: "main"], missingCheckouts: [], removedTasks: [], remotes: [:],
             // The VS Code badge's three looks: a long diff, one side only (off `develop`, named only in
-            // the tooltip), and the selected row, where the counts turn white.
+            // the tooltip), and the selected row, where the counts keep their green and red.
             diffByTask: [working.id: DiffStat(added: 148, removed: 12), other.id: DiffStat(added: 3, removed: 0),
                          piTask.id: DiffStat(added: 7, removed: 2)])
     }
 
     /// The fixture's workspace in a controller, its tabs and usage reported, the PI task selected
-    /// and iTerm2 connected.
-    func controller() -> AppController {
-        let controller = Self.emptyController(scan: onDisk)
+    /// and iTerm2 connected. An image of a preference that is not the default hands in its own
+    /// `preferences`, over defaults of its own, so no other image sees the change.
+    func controller(preferences: InterfacePreferences = Fixture.preferences) -> AppController {
+        let controller = Self.emptyController(scan: onDisk, preferences: preferences)
         controller.workspace.mutate { state in
             state.append(project: project)
             state.append(divider: rule)
@@ -127,7 +128,8 @@ struct Fixture {
     /// whose Backpack Mode runs over the inert ports: at its desk, touching no Wi-Fi or Location —
     /// and which reads no load off this Mac.
     static func emptyController(scan: WorkspaceScan = WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
-                                                                    removedTasks: [], remotes: [:])) -> AppController {
+                                                                    removedTasks: [], remotes: [:]),
+                                preferences: InterfacePreferences = Fixture.preferences) -> AppController {
         let store = StateStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-snapshots-\(UUID().uuidString).json"))
         return AppController.live(store: store, preferences: preferences, harnessHome: home, claudeConfig: ClaudeConfig(), locateAgents: { nil },
                                   setBadge: { _ in }, activateIterm: {}, backpackPorts: .inert,

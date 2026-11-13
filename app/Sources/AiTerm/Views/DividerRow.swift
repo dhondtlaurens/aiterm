@@ -5,9 +5,11 @@ import AiTermCore
 /// A named rule between two projects. A label, not a container: it holds nothing, selects nothing
 /// and hovers to nothing — only its context menu responds.
 ///
-/// The name takes the `PROJECTS` header's exact treatment, because that is what it is: a heading for
-/// the projects under it. The rule is the house `Hairline`, which stays horizontal inside an
-/// `HStack` where SwiftUI's own `Divider` turns vertical.
+/// The name takes the Projects header's exact treatment and place, because that is what it is: a
+/// heading for the projects under it, leading at the headings' x, in its own case as the person typed
+/// it; one rule fills the rest of the row. A divider with no name is the rule alone. The rule is the
+/// house `Hairline`, which stays horizontal inside an `HStack` where SwiftUI's own `Divider` turns
+/// vertical.
 struct DividerRow: View {
     let entry: DividerEntry
     let enabled: Bool
@@ -22,12 +24,11 @@ struct DividerRow: View {
 
     var body: some View {
         HStack(spacing: scale(Space.base)) {
-            Hairline()
             if !name.isEmpty {
                 SidebarHeading(name)
                     .lineLimit(1).truncationMode(.tail).fixedSize(horizontal: true, vertical: false)
-                Hairline()
             }
+            Hairline()
         }
         .frame(height: scale(Size.menuRow))
         .modifier(SidebarHeadingInset())

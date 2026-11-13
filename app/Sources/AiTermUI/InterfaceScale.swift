@@ -9,9 +9,9 @@ import SwiftUI
 /// outline rings, the focus ring) are not sizes and do not scale.
 ///
 /// Read from the environment, like `Surface`, so a subtree can be drawn at a different scale from
-/// its parent. The sidebar is scaled; every sheet resets to `.standard`, because AppKit's own
-/// pop-up and push-button bezels stop at 28 pt (`.extraLarge` draws the `.large` bezel on
-/// macOS 26) and could not grow with the fields beside them.
+/// its parent. The sidebar is scaled; every sheet resets to `.standard`: its switches and
+/// checkboxes are AppKit's own and do not grow, and its fields, selects and buttons are drawn at
+/// one size beside them.
 public struct InterfaceScale: Equatable, Sendable {
     public let factor: CGFloat
 

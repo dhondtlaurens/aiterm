@@ -178,7 +178,7 @@ struct NewReviewFirstStep: View {
         init(_ name: String) { self.name = name }
     }
 
-    /// A branch in the results, in the ink of the ground its row declares — white while highlighted.
+    /// A branch in the results, in the ink of the ground its row declares.
     private struct BranchResultRow: View {
         let name: String
         @Environment(\.surface) private var surface

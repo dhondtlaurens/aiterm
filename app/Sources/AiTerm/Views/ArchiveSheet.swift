@@ -19,13 +19,15 @@ struct ArchiveSheet: View {
         let archive = model.projection
         let rows = archive.rows, highlighted = archive.highlighted?.id, total = archive.total, primary = archive.primaryTitle
         let now = model.now(), calendar = clock?.calendar ?? .current
-        SheetLayout(title: "Shelf", height: Sheet.height, contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
+        SheetLayout(title: "Shelf", height: .fixed(Sheet.height), contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
             HStack(spacing: Space.base) {
                 Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
                 SearchField(placeholder: "Search title, ticket, !MR, branch, project",
                             text: Bindable(model).query, focused: $focused, onCommand: command)
             }
             .fieldChrome(focused: focused)
+            // A field, not a line of the title: `Space.base` further from it than a subtitle.
+            .padding(.top, Space.base)
         } content: {
             if total == 0 {
                 VStack(alignment: .leading, spacing: Space.base) {

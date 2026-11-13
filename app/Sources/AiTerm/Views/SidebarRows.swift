@@ -27,7 +27,7 @@ struct AddMenu<Items: View>: View {
     let enabled: Bool
     @ViewBuilder let items: () -> Items
     @Environment(\.interfaceScale) private var scale
-    /// A selected project header's "+" sits on the accent.
+    /// A selected project header's "+" sits on the selection, in its secondary ink.
     @Environment(\.surface) private var surface
 
     var body: some View {
@@ -104,7 +104,7 @@ extension DividerRow {
 /// toggle; the chevron's column stays, so its name lines up with its neighbours'.
 ///
 /// The arrows stop on it, as on a row: selected, it is drawn in the same `RowPill` on
-/// `Surface.accent`, and shows no window.
+/// `Surface.selected`, and shows no window.
 struct ProjectHeaderRow: View {
     let heading: ProjectHeadingValue
     let controller: AppController
@@ -139,8 +139,9 @@ struct ProjectHeaderRow: View {
                 // badges and branch are. They keep their width; the name is what truncates.
                 HStack(spacing: scale(Space.gap)) {
                     HeaderTitle(text: project.name)
-                    if let badge = ProjectJiraBadge.badge(for: project, showsCount: controller.preferences.badgeDetails.jiraProject) {
-                        ProjectJiraBadgeView(badge: badge, canChangeWorkspace: controller.canChangeWorkspace) {
+                    let details = controller.preferences.badgeDetails
+                    if let badge = ProjectJiraBadge.badge(for: project, showsCount: details.jiraProject) {
+                        ProjectJiraBadgeView(badge: badge, markInk: details.markInk, canChangeWorkspace: controller.canChangeWorkspace) {
                             controller.sheets.presentJiraProjects(for: project)
                         }
                     }
@@ -255,11 +256,12 @@ struct SelectableRow<Content: View>: View {
 }
 
 /// The pill a selectable sidebar row is drawn in — a task's, a terminal's, the Operator's, a project's
-/// header, and the Archive sheet's rows, which read as the sidebar's: the selection fill, else
-/// the hover wash, behind the row's own padding. It declares the ground everything inside reads — `ground`
-/// at rest, the sidebar's unless the pill sits on a sheet. A `washed` row, the Operator's, wears
-/// `Palette.operatorRow` at rest and `Palette.badgeHovered` hovered, in the hover wash's place; selection
-/// replaces either, as it does the hover.
+/// header, and the Archive sheet's rows, which read as the sidebar's: the neutral selection
+/// (`Palette.selected`, edged inside in `Palette.selectedEdge`), else the hover wash, behind the row's own
+/// padding. It declares the ground everything inside reads — `ground` at rest, the sidebar's unless the
+/// pill sits on a sheet; selected, `.selected` on the sidebar and `.selectedOnSheet` on a sheet. A `washed`
+/// row, the Operator's, wears `Palette.operatorRow` at rest and `Palette.badgeHovered` hovered, in the
+/// hover wash's place; selection replaces either, as it does the hover.
 struct RowPill: ViewModifier {
     let selected: Bool
     var hovered = false
@@ -267,16 +269,17 @@ struct RowPill: ViewModifier {
     var ground = Surface.sidebar
     @Environment(\.interfaceScale) private var scale
 
-    /// The ground the row declares: `.hover` or `.washedHover` hovered, `.washed` at rest on the Operator's.
+    /// The ground the row declares: `.selected` (or `.selectedOnSheet` on a sheet) selected, `.hover` or
+    /// `.washedHover` hovered, `.washed` at rest on the Operator's.
     static func surface(selected: Bool, hovered: Bool, washed: Bool, ground: Surface) -> Surface {
-        if selected { return .accent }
+        if selected { return ground == .sheet ? .selectedOnSheet : .selected }
         if washed { return hovered ? .washedHover : .washed }
         return hovered ? .hover : ground
     }
 
     /// The pill's fill, under the row's own padding.
     static func fill(selected: Bool, hovered: Bool, washed: Bool) -> Color {
-        if selected { return Palette.selection }
+        if selected { return Palette.selected }
         if washed { return hovered ? Palette.badgeHovered : Palette.operatorRow }
         return hovered ? Palette.rowHover : .clear
     }
@@ -284,13 +287,16 @@ struct RowPill: ViewModifier {
     func body(content: Content) -> some View {
         content
             // `.hover`, not `.sidebar`, while the row is merely hovered: `AvatarGroupView`'s ring reads
-            // `Surface.occludingBackground`, which is `Palette.rowHoverSolid` for `.hover` (and the washed
-            // row's solids for `.washed` and `.washedHover`). Every other consumer of `surface` on a row
-            // (`Badge`, `StatusMark`, `BranchLabelView`) only branches on `isOnAccent`, which these and
-            // `.sidebar` share.
+            // `Surface.occludingBackground`, which is `Palette.rowHoverSolid` for `.hover` (the washed row's
+            // solids for `.washed` and `.washedHover`, the selection's for `.selected`). The marks on a row
+            // (`StatusMark`, `TaskRowMarkView`) and a badge's colours branch only on `isOnAccent`, which no
+            // row ground is: a selected row keeps every mark's colour.
             .surface(Self.surface(selected: selected, hovered: hovered, washed: washed, ground: ground))
-            .background(RoundedRectangle(cornerRadius: scale(Radius.control))
-                .fill(Self.fill(selected: selected, hovered: hovered, washed: washed)))
+            .background {
+                let pill = RoundedRectangle(cornerRadius: scale(Radius.control))
+                pill.fill(Self.fill(selected: selected, hovered: hovered, washed: washed))
+                    .overlay { if selected { pill.strokeBorder(Palette.selectedEdge, lineWidth: 1) } }
+            }
     }
 }
 
@@ -468,14 +474,14 @@ struct TaskRowView: View {
     /// and the last of them from the branch.
     private func badgeLine(_ fit: TaskRowBadges.Fit, of badges: TaskRowBadges, beforeBranch: Bool) -> some View {
         HStack(spacing: scale(Space.gap)) {
-            QuietBadgeLine(ticket: fit.ticket ? badges.ticket.map { badgeValue($0, ticket: true) } : nil,
-                           request: fit.mergeRequest ? badges.mergeRequest.map { badgeValue($0, ticket: false) } : nil,
+            QuietBadgeLine(ticket: fit.ticket ? badges.ticket.map { badgeValue($0, ticket: true, markInk: badges.markInk) } : nil,
+                           request: fit.mergeRequest ? badges.mergeRequest.map { badgeValue($0, ticket: false, markInk: badges.markInk) } : nil,
                            sharesMark: badges.sharesGitLabMark)
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
             // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
             if fit.editor != .none, let task {
                 Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: fit.editor == .diff ? badges.diff : nil,
-                      style: .quiet) {
+                      style: .quiet, markInk: badges.markInk) {
                     ExternalApps.openInVSCode(path: task.worktreePath)
                 }
             }
@@ -483,11 +489,11 @@ struct TaskRowView: View {
         .padding(.trailing, beforeBranch && !fit.wearsNone ? scale(Space.gap) : 0)
     }
 
-    private func badgeValue(_ link: TaskRowBadges.Link, ticket: Bool) -> QuietBadgeValue {
+    private func badgeValue(_ link: TaskRowBadges.Link, ticket: Bool, markInk: Badge.MarkInk) -> QuietBadgeValue {
         QuietBadgeValue(label: link.label,
                         icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
                         help: link.help, suffix: link.threads, accessibilityLabel: link.accessibilityLabel,
-                        action: link.url.map { url in { ExternalApps.open(link: url) } })
+                        markInk: markInk, action: link.url.map { url in { ExternalApps.open(link: url) } })
     }
 
 }
@@ -517,7 +523,8 @@ struct TerminalRowView: View {
                     RowTitle(row.name)
                     HStack(spacing: scale(Space.gap)) {
                         if ExternalApps.vscode != nil {
-                            Badge(icon: .brand(Palette.vscode), help: "Open in VS Code", style: .quiet) {
+                            Badge(icon: .brand(Palette.vscode), help: "Open in VS Code", style: .quiet,
+                                  markInk: controller.preferences.badgeDetails.markInk) {
                                 ExternalApps.openInVSCode(path: project.path)
                             }
                         }
@@ -601,10 +608,11 @@ extension EnvironmentValues {
 /// "Jira Projects…" action is disabled while the workspace is locked; links remain available.
 private struct ProjectJiraBadgeView: View {
     let badge: ProjectJiraBadge
+    let markInk: Badge.MarkInk
     let canChangeWorkspace: Bool
     let editProjects: () -> Void
     var body: some View {
-        Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet,
+        Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet, markInk: markInk,
               accessibilityLabel: badge.accessibilityLabel) {
             ForEach(badge.items, id: \.url) { item in
                 Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
@@ -715,7 +723,8 @@ enum TaskRowMark: Equatable {
 
 /// `TaskRowMark` drawn: the `StatusMark`; `checkmark` at the mark's size in `Palette.green`; or `pause.fill`
 /// at the mark's size in `Palette.idleRing`, the idle ring's ink, since nothing runs yet. On the accent either
-/// is `Palette.onAccent`, as the working arc turns there. Decorative: the row's value reads the line.
+/// is `Palette.onAccent`, as the working arc turns there; a selected row is neutral, so both keep their
+/// colours. Decorative: the row's value reads the line.
 struct TaskRowMarkView: View {
     let mark: TaskRowMark
     let size: CGFloat
@@ -833,6 +842,8 @@ struct TaskRowBadges: Equatable {
     var diff: Badge.Diff?
     /// Always names the counts when there are any, whether or not the badge prints them.
     var editorHelp: String
+    /// The line's marks: in the ink of their words, or the vendor's colours once Settings asks.
+    var markInk: Badge.MarkInk
 
     /// `threads` is the row's merge request's, as last read; `nil` while there is no answer.
     init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil) {
@@ -857,6 +868,7 @@ struct TaskRowBadges: Equatable {
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil
         editorHelp = row.diff?.help ?? "Open in VS Code"
+        markInk = details.markInk
     }
 
     /// How a fit draws the VS Code badge: with its `+12 −3`, as the plain mark, or not at all.

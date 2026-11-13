@@ -30,6 +30,7 @@ struct ModelReasoningFields: View {
                        selection: Binding(get: { selected }, set: { selectModel($0) }),
                        label: { $0.label }, detail: \.detail)
                     .disabled(disabled)
+                    .opacity(disabled ? Opacity.disabled : 1)
             }
             if !efforts.isEmpty {
                 field(prefix.isEmpty ? "Reasoning" : prefix + "reasoning") {
@@ -38,6 +39,7 @@ struct ModelReasoningFields: View {
                             ?? selected.defaultEffort ?? efforts[0] },
                         set: { reasoning = $0 }), label: { $0.capitalized })
                         .disabled(disabled)
+                        .opacity(disabled ? Opacity.disabled : 1)
                 }
             } else if !labelled {
                 // The Reasoning column's cell, empty, so the Model column keeps its width under its label.

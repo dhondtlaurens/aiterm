@@ -149,7 +149,7 @@ enum SheetSnapshots {
         let session = FixSession.snapshot(state, fixer: fixer, request: failure.fix!, proposal: fixProposal)
         return CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: "Create Review", creating: false,
                               canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {}, fix: session)
-            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised)
+            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
     }
 
     /// The Archive sheet with the proposal's five rows, a search that finds one by its merge request,
@@ -316,11 +316,11 @@ enum SheetSnapshots {
     private static func footer(_ failure: CreationFailure, createLabel: String = "Create Review") -> some View {
         CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: createLabel, creating: false,
                        canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {})
-            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised)
+            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
     }
 
     /// The other `NameSheet` flows, built as `SidebarSheet` builds them: Add divider, and the
-    /// renames of a divider, a task and a terminal, each with its band's sentence.
+    /// renames of a divider, a task and a terminal, each with the sentence under its title.
     private static var nameSheets: [Snapshot] {
         [
             Snapshot("name-new-divider.png") { NameSheet.newDivider(canSubmit: true, submit: { _ in }) },

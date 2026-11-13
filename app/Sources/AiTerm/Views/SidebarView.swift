@@ -425,8 +425,8 @@ struct SidebarSheet: View {
     let controller: AppController
 
     var body: some View {
-        // Sheets keep Apple's sizes: their pop-up and push buttons are AppKit bezels that stop at
-        // 28 pt, so a scaled sheet's fields would outgrow them.
+        // Sheets keep the standard scale: their switches and checkboxes are AppKit's own and do
+        // not grow, so a scaled sheet's fields would outgrow them.
         Group {
             switch kind {
                 case .jiraProjects(let project):

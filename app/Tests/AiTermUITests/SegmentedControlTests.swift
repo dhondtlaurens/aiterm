@@ -6,14 +6,16 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct SegmentedControlTests {
-    /// The accent style draws no focus ring — its selected segment is already the accent — but the
-    /// track still takes the keyboard.
-    @Test func theAccentStyleKeepsKeyboardNavigationWithoutARing() throws {
+    /// The track takes the keyboard: ⇥ reaches it and → moves the selection. (The accent style, which
+    /// took the keyboard without drawing a ring, went with the Settings tab bar it was drawn for: tabs are
+    /// a `TabBar` now. A test window never becomes key, so the ring the track then wears cannot be
+    /// drawn here; `houseFocusRingRemainsVisibleWhenRequested` draws it.)
+    @Test func theTrackTakesTheKeyboard() throws {
         let state = SelectionState()
         let host = NSHostingView(rootView:
             SegmentedControl(values: [0, 1], selection: Binding(
                 get: { state.selection }, set: { state.selection = $0 }
-            ), style: .accent) { value, selected in
+            )) { value, selected in
                 Text("\(value)").foregroundStyle(selected ? Color.white : Color.gray)
             }
             .frame(width: 240)
@@ -24,13 +26,8 @@ import Testing
         defer { window.orderOut(nil) }
         settle(host)
 
-        let unfocused = try pixels(in: host)
         window.sendEvent(try keyEvent("\t", keyCode: 48, window: window))
         settle(host)
-        let focused = try pixels(in: host)
-
-        #expect(focused == unfocused)
-
         window.sendEvent(try keyEvent("\u{F703}", keyCode: 124, window: window))
         settle(host)
         #expect(state.selection == 1)
@@ -61,33 +58,32 @@ import Testing
         #expect(log.isEnabled == [0: true, 1: false])
     }
 
-    /// On the accent style the selected segment is drawn on the accent, so what it carries reads
-    /// `.surface(.accent)` and inks white by itself; the others keep the ground they sit on.
-    @Test func theAccentStyleDeclaresTheAccentUnderItsSelection() {
+    /// The selected segment is a neutral fill, not a ground with an ink of its own: every segment's
+    /// content keeps the ground the track sits on, selected or not.
+    @Test func everySegmentKeepsTheGroundItSitsOn() {
         let log = EnvironmentLog()
         let host = NSHostingView(rootView:
-            SegmentedControl(values: [0, 1], selection: .constant(0), style: .accent) { value, _ in
+            SegmentedControl(values: [0, 1], selection: .constant(0)) { value, _ in
                 EnvironmentReader(id: value, log: log)
             }
             .frame(width: 240))
         host.frame = NSRect(x: 0, y: 0, width: 240, height: 28)
         host.layoutSubtreeIfNeeded()
-        #expect(log.surface == [0: .accent, 1: .sheet])
+        #expect(log.surface == [0: .sheet, 1: .sheet])
     }
 
     /// A segment's label is plain `Text`: the control inks it as its callers used to by hand — the
-    /// selection in the ground's ink, white on the accent, and the rest in the secondary ink.
-    @Test(arguments: [SegmentedControl<Int, Text>.Style.neutral, .accent])
-    func theControlInksAPlainLabelForItsGround(style: SegmentedControl<Int, Text>.Style) throws {
+    /// selection in the ground's ink and the rest in the secondary ink.
+    @Test func theControlInksAPlainLabelForItsGround() throws {
         func render(_ label: @escaping (Int, Bool) -> Text) throws -> Data {
             let host = NSHostingView(rootView:
-                SegmentedControl(values: [0, 1], selection: .constant(0), style: style, content: label)
+                SegmentedControl(values: [0, 1], selection: .constant(0), content: label)
                     .frame(width: 240).padding(4))
             host.frame = NSRect(x: 0, y: 0, width: 248, height: 36)
             settle(host)
             return try pixels(in: host)
         }
-        let selectedInk = style == .accent ? Surface.accent.ink : Palette.text
+        let selectedInk = Palette.text
         let plain = try render { value, _ in Text("Segment \(value)") }
         let byHand = try render { value, on in Text("Segment \(value)").foregroundStyle(on ? selectedInk : Palette.muted) }
         let unInked = try render { value, _ in Text("Segment \(value)").foregroundStyle(Palette.text) }
