@@ -3638,7 +3638,7 @@
     <div class="section" id="board-proposal">
       <p class="eyebrow proposal-flag">Proposal · the broadcast’s sheet · reworked 14 Nov 2026</p>
       <h2>The broadcast’s sheet: one question at a time, tasks as one list</h2>
-      <p class="why">Reworked after the pick. The sheet does two things while a broadcast runs, in this order: <strong>you answer what
+      <p class="why">Picked in full on 14 November 2026. The sheet does two things while a broadcast runs, in this order: <strong>you answer what
         waits on you</strong>, and <strong>you see where each task is</strong>. Everything else left the first screen. Every frame is
         drawn at 1 px = 1 pt from the shipped tokens, and nothing below is in the code yet.</p>
       <div class="rules">
@@ -3656,7 +3656,8 @@
             <li><strong>2B, one question at a time.</strong> A pager in the heading, oldest first.</li>
             <li><strong>One interface for every question.</strong> I read “unified” as: the same block, the same parts in the same order, whoever asks and however it is answered. Today’s three shapes become one.</li>
             <li>Not picked: one line per task, the wide board, the detail pane, the stacked blocks.</li>
-            <li><strong>Still open:</strong> Summary and Activity, in 4 and 5 below.</li>
+            <li><strong>4A, the summary on the first view,</strong> with no tab of its own, and Left for you shown from its first item.</li>
+            <li><strong>5A, Activity shows what changed;</strong> the looking waits behind Show everything.</li>
           </ul>
         </div>
       </div>
@@ -3665,7 +3666,7 @@
         <div class="option pick">
           <header><span class="letter">1</span><h3>The sheet</h3><span class="rec">As picked</span></header>
           <p>560 pt wide as today, 640 pt tall. Left: three questions wait and the first is shown. Right: nothing waits. The header is the
-            title, the status line and one line of the brief; the tabs are Tasks, Activity and Summary.</p>
+            title, the status line and one line of the brief; the tabs are Tasks and Activity.</p>
         </div>
         <div class="bx-stage bx-bleed"><div id="bx-wait"></div><div id="bx-calm"></div>
           <div class="cap"><span class="h g" style="margin-top:0">On it</span>
@@ -3731,7 +3732,7 @@
         </div>
 
         <div class="option pick">
-          <header><span class="letter">4A</span><h3>Summary on the first view, no tab of its own</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">4A</span><h3>Summary on the first view, no tab of its own</h3><span class="rec">As picked</span></header>
           <p><b>The format.</b> Once written, the summary takes the top of the sheet; Left for you is a section as soon as it has an item,
             during the run too; Worked around in AiTerm closes the page. The tabs become Tasks and Activity, and the sheet always opens on
             the same view. Left: complete. Right: running, with something left for you.</p>
@@ -3744,23 +3745,14 @@
             <span class="h c">Costs</span>
             <ul><li>A long summary pushes the tasks down once the broadcast is complete. By then they are all done.</li>
               <li>Left for you takes a few lines above the tasks during the run.</li></ul></div></div>
-
-        <div class="option">
-          <header><span class="letter">4B</span><h3>Summary on its own tab, as today</h3></header>
-          <p>The same parts on a third tab, switched off until the broadcast completes, where the sheet then opens.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="bx-sum-b"></div>
-          <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>Nothing to build. The first view is questions and tasks only.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>Left for you stays out of sight until the end.</li><li>The sheet opens on a different tab depending on the broadcast’s state.</li>
-              <li>A live broadcast would never reach it.</li></ul></div></div>
+        <p style="color: var(--muted)">Worked around in AiTerm closes the first view, only when the Operator reported a snag.</p>
+        <div class="bx-stage bx-bleed"><div id="bx-snags"></div></div>
 
         <div class="option pick">
-          <header><span class="letter">5A</span><h3>Activity shows what changed</h3><span class="rec">Recommended</span></header>
+          <header><span class="letter">5A</span><h3>Activity shows what changed</h3><span class="rec">As picked</span></header>
           <p><b>The format.</b> The same lines, less the looking: status checks, reads and shell commands that went through are hidden until
             Show everything. Anything refused, challenged or failed always shows. A click still opens the call itself. Left: as it opens.
-            Right: everything, which is today’s tab.</p>
+            Right: after Show everything.</p>
         </div>
         <div class="bx-stage bx-bleed"><div id="bx-act-a"></div><div id="bx-act-b"></div>
           <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
@@ -3768,10 +3760,7 @@
               <li>Decisions, with their why, are no longer between two status checks.</li>
               <li>Nothing is lost: one link away, and the log on disk does not change.</li></ul>
             <span class="h c">Costs</span>
-            <ul><li>One link and one remembered choice.</li></ul>
-            <span class="h" style="color:var(--muted)">Not recommended</span>
-            <ul><li><b>5B, as today:</b> everything, always.</li>
-              <li><b>5C, no tab:</b> the Operator’s own window is the record. But that is gone once its window closes, it is not in plain words, and the Shelf’s ended broadcasts would have no record at all.</li></ul></div></div>
+            <ul><li>One link and one remembered choice.</li></ul></div></div>
 
         <div class="option">
           <header><span class="letter">6</span><h3>Part by part</h3></header>
@@ -3781,7 +3770,7 @@
             <tbody>
               <tr><td>Title, status line, progress</td><td><span class="v keep">Keep</span></td><td>As they are.</td></tr>
               <tr><td>Asked, Goal, Each task</td><td><span class="v fold">Fold</span></td><td>One line, Asked, cut at its end. The whole brief, all three, is its tooltip. The header drops from 167 to 136 pt.</td></tr>
-              <tr><td>Board · Activity · Summary</td><td><span class="v keep">Keep</span></td><td>Board is named Tasks. Summary and Activity: see 4, 4A and 5A.</td></tr>
+              <tr><td>Board · Activity · Summary</td><td><span class="v keep">Keep</span></td><td>Two tabs, Tasks and Activity. The summary moves to Tasks (4A); Activity shows what changed (5A).</td></tr>
               <tr><td>Waiting on you</td><td><span class="v fold">Fold</span></td><td>One block and a pager in place of the stack.</td></tr>
               <tr><td>The three question shapes</td><td><span class="v fold">Fold</span></td><td>One block: who, the question, one line of context, buttons, a field when words are taken.</td></tr>
               <tr><td>The four columns</td><td><span class="v fold">Fold</span></td><td>The headings of one list.</td></tr>
@@ -4011,8 +4000,8 @@
 
     /* ---- the sheet --------------------------------------------------------------------------- */
     function SHEET(o) {
-      var names = o.tabs || ['Tasks', 'Activity', 'Summary'], on = o.on || 'Tasks';
-      var tabs = names.map(function (t) { return `<span class="${t === on ? 'on' : ''}${t === 'Summary' && !o.summary ? ' off' : ''}">${t}</span>`; }).join('');
+      var names = ['Tasks', 'Activity'], on = o.on || 'Tasks';
+      var tabs = names.map(function (t) { return `<span class="${t === on ? 'on' : ''}">${t}</span>`; }).join('');
       var foot = o.done ? `<span class="sp"></span>${B('Close')}${B('End Broadcast', 'pri', 1)}` : `${B('Pause Broadcast')}${B('End Broadcast…')}<span class="sp"></span>${B('Close')}`;
       return `<div class="bx"><div class="sheet" style="width:560px;height:640px"><div class="hd"><h4>${o.title}</h4><div class="sl">${o.status}</div>` +
         `<div class="bl"><span class="cut"><b>${o.brief[0]}</b> ${o.brief[1]}</span></div><div class="xtabs">${tabs}</div></div><div class="hl"></div>` +
@@ -4088,7 +4077,6 @@
     put('bx-rows', `<div class="bx"><div class="frag">${M.map(function (m) { return `<div class="lab">${m[0]}</div>${ROW(m[1])}`; }).join('')}</div></div>`);
 
     /* ---- the summary: on the first view, or on its own tab ----------------------------------- */
-    var TWO = ['Tasks', 'Activity'];
     var PROSE = ['All eight checkout tasks are merged. Most went in on the first try: the layout, the cart drawer and price formatting needed nothing from you. The payment provider switch took longest: Codex’s first attempt broke partial refunds, so I sent it back with the failing test and the retry passed.',
       'I added one task of my own, retrying failed payments, after the switch showed nothing retried them. I kept the old provider behind a flag although the Oracle objected, since rolling back without it means a redeploy. Along the way Claude noticed the tax module rounds per line instead of per order: I filed PAY-241 rather than fixing it here.'];
     var LEFT = 'Remove the old provider’s flag once the switch has run a week in production.';
@@ -4101,12 +4089,11 @@
       `<div class="cap12" style="color:var(--text)">Waiting on you showed a task with no prompt open</div><div class="help">No prompt was open: read_task what: prompt was null and Codex had ended its turn.</div></div>`;
     var DONE8 = [R.layout, R.ship, calm(R.pps, ''), R.cart].map(function (r, i) { var c = {}; for (var k in r) { c[k] = r[k]; } c.mark = 'done'; c.status = ['merged · ' + ['9b3e07d', '41c0a7e', 'c2d5e19', '0aa41f7'][i]]; return c; });
     var DONE_STATUS = `${OB('done · summary ready')} · 8 of 8 done`;
-    put('bx-sum-a', SHEET({ title: 'Checkout redesign', status: DONE_STATUS, brief: BRIEF, tabs: TWO, done: 1,
+    put('bx-sum-a', SHEET({ title: 'Checkout redesign', status: DONE_STATUS, brief: BRIEF, done: 1,
       body: SUMMARY(1) + LEFTS([LEFT]) + `<div class="lst8">${GROUP('Done', DONE8).replace('<span class="n">4</span>', '<span class="n">8</span>')}</div>` }));
-    put('bx-sum-a2', SHEET({ title: 'Checkout redesign', status: `${OB('waiting on you · 3 tasks', 'you')} · 2 of 8 done`, brief: BRIEF, tabs: TWO,
+    put('bx-snags', `<div class="bx"><div class="frag" style="padding-block:16px">${SNAGS}</div></div>`);
+    put('bx-sum-a2', SHEET({ title: 'Checkout redesign', status: `${OB('waiting on you · 3 tasks', 'you')} · 2 of 8 done`, brief: BRIEF,
       body: WAIT(Q1, 1, 3) + LEFTS(['The tax module rounds per line instead of per order: filed as PAY-241, not fixed here.']) + LIST([R.pps, R.cart, R.order, R.addr]) }));
-    put('bx-sum-b', SHEET({ title: 'Checkout redesign', status: DONE_STATUS, brief: BRIEF, on: 'Summary', summary: 1, done: 1,
-      body: SUMMARY(0) + LEFTS([LEFT]) + SNAGS }));
 
     /* ---- activity: what changed, or everything ----------------------------------------------- */
     function AR(a) {
@@ -4134,8 +4121,8 @@
       var rows = ACTS.filter(function (a) { return all || !a.read; }).map(function (a) { var c = {}; for (var k in a) { c[k] = a[k]; } if (all) { c.open = null; } return c; });
       return `<div class="grp">${GH('Today', null, link ? `<span class="pg">${LINK(link)}</span>` : '')}${rows.map(AR).join('')}</div>`;
     }
-    put('bx-act-a', SHEET({ title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, tabs: TWO, on: 'Activity', body: ACTIVITY(0, 'Show everything') }));
-    put('bx-act-b', SHEET({ title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, tabs: TWO, on: 'Activity', body: ACTIVITY(1, '') }));
+    put('bx-act-a', SHEET({ title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, on: 'Activity', body: ACTIVITY(0, 'Show everything') }));
+    put('bx-act-b', SHEET({ title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, on: 'Activity', body: ACTIVITY(1, 'Show what changed') }));
 
     /* ---- a live broadcast on the same sheet -------------------------------------------------- */
     var LV = {
