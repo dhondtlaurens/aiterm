@@ -249,3 +249,8 @@ that reaches no worker is blocked with why:
 not run a headless reviewer. Current tool schemas and complete generated briefs are frozen by the
 [contract tests](testing.md). The structured broadcast format is the supported persisted format;
 there is no separate historical broadcast execution path.
+
+A branch warning follows git and the broadcast's task ownership. Mentioning a commit held by another
+task branch in the same broadcast and project does not attribute that work to this worker; closed task
+records count too. A worktree actually on another branch still warns. A previous message warning is
+rechecked while its worker carries on, so a merge that brings the commit onto the task branch clears it.

@@ -11,7 +11,47 @@ from aitermd.delivery import PASTE_END, PASTE_START
 
 from tests.conftest import FRAME, call as rpc_call
 from tests.test_delivery import CLAUDE_MODEL, CLAUDE_EFFORT, CLAUDE_EFFORT_LAST
+from tests.builders import codex_versioned, write_rollout
+from aitermd.models import Frame
 IDLE = "────────────────\n❯\x20\n────────────────\n  ? for shortcuts"
+
+
+async def test_codex_delivery_recovers_its_checked_version_after_helper_restart(make_service, monkeypatch):
+    monkeypatch.setattr(delivery, "SUBMIT_DELAY", 0)
+    def policy():
+        return {"codex": ("auto", "0.160.0")}
+    svc = make_service(delivery_policy=policy, supervisor={"reconnect_seconds": 0.001})
+    await svc.start()
+    it = svc.iterm
+    _, sid = await it.create_window("/wt", "worker", {"aiterm_task": "t1"}, Frame(0, 0, 10, 10))
+    await it.user_runs(sid, "codex", job_pid=4343, title="Codex")
+    it.screens[sid] = "› \n  ? for shortcuts"
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {
+        "hook_event_name": "SessionStart", "session_id": "worker-thread", "cwd": "/wt",
+        "_aiterm_iterm_session_id": sid})
+    write_rollout(svc.codex_files.root, "worker-thread", [codex_versioned("worker-thread", "0.160.0")])
+    await svc.tick()
+    assert (await svc._h_deliver({"sessionId": sid, "text": "Before outage", "ownership": 1}))["result"] == "delivered"
+    await it.disconnect()
+    await it.reconnect()
+    await asyncio.wait_for(svc.supervisor._reconnect_task, 2)
+    await svc.tick()
+    assert (await svc._h_deliver({"sessionId": sid, "text": "After reconnect", "ownership": 1}))["result"] == "delivered"
+    await svc.stop()
+    await it.reconnect()
+    restarted = make_service(iterm=it, delivery_policy=policy)
+    await restarted.start()
+    await restarted.tick()
+    it.sent.clear()
+    assert (await restarted._h_deliver({"sessionId": sid, "text": "Carry on", "ownership": 1}))["result"] == "delivered"
+    assert it.sent == [(sid, PASTE_START + "Carry on" + PASTE_END), (sid, "\r")]
+    # The old rollout and tab tag cannot vouch for a replacement process.
+    await it.user_runs(sid, "codex", job_pid=4344, title="Codex")
+    await restarted.tick()
+    it.sent.clear()
+    reply = await restarted._h_deliver({"sessionId": sid, "text": "Wrong process", "ownership": 1})
+    assert reply["code"] == "notChecked" and it.sent == []
 
 
 @pytest.fixture

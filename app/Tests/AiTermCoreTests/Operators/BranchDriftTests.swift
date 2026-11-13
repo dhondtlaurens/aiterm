@@ -56,6 +56,16 @@ import Foundation
         #expect(found.sha == "c0ffee1" && found.branch == "feat/elsewhere")
     }
 
+    @Test func anotherTasksCommitIsNotAttributedToThisWorkerButAnUnknownCommitStillDrifts() throws {
+        let sibling = BranchDrift.Named(text: "f22746c", commit: "f22746cb", onTaskBranch: false,
+                                       branches: ["chore/views"], onOtherTaskBranch: true)
+        #expect(BranchDrift.find(taskBranch: "feat/pluto-1", head: head, named: [sibling], previous: nil) == nil)
+        let own = BranchDrift.Named(text: "c0ffee1", commit: "c0ffee1c0ffee1", onTaskBranch: false, branches: ["feat/elsewhere"])
+        #expect(BranchDrift.find(taskBranch: "feat/pluto-1", head: head, named: [sibling, own], previous: nil)?.sha == "c0ffee1")
+        let moved = BranchDrift.Head(branch: "chore/views", sha: "f22746cb")
+        #expect(BranchDrift.find(taskBranch: "feat/pluto-1", head: moved, named: [sibling], previous: nil)?.source == .head)
+    }
+
     /// While the worker works its last message isn't read: what an earlier one showed is kept, a HEAD drift
     /// that righted itself is not, and a new reading decides again.
     @Test func aMessagesDriftIsKeptUntilTheNextMessageIsRead() throws {

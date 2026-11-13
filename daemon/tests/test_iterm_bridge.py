@@ -1088,7 +1088,7 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
         if status == "OK":
             values = {"commandLine": "-zsh", "jobPid": 123, "autoName": session_id, "path": "/x",
                       "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None,
-                      "user.aiterm_tab": None}
+                      "user.aiterm_tab": None, "user.aiterm_codex_thread": None}
             values.update((session_values or {}).get(session_id, {}))
             answered = [name for name in gets if not (unset_omitted and len(gets) > 1 and values[name] is None)]
             reply.variable_response.values.extend(json.dumps(values[name]) for name in answered)
@@ -1245,6 +1245,15 @@ async def test_session_info_reads_one_session_where_it_is(monkeypatch):
     assert requests == [("s3", list(VARIABLES))], "only that session is read"
     assert await bridge.session_info("gone") is None
     assert await bridge.session_info("s4") is None, "closed between the hierarchy and its read"
+
+
+async def test_a_snapshot_recovers_the_codex_thread_saved_on_its_process(monkeypatch):
+    tag = json.dumps({"pid": 42, "thread": "worker-thread"})
+    bridge, _ = _variables_bridge(monkeypatch, {"w1": [["s1"]]}, session_values={"s1": {
+        "commandLine": "codex", "jobPid": 42, "user.aiterm_codex_thread": tag}})
+    registry = SessionRegistry()
+    registry.apply_snapshot(await bridge.snapshot())
+    assert registry.get("s1").conversation_id == "worker-thread"
 
 
 @pytest.mark.parametrize("refusal", ["MULTI_GET_DISALLOWED", "INVALID_NAME"])

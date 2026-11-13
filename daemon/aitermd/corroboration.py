@@ -19,7 +19,7 @@ from .sessions import SessionRegistry
 from .slash_commands import SlashCommands, TranscriptRecord
 from .status import StatusEngine
 from .screens import shows_trust_prompt
-from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, limit_resets_at
+from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, StopReading, StopTranscripts
 from .test_activity import ActivityRead, TestActivityReader
 
 log = logging.getLogger("aitermd.service")
@@ -181,24 +181,28 @@ class CorroboratingReaders:
             return ReadPlan("the slash command read", None, {}, apply)
         return ReadPlan("the slash command read", lambda: read(starts), None, apply)
 
-    def limits(self) -> ReadPlan[dict[str, int | None]]:
+    def stops(self, reader: StopTranscripts) -> ReadPlan[dict[str, StopReading]]:
         now = self.clock()
         stopped = {s.session_id: (s.stopped_on, s.transcript) for s in self.registry.all()
-                   if s.stopped_on is not None and s.stopped_on.error in LIMIT_ERRORS and s.stopped_on.resets_at is None
-                   and s.transcript and now - s.stopped_on.at <= RESET_READ_SECONDS}
+                   if s.stopped_on is not None and s.transcript}
         paths = {transcript for _, transcript in stopped.values() if transcript}
 
-        def apply(resets: dict[str, int | None]) -> list[str]:
+        def apply(readings: dict[str, StopReading]) -> list[str]:
             changed: list[str] = []
             for sid, (stopped_on, transcript) in stopped.items():
-                if (session := self.registry.get(sid)) is None or session.stopped_on is not stopped_on or not transcript:
+                if ((session := self.registry.get(sid)) is None or session.stopped_on is not stopped_on
+                        or not transcript or session.transcript != transcript):
                     continue
-                if (resets_at := resets.get(transcript)) is not None:
-                    changed += [sid] if self.registry.set_stopped_on(sid, replace(stopped_on, resets_at=resets_at)) else []
+                if (reading := readings.get(transcript)) is None:
+                    continue
+                if reading.progress_at is not None:
+                    changed += self.status.apply_claude_progress(sid, reading.progress_at)
+                if (reading.resets_at is not None and stopped_on.error in LIMIT_ERRORS and stopped_on.resets_at is None
+                        and now - stopped_on.at <= RESET_READ_SECONDS):
+                    changed += [sid] if self.registry.set_stopped_on(sid, replace(stopped_on, resets_at=reading.resets_at)) else []
             return changed
 
-        return ReadPlan("the usage limit read", (lambda: {path: limit_resets_at(path) for path in paths}) if stopped else None,
-                        {}, apply)
+        return ReadPlan("the stopped worker transcript read", (lambda: reader.read_all(paths)) if stopped else None, {}, apply)
 
     def tests(self, reader: TestActivityReader, sessions: list[SessionInfo]) -> ReadPlan[ActivityRead | None]:
         captured = [replace(session) for session in sessions]

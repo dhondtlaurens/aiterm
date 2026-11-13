@@ -2,7 +2,7 @@ import Foundation
 
 /// A worker that committed off its task branch: its worktree's HEAD moved to another branch or came
 /// loose from one, or its last message names a commit the task branch doesn't hold, its base branch
-/// doesn't hold either, and that is no merge of the task branch. AiTerm reads only
+/// doesn't hold either, no other task in its broadcast owns, and that is no merge of the task branch. AiTerm reads only
 /// the task branch, so that work would otherwise go unseen until the runtime ran out. Advisory: it is
 /// shown in `run_status`, and the Operator decides what to do with it.
 public struct BranchDrift: Codable, Equatable, Sendable {
@@ -31,13 +31,16 @@ public struct BranchDrift: Codable, Equatable, Sendable {
     /// `onBaseBranch`: the task's base branch or the default branch holds it, locally or on origin (`main has
     /// moved on to 47611e3`). `mergesTaskBranch`: it is a merge commit that brought the task branch's head in (a
     /// `git merge --no-ff` of the task into main). Neither is work of the task done off its branch.
+    /// `onOtherTaskBranch`: another task in the same broadcast and project owns a branch holding it;
+    /// mentioning that task's work alone does not attribute it to this worker.
     public struct Named: Equatable, Sendable {
         public var text: String, commit: String, onTaskBranch: Bool, branches: [String]
-        public var onBaseBranch: Bool, mergesTaskBranch: Bool
+        public var onBaseBranch: Bool, mergesTaskBranch: Bool, onOtherTaskBranch: Bool
         public init(text: String, commit: String, onTaskBranch: Bool, branches: [String] = [], onBaseBranch: Bool = false,
-                    mergesTaskBranch: Bool = false) {
+                    mergesTaskBranch: Bool = false, onOtherTaskBranch: Bool = false) {
             self.text = text; self.commit = commit; self.onTaskBranch = onTaskBranch; self.branches = branches
             self.onBaseBranch = onBaseBranch; self.mergesTaskBranch = mergesTaskBranch
+            self.onOtherTaskBranch = onOtherTaskBranch
         }
     }
 
@@ -55,7 +58,7 @@ public struct BranchDrift: Codable, Equatable, Sendable {
     }
 
     /// What AiTerm finds of `taskBranch`'s worker, its HEAD first. `head` nil is a worktree git couldn't
-    /// read, and `named` nil a last message not read now (the worker still at work): each says nothing,
+    /// read, and `named` nil a message neither read nor its earlier warning rechecked now: each says nothing,
     /// so what `previous` found from it is kept until it is read again.
     public static func find(taskBranch: String, head: Head?, named: [Named]?, previous: BranchDrift?) -> BranchDrift? {
         let headDrift = head.map { headDrift($0, taskBranch: taskBranch) } ?? (previous?.source == .head ? previous : nil)
@@ -74,7 +77,7 @@ public struct BranchDrift: Codable, Equatable, Sendable {
     }
 
     private static func messageDrift(_ named: [Named], taskBranch: String) -> BranchDrift? {
-        guard let off = named.first(where: { !$0.onTaskBranch && !$0.onBaseBranch && !$0.mergesTaskBranch }) else { return nil }
+        guard let off = named.first(where: { !$0.onTaskBranch && !$0.onBaseBranch && !$0.mergesTaskBranch && !$0.onOtherTaskBranch }) else { return nil }
         let found = "Its last message names \(off.text), which isn't on its task branch \(taskBranch)"
             + (off.branches.isEmpty ? "." : ": it is on \(off.branches.joined(separator: ", ")).")
         return BranchDrift(source: .lastMessage, branch: off.branches.first, sha: off.text, found: found)
