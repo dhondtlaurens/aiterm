@@ -3634,1031 +3634,596 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <!-- polish-proposal:start -->
-    <div class="section" id="polish-proposal">
-      <p class="eyebrow proposal-flag">Proposal · design polish · 13 Nov 2026</p>
-      <h2>A professional finish, three ways</h2>
-      <p class="why">The app works and its rules are sound, but six things keep it from looking finished. Each proposal below answers
-        all six; they differ in how far they go. Every frame is drawn at 1 px = 1 pt from one fixture, so the same screen can be compared
-        three ways.</p>
-      <div class="rules" style="margin-top: var(--space-block)">
+    <!-- board-proposal:start -->
+    <div class="section" id="board-proposal">
+      <p class="eyebrow proposal-flag">Proposal · the broadcast’s sheet · 13 Nov 2026</p>
+      <h2>The broadcast’s sheet: what it is for, and what it can lose</h2>
+      <p class="why">This replaces the wide board picked earlier today. Before drawing it larger, the question is what the sheet has to do
+        while a broadcast runs. Two things, in this order: <strong>answer what waits on you</strong>, and <strong>see where each task
+        is</strong>. Going to a task comes third. Changing one task’s end, pausing, reading why (Activity) and reading the result
+        (Summary) happen now and then. Every frame below is the same broadcast, drawn at 1 px = 1 pt from the shipped tokens.</p>
+      <div class="rules">
         <div class="no"><p class="h">Today</p>
           <ul>
-            <li><strong>Three control shapes in one row.</strong> New Task’s first step sets a pill popup, a boxed field and another pill popup side by side; buttons are capsules, segments a third radius.</li>
-            <li><strong>No depth.</strong> Sidebar, sheet, fields and cards share one grey, so hairlines do all the separating.</li>
-            <li><strong>Accent does everything:</strong> the step number, the tabs, the selected row, focus, the primary button, the done mark and links.</li>
-            <li><strong>Mono for plain words:</strong> “working”, “2 of 8 done”, “Opus 5.5 · High” and “queued” are set like code.</li>
-            <li><strong>Every sheet is 560 by 560.</strong> Rename task is one field in an empty sheet; the board shows two and a bit of its four columns under five header lines.</li>
-            <li><strong>Busy rows.</strong> Up to four vendor and diff colours sit on a task’s badge line, beside the one mark that matters.</li>
+            <li><strong>The brief comes first.</strong> Five header lines take 167 of the sheet’s 560 pt before anything live, and each is cut at its end.</li>
+            <li><strong>A question is 115 to 205 pt tall whatever it asks.</strong> A permission prompt, which only opens a window, is as tall as a question with choices. The snapshot’s eight questions run about 1,250 pt.</li>
+            <li><strong>The answer is the quietest control.</strong> Choices are 11 pt links under the question.</li>
+            <li><strong>A task’s question is drawn twice:</strong> in its block, and again on its card with an Answer… link that scrolls back up.</li>
+            <li><strong>Tasks sit below all of it, in two dimensions.</strong> Four columns of 236 pt in 512 pt of content, cards 120 to 250 pt tall: two whole cards show, and seeing eight tasks means scrolling down and sideways.</li>
+            <li><strong>The card is a third way to draw a task,</strong> after the sidebar’s row and the Shelf’s, and it repeats per task what the header says for all of them: the model and where it ends.</li>
           </ul>
         </div>
-        <div class="yes"><p class="h">Picked · 13 Nov 2026</p>
+        <div class="yes"><p class="h">Proposed</p>
           <ul>
-            <li><strong>Proposal 2 is the base:</strong> the graphite ramp, neutral selection, the new type and radii, one control shape, the stepper in the title row and underline tabs.</li>
-            <li><strong>From proposal 3, two surfaces:</strong> the 980 pt board with its Activity inspector, and two-pane Settings with its own Keyboard pane.</li>
-            <li><strong>Not picked:</strong> the status-first sidebar and its footer bar, the one-page New Task and New Review, and the one-scroll New Broadcast. Those surfaces ship as proposal 2 draws them.</li>
-            <li>The frames stay here until the Swift ships, then this proposal leaves the tab.</li>
+            <li><strong>One list, one scroll.</strong> Questions on top, then every task as the row the sidebar already draws, under its stage as a heading.</li>
+            <li><strong>A question is as tall as its answer.</strong> Choices become buttons. What is answered elsewhere, or answered already, is two lines.</li>
+            <li><strong>Each thing once.</strong> A question lives in its block; a task lives in its row.</li>
+            <li><strong>Nothing new to learn.</strong> The row, the headings, the block’s chrome, the buttons and the tab bar all ship today. The sheet keeps its 560 pt width and grows to 640 pt tall.</li>
+            <li><strong>It holds for a live broadcast,</strong> where tasks arrive when a ticket changes: there is no plan to lay out in columns, and Done never stops growing.</li>
           </ul>
         </div>
       </div>
-      <div class="pz-switch" role="group" aria-label="Proposal">
-        <button type="button" data-p="1" aria-pressed="false">1 · Polish</button>
-        <button type="button" data-p="2" aria-pressed="true">2 · Layered · picked</button>
-        <button type="button" data-p="3" aria-pressed="false">3 · Workbench · board and Settings picked</button>
-        <span class="hint">Same frames, same order, in each. Kept across reloads.</span>
+
+      <div class="options">
+        <div class="option">
+          <header><span class="letter">0</span><h3>What is really needed</h3></header>
+          <p>Each part of today’s sheet, and what happens to it in the recommended options (1A with 2A).</p>
+          <div class="bx-scroll"><table class="bx-audit">
+            <thead><tr><th>Part</th><th></th><th>What happens</th></tr></thead>
+            <tbody>
+              <tr><td>Title, status line, progress</td><td><span class="v keep">Keep</span></td><td>As they are.</td></tr>
+              <tr><td>Asked, Goal, Each task</td><td><span class="v fold">Fold</span></td><td>One line, Asked. Its chevron opens all three, whole instead of cut. The header drops from 167 to 136 pt.</td></tr>
+              <tr><td>Board · Activity · Summary</td><td><span class="v keep">Keep</span></td><td>Board is named Tasks. Activity stays the Operator’s record, Summary its result; neither changes.</td></tr>
+              <tr><td>Waiting on you</td><td><span class="v keep">Keep</span></td><td>On top, oldest first, each block sized to its answer (decision 2).</td></tr>
+              <tr><td>The four columns</td><td><span class="v fold">Fold</span></td><td>Their names become the headings of one list: In progress, Review, Todo, Done. A stage with no task is not drawn.</td></tr>
+              <tr><td>The card</td><td><span class="v drop">Drop</span></td><td>A task is the sidebar’s driven-task row: marks, title, status words, the same trailing mark. Ticket, request and project trail its second line.</td></tr>
+              <tr><td>Model and reasoning on a card</td><td><span class="v drop">Drop</span></td><td>Stays in the row’s tooltip, where the card already has it with the Operator’s reason.</td></tr>
+              <tr><td>ends at on every card</td><td><span class="v fold">Fold</span></td><td>Drawn only on a task whose end differs from the broadcast’s. Changed from the row’s menu, beside Take Over and Stop Task….</td></tr>
+              <tr><td>Worker tabs</td><td><span class="v keep">Keep</span></td><td>Under their row when a task has more than one, each its own click, as on the card.</td></tr>
+              <tr><td>The question on a card, Answer…</td><td><span class="v drop">Drop</span></td><td>The row says waiting on you; the question and its answer are in its block.</td></tr>
+              <tr><td>Fix rounds on a card</td><td><span class="v fold">Fold</span></td><td>Into its block alone, with the last verdict’s counts.</td></tr>
+              <tr><td>Worktree kept, merge refused</td><td><span class="v keep">Keep</span></td><td>A help line under the row.</td></tr>
+              <tr><td>Footer</td><td><span class="v keep">Keep</span></td><td>Pause Broadcast, End Broadcast…, Close, and the rest of its states.</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+
+        <div class="option pick">
+          <header><span class="letter">1A</span><h3>One list</h3><span class="rec">Recommended</span></header>
+          <p><b>Where each task is.</b> The sheet stays 560 pt wide and becomes 640 pt tall. Under the questions, each task is one row
+            under its stage. Left: as it opens with two questions waiting. Right: the same sheet with nothing waiting.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-1a"></div><div id="bx-1a2"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+              <ul><li><b>Five tasks and the head of the queue are in view</b> when nothing waits, where today two cards are. Done, the least urgent, runs under the fold.</li>
+                <li>A title has the row’s whole width, so a ticket’s long summary is read, not cut.</li>
+                <li>The row is the sidebar’s, so a status reads the same in both places and no new component is drawn.</li>
+                <li>No sheet width to add: the height is one more number beside Settings’ own.</li>
+                <li>Order is by attention: at work, in review, queued, done. Done sits last and can run long.</li></ul>
+              <span class="h c">Costs</span>
+              <ul><li>The stages are no longer side by side: the plan’s shape is read from four headings, not seen at once.</li>
+                <li>With several questions waiting, the tasks start below the fold, as today.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">1B</span><h3>One list, one line per task</h3></header>
+          <p><b>The same list, denser.</b> Title, ticket and request, then the status words in a column beside the mark. The project moves to the tooltip.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-1b1"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+              <ul><li>All eight tasks in view, with room for one or two more. The better pick if a broadcast usually runs past eight tasks.</li><li>The statuses line up, so the eye runs down one column.</li></ul>
+              <span class="h c">Costs</span>
+              <ul><li>A title gets about 26 characters before it is cut. A ticket’s summary, which names the tasks of a live broadcast, is often twice that.</li>
+                <li>A row of its own: the sidebar’s and the Shelf’s have two lines.</li>
+                <li>A long status, such as blocked with its reason, squeezes the title further.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">1C</span><h3>The wide board</h3></header>
+          <p><b>The pick of this morning,</b> with the compact questions: 980 by 640, the tabs in the title row, questions across the top, four whole columns of today’s cards.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-1c"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+              <ul><li>All four stages are visible side by side, no sideways scroll.</li><li>Two questions share a line.</li></ul>
+              <span class="h c">Costs</span>
+              <ul><li>A column still shows one or two cards: the third task in progress is under the fold.</li>
+                <li>Needs a width per sheet, clamped to the screen, and its four readers moved off the constant.</li>
+                <li>Keeps the card, and the question drawn twice.</li>
+                <li>In a live broadcast Todo stays empty and Done grows without end.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">1D</span><h3>List and detail</h3></header>
+          <p><b>Two panes,</b> 780 by 640: everything on the left as rows, the picked question or task on the right with its answer, its facts and its latest activity.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-1d"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+              <ul><li>The list never moves: tasks stay in view while you answer.</li><li>A task’s own activity beside it says why it is where it is.</li></ul>
+              <span class="h c">Costs</span>
+              <ul><li>One question at a time; scanning all that waits takes clicks.</li>
+                <li>A selection to keep, keyboard moves to add, a width per sheet, and a per-task view of Activity that does not exist yet.</li>
+                <li>The most to build for the least used part: a task’s detail.</li></ul></div></div>
+
+        <div class="option pick">
+          <header><span class="letter">2A</span><h3>Blocks sized to their answer</h3><span class="rec">Recommended</span></header>
+          <p><b>Answering.</b> Left: three questions as they ship, 390 pt of blocks. Right: the same three, proposed, 288 pt. Who asks moves up beside the
+            age. Choices are the house button. With choices, the field waits behind Another answer…. A question answered in a window
+            is its text and one button.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-2today"></div><div id="bx-2a"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+              <ul><li>The common answer is one click on a button, not a link.</li>
+                <li>Fix rounds show the verdict’s counts where they are answered.</li>
+                <li>All that waits can still be read at once, oldest first.</li></ul>
+              <span class="h c">Costs</span>
+              <ul><li>A typed answer to a question with choices takes one more click.</li></ul></div></div>
+        <p style="color: var(--muted)">2A’s other states.</p>
+        <div class="bx-stage bx-bleed"><div id="bx-2states"></div>
+            <div class="cap"><ul style="margin-top:0"><li>⌘↩ sends from the field typed in last, as today.</li>
+              <li>An answered question keeps its two lines until the Operator takes it, then leaves. Its question stays in the tooltip.</li>
+              <li>The button titles take title case, as buttons do: Open Its Window, Open the Operator’s Chat.</li>
+              <li>The edge stays the attention stroke while a block waits and turns to the border once answered.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">2B</span><h3>One at a time</h3></header>
+          <p><b>A pager in the heading,</b> one question shown, its field always open. Answering moves to the next.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-2b"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">Gains</span>
+              <ul><li>The section keeps one height, so the tasks always start at the same place.</li></ul>
+              <span class="h c">Costs</span>
+              <ul><li>The other questions are hidden: which is urgent, and how many are one-click, is not visible.</li>
+                <li>A second way to step through a sheet, beside the title row’s stepper.</li></ul></div></div>
+
+        <div class="option">
+          <header><span class="letter">3</span><h3>The row and the brief, every state</h3></header>
+          <p>For 1A. The row is <code>SidebarRowContent</code> as the Operator group draws it; only the trailing line is new. The brief opens in place.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-rows"></div>
+            <div style="display:flex;flex-direction:column;gap:16px;min-width:0"><div id="bx-brief"></div><div class="cap" style="flex:none">
+              <ul><li>A row’s click does what its card’s does today: the sheet closes and its window, or what resolves it, comes forward.</li>
+                <li>Its menu is the sidebar row’s: Take Over or Hand Back, Stop Task…, and new here, Ends At.</li>
+                <li>Amber stays for what needs you: the chip and the ring.</li></ul></div></div></div>
+
+        <div class="option">
+          <header><span class="letter">4</span><h3>A live broadcast on the same sheet</h3></header>
+          <p><b>Not part of this change.</b> A sketch to check that 1A and 2A hold when a broadcast is started by a trigger, such as a Jira
+            label, and never completes. The words on it are placeholders.</p>
+        </div>
+        <div class="bx-stage bx-bleed"><div id="bx-live"></div>
+            <div class="cap"><span class="h g" style="margin-top:0">What the list absorbs</span>
+              <ul><li>Tasks arrive one at a time: a new row under In progress, no plan to redraw.</li>
+                <li>Done is bounded by the day and folds to its latest, so the sheet does not grow for ever.</li>
+                <li>Progress is a count in flight, not n of m.</li>
+                <li>The brief line says what starts a task instead of what was asked.</li></ul>
+              <span class="h c">Open for its own proposal</span>
+              <ul><li>New Broadcast: a trigger in place of a prompt, and what a goal means without an end.</li>
+                <li>Summary: per day, per task, or none.</li>
+                <li>Where a trigger that fired and was refused is shown.</li></ul></div></div>
       </div>
-      <div class="pz-bleed"><div id="pz-root"></div></div>
+
+      <p class="why" style="margin-top: var(--space-margin)"><strong>What stays as it is:</strong> the sidebar’s Operator group and its
+        board button, the notification’s and the Operator row’s click landing on a question’s block, every answer recorded once and
+        the Operator woken, Pause, Resume and End, Activity, Summary, the Shelf’s read-only board, and every word the Operator’s tools
+        and <code>run_status</code> say. Settings keeps its tabs: the two-pane revamp is dropped.</p>
     </div>
 <style>
   /* ==========================================================================================
-     Proposal · design polish. Everything below is scoped to .pz and leaves with the proposal.
-     .p1 draws from the shipped tokens; .p2 and .p3 carry PROPOSED tokens, named in each
-     proposal's own foundations strip. 1 CSS px = 1 pt.
+     Proposal · the broadcast's sheet. Everything below is scoped to .bx and leaves with the
+     proposal. Drawn from the page's own tokens, which mirror Palette and Metrics. 1 CSS px = 1 pt.
      ========================================================================================== */
-  .pz-bleed { margin-inline: calc(50% - 50vw + 28px); }
-  @media (max-width: 1000px) { .pz-bleed { margin-inline: 0; } }
-  .pz-switch { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: var(--space-base);
-               align-items: center; padding-block: var(--space-inset); margin-top: var(--space-block);
-               background: var(--surface); border-bottom: 1px solid var(--border); }
-  .pz-switch button { font: 500 13px/1 var(--font); color: var(--muted); background: var(--badge); border: 1px solid transparent;
-                      border-radius: var(--radius-control); height: var(--size-control); padding: 0 var(--space-gap); cursor: pointer; }
-  .pz-switch button[aria-pressed="true"] { color: #FFFFFF; background: var(--control-active); }
-  .pz-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .pz-switch .hint { color: var(--muted); font-size: 11px; margin-left: auto; }
-  .pz-panel[hidden] { display: none; }
-  .pz-lede { max-width: 892px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-margin); margin-top: var(--space-section); }
-  @media (max-width: 760px) { .pz-lede { grid-template-columns: minmax(0, 1fr); } }
-  .pz-lede h3 { font-size: 15px; }
-  .pz-lede p { color: var(--muted); margin-top: var(--space-snug); }
-  .pz-lede ol, .pz-lede ul { margin: var(--space-base) 0 0; padding-left: 18px; color: var(--muted); }
-  .pz-lede li { margin-top: var(--space-tight); }
-  .pz-lede li b, .pz-lede p b { color: var(--text); font-weight: 600; }
-  .pz-lede .tag { font: 500 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
-  .pz-g { margin-top: 40px; }
-  .pz-g > h3 { font-size: 13px; color: var(--text); }
-  .pz-g > p { color: var(--muted); margin-top: var(--space-tight); max-width: 86ch; }
-  .pz-row { display: flex; flex-wrap: wrap; gap: var(--space-block); align-items: flex-start; margin-top: var(--space-block); }
-  .pz-fig { margin: 0; min-width: 0; max-width: 100%; }
-  .pz-stage { background: #0B0B0D; border: 1px solid var(--border); border-radius: var(--radius-group); padding: var(--space-block);
-              overflow-x: auto; }
-  .pz-fig figcaption { color: var(--muted); font-size: 11px; margin-top: var(--space-snug); max-width: 62ch; }
-  .pz-fig figcaption b { color: var(--text); font-weight: 600; }
+  .bx-bleed { margin-inline: calc(50% - 50vw + 28px); }
+  @media (max-width: 1000px) { .bx-bleed { margin-inline: 0; } }
+  .bx-audit { width: 100%; border-collapse: collapse; margin-top: var(--space-block); font-size: 12px; }
+  .bx-audit th { text-align: left; font: 500 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+                 padding: 0 var(--space-gap) var(--space-snug) 0; border-bottom: 1px solid var(--border-strong); }
+  .bx-audit td { vertical-align: top; padding: var(--space-snug) var(--space-gap) var(--space-snug) 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .bx-audit td:first-child { color: var(--text); white-space: nowrap; }
+  .bx-audit .v { font: 500 10px/16px var(--mono); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+  .bx-audit .v.keep { color: var(--green); } .bx-audit .v.fold { color: var(--link); } .bx-audit .v.drop { color: var(--amber); }
+  .bx-scroll { overflow-x: auto; }
+  .bx-stage { background: #0B0B0D; border: 1px solid var(--border); border-radius: var(--radius-group); padding: var(--space-block);
+              overflow-x: auto; display: flex; gap: var(--space-block); align-items: flex-start; margin-top: var(--space-block); }
+  .bx-stage .cap { flex: 1 1 220px; min-width: 200px; max-width: 46ch; color: var(--muted); font-size: 12px; }
+  .bx-stage .cap b { color: var(--text); font-weight: 600; }
+  .bx-stage .cap ul { margin: var(--space-snug) 0 0; padding-left: 16px; }
+  .bx-stage .cap li { margin-top: var(--space-tight); }
+  .bx-stage .cap .h { font: 500 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; display: block; margin-top: var(--space-gap); }
+  .bx-stage .cap .h.g { color: var(--green); } .bx-stage .cap .h.c { color: var(--amber); }
+  .bx-note { color: var(--muted); font-size: 11px; margin-top: var(--space-snug); }
 
-  /* ---- skins ----------------------------------------------------------------------------- */
-  .pz { font: 13px/16px var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; text-align: left;
-        --amb: var(--amber); --grn: var(--green); --acc: var(--accent); --red: var(--destructive);
-        --st-idle: var(--ink3); --st-track: rgba(143,143,143,.28); --st-work: var(--ink2); --st-amb: var(--amb);
-        --st-done: var(--acc); --st-grn: var(--grn); }
-  .pz *, .pz *::before, .pz *::after { box-sizing: border-box; }
-  .pz.p1 { --g-side: #1E1E1E; --g-sheet: #1E1E1E; --g-foot: #282828; --g-card: #282828; --g-field: rgba(255,255,255,.06);
-           --g-well: #141519; --g-pop: #282828; --g-rail: #1E1E1E; --g-sfoot: #1E1E1E;
-           --line: rgba(255,255,255,.098); --line2: rgba(255,255,255,.098); --line-f: rgba(255,255,255,.098);
-           --ink: rgba(255,255,255,.847); --ink2: rgba(255,255,255,.549); --ink3: rgba(255,255,255,.247);
-           --sel: #0059D1; --sel-ink: #FFFFFF; --sel-ink2: rgba(255,255,255,.75); --hover: rgba(255,255,255,.06);
-           --oprow: rgba(255,255,255,.068); --btn: rgba(255,255,255,.1); --seg-on: #464646; --menu-hi: var(--acc); --menu-ink: #FFFFFF;
-           --wash: rgba(255,255,255,.068);
-           --r-chip: 4px; --r-ctl: 6px; --r-grp: 8px; --r-pan: 10px; --r-win: 10px;
-           --t-title: 15px; --t-head: 12px; }
-  .pz.p2, .pz.p3 { --g-side: #17181B; --g-sheet: #1E1F23; --g-foot: #1E1F23; --g-card: #26272C; --g-field: #141518;
-           --g-well: #111214; --g-pop: #2A2C31; --g-rail: #191A1D; --g-sfoot: #131416;
-           --line: rgba(255,255,255,.07); --line2: rgba(255,255,255,.12); --line-f: rgba(255,255,255,.1);
-           --ink: #ECEDEF; --ink2: #A1A4AC; --ink3: #6E717A;
-           --sel: rgba(255,255,255,.09); --sel-ink: #FFFFFF; --sel-ink2: #A1A4AC; --hover: rgba(255,255,255,.045);
-           --oprow: rgba(255,255,255,.035); --btn: #2F3137; --seg-on: #383A41; --menu-hi: rgba(255,255,255,.1); --menu-ink: #FFFFFF;
-           --wash: rgba(255,255,255,.06);
-           --r-chip: 5px; --r-ctl: 7px; --r-grp: 10px; --r-pan: 12px; --r-win: 12px;
-           --t-title: 17px; --t-head: 13px; }
-  .pz .mono { font-family: var(--mono); }
-  .pz .num { font-variant-numeric: tabular-nums; }
-  .pz .i2 { color: var(--ink2); } .pz .i3 { color: var(--ink3); } .pz .amb { color: var(--amb); } .pz .grn { color: var(--grn); }
-  .pz .red { color: var(--red); } .pz .lnk { color: var(--link); }
-  .pz .grow { flex: 1 1 0; min-width: 0; }
-  .pz .cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .pz svg { display: block; flex: none; }
-  .pz .ic { stroke: currentColor; fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .bx { font: 13px/16px var(--font); color: var(--text); -webkit-font-smoothing: antialiased; text-align: left; flex: none; }
+  .bx *, .bx *::before, .bx *::after { box-sizing: border-box; }
+  .bx svg { display: block; flex: none; }
+  .bx .ic { stroke: currentColor; fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .bx .mu { color: var(--muted); } .bx .te { color: var(--tertiary); } .bx .grn { color: var(--green); } .bx .lnk { color: var(--link); }
+  .bx .num { font-variant-numeric: tabular-nums; }
+  .bx .grow { flex: 1 1 0; min-width: 0; }
+  .bx .cut { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .bx .hl { height: 1px; background: var(--border); flex: none; align-self: stretch; }
 
-  /* ---- marks ----------------------------------------------------------------------------- */
-  .pz .vm { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
-  .pz .vm.claude { background: #D97757; color: #FFFFFF; } .pz .vm.codex, .pz .vm.github, .pz .vm.gitlab, .pz .vm.mac { background: #FFFFFF; color: #000000; }
-  .pz .vm.pi, .pz .vm.shell { background: #000000; color: #FFFFFF; } .pz .vm.jira { background: #2684FF; color: #FFFFFF; }
-  .pz .vm.more { background: var(--seg-on); color: var(--ink); font: 600 9px/1 var(--font); }
-  .pz .vms { display: inline-flex; flex: none; }
-  .pz .vms .vm + .vm { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--ring, var(--g-side)); }
-  .pz .kbd { display: inline-flex; gap: 2px; }
-  .pz .kbd i { font: 500 10px/14px var(--font); font-style: normal; min-width: 16px; height: 16px; padding: 0 3px; text-align: center;
-               border-radius: 4px; background: var(--wash); border: 1px solid var(--line); color: var(--ink2); }
-  .pz .bd { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 4px; border-radius: var(--r-chip);
-            background: var(--wash); font: 500 10px/16px var(--font); color: var(--ink2); white-space: nowrap; flex: none; }
-  .pz .bd.amb { background: rgba(255,146,48,.16); box-shadow: inset 0 0 0 1px rgba(255,146,48,.38); color: var(--amb); }
-  .pz .bd.q { background: none; padding: 0; font-size: 11px; }
-  .pz .bd.lane { background: rgba(38,132,255,.18); color: #6FAEFF; font-size: 11px; height: 18px; padding: 0 6px; }
-  .pz .nm { width: 12px; height: 12px; border-radius: 50%; background: var(--amb); color: #1E1E1E; font: 700 9px/12px var(--font);
-            text-align: center; flex: none; }
+  /* marks */
+  .bx .vm { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+  .bx .vm.claude { background: var(--claude); color: #FFFFFF; } .bx .vm.codex { background: #FFFFFF; color: #000000; }
+  .bx .vms { display: inline-flex; flex: none; }
+  .bx .vms .vm + .vm { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--ring, var(--surface)); }
+  .bx .kbd { display: inline-flex; gap: 2px; }
+  .bx .kbd i { font: 500 10px/14px var(--font); font-style: normal; min-width: 16px; height: 16px; padding: 0 3px; text-align: center;
+               border-radius: 4px; background: var(--keycap-fill); border: 1px solid var(--keycap-stroke); color: #FFFFFF; }
 
-  /* ---- controls -------------------------------------------------------------------------- */
-  .pz .b { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: var(--r-ctl);
-           font: 13px/1 var(--font); color: var(--ink); background: var(--btn); border: 1px solid var(--line); white-space: nowrap; flex: none; }
-  .pz .b.pri { background: var(--acc); border-color: transparent; color: #FFFFFF; font-weight: 500; }
-  .pz .b.pri .kbd i { background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.16); color: #FFFFFF; }
-  .pz .b.dis { opacity: .4; }
-  .pz .b.q { background: none; border-color: transparent; color: var(--link); padding: 0; height: 16px; }
-  .pz .b.sm { height: 24px; padding: 0 10px; font-size: 12px; }
-  .pz .in { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); width: 100%;
-            background: var(--g-field); border: 1px solid var(--line-f); color: var(--ink); min-width: 0; }
-  .pz .in.ph > span:first-of-type, .pz .ph { color: var(--ink3); }
-  .pz .in.foc, .pz .ed.foc { box-shadow: 0 0 0 2px rgba(0,122,255,.35); }
-  .pz.p2 .in.foc, .pz.p3 .in.foc, .pz.p2 .ed.foc, .pz.p3 .ed.foc { border-color: rgba(0,122,255,.8); box-shadow: 0 0 0 3px rgba(0,122,255,.22); }
-  .pz .in .ud { margin-left: auto; color: var(--ink2); }
-  .pz .in.mono { font: 12px/1 var(--mono); }
-  .pz .ed { border-radius: var(--r-ctl); background: var(--g-field); border: 1px solid var(--line-f); padding: 8px 10px;
-            font: 13px/17px var(--mono); color: var(--ink); white-space: pre-wrap; position: relative; }
-  .pz .caret { display: inline-block; width: 1px; height: 15px; background: var(--acc); vertical-align: -3px; margin-left: 1px; }
-  .pz .seg { display: flex; height: 28px; padding: 2px; border-radius: var(--r-grp); background: var(--g-field); border: 1px solid var(--line-f); width: 100%; }
-  .pz .seg > span { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: var(--r-ctl);
-                    color: var(--ink2); white-space: nowrap; }
-  .pz .seg > span.on { background: var(--seg-on); color: var(--ink); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.35); }
-  .pz .seg > span.off { opacity: .4; }
-  .pz .ck { display: flex; align-items: center; gap: 8px; }
-  .pz .ck > i { width: 14px; height: 14px; border-radius: 4px; background: var(--g-field); border: 1px solid var(--line2); flex: none;
-                display: flex; align-items: center; justify-content: center; color: #FFFFFF; }
-  .pz .ck.on > i { background: var(--acc); border-color: transparent; }
-  .pz .sw { width: 32px; height: 18px; border-radius: 9px; background: var(--seg-on); position: relative; flex: none; }
-  .pz .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF;
-                   box-shadow: 0 1px 2px rgba(0,0,0,.4); }
-  .pz .sw.on { background: var(--acc); } .pz .sw.on::after { left: 16px; }
-  .pz .f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .pz .f > label { font: 500 12px/16px var(--font); color: var(--ink2); }
-  .pz .f > .hp, .pz .hp { font: 11px/14px var(--font); color: var(--ink2); }
-  .pz .hrow { display: flex; gap: 12px; align-items: flex-start; }
-  .pz .cmd { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: var(--r-ctl); background: var(--g-well);
-             font: 12px/1 var(--mono); color: var(--ink); }
-  .pz.p2 .cmd, .pz.p3 .cmd { border: 1px solid var(--line); }
-  .pz .dd { background: var(--g-pop); border: 1px solid var(--line2); border-radius: var(--r-pan); padding: 4px;
-            box-shadow: 0 6px 16px rgba(0,0,0,.45); }
-  .pz .dd > div { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border-radius: var(--r-chip); white-space: nowrap; }
-  .pz .dd > div.hi { background: var(--menu-hi); color: var(--menu-ink); }
-  .pz.p1 .dd > div.hi .i2, .pz.p1 .dd > div.hi .lnk { color: rgba(255,255,255,.8); }
-  .pz .pop { position: absolute; z-index: 5; }
-  .pz .hl { height: 1px; background: var(--line); flex: none; align-self: stretch; }
-  .pz .notice { display: flex; gap: 8px; align-items: flex-start; }
-  .pz .notice > div { min-width: 0; }
-  .pz .notice b { font-weight: 600; color: var(--ink); display: block; }
-  .pz .notice p { color: var(--ink2); font-size: 12px; margin-top: 2px; }
-  .pz .links { display: flex; gap: 12px; margin-top: 4px; color: var(--link); font-size: 12px; }
+  /* status words: OperatorBadge. Quiet and ended in the secondary ink, acting in the ink, needs you in the attention chip. */
+  .bx .ob { font: 500 10px/16px var(--font); white-space: nowrap; color: var(--muted); flex: none; }
+  .bx .ob.act { color: var(--text); }
+  .bx .ob.you { color: var(--text); height: 16px; padding: 0 5px; border-radius: var(--radius-chip); background: var(--status-chip-attention-fill);
+                box-shadow: inset 0 0 0 1px var(--status-chip-attention-stroke); }
+  /* quiet badges: a mark and its key, no box */
+  .bx .qb { display: inline-flex; align-items: center; gap: 4px; font: 500 10px/16px var(--font); color: var(--muted); white-space: nowrap; flex: none; }
+  .bx .bd { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border-radius: var(--radius-chip);
+            background: var(--badge); font: 500 10px/16px var(--font); color: var(--text); white-space: nowrap; flex: none; }
+  .bx .help { font: 11px/14px var(--font); color: var(--muted); }
+  .bx .cap12 { font: 12px/16px var(--font); color: var(--muted); }
 
-  /* ---- sidebar --------------------------------------------------------------------------- */
-  .pz .sb { width: 420px; background: var(--g-side); border: 1px solid var(--line2); border-radius: var(--r-win); overflow: hidden;
-            display: flex; flex-direction: column; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
-  .pz .sb.frag { box-shadow: none; }
-  .pz .tb { height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 10px; flex: none; }
-  .pz .tb i { width: 12px; height: 12px; border-radius: 50%; }
-  .pz .sh { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 16px 0 18px; margin-top: 8px; }
-  .pz .sht { font: 600 10px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink2); }
-  .pz.p2 .sht, .pz.p3 .sht { font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--ink3); }
-  .pz .slot { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; color: var(--ink2); flex: none; }
-  .pz .pr { display: flex; align-items: center; gap: 8px; height: 28px; margin: 0 10px; padding: 0 6px 0 8px; border-radius: var(--r-ctl); }
-  .pz .pr .nm2 { font: 500 13px/1 var(--font); }
-  .pz.p2 .pr .nm2, .pz.p3 .pr .nm2 { font-weight: 600; }
-  .pz .tile { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
-  .pz .rw { display: flex; align-items: center; gap: 10px; height: 52px; margin: 0 10px 0 30px; padding: 0 6px 0 8px; border-radius: var(--r-ctl);
-            position: relative; }
-  .pz .rw .av { width: 30px; display: flex; flex: none; }
-  .pz .rw .tx { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 0; }
-  .pz .rw .ti { font: 13px/16px var(--font); color: var(--ink); }
-  .pz .rw .me { display: flex; align-items: center; gap: 12px; height: 16px; font: 11px/16px var(--font); color: var(--ink2); min-width: 0; }
-  .pz .rw .me > span { display: inline-flex; align-items: center; gap: 4px; flex: none; }
-  .pz .rw .me > span.br { flex: 0 1 auto; min-width: 0; font-family: var(--mono); display: block; }
-  .pz .rw.hov, .pz .pr.hov { background: var(--hover); --ring: #2A2A2A; }
-  .pz .rw.zop { background: var(--oprow); }
-  .pz .rw.sel, .pz .pr.sel { background: var(--sel); --ring: var(--sel); }
-  .pz .rw.sel .ti { color: var(--sel-ink); font-weight: 500; } .pz .rw.sel .me, .pz .rw.sel .i2 { color: var(--sel-ink2); }
-  .pz.p1 .rw.sel { --st-idle: rgba(255,255,255,.75); --st-track: rgba(255,255,255,.3); --st-work: #FFFFFF; --st-amb: #FFFFFF; --st-done: #FFFFFF;
-                   --grn: #FFFFFF; --red: #FFFFFF; --amb: #FFFFFF; --wash: rgba(255,255,255,.2); }
-  .pz.p2 .rw.sel, .pz.p3 .rw.sel { box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); --ring: #2B2C30; }
-  .pz .dv { display: flex; align-items: center; gap: 10px; height: 24px; padding: 0 18px; margin-top: 4px; }
-  .pz .dv::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  .pz .chips { display: flex; gap: 4px; }
-  .pz .zchip { display: inline-flex; align-items: center; gap: 3px; height: 16px; padding: 0 5px; border-radius: var(--r-chip);
-              font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; background: rgba(255,255,255,.08);
-              box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); color: var(--ink2); }
-  .pz .zchip.a { background: rgba(255,146,48,.16); box-shadow: inset 0 0 0 1px rgba(255,146,48,.38); color: var(--amb); }
-  .pz .zchip.d { background: rgba(0,122,255,.17); box-shadow: inset 0 0 0 1px rgba(0,122,255,.42); color: #6FAEFF; }
-  .pz .zsf { border-top: 1px solid var(--line); background: var(--g-sfoot); margin-top: auto; }
-  .pz .zsf .gp { padding: 4px 18px 8px; }
-  .pz .zsf .gp + .gp { border-top: 1px solid var(--line); }
-  .pz .zsf .gh { height: 24px; display: flex; align-items: center; }
-  .pz .tr { display: flex; align-items: center; gap: 10px; height: 24px; font: 11px/1 var(--font); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .pz .tr .w { display: inline-flex; align-items: center; gap: 4px; }
-  .pz .tr .sep { color: var(--ink3); }
-  .pz .bwc { position: absolute; left: 0; right: 30px; top: 2px; bottom: 2px; background: var(--g-pop); border: 1px solid var(--line2);
-             border-radius: var(--r-ctl); padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+  /* controls */
+  .bx .b { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: var(--radius-control);
+           font: 13px/1 var(--font); color: var(--text); background: var(--button); border: 1px solid var(--border); white-space: nowrap; flex: none; }
+  .bx .b.pri { background: var(--accent); border-color: transparent; color: #FFFFFF; font-weight: 500; }
+  .bx .b.dis { opacity: .4; }
+  .bx .in { display: flex; align-items: center; height: 28px; padding: 0 10px; border-radius: var(--radius-control); min-width: 0;
+            background: var(--field); border: 1px solid var(--border-strong); color: var(--text); }
+  .bx .in .ph { color: var(--placeholder); }
+  .bx .in.foc { border-color: var(--focus-edge); box-shadow: 0 0 0 3px var(--focus-ring); }
+  .bx .caret { display: inline-block; width: 1px; height: 15px; background: var(--accent); margin-right: 2px; flex: none; }
+  .bx .link { font: 11px/14px var(--font); color: var(--link); white-space: nowrap; flex: none; }
 
-  /* ---- sheets ---------------------------------------------------------------------------- */
-  .pz .st { width: 560px; background: var(--g-sheet); border: 1px solid var(--line2); border-radius: var(--r-win); display: flex;
-            flex-direction: column; box-shadow: 0 16px 40px rgba(0,0,0,.55); position: relative; flex: none; }
-  .pz .st.frag { box-shadow: none; }
-  .pz .st .hd { padding: 20px 24px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
-  .pz.p2 .st .hd, .pz.p3 .st .hd { padding: 18px 24px 14px; gap: 10px; }
-  .pz .st .ttl { font: 600 var(--t-title)/20px var(--font); color: var(--ink); letter-spacing: -.01em; }
-  .pz .st .tline { display: flex; align-items: center; gap: 12px; min-height: 20px; }
-  .pz .st .sub { font: 12px/16px var(--font); color: var(--ink2); }
-  .pz .st .bd2 { padding: 24px; display: flex; flex-direction: column; gap: 16px; flex: 1 1 auto; min-height: 0; position: relative; }
-  .pz .st .ft { padding: 16px 24px; border-top: 1px solid var(--line); background: var(--g-foot); display: flex; align-items: center; gap: 8px;
-                  border-radius: 0 0 var(--r-win) var(--r-win); }
-  .pz.p2 .st .ft, .pz.p3 .st .ft { padding: 14px 24px; }
-  .pz .st .ft .sp { flex: 1; }
-  .pz .steps { display: flex; align-items: center; gap: 8px; height: 20px; font: 12px/1 var(--font); color: var(--ink3); }
-  .pz .steps > span { display: inline-flex; align-items: center; gap: 6px; }
-  .pz .steps i { font: 600 10px/16px var(--font); font-style: normal; width: 16px; height: 16px; border-radius: 50%; text-align: center;
-                 box-shadow: inset 0 0 0 1px var(--line2); color: var(--ink3); display: inline-flex; align-items: center; justify-content: center; }
-  .pz .steps > span.was { color: var(--ink2); } .pz .steps > span.was i { color: var(--ink2); }
-  .pz .steps > span.now { color: var(--ink); font-weight: 500; }
-  .pz .steps > span.now i { background: var(--ink); color: var(--g-sheet); box-shadow: none; }
-  .pz .steps > em { width: 12px; height: 1px; background: var(--line2); }
-  .pz.p1 .steps > em { width: auto; height: auto; background: none; color: var(--ink3); display: inline-flex; }
-  .pz .utabs { display: flex; gap: 20px; margin-bottom: -15px; margin-top: 4px; }
-  .pz .utabs > span { padding-bottom: 10px; color: var(--ink2); font: 500 13px/16px var(--font); border-bottom: 2px solid transparent; }
-  .pz .utabs > span.on { color: var(--ink); border-bottom-color: var(--ink); }
-  .pz .utabs > span.off { opacity: .4; }
-  .pz .dest { font: 11px/14px var(--font); color: var(--ink2); }
-  .pz .grp { background: var(--g-card); border: 1px solid var(--line); border-radius: var(--r-grp); padding: 16px; display: flex;
-             flex-direction: column; gap: 12px; }
-  .pz.p1 .grp { background: var(--g-card); }
-  .pz .grp .gt { font: 600 var(--t-head)/16px var(--font); color: var(--ink); }
-  .pz .gr { display: flex; align-items: flex-start; gap: 12px; }
-  .pz .gr .gx { flex: 1 1 0; min-width: 0; }
-  .pz .gr .gx b { display: block; font: 500 13px/16px var(--font); color: var(--ink); }
-  .pz .gr .gx .hp { margin-top: 2px; }
-  .pz .secl { font: 600 12px/16px var(--font); color: var(--ink2); margin-bottom: -4px; }
-  .pz .tone { display: flex; align-items: center; gap: 4px; font: 11px/14px var(--font); }
-  .pz .pk { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--r-chip); background: var(--wash);
-            font-size: 12px; white-space: nowrap; flex: none; }
-  .pz .krow { display: flex; align-items: center; gap: 12px; min-height: 16px; }
-  .pz .lst { display: flex; flex-direction: column; }
-  .pz .lst > .li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-ctl); }
-  .pz .lst > .li.sel { background: var(--sel); }
-  .pz .lst > .li.sel .i2 { color: var(--sel-ink2); }
+  /* the sheet */
+  .bx .sheet { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-panel); overflow: hidden;
+               display: flex; flex-direction: column; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+  .bx .hd { padding: var(--space-margin) var(--space-margin) 0; display: flex; flex-direction: column; flex: none; }
+  .bx .hd h4 { margin: 0; font: 600 17px/22px var(--font); color: var(--text); }
+  .bx .trow { display: flex; align-items: center; gap: var(--space-gap); }
+  .bx .sl { display: flex; align-items: center; gap: 0; height: 16px; margin-top: var(--space-base); font: 500 10px/16px var(--font); color: var(--muted); white-space: pre; }
+  .bx .bl { display: flex; gap: 4px; margin-top: var(--space-base); font: 11px/16px var(--font); color: var(--muted); min-width: 0; }
+  .bx .bl b { font-weight: 500; color: var(--text); }
+  .bx .bl .chev { width: 12px; height: 16px; display: flex; align-items: center; color: var(--muted); flex: none; margin-left: -2px; }
+  .bx .bl.open { flex-direction: column; gap: var(--space-base); }
+  .bx .bl.open > div { display: flex; gap: 4px; }
+  .bx .xtabs { display: flex; gap: var(--space-section); margin-top: var(--space-block); }
+  .bx .xtabs span { font: 500 13px/16px var(--font); color: var(--muted); padding-bottom: 9px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .bx .xtabs span.on { color: var(--text); border-bottom-color: var(--text); }
+  .bx .xtabs span.off { opacity: .4; }
+  .bx .xtabs.inrow { margin-top: 0; }
+  .bx .xtabs.inrow span { padding-bottom: 4px; }
+  .bx .bodyc { flex: 1 1 0; min-height: 0; overflow: hidden; padding: var(--space-block) var(--space-margin); display: flex; flex-direction: column; gap: var(--space-block); }
+  .bx .ft { flex: none; display: flex; align-items: center; gap: var(--space-base); padding: var(--space-block) var(--space-margin); }
+  .bx .ft .sp { flex: 1 1 0; }
 
-  /* ---- board ----------------------------------------------------------------------------- */
-  .pz .meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; font: 12px/16px var(--font); }
-  .pz .meta dt { color: var(--ink2); } .pz .meta dd { margin: 0; color: var(--ink); }
-  .pz .cols { display: flex; gap: 12px; align-items: flex-start; }
-  .pz .col { width: 236px; flex: none; display: flex; flex-direction: column; gap: 12px; }
-  .pz .zcard { background: var(--g-card); border: 1px solid var(--line); border-radius: var(--r-grp); padding: 12px; display: flex;
-              flex-direction: column; gap: 8px; min-width: 0; }
-  .pz.p1 .zcard { background: none; }
-  .pz .zcard.att { border-color: rgba(255,146,48,.55); }
-  .pz .zcard .ct { display: flex; align-items: center; gap: 8px; font: 500 13px/16px var(--font); }
-  .pz .zcard .cl { font: 11px/14px var(--font); color: var(--ink2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .pz .zcard .q { font: 13px/17px var(--font); color: var(--ink); }
-  .pz .act { display: flex; flex-direction: column; }
-  .pz .act > div { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; padding: 7px 8px; border-radius: var(--r-ctl);
-                   font: 13px/16px var(--font); }
-  .pz .act > div > span:first-child, .pz .act > div > span:last-child { font: 11px/16px var(--font); font-variant-numeric: tabular-nums; color: var(--ink2); }
-  .pz .act > div.open { background: var(--wash); }
-  .pz .act pre { margin: 6px 0 0; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--g-well); font: 11px/15px var(--mono);
-                 color: var(--ink); white-space: pre-wrap; }
-  .pz .prose { font: 13px/19px var(--font); color: var(--ink); display: flex; flex-direction: column; gap: 12px; }
+  /* headings: SidebarHeading and its count */
+  .bx .gh { display: flex; align-items: center; gap: var(--space-snug); height: 24px; flex: none; }
+  .bx .gh > span:first-child { font: 600 11px/16px var(--font); color: var(--muted); }
+  .bx .gh .n { font: 500 10px/16px var(--font); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bx .gh .pg { margin-left: auto; display: flex; align-items: center; gap: var(--space-base); font: 500 10px/16px var(--font); color: var(--muted); }
+  .bx .gh .pg i { width: 20px; height: 20px; border-radius: var(--radius-chip); background: var(--badge); display: flex; align-items: center; justify-content: center; color: var(--text); }
+  .bx .grp { display: flex; flex-direction: column; flex: none; }
+  .bx .stack { display: flex; flex-direction: column; gap: var(--space-base); }
 
-  /* ---- proposal 3 only ------------------------------------------------------------------- */
-  .pz .st.wide { flex-direction: row; }
-  .pz .st.wide > .main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-  .pz .rail { width: 188px; flex: none; background: var(--g-rail); border-right: 1px solid var(--line); padding: 18px 10px; display: flex;
-              flex-direction: column; gap: 2px; border-radius: var(--r-win) 0 0 var(--r-win); }
-  .pz .rail .ttl { padding: 0 8px 12px; }
-  .pz .rail .ni { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r-ctl); color: var(--ink2); }
-  .pz .rail .ni.on { background: var(--sel); color: var(--ink); font-weight: 500; }
-  .pz .side { width: 268px; flex: none; background: var(--g-rail); border-left: 1px solid var(--line); padding: 20px; display: flex;
-              flex-direction: column; gap: 12px; }
-  .pz .side .f > label { font-size: 11px; line-height: 14px; }
-  .pz .rows { background: var(--g-card); border: 1px solid var(--line); border-radius: var(--r-grp); }
-  .pz .rows > div { display: flex; align-items: center; gap: 12px; padding: 10px 12px; min-height: 44px; }
-  .pz .rows > div + div { border-top: 1px solid var(--line); }
-  .pz .rows .gx { flex: 1 1 0; min-width: 0; } .pz .rows .gx b { display: block; font: 500 13px/16px var(--font); }
-  .pz .rows .gx .hp { margin-top: 2px; }
-  .pz .rows .in { width: 168px; flex: none; }
-  .pz .rows.c > div { min-height: 32px; padding: 6px 12px; } .pz .rows.c .gx b { font-weight: 400; }
-  .pz .pt { font: 600 15px/20px var(--font); } .pz .ps { font: 600 12px/16px var(--font); color: var(--ink2); margin-top: 8px; }
-  .pz .r3 { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 8px 0 4px; border-radius: var(--r-ctl); position: relative; }
-  .pz .r3 .tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 0; }
-  .pz .r3 .ti { font: 13px/16px var(--font); }
-  .pz .r3 .me { display: flex; align-items: center; gap: 6px; height: 14px; font: 11px/14px var(--font); color: var(--ink2); min-width: 0; white-space: nowrap; }
-  .pz .r3 .me .br { font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .pz .r3.sel { background: var(--sel); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); --ring: #323338; }
-  .pz .r3.sel .ti { font-weight: 500; color: #FFFFFF; }
-  .pz .r3.hov { background: var(--hover); }
-  .pz .pg { margin: 6px 8px 0; background: #1C1D21; border: 1px solid var(--line); border-radius: var(--r-grp); padding: 4px; --ring: #1C1D21; }
-  .pz .pg .ph3 { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px; }
-  .pz .pg .ph3 .nm2 { font: 600 13px/1 var(--font); }
-  .pz .zbar { display: flex; gap: 2px; height: 4px; flex: 1; }
-  .pz .zbar i { flex: 1; border-radius: 2px; background: var(--seg-on); } .pz .zbar i.d { background: var(--grn); } .pz .zbar i.w { background: var(--ink2); }
-  .pz .zbar i.a { background: var(--amb); }
-  .pz .sbar { display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 14px; border-top: 1px solid var(--line); background: var(--g-sfoot);
-              font: 11px/1 var(--font); font-variant-numeric: tabular-nums; margin-top: auto; white-space: nowrap; }
-  .pz .sbar .w { display: inline-flex; align-items: center; gap: 4px; } .pz .sbar .vr { width: 1px; height: 14px; background: var(--line2); }
-  .pz .col.w4 { width: auto; flex: 1 1 0; min-width: 0; }
-  .pz .qs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .pz .insp { width: 340px; flex: none; border-left: 1px solid var(--line); background: var(--g-rail); padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+  /* a question's block: groupChrome on the raised surface, edged in the attention stroke while it waits */
+  .bx .qk { background: var(--surface-raised); border: 1px solid var(--status-chip-attention-stroke); border-radius: var(--radius-group);
+            padding: var(--space-gap); display: flex; flex-direction: column; gap: var(--space-base); min-width: 0; }
+  .bx .qk.done { border-color: var(--border); gap: var(--space-tight); }
+  .bx .qk.old { padding: var(--space-block); }
+  .bx .qk .qh { display: flex; align-items: center; gap: var(--space-base); height: 16px; }
+  .bx .qk .qh .t { font: 11px/16px var(--font); color: var(--muted); }
+  .bx .qk .qh .age { font: 500 10px/16px var(--font); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+  .bx .qk .qt { font: 13px/16px var(--font); color: var(--text); white-space: pre-line; }
+  .bx .qk .acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-base); }
+  .bx .qk .acts .sp { flex: 1 1 0; }
+  .bx .qk .there { display: flex; align-items: center; gap: var(--space-gap); }
+  .bx .qk .there > div { display: flex; flex-direction: column; gap: var(--space-tight); }
 
-  /* ---- foundations strip ----------------------------------------------------------------- */
-  .pz .fd { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; width: 1080px; }
-  .pz .fd h4 { margin: 0 0 8px; font: 600 11px/14px var(--font); color: var(--ink2); }
-  .pz .fd .zbox { background: var(--g-sheet); border: 1px solid var(--line2); border-radius: var(--r-grp); padding: 16px; }
-  .pz .sw2 { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 10px; align-items: center; font: 11px/14px var(--font); }
-  .pz .sw2 i { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line2); }
-  .pz .sw2 b { font-weight: 500; display: block; color: var(--ink); } .pz .sw2 span { color: var(--ink2); }
-  .pz .ty { display: flex; flex-direction: column; gap: 8px; }
-  .pz .ty > div { display: flex; align-items: baseline; gap: 10px; } .pz .ty small { font: 10px/1 var(--mono); color: var(--ink3); margin-left: auto; white-space: nowrap; }
-  .pz .ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  /* a task's row: the sidebar's driven-task row on the sheet */
+  .bx .row { display: flex; align-items: center; gap: var(--space-base); min-height: 52px; padding: var(--space-base); margin-inline: calc(-1 * var(--space-base));
+             border-radius: var(--radius-group); }
+  .bx .row.hov { background: var(--row-hover); }
+  .bx .row.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
+  .bx .row .lead { width: 30px; display: flex; justify-content: flex-start; flex: none; }
+  .bx .row .mid { display: flex; flex-direction: column; gap: var(--space-tight); }
+  .bx .row .l1 { display: flex; align-items: center; gap: var(--space-base); height: 16px; }
+  .bx .row .l2 { display: flex; align-items: center; gap: var(--space-gap); height: 16px; }
+  .bx .row .ti { font: 13px/16px var(--font); color: var(--text); }
+  .bx .row.dim .ti { color: var(--muted); }
+  .bx .row .tr { width: 14px; display: flex; justify-content: center; flex: none; }
+  .bx .sub { padding: 0 0 var(--space-base) 38px; display: flex; flex-direction: column; gap: var(--space-tight); margin-top: -4px; }
+  .bx .tl { display: flex; align-items: center; gap: var(--space-base); height: 16px; }
+  .bx .tl .k { font: 500 10px/16px var(--font); color: var(--text); font-variant-numeric: tabular-nums; }
+  .bx .tl .tr { width: 14px; display: flex; justify-content: center; flex: none; margin-left: auto; }
+
+  /* today's card, for the options that keep it */
+  .bx .cols { display: flex; gap: var(--space-gap); align-items: flex-start; }
+  .bx .col { display: flex; flex-direction: column; gap: var(--space-base); flex: none; }
+  .bx .xcards { display: flex; flex-direction: column; gap: var(--space-gap); }
+  .bx .xcard { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-group); }
+  .bx .xcard.you { border-color: var(--status-chip-attention-stroke); }
+  .bx .xcard .ch { display: flex; gap: var(--space-base); padding: var(--space-block); align-items: flex-start; }
+  .bx .xcard .cl { display: flex; flex-direction: column; gap: var(--space-base); min-width: 0; }
+  .bx .xcard .cl > div { display: flex; align-items: center; gap: var(--space-base); min-height: 16px; }
+  .bx .xcard .cf { margin: 0 var(--space-block) var(--space-block); padding-top: var(--space-block); border-top: 1px solid var(--border);
+                  display: flex; flex-direction: column; gap: var(--space-base); }
+  .bx .empty { font: 11px/14px var(--font); color: var(--muted); padding: var(--space-block) 0; }
+
+  /* list and detail */
+  .bx .split { flex: 1 1 0; min-height: 0; display: flex; }
+  .bx .split .lst { width: 300px; flex: none; border-right: 1px solid var(--border); padding: var(--space-gap) var(--space-block); overflow: hidden;
+                    display: flex; flex-direction: column; gap: var(--space-base); }
+  .bx .split .det { flex: 1 1 0; min-width: 0; padding: var(--space-block) var(--space-margin); display: flex; flex-direction: column; gap: var(--space-gap); }
+  .bx .r1 { display: flex; align-items: center; gap: var(--space-base); height: 28px; padding: 0 var(--space-base); margin-inline: calc(-1 * var(--space-base)); border-radius: var(--radius-control); }
+  .bx .r1.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
+  .bx .kv { display: grid; grid-template-columns: 76px 1fr; gap: var(--space-snug) var(--space-gap); font: 11px/16px var(--font); color: var(--muted); }
+  .bx .kv b { font-weight: 400; color: var(--text); }
+  .bx .log { display: flex; flex-direction: column; gap: var(--space-snug); font: 11px/16px var(--font); }
+  .bx .log > div { display: flex; gap: var(--space-base); }
+  .bx .log .tm { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; width: 34px; }
+
+  /* the state matrix */
+  .bx .frag { width: 560px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-panel); padding: var(--space-base) var(--space-margin); }
+  .bx .frag.q { padding: var(--space-block) var(--space-margin); display: flex; flex-direction: column; gap: var(--space-base); }
+  .bx .frag .lab { font: 500 10px/14px var(--mono); letter-spacing: .04em; color: var(--tertiary); margin: var(--space-gap) 0 var(--space-tight); }
+  .bx .frag .lab:first-child { margin-top: var(--space-tight); }
+  .bx .lst8 { display: flex; flex-direction: column; gap: var(--space-base); }
+  .bx .row1 { display: flex; align-items: center; gap: var(--space-base); height: 28px; padding: 0 var(--space-base); margin-inline: calc(-1 * var(--space-base));
+              border-radius: var(--radius-control); }
+  .bx .row1 .lead { width: 30px; display: flex; flex: none; }
+  .bx .row1 .ti { font: 13px/16px var(--font); color: var(--text); }
+  .bx .row1.dim .ti { color: var(--muted); }
+  .bx .row1 .stw { margin-left: var(--space-tight); flex: none; display: flex; }
+  .bx .row1 .tr { width: 14px; display: flex; justify-content: center; flex: none; }
+  .bx-stage.bx-bleed { margin-top: 0; }
 </style>
 <script>
-  /* Proposal · design polish. Draws every frame of the three proposals from one set of builders, so the
-     same fixture is compared three ways. Leaves with the proposal. */
+  /* Proposal · the broadcast's sheet. Draws every frame from one set of builders and one fixture, so the
+     options are the same broadcast drawn differently. Leaves with the proposal. */
   (function () {
-    var root = document.getElementById('pz-root');
-    if (!root) { return; }
-    var L = { claude: 'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z', openai: 'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z', jira: 'M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z', gitlab: 'm23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z', github: 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12',
-              vscode: 'M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z', pi: '<path d="M420 280H280V140H0V0H420V280Z"/><path d="M560 560H420V280H560V560Z"/><path d="M140 560H0V140H140V280H280V420H140V560Z"/>' };
-    var P = 1;
-
-    /* ---- glyphs, marks ------------------------------------------------------------------ */
-    var IC = {
-      plus: 'M8 3v10M3 8h10', down: 'M4 6l4 4 4-4', right: 'M6 4l4 4-4 4', up: 'M4 10l4-4 4 4', ud: 'M5 6.5l3-3 3 3M5 9.5l3 3 3-3',
-      x: 'M4.5 4.5l7 7M11.5 4.5l-7 7', check: 'M3.5 8.5l3 3 6-7',
-      search: 'M7 2.5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zM10.5 10.5L14 14',
-      cols: 'M3.5 3h9A1.5 1.5 0 0114 4.5v7a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7A1.5 1.5 0 013.5 3zM6 3v10M10 3v10',
-      term: 'M3.5 3h9A1.5 1.5 0 0114 4.5v7a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7A1.5 1.5 0 013.5 3zM5 6.5L7 8 5 9.5M8.5 10H11',
-      eye: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM8 6a2 2 0 100 4 2 2 0 000-4z',
-      mac: 'M4 4h8a1 1 0 011 1v5.5H3V5a1 1 0 011-1zM1.5 12.5h13',
-      msg: 'M3.5 3h9A1.5 1.5 0 0114 4.5v5a1.5 1.5 0 01-1.5 1.5H7l-3 2.5V11h-.5A1.5 1.5 0 012 9.5v-5A1.5 1.5 0 013.5 3z',
-      fork: 'M5 2.5v4a3 3 0 003 3v4M11 2.5v2a3 3 0 01-3 3',
-      spark: 'M8 2.5v4M8 9.5v4M2.5 8h4M9.5 8h4',
-      never: 'M8 2.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM4.2 4.2l7.6 7.6',
-      key: 'M2.5 4.5h11a1 1 0 011 1v5a1 1 0 01-1 1h-11a1 1 0 01-1-1v-5a1 1 0 011-1zM4.5 7.2h.01M7 7.2h.01M9.5 7.2h.01M12 7.2h.01M5.5 9.5h5',
-      plug: 'M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 01-7 0zM8 11v3',
-      agents: 'M8 2.5l1.2 3.3 3.3 1.2-3.3 1.2L8 11.5 6.8 8.2 3.5 7l3.3-1.2zM12.5 11v3M11 12.5h3',
-      op: 'M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z',
-      win: 'M3.5 3h9A1.5 1.5 0 0114 4.5v7a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7A1.5 1.5 0 013.5 3zM2 6h12'
-    };
-    function I(n, s) { s = s || 12; return '<svg class="ic" width="' + s + '" height="' + s + '" viewBox="0 0 16 16"><path d="' + IC[n] + '"/></svg>'; }
-    function G(n, s, col) {
-      s = s || 10;
-      return '<svg width="' + s + '" height="' + s + '" viewBox="' + (n === 'pi' ? '0 0 560 560' : '0 0 24 24') + '" fill="' + (col || 'currentColor') + '">' +
-        (n === 'pi' ? L.pi : '<path d="' + L[n] + '"/>') + '</svg>';
-    }
-    var JIRA = '#2684FF', GITLAB = '#FC6D26';
-    function VM(k, s) {
-      s = s || 18; var g;
-      if (k === 'shell') { g = '<svg width="' + s * 0.6 + '" height="' + s * 0.6 + '" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5L5.5 6l-3 2.5M7 9h3"/></svg>'; }
-      else if (k === 'mac') { g = I('mac', s * 0.64); }
-      else if (k === 'codex') { g = G('openai', s * 0.62); }
-      else if (k === 'gitlab') { g = G('gitlab', s * 0.6, GITLAB); }
-      else if (k === 'pi') { g = G('pi', s * 0.5); }
-      else if (k.charAt(0) === '+') { return '<span class="vm more" style="width:' + s + 'px;height:' + s + 'px">' + k + '</span>'; }
-      else { g = G(k, s * 0.6); }
-      return '<span class="vm ' + k + '" style="width:' + s + 'px;height:' + s + 'px">' + g + '</span>';
-    }
-    function VMS(list, s) { return '<span class="vms">' + list.map(function (k) { return VM(k, s); }).join('') + '</span>'; }
+    if (!document.getElementById('bx-1a')) { return; }
+    var L = { claude: 'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z', openai: 'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z', jira: 'M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z', gitlab: 'm23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z' };
+    var IC = { right: 'M6 4l4 4-4 4', down: 'M4 6l4 4 4-4', left: 'M10 4L6 8l4 4', check: 'M3.5 8.5l3 3 6-7', ud: 'M5 6.5l3-3 3 3M5 9.5l3 3 3-3' };
+    function I(n, s) { s = s || 12; return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 16 16"><path d="${IC[n]}"/></svg>`; }
+    function G(n, s) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="currentColor"><path d="${L[n]}"/></svg>`; }
+    function VM(k, s) { s = s || 18; return `<span class="vm ${k}" style="width:${s}px;height:${s}px">${G(k === 'codex' ? 'openai' : k, s * 0.62)}</span>`; }
+    function VMS(list, s) { return `<span class="vms">${list.map(function (k) { return VM(k, s); }).join('')}</span>`; }
     function ring(s, col, frac, dash) {
-      var w = s * 0.15, r = (s - w) / 2, c = s / 2, C = 2 * Math.PI * r, extra = '';
-      if (dash) { extra = ' stroke-dasharray="' + (C / 16) + ' ' + (C / 16) + '"'; }
-      else if (frac != null) { extra = ' stroke-dasharray="' + (C * frac) + ' ' + C + '" stroke-linecap="round" transform="rotate(-90 ' + c + ' ' + c + ')"'; }
-      return '<circle cx="' + c + '" cy="' + c + '" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="' + w + '"' + extra + '/>';
+      var w = s * 0.15, r = (s - w) / 2, c = s / 2, C = 2 * Math.PI * r, x = '';
+      if (dash) { x = ` stroke-dasharray="${C / 16} ${C / 16}"`; }
+      else if (frac != null) { x = ` stroke-dasharray="${C * frac} ${C}" stroke-linecap="round" transform="rotate(-90 ${c} ${c})"`; }
+      return `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${col}" stroke-width="${w}"${x}/>`;
     }
-    function svg(s, body) { return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">' + body + '</svg>'; }
+    function svg(s, b) { return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${b}</svg>`; }
+    /* StatusMark: at work, needs you, idle, in background, done, paused */
     function ST(k, s) {
       s = s || 10;
-      if (k === 'merged') { return '<span class="grn">' + I('check', s + 2) + '</span>'; }
-      if (k === 'work') { return svg(s, ring(s, 'var(--st-track)') + ring(s, 'var(--st-work)', 0.3)); }
-      if (k === 'bg') { return svg(s, ring(s, 'var(--st-work)', null, true)); }
-      return svg(s, ring(s, k === 'amb' ? 'var(--st-amb)' : k === 'done' ? 'var(--st-done)' : k === 'grn' ? 'var(--st-grn)' : 'var(--st-idle)'));
+      if (k === 'done') { return `<span class="grn">${I('check', s + 2)}</span>`; }
+      if (k === 'pause') { return `<svg width="${s}" height="${s}" viewBox="0 0 10 10" fill="var(--tertiary)"><rect x="2" y="1.5" width="2.2" height="7" rx=".6"/><rect x="5.8" y="1.5" width="2.2" height="7" rx=".6"/></svg>`; }
+      if (k === 'work') { return svg(s, ring(s, 'var(--spinner-track)') + ring(s, 'var(--muted)', 0.3)); }
+      if (k === 'bg') { return svg(s, ring(s, 'var(--muted)', null, true)); }
+      return svg(s, ring(s, k === 'you' ? 'var(--amber)' : 'var(--idle-ring)'));
     }
-    function UR(p, warn, s) { s = s || 10; return svg(s, ring(s, 'var(--st-track)') + ring(s, warn ? 'var(--amb)' : 'var(--ink)', p / 100)); }
+    function OB(w, look) { return `<span class="ob ${look || ''}">${w}</span>`; }
+    function QB(k, label) { return `<span class="qb">${G(k, 10)}<span>${label}</span></span>`; }
+    function K() { return `<span class="kbd">${[].map.call(arguments, function (k) { return `<i>${k}</i>`; }).join('')}</span>`; }
+    function B(t, c, keys) { return `<span class="b ${c || ''}">${t}${keys ? K('⌘', '↩') : ''}</span>`; }
+    function IN(ph, o) { o = o || {}; return `<div class="in grow ${o.foc ? 'foc' : ''}">${o.foc && !o.val ? '<span class="caret"></span>' : ''}<span class="cut ${o.val ? '' : 'ph'}">${o.val || ph}</span>${o.val && o.foc ? '<span class="caret" style="margin-left:1px"></span>' : ''}</div>`; }
+    function LINK(t) { return `<span class="link">${t}</span>`; }
+    function GH(t, n, extra) { return `<div class="gh"><span>${t}</span>${n != null ? `<span class="n">${n}</span>` : ''}${extra || ''}</div>`; }
 
-    /* ---- controls ----------------------------------------------------------------------- */
-    function K() { return '<span class="kbd">' + [].map.call(arguments, function (k) { return '<i>' + k + '</i>'; }).join('') + '</span>'; }
-    function B(t, c, k) { return '<span class="b ' + (c || '') + '">' + t + (k ? K('⌘', '↩') : '') + '</span>'; }
-    function IN(v, o) {
-      o = o || {};
-      return '<div class="in ' + (o.foc ? 'foc ' : '') + (o.mono ? 'mono' : '') + '"' + (o.w ? ' style="width:' + o.w + 'px;flex:none"' : '') + '>' + (o.lead || '') +
-        '<span class="cut grow' + (o.ph ? ' ph' : '') + '">' + (o.foc && o.ph ? '<span class="caret" style="margin:0 2px 0 0"></span>' : '') + v +
-        (o.foc && !o.ph ? '<span class="caret"></span>' : '') + '</span>' + (o.trail || '') + '</div>';
+    /* ---- a question's block, as proposed ---------------------------------------------------- */
+    function QH(q) {
+      return `<div class="qh">${q.ticket ? QB('jira', q.ticket) : ''}<span class="t cut grow">${q.title}</span><span class="age">${q.from ? q.from + ' · ' : ''}${q.age}</span></div>`;
     }
-    function SEL(v, o) { o = o || {}; o.trail = '<span class="ud">' + I('ud', 12) + '</span>'; return IN(v, o); }
-    function PICK(v, o) { o = o || {}; o.ph = 1; o.trail = '<span class="ud">' + I(o.open ? 'up' : 'down', 11) + '</span>'; return IN(v, o); }
-    function F(l, c, h) { return '<div class="f">' + (l ? '<label>' + l + '</label>' : '') + c + (h ? '<div class="hp">' + h + '</div>' : '') + '</div>'; }
-    function W(w, html) { return '<div style="width:' + w + 'px;flex:none">' + html + '</div>'; }
-    function GW(html) { return '<div class="grow">' + html + '</div>'; }
-    function HR(a) { return '<div class="hrow">' + a.join('') + '</div>'; }
-    function SEG(items, on, off) {
-      return '<div class="seg">' + items.map(function (t, i) { return '<span class="' + (i === on ? 'on' : '') + (off && off.indexOf(i) >= 0 ? ' off' : '') + '">' + t + '</span>'; }).join('') + '</div>';
-    }
-    function CK(l, on) { return '<div class="ck' + (on ? ' on' : '') + '"><i>' + (on ? '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="' + IC.check + '"/></svg>' : '') + '</i><span>' + l + '</span></div>'; }
-    function SW(on) { return '<span class="sw' + (on ? ' on' : '') + '"></span>'; }
-    function ED(t, h, foc, ph) { return '<div class="ed' + (foc ? ' foc' : '') + '" style="height:' + h + 'px">' + (ph ? '<span class="ph">' + t + '</span>' : t) + (foc && !ph ? '<span class="caret"></span>' : '') + '</div>'; }
-    function CMD(c) { return F('Command', '<div class="cmd"><span class="grn">$</span><span class="cut">' + c + '</span></div>'); }
-    function HL() { return '<div class="hl"></div>'; }
-    function NM() { return '<span class="nm">!</span>'; }
-    function PK(html) { return '<span class="pk">' + html + '<span class="i2">' + I('x', 10) + '</span></span>'; }
-    var SP = '<span class="sp"></span>';
-
-    /* ---- page scaffolding --------------------------------------------------------------- */
-    function FIG(cap, html) { return '<figure class="pz-fig"><div class="pz-stage pz p' + P + '">' + html + '</div><figcaption>' + cap + '</figcaption></figure>'; }
-    function GRP(t, d, figs) { return '<div class="pz-g"><h3>' + t + '</h3>' + (d ? '<p>' + d + '</p>' : '') + '<div class="pz-row">' + figs.join('') + '</div></div>'; }
-
-    /* ---- sheet chrome ------------------------------------------------------------------- */
-    function STEPS(names, n) {
-      return '<div class="steps">' + names.map(function (t, i) {
-        var c = i + 1 < n ? 'was' : i + 1 === n ? 'now' : '';
-        var num = '<i>' + (i + 1 < n ? I('check', 9) : i + 1) + '</i>';
-        return (i ? (P === 1 ? '<em>' + I('right', 9) + '</em>' : '<em></em>') : '') + '<span class="' + c + '">' + num + (P === 1 || c === 'now' ? t : '') + '</span>';
-      }).join('') + '</div>';
-    }
-    function UT(items, on, off) {
-      return '<div class="utabs">' + items.map(function (t, i) { return '<span class="' + (i === on ? 'on' : '') + (off && off.indexOf(i) >= 0 ? ' off' : '') + '">' + t + '</span>'; }).join('') + '</div>';
-    }
-    function SH(o) {
-      var steps = o.steps ? STEPS(o.steps, o.step) : '', hd;
-      if (P === 1) {
-        hd = '<div class="ttl cut">' + o.t + '</div>' + (o.stat ? '<div class="krow">' + o.stat + '</div>' : '') + (o.pre || '') + steps +
-          (o.tabs ? SEG(o.tabs, o.tab, o.tabOff) : '') + (o.sub ? '<div class="sub">' + o.sub + '</div>' : '') + (o.band || '');
-      } else {
-        hd = '<div class="tline"><div class="ttl grow cut">' + o.t + '</div>' + steps + (o.stat || '') + '</div>' +
-          (o.sub ? '<div class="sub" style="margin-top:-6px">' + o.sub + '</div>' : '') + (o.pre || '') + (o.band || '') + (o.tabs ? UT(o.tabs, o.tab, o.tabOff) : '');
+    function QK(q) {
+      if (q.answered) {
+        return `<div class="qk done">${QH(q)}<div class="help">You answered “${q.answered}” ${q.ago} ago. Waiting for the Operator to take it.</div></div>`;
       }
-      var size = (o.w ? 'width:' + o.w + 'px;' : '') + (o.fix ? 'height:' + o.fix + 'px;' : '') + (o.h ? 'min-height:' + o.h + 'px;' : '');
-      return '<div class="st ' + (o.cls || '') + '" style="' + size + '"><div class="hd">' + hd + '</div><div class="bd2"' + (o.bs ? ' style="' + o.bs + '"' : '') + '>' + o.b +
-        '</div>' + (o.f ? '<div class="ft">' + o.f + '</div>' : '') + '</div>';
-    }
-
-    /* ---- sidebar (proposals 1 and 2) ---------------------------------------------------- */
-    var TB = '<div class="tb"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i><i style="background:#28C840"></i></div>';
-    function mJ(k) { return '<span class="num">' + G('jira', 10) + k + '</span>'; }
-    function mD(a, r) { return '<span class="num">' + G('vscode', 10) + (a ? '<b class="grn" style="font-weight:500">+' + a + '</b>' : '') + (r ? '<b class="red" style="font-weight:500">−' + r + '</b>' : '') + '</span>'; }
-    function mB(b, c) { return '<span class="br cut ' + (c || '') + '">' + b + '</span>'; }
-    function mM(g, n, th) { return '<span class="num">' + G(g, 10) + n + (th ? '<span style="display:inline-flex;gap:3px;align-items:center;margin-left:4px">' + I('msg', 10) + th + '</span>' : '') + '</span>'; }
-    function ROW(o) {
-      return '<div class="rw ' + (o.c || '') + '"><span class="av">' + (o.av || '') + '</span><div class="tx"><div class="ti cut">' + o.t + '</div>' +
-        (o.m ? '<div class="me">' + o.m.join('') + '</div>' : '') + (o.x || '') + '</div><span class="slot">' + ST(o.s || 'idle') + '</span>' + (o.over || '') + '</div>';
-    }
-    function HEAD(t, extra, trail) { return '<div class="sh"><span class="sht">' + t + '</span>' + (extra || '') + '<span class="grow"></span>' + (trail || '') + '</div>'; }
-    function PROJ(o) {
-      return '<div class="pr ' + (o.c || '') + '"><span style="width:10px;color:var(--ink2)">' + (o.ch ? I(o.ch, 10) : '') + '</span><span class="tile">' + o.g + '</span><span class="nm2">' + o.n + '</span>' +
-        (o.j ? '<span class="bd q num">' + G('jira', 10) + o.j + '</span>' : '') + '<span class="grow"></span>' + (o.chips || '') + '<span class="slot">' + I('plus', 11) + '</span></div>';
-    }
-    var CHIPS = '<span class="chips"><span class="zchip">' + ST('idle', 8) + '2</span><span class="zchip">' + ST('work', 8) + '1</span><span class="zchip a">' + ST('amb', 8) + '1</span><span class="zchip d">' + ST('done', 8) + '1</span></span>';
-    function TR(mark, html) { return '<div class="tr"><span style="width:16px;display:flex;justify-content:center;flex:none">' + mark + '</span>' + html + '</div>'; }
-    function UW(l, p, warn, reset) { return '<span class="w">' + (l ? '<span class="i2">' + l + '</span>' : '') + UR(p, warn) + '<span class="' + (warn ? 'amb' : '') + '">' + p + '%</span>' + (reset ? '<span class="i2">' + reset + '</span>' : '') + '</span>'; }
-    var SEP = '<span class="sep">·</span>';
-    function SFOOT() {
-      return '<div class="zsf"><div class="gp"><div class="gh"><span class="sht">System</span></div>' + TR(VM('pi', 16), UW('Context', 84, 1)) +
-        TR(VM('mac', 16), UW('CPU', 23) + SEP + UW('RAM', 61) + SEP + UW('Battery', 64)) + '</div><div class="gp"><div class="gh"><span class="sht">Usage</span></div>' +
-        TR(VM('claude', 16), UW('Week', 61, 0, 'Sat 12:00') + SEP + UW('5 h', 42, 0, '14:00')) + TR(VM('codex', 16), UW('5 h', 88, 1, '14:00')) + '</div></div>';
-    }
-    var PLUS = '<span class="slot">' + I('plus', 11) + '</span>';
-    function SIDEBAR() {
-      return '<div class="sb">' + TB +
-        HEAD('Operator', '<span class="i2 num" style="font-size:11px">2 of 8</span>', '<span class="zchip a">' + ST('amb', 8) + '1</span><span class="slot">' + I('cols', 13) + '</span>') +
-        ROW({ c: 'zop', av: VM('claude'), t: 'Checkout redesign', m: ['<span>watching 3 tasks</span>'], s: 'idle' }) +
-        HEAD('Projects', '', PLUS) +
-        PROJ({ ch: 'down', g: G('gitlab', 14, GITLAB), n: 'acme-storefront', j: 2 }) +
-        ROW({ av: VM('shell'), t: 'Dev server', m: [mD(), mB('main')], s: 'idle' }) +
-        ROW({ av: VMS(['claude', '+2']), t: 'Add Apple Pay to the checkout flow', m: [mJ('PAY-214'), mD(148, 12), mB('feat/pay-214-apple-pay'), '<span class="bd num">+1</span>'], s: 'work' }) +
-        ROW({ av: VMS(['codex', 'shell']), t: 'Cut product page load time in half', m: [mJ('SHOP-1088'), mD(3), mB('main', 'amb')], s: 'amb' }) +
-        ROW({ c: 'sel', av: VM('pi'), t: 'Fix rounding in cart totals', m: [mD(7, 2), mB('fix/cart-total-rounding')], s: 'work' }) +
-        ROW({ c: 'hov', av: VM('codex'), t: 'Write the release notes for v2.4', m: [mD(), mB('docs/release-notes-2-4')], s: 'done' }) +
-        ROW({ av: VM('claude'), t: 'Apple Pay on checkout', m: [mM('gitlab', '!87', '2/5'), mD(), mB('review/87')], s: 'bg' }) +
-        '<div class="dv"><span class="sht">Personal</span></div>' +
-        PROJ({ ch: 'right', g: G('github', 14, '#FFFFFF'), n: 'aiterm', chips: CHIPS }) +
-        PROJ({ g: '<span class="i2">' + I('fork', 13) + '</span>', n: 'dotfiles' }) +
-        '<div style="height:20px"></div>' + SFOOT() + '</div>';
-    }
-    function NOTICES() {
-      function N(t, p, links) { return '<div class="notice">' + NM() + '<div><b>' + t + '</b>' + (p ? '<p>' + p + '</p>' : '') + (links ? '<div class="links">' + links.map(function (l) { return '<span>' + l + '</span>'; }).join('') + '</div>' : '') + '</div></div>'; }
-      return '<div class="sb frag" style="padding:14px 18px;gap:14px">' + N('Couldn’t save the workspace: the disk is full.', '', ['Retry Saving']) +
-        N('Branch feat/migrate-alert kept.', 'It has commits that aren’t on main.', ['Keep Branch', 'Delete Branch…', 'Dismiss']) +
-        N('iTerm2 refused the connection: not allowed.', 'In System Settings › Privacy &amp; Security › Automation, turn on iTerm2 under AiTerm. AiTerm retries on its own within a minute.') +
-        '<div class="i2" style="font-size:12px">Waiting for iTerm2…</div></div>';
-    }
-    function EMPTY() {
-      return '<div class="sb frag">' + HEAD('Projects', '', PLUS) + '<div style="padding:8px 18px 20px;display:flex;flex-direction:column;gap:4px;align-items:flex-start"><div style="font-weight:500">Add a git repository to start.</div>' +
-        '<div class="i2" style="font-size:12px;margin-bottom:10px">Each task gets its own worktree and iTerm2 window.</div>' + B('Add Project…') + '</div></div>';
-    }
-    function DRIVEN() {
-      var card = '<div class="bwc"><span class="i2" style="font-size:11px">Background work · 3 jobs</span><span style="display:flex;gap:6px;align-items:center" class="mono"><span class="i2">' + I('term', 12) + '</span><span style="font-size:12px">npm run test</span></span></div>';
-      return '<div class="sb frag" style="padding:6px 0">' + HEAD('Operator', '<span class="i2 num" style="font-size:11px">3 of 15</span>', '<span class="slot">' + I('cols', 13) + '</span>') +
-        ROW({ c: 'zop', av: VM('claude'), t: 'Checkout redesign', m: ['<span>answering Claude</span>', '<span class="num">PAY-231</span>'], s: 'work' }) +
-        ROW({ t: 'Checkout layout', m: ['<span>merged</span>', '<span class="mono">9b3e07d</span>'], s: 'merged' }) +
-        ROW({ c: 'sel', av: VM('codex'), t: 'Payment provider switch', m: [mJ('PAY-232'), mD(), mB('feat/pay-232-payment-provider-switch'), '<span class="bd" style="font-weight:600">Waiting on you</span>'], s: 'amb' }) +
-        ROW({ av: VM('claude'), t: 'Cart drawer', m: ['<span>Operator answering</span>'], s: 'work' }) +
-        ROW({ av: VM('claude'), t: 'Order summary copy', m: [mJ('PAY-234'), mB('feat/pay-234-order-summary')], s: 'bg', over: card }) + '</div>';
-    }
-
-    /* ---- New Task, New Review, small sheets --------------------------------------------- */
-    var NT = 'New task in acme-storefront', NTS = ['Task', 'Agent', 'Prompt'];
-    var DEST = '<div class="dest">Opens in iTerm2 · acme-storefront/.worktrees/pay-230-retry-failed-payment-webhooks-with-backo · feat/pay-230-retry-failed-payment-webhooks-with-backoff</div>';
-    var CMDT = 'claude --model opus --effort high \'PAY-230: Retry failed payment webhooks with backoff\'';
-    function TICKET() { return '<div class="in">' + G('jira', 13, JIRA) + '<span class="mono lnk" style="font-size:12px">PAY-230</span><span class="cut grow">Retry failed payment webhooks with backoff</span><span class="bd lane">In Progress</span><span class="i2">' + I('x', 11) + '</span></div>'; }
-    function TROW(k, t, s, hi) { return '<div class="' + (hi ? 'hi' : '') + '">' + G('jira', 11, hi && P === 1 ? '#FFFFFF' : JIRA) + '<span class="mono" style="font-size:12px;width:58px">' + k + '</span><span class="cut grow">' + t + '</span><span class="i2" style="font-size:11px">' + s + '</span></div>'; }
-    function BRANCHROW(empty) {
-      return HR([W(96, F('Type', SEL('feat', { mono: 1 }))), GW(F('New branch', empty ? IN('branch-name', { mono: 1, ph: 1 }) : IN('pay-230-retry-failed-payment-webhooks-with-backoff', { mono: 1 }))), W(140, F('Base branch', SEL('main', { mono: 1 })))]);
-    }
-    function AGENTSEG(on) { return SEG([VM('claude', 14) + 'Claude Code', VM('codex', 14) + 'Codex', VM('pi', 14) + 'PI'], on); }
-    function COMPL(top, left, w) {
-      function R(ic, n, d, src, hi) { return '<div class="' + (hi ? 'hi' : '') + '"><span class="i2">' + I(ic, 11) + '</span><span class="mono" style="font-size:12px">' + n + '</span><span class="cut grow i2" style="font-size:11px">' + d + '</span><span class="i2" style="font-size:11px">' + src + '</span></div>'; }
-      return '<div class="dd pop" style="top:' + top + 'px;left:' + left + 'px;width:' + (w || 470) + 'px">' + R('spark', 'superpowers:brainstorming', 'You MUST use this before any creative work', 'superpowers', 1) +
-        R('spark', 'superpowers:finishing-a-branch', 'Use when implementation is complete', 'superpowers') + R('spark', 'simplify', 'Review the changed code for reuse', 'user') +
-        R('term', 'review', 'Review a pull request', 'project') + R('spark', 'security-review', 'Review the pending changes', 'user') + R('term', 'statusline', 'Set up the status line', 'user') + '</div>';
-    }
-    function NEWTASK() {
-      var h = P === 1 ? 538 : 498, cont = SP + B('Cancel') + B('Continue', 'pri', 1), back = SP + B('Back');
-      var s1 = SH({ t: NT, steps: NTS, step: 1, h: h, f: cont, b: F('Ticket (optional)', TICKET()) + F('Task name', IN('Retry failed payment webhooks with backoff')) + BRANCHROW() + DEST });
-      var s1b = SH({ t: NT, steps: NTS, step: 1, h: h, f: SP + B('Cancel') + B('Continue', 'pri dis', 1),
-        b: '<div style="position:relative">' + F('Ticket (optional)', IN('pay', { foc: 1, lead: '<span class="i2">' + I('search', 12) + '</span>', trail: '<span class="ud">' + I('up', 11) + '</span>' })) +
-          '<div class="dd pop" style="left:0;right:0;top:54px">' + TROW('PAY-230', 'Retry failed payment webhooks with backoff', 'In Progress', 1) + TROW('PAY-231', 'Cart drawer keeps the last coupon', 'To Do') +
-          TROW('PAY-236', 'Refund partial captures', 'To Do') + '</div></div>' + F('Task name', IN('Describe the task', { ph: 1 })) + BRANCHROW(1) });
-      var s2 = SH({ t: NT, steps: NTS, step: 2, h: h, f: back + B('Continue', 'pri', 1),
-        b: F('Agent', AGENTSEG(0)) + HR([GW(F('Model', SEL('Opus'))), GW(F('Reasoning', SEL('High')))]) + CMD(CMDT) });
-      var body3 = function (txt, pop) {
-        return F('First prompt (optional)', '<div style="position:relative">' + ED(txt, 150, 1) + (pop || '') + '</div>', 'Type / for commands and skills, @ for files and folders.') +
-          CK('Include ticket details', 1) + CMD('claude --model opus --effort high \'/superpowers:brainstorming Start with the worker’s shutdown…\'') + DEST;
-      };
-      var s3 = SH({ t: NT, steps: NTS, step: 3, h: h, f: back + B('Create Task', 'pri', 1), b: body3('/superpowers:brainstorming\nStart with the worker’s shutdown path and the queue drain.') });
-      var s3b = SH({ t: NT, steps: NTS, step: 3, h: h, f: back + B('Create Task', 'pri', 1), b: body3('Start with the worker’s shutdown path.\nThen the queue drain.\n/s', COMPL(66, 8)) });
-      return [FIG('<b>Step 1 · Task.</b> A ticket is picked; type, branch and base sit in one row of one control shape.', s1),
-        FIG('<b>Step 1, ticket picker open.</b> The list hangs over the fields below it; Continue waits for a name.', s1b),
-        FIG('<b>Step 2 · Agent.</b>', s2), FIG('<b>Step 3 · Prompt.</b> The editor has the focus.', s3),
-        FIG('<b>Step 3, completions open</b> after typing <code>/s</code>.', s3b)];
-    }
-    function NEWREVIEW() {
-      function MR(n, t, s, hi) { return '<div class="' + (hi ? 'hi' : '') + '">' + G('gitlab', 11, hi && P === 1 ? '#FFFFFF' : GITLAB) + '<span class="mono" style="font-size:12px;width:30px">' + n + '</span><span class="cut grow">' + t + '</span><span class="i2" style="font-size:11px">' + s + '</span></div>'; }
-      return [FIG('<b>New Review, step 1</b> with the merge request picker open. Steps 2 and 3 are New Task’s.', SH({ t: 'New review in acme-storefront', steps: ['Branch', 'Agent', 'Prompt'], step: 1, h: P === 1 ? 538 : 498,
-        f: SP + B('Cancel') + B('Continue', 'pri dis', 1),
-        b: '<div style="position:relative">' + F('Merge request (optional)', PICK('Search by !number, title or branch', { foc: 1, open: 1 })) + '<div class="dd pop" style="left:0;right:0;top:54px">' +
-          MR('!4', 'Add a gift-card field to checkout', 'Opened', 1) + MR('!7', 'Drop the unused CDN origin', 'Draft') + '</div></div>' +
-          F('Ticket (optional)', PICK('Search by key or title'), 'Select a ticket to find its merge request.') + F('Review name', IN('Describe the review', { ph: 1 })) + F('Branch', PICK('Search branches')) }))];
-    }
-    function SMALL() {
-      return [FIG('<b>New Terminal.</b> The sheet is as tall as its content.', SH({ t: 'New terminal in acme-storefront', sub: 'Opens a shell in the project folder.', f: SP + B('Cancel') + B('Create Terminal', 'pri', 1),
-        b: F('Terminal name', IN('shell 2', { foc: 1 })) + '<div class="dest">Opens in iTerm2 · acme-storefront · main</div>' })),
-        FIG('<b>Rename task.</b>', SH({ t: 'Rename task', sub: 'The branch and worktree keep their names.', f: SP + B('Cancel') + B('Rename', 'pri', 1), b: F('Task name', IN('Add Apple Pay to the checkout flow', { foc: 1 })) }))];
-    }
-
-    /* ---- Settings (proposals 1 and 2) --------------------------------------------------- */
-    var TABS = ['Agents', 'Operator', 'Integrations', 'Interface'];
-    function TONE(t, text) { return '<div class="tone ' + (t === 'idle' ? 'i2' : t) + '">' + svg(8, ring(8, t === 'amb' ? 'var(--amb)' : t === 'grn' ? 'var(--grn)' : 'var(--ink3)')) + '<span>' + text + '</span></div>'; }
-    function CHK(l, ok) { return '<span class="bd">' + (ok ? '<span class="grn">' + I('check', 9) + '</span>' : '<b class="amb">!</b>') + l + '</span>'; }
-    function CARD(o) {
-      return '<div class="grp"><div class="gr" style="align-items:center">' + o.mark + '<div class="gx"><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="gt">' + o.t + '</span>' + (o.chips || []).join('') +
-        '</div><div style="margin-top:4px">' + TONE(o.tone, o.st) + '</div></div>' + (o.act || '') + '</div>' + (o.b ? HL() + o.b : '') + '</div>';
-    }
-    function GROUP(t, help, acc, rows) { return '<div class="grp"><div class="gr"><div class="gx"><span class="gt">' + t + '</span><div class="hp" style="margin-top:4px">' + help + '</div></div>' + (acc || '') + '</div>' + (rows ? HL() + rows : '') + '</div>'; }
-    function GR(t, help, acc, lead) { return '<div class="gr" style="align-items:center">' + (lead || '') + '<div class="gx"><b>' + t + '</b><div class="hp">' + help + '</div></div>' + (acc || '') + '</div>'; }
-    var HELPFIX = 'When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix: Claude Code, at the model and reasoning set in Settings › Operator. Nothing changes until you press Apply.';
-    var AGENTS = [
-      { k: 'claude', n: 'Claude Code', c: [1, 1, 0], tone: 'amb', st: 'Messaging not checked for 2.1.4', cfg: '/Users/you/.config/claude', m: 'Opus', r: 'High' },
-      { k: 'codex', n: 'Codex', c: [1, 1, 0], tone: 'amb', st: 'Messaging not checked for 0.161', cfg: '/Users/you/.codex', m: 'gpt-6-astra', r: 'Medium' },
-      { k: 'pi', n: 'PI', c: [1, 1, 1], tone: 'grn', st: 'Ready', cfg: '/Users/you/.pi/agent', m: 'gpt-6-astra', r: 'Medium' }];
-    function CHKS(c) { return [CHK('CLI', c[0]), CHK('Driver', c[1]), CHK('Messaging', c[2])]; }
-    var NEVERS = ['Never writes code itself. Its agents do.', 'Never deploys, force-pushes, or pushes to a default or protected branch.', 'Never answers an agent’s permission prompt. That’s always yours.'];
-    var AUTO = [['Base', 'Plans, starts tasks, steers its agents and answers them from the brief and the code. Adds backlog tasks, the Oracle checking them. Commits, pushes the task’s branch, opens a draft MR, runs agent reviews.', '<span class="i2" style="font-size:11px">Always on</span>'],
-      ['Jira', 'Creates and updates tickets in the broadcast’s Jira projects: tickets for planned work and off-brief finds, status moves, links.', 1],
-      ['Review', 'Involves people on the MR: marks it ready, assigns reviewers, has the agent fix their feedback and replies in the threads.', 1],
-      ['Merge', 'Merges when what you wrote in Review and Done holds: through the MR, or locally without pushing. Only a commit it checked, with the pipeline green and every thread resolved.', 0]];
-    var ORACLE = 'A second agent that checks the Operator’s plan, its backlog additions and its verdicts. Each check adds tens of seconds. PI checks with read-only tools, not a sandbox. Changes apply to running broadcasts; checks already running are discarded when these settings change.';
-    var BADGES = [[G('jira', 10) + '2', 'Jira project count', 'On the project header'], [G('jira', 10) + 'SHOP-412', 'Ticket key', 'On each task or review linked to a ticket'],
-      [G('gitlab', 10) + '!87', 'Merge request number', 'On each review of a merge or pull request'],
-      [G('vscode', 10) + '<b class="grn" style="font-weight:500">+12</b><b class="red" style="font-weight:500">−3</b>', 'Lines changed', 'On the VS Code badge, once a task’s branch has moved from its base']];
-    var KEYS = [['Switching apps', 'macOS’s own switcher, not AiTerm’s. A quick press goes back to the app you were last in.', [['Switch between AiTerm and iTerm2', ['⌘', '⇥']]]],
-      ['Anywhere in AiTerm', 'The menu bar’s keys.', [['Add Project…', ['⌘', 'P']], ['Add Divider…', ['⌘', 'D']], ['New Task…', ['⌘', 'N']], ['New Review…', ['⌘', 'R']], ['New Terminal…', ['⌘', 'T']],
-        ['New Broadcast…', ['⌘', 'B']], ['Zoom In', ['⌘', '+']], ['Zoom Out', ['⌘', '−']], ['Actual Size', ['⌘', '0']], ['Focus View', ['⌘', 'F']], ['List View', ['⌘', 'L']], ['Show Shelf', ['⌘', 'S']],
-        ['Unplugged', ['⌘', 'U']], ['Settings…', ['⌘', ',']], ['Hide AiTerm', ['⌘', 'H']], ['Hide Others', ['⌥', '⌘', 'H']], ['Quit AiTerm', ['⌘', 'Q']]]],
-      ['Sidebar', 'While the list has the keyboard.', [['Peek at a row’s window', ['↑', '↓']], ['Go to the row’s window, fold or open a project or the broadcast’s group, or open an empty project’s menu', ['↩']], ['Remove the task, review or terminal', ['⌘', '⌫']]]],
-      ['Sheets', 'New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf, Settings, New Broadcast and a broadcast’s board.', [['Continue, create or save', ['⌘', '↩']], ['Back a step, or close', ['⎋']],
-        ['Switch Settings tabs', ['⌘', '1–4']], ['Switch the broadcast’s board tabs', ['⌘', '1–3']], ['Remove the selected Shelf item', ['⌘', '⌫']]]],
-      ['Lists and the prompt', 'A picker’s results, and the prompt’s completions.', [['Move through the list', ['↑', '↓']], ['Pick the highlighted item', ['↩']], ['Close the list', ['⎋']], ['Commands and skills', ['/']], ['Files and folders', ['@']]]]];
-    function KROWS(rows) { return rows.map(function (r, i) { return (i ? HL() : '') + '<div class="krow"><span class="grow">' + r[0] + '</span>' + K.apply(null, r[1]) + '</div>'; }).join(''); }
-    function SETFOOT() { return SP + B('Cancel') + B('Save', 'pri', 1); }
-    function SETTINGS() {
-      var agents = GROUP('Help with problems', HELPFIX, SW(1)) + AGENTS.map(function (a) {
-        return CARD({ mark: VM(a.k, 28), t: a.n, chips: CHKS(a.c), tone: a.tone, st: a.st, act: B('Run check'),
-          b: '<div class="hp">Configuration: ' + a.cfg + '</div>' + HR([GW(F('Default model', SEL(a.m))), GW(F('Default reasoning', SEL(a.r)))]) });
-      }).join('');
-      var op = GROUP('Agent', 'It plans the work and steers the agents in your tasks. It reads code but never writes it.', '',
-          '<div style="display:flex;gap:8px;align-items:center;font-weight:500">' + VM('claude', 16) + 'Claude Code</div>' + HR([GW(F('Model', SEL('Opus 5.5'))), GW(F('Reasoning', SEL('High')))])) +
-        GROUP('Autonomy', 'What it does without asking you. Each switch is one slice of trust on top of the base. Changes apply to the next broadcast.', '',
-          AUTO.map(function (a, i) { return (i ? HL() : '') + GR(a[0], a[1], typeof a[2] === 'string' ? a[2] : SW(a[2])); }).join('') + HL() +
-          NEVERS.map(function (n) { return '<div class="hp" style="display:flex;gap:6px;align-items:center">' + I('never', 11) + n + '</div>'; }).join('')) +
-        GROUP('Oracle', ORACLE, SW(1), F('Agent', SEL('Codex')) + HR([GW(F('Model', SEL('gpt-6-astra'))), GW(F('Reasoning', SEL('Medium')))])) +
-        GROUP('Instructions', 'House rules for every broadcast. Type / for the agents’ skills.', '', ED('Draft MRs only on Fridays. Every task starts with /superpowers:brainstorming.', 72));
-      var integ = '<div class="secl">Core</div>' +
-        CARD({ mark: VM('shell', 28), t: 'iTerm2', tone: 'grn', st: 'Connected to iTerm2 3.7.2', b: '<div class="hp">AiTerm’s Python helper drives iTerm2 through its Python API.</div>' }) +
-        CARD({ mark: VM('mac', 28), t: 'Mac', chips: [CHK('Lid sleep', 0), CHK('Network discovery', 0)], tone: 'amb', st: 'Unplugged needs lid sleep and network discovery', act: B('Allow…'),
-          b: '<div class="hp" style="display:grid;grid-template-columns:12px 1fr;gap:6px 6px;color:var(--ink)"><span class="i2 num">1</span><span>Allow AiTerm to keep the Mac awake with the lid closed. macOS asks for your password once.</span><span class="i2 num">2</span><span>Allow AiTerm to see nearby Wi-Fi networks. macOS hides their names from apps without Location access.</span></div>' }) +
-        '<div class="secl" style="margin-top:4px">Services</div>' +
-        CARD({ mark: VM('jira', 28), t: 'Jira', tone: 'grn', st: 'Connected as Sam Rivera', act: B('Disconnect'),
-          b: F('Site URL', IN('https://acme.atlassian.net')) + HR([GW(F('Email', IN('sam@acme.example'))), GW(F('API token', IN('••••••••••••••••')))]) }) +
-        CARD({ mark: VM('gitlab', 28), t: 'GitLab', tone: 'idle', st: 'Not set up',
-          b: HR([GW(F('Host URL', IN('https://gitlab.com', { ph: 1 }))), GW(F('Access token', IN('Personal access token', { ph: 1 })))]) +
-            '<div class="hp">Reading merge requests and issues needs read_api. An operator that opens or merges merge requests needs api.</div>' }) +
-        CARD({ mark: VM('github', 28), t: 'GitHub', tone: 'idle', st: 'Not set up', b: F('Access token', IN('Fine-grained or classic personal access token', { ph: 1 })) +
-            '<div class="hp">Needs read access to pull requests. An operator that opens or merges them needs write access to pull requests and contents, and read access to administration to see branch protection.</div>' });
-      var iface = '<div class="grp">' + GR('Use dark terminal background', 'Applies to terminal windows opened by AiTerm, including existing ones. Your iTerm2 profiles stay unchanged.', SW(0),
-          '<span class="mono i2" style="width:28px;height:28px;border-radius:var(--r-ctl);background:#1E1E1E;border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;font-size:10px;flex:none">#1E</span>') + '</div>' +
-        GROUP('Sidebar size', 'Draws the sidebar’s text, rows and badges larger. View › Zoom In (⌘+), Zoom Out (⌘−) and Actual Size (⌘0) pick the same sizes.', '', SEG(['Actual Size', 'Large', 'Extra Large'], 0)) +
-        GROUP('Sidebar badges', 'Turn one off to show only its mark. Clicking it and its tooltip still work.', '',
-          BADGES.map(function (b, i) { return (i ? HL() : '') + GR(b[1], b[2], SW(1), '<span class="i2 num" style="width:72px;display:flex;gap:4px;align-items:center;font-size:11px;flex:none">' + b[0] + '</span>'); }).join('')) +
-        '<div style="margin-top:4px"><div style="font-weight:500">Keyboard shortcuts</div><div class="hp" style="margin-top:2px">Shortcuts can’t be changed yet.</div></div>' +
-        KEYS.map(function (k) { return GROUP(k[0], k[1], '', KROWS(k[2])); }).join('');
-      function S(i, b) { return SH({ t: 'Settings', tabs: TABS, tab: i, b: b, f: SETFOOT() }); }
-      return [FIG('<b>Agents.</b> A card’s status line is never cut; the checks beside the name are words, not code.', S(0, agents)), FIG('<b>Operator.</b>', S(1, op)),
-        FIG('<b>Integrations.</b>', S(2, integ)), FIG('<b>Interface</b>, with the keyboard list it ends in. All four are drawn at full scroll height; the sheet shows 580 pt of each.', S(3, iface))];
-    }
-
-    /* ---- New Broadcast (proposals 1 and 2) ---------------------------------------------- */
-    var BS = ['Broadcast', 'Prompt', 'Agents', 'Task', 'Done'];
-    var BPROMPT = 'Implement PAY-230 to PAY-236, the new checkout. PAY-232 needs the Adyen SDK; keep the old provider behind a flag until it ships. Start each task with /superpowers:brainstorming.';
-    var BREVIEW = 'An adversarial review with /code-review. It passes with no Critical or Important findings. After 3 rounds of fixes, ask me.';
-    var BGOAL = 'Every PAY ticket in sprint 12 is merged, and its Jira ticket is in Review.';
-    var BAGENTS = [['Claude Code', 'Opus 5.5', 'High'], ['Claude Code', 'Sonnet 5.5', 'Medium'], ['Codex', 'gpt-6-astra', 'Medium']];
-    function CHIPFIELD(chips, ph) { return '<div class="in" style="height:auto;min-height:28px;padding:3px 4px;gap:4px;flex-wrap:wrap">' + chips.join('') + '<span class="ph" style="padding-left:4px">' + ph + '</span></div>'; }
-    var JCHIP = PK(G('jira', 11, JIRA) + 'PAY · Payments'), PCHIPS = [PK(G('gitlab', 11, GITLAB) + 'webshop'), PK(G('gitlab', 11, GITLAB) + 'payments-api')];
-    function AGENTGRID() {
-      return '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 16px;gap:8px 12px;align-items:center"><label class="i2" style="font:500 12px/16px var(--font)">Agent</label><label class="i2" style="font:500 12px/16px var(--font)">Model</label><label class="i2" style="font:500 12px/16px var(--font)">Reasoning</label><span></span>' +
-        BAGENTS.map(function (a) { return SEL(a[0]) + SEL(a[1]) + SEL(a[2]) + '<span class="i2">' + I('x', 11) + '</span>'; }).join('') + '</div>' +
-        '<div class="lnk" style="display:flex;gap:6px;align-items:center">' + I('plus', 11) + 'Add an agent</div>' +
-        '<div class="hp">The Operator starts every worker, tab and reviewer from this list, and nothing else. It starts as your last broadcast’s list.</div>';
-    }
-    function TASKFIELDS(h) {
-      return F('Each task is reviewed with', ED(BREVIEW, h), 'Who reviews each task, what counts as passing, and how many rounds of fixes it gets before it comes to you. Type / for skills. Optional: left empty, a task is accepted without a review.') +
-        F('Each task ends at', SEG(['Commit', 'Draft MR', 'Merge', 'Local merge'], 1), 'Where every task’s work ends.') +
-        F('When the broadcast ends', CK('Close finished tasks’ tabs and remove their worktrees', 1) + CK('Delete their local branches once merged into the default branch', 0));
-    }
-    function DONEFIELDS(h, foc) {
-      return F('Goal', ED(BGOAL, h, foc), 'What must be true once every task is done. The Operator checks it with the Oracle. Optional: left empty, the broadcast ends when its tasks do.') +
-        F('Goal rounds', IN('2', { w: 76 }), 'Times the Operator may plan more work when the goal isn’t met once every task is done.') +
-        F('Worker questions', W(180, SEL('Challenged once')), 'How hard the Oracle checks a worker’s question before the Operator passes it on to you.');
-    }
-    function NEWBROADCAST() {
-      var h = P === 1 ? 560 : 540, back = SP + B('Back'), cont = B('Continue', 'pri', 1);
-      function S(n, b, f) { return SH({ t: 'New broadcast', steps: BS, step: n, h: h, b: b, f: f || back + cont }); }
-      return [FIG('<b>Step 1 · Broadcast.</b>', S(1, F('Name', IN('Named by the Operator from the prompt', { ph: 1 }), 'Optional.') +
-          F('Jira projects', CHIPFIELD([JCHIP], 'Add a Jira project'), 'Where it reads tickets, and files them with the Jira slice on.') +
-          F('Projects', CHIPFIELD(PCHIPS, 'Add a project'), 'The repositories it may work in. Picking a Jira project adds its linked projects.') +
-          '<div class="dest">Opens in iTerm2 · the Operator’s window</div>', SP + B('Cancel') + cont)),
-        FIG('<b>Step 2 · Prompt.</b>', S(2, F('Prompt', ED(BPROMPT, 190, 1), 'What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files.'))),
-        FIG('<b>Step 3 · Agents.</b> Nine selects, one shape.', S(3, AGENTGRID())),
-        FIG('<b>Step 4 · Task.</b>', S(4, '<div style="font-size:12px"><b style="font-weight:600">Every task follows these.</b> <span class="i2">The broadcast’s own goal is the next step.</span></div>' + TASKFIELDS(78))),
-        FIG('<b>Step 5 · Done.</b>', S(5, DONEFIELDS(96, 1), back + B('Start Broadcast', 'pri', 1)))];
-    }
-
-    /* ---- Broadcast board (proposals 1 and 2) -------------------------------------------- */
-    var BT = ['Board', 'Activity', 'Summary'];
-    var META = '<dl class="meta"><dt>Asked</dt><dd class="cut">implement PAY-230 to PAY-236, the new checkout</dd><dt>Goal</dt><dd class="cut">merged after Jan’s approval</dd><dt>Each task</dt><dd class="cut">“assign Jan, fix his feedback” · ends at draft MR</dd></dl>';
-    function WAITCHIP(n) { return '<span class="bd amb" style="height:18px;padding:0 6px;font-size:11px">Waiting on you' + (n ? ' · ' + n : '') + '</span>'; }
-    function BSTAT(done, chip) { return (chip || '') + '<span class="i2 num" style="font-size:12px;white-space:nowrap">' + done + ' of 8 done</span>'; }
-    function BC(o) {
-      return '<div class="zcard' + (o.att ? ' att' : '') + '"><div class="ct">' + VM(o.a, 18) + '<span class="cut">' + o.t + '</span>' + (o.mark ? '<span class="grow"></span>' + o.mark : '') + '</div><div class="cl num">' + G('jira', 10) + o.k +
-        '<span>' + o.pj + '</span></div>' + (o.model ? '<div class="cl">' + o.model + '</div>' : '') + (o.end ? '<div class="cl">Ends at <span class="bd">' + o.end + '</span></div>' : '') +
-        '<div class="cl"' + (o.strong ? ' style="color:var(--ink);font-weight:500"' : '') + '>' + o.line + '</div></div>';
-    }
-    function QC() {
-      return '<div class="zcard att"><div class="cl num">' + G('jira', 10) + 'PAY-232<span>Payment provider switch</span><span class="grow"></span><span>1 min</span></div><div class="cl">Waits in its worker’s window</div>' +
-        '<div class="q">Codex asks to run npm install</div><div class="lnk" style="font-size:12px">Open its window</div></div>';
-    }
-    var CARDS = {
-      todo: [{ a: 'claude', t: 'Address autocomplete', k: 'PAY-233', pj: 'webshop', model: 'Opus 5.5 · High', end: 'draft MR', line: 'Queued · after PAY-232' },
-        { a: 'claude', t: 'Order summary copy', k: 'PAY-234', pj: 'webshop', model: 'Sonnet 5.5 · Medium', end: 'draft MR', line: 'Queued' },
-        { a: 'codex', t: 'Refund partial captures', k: 'PAY-236', pj: 'payments-api', model: 'gpt-6-astra · Medium', end: 'draft MR', line: 'Queued' }],
-      prog: [{ a: 'codex', t: 'Payment provider switch', k: 'PAY-232', pj: 'payments-api', model: 'gpt-6-astra · Medium', end: 'draft MR', line: 'Waiting on you', strong: 1, att: 1 },
-        { a: 'claude', t: 'Cart drawer', k: 'PAY-231', pj: 'webshop', model: 'Opus 5.5 · High', end: 'draft MR', line: 'Operator answering', strong: 1 }],
-      rev: [{ a: 'claude', t: 'Shipping step', k: 'PAY-235', pj: 'webshop', model: 'Opus 5.5 · High', end: 'draft MR', line: 'Fix round 1 of 3', strong: 1 }],
-      done: [{ a: 'claude', t: 'Checkout layout', k: 'PAY-230', pj: 'webshop', line: 'Merged · <span class="mono">9b3e07d</span>', mark: ST('merged', 10) },
-        { a: 'claude', t: 'Price formatting', k: 'PAY-229', pj: 'webshop', line: 'Merged · <span class="mono">41c7a20</span>', mark: ST('merged', 10) }]
-    };
-    function COL(t, list, cls) { return '<div class="col ' + (cls || '') + '"><div class="sht">' + t + ' <span class="num">' + list.length + '</span></div>' + list.map(BC).join('') + '</div>'; }
-    var ACTS = [['14:41', 'Told Cart drawer’s worker: keep the drawer’s focus trap', 'PAY-231'], ['14:38', 'Asked you: Should the retries cover subscriptions too?', ''], ['14:36', 'Read Payment provider switch’s diff', 'PAY-232'],
-      ['14:35', 'Marked Payment provider switch failed', 'PAY-232', 'refund flow returns 500 on partial refunds'], ['14:31', 'Challenged · mark Payment provider switch accepted', 'PAY-232'], ['14:24', 'Started Cart drawer’s worker', 'PAY-231'],
-      ['14:22', 'Planned 8 tasks from PAY-230 to PAY-236', '']];
-    var CALL = 'mark_task\n{\n  "note" : "refund flow returns 500 on partial refunds",\n  "outcome" : "failed",\n  "task" : "PAY-232"\n}\n→ ok · {"ok":true,"retriesLeft":1}';
-    function ACTLIST(open, inline) {
-      return '<div class="act">' + ACTS.map(function (a, i) {
-        return '<div class="' + (i === open ? 'open' : '') + '"><span>' + a[0] + '</span><span>' + a[1] + (a[3] ? '<div class="i2" style="font-size:11px">' + a[3] + '</div>' : '') + (i === open && inline ? '<pre>' + CALL + '</pre>' : '') + '</span><span>' + a[2] + '</span></div>';
-      }).join('') + '</div>';
-    }
-    var SUMMARY = '<p>All eight checkout tasks are merged. Most went in on the first try: the layout, the cart drawer and price formatting needed nothing from you. The payment provider switch took longest: Codex’s first attempt broke partial refunds, so I sent it back with the failing test and the retry passed.</p>' +
-      '<p>I added one task of my own, retrying failed payments, after the switch showed nothing retried them. I kept the old provider behind a flag although the Oracle objected, since rolling back without it means a redeploy. Jan asked for smaller commits on the shipping step; I split them before he approved. Along the way Claude noticed the tax module rounds per line instead of per order: I filed PAY-241 rather than fixing it here.</p>';
-    var BFOOT = B('Pause Broadcast') + B('End Broadcast…') + SP + B('Close');
-    function BOARD() {
-      var fix = 560;
-      var board = SH({ t: 'Checkout redesign', stat: BSTAT(2, WAITCHIP()), pre: META, tabs: BT, tab: 0, tabOff: [2], fix: fix, f: BFOOT, bs: 'overflow:hidden',
-        b: '<div class="sht">Waiting on you <span class="num">1</span></div>' + QC() + '<div style="overflow:hidden;margin-right:-24px;flex:none"><div class="cols" style="width:1000px">' + COL('Todo', CARDS.todo) + COL('In progress', CARDS.prog) + COL('Review', CARDS.rev) + COL('Done', CARDS.done) + '</div></div>' });
-      var act = SH({ t: 'Checkout redesign', stat: BSTAT(2, WAITCHIP()), pre: META, tabs: BT, tab: 1, tabOff: [2], fix: fix, f: BFOOT, bs: 'overflow:hidden;gap:8px', b: '<div class="sht">Today</div>' + ACTLIST(3, 1) });
-      var sum = SH({ t: 'Checkout redesign', stat: BSTAT(8, '<span class="i2" style="font-size:12px">Done · summary ready</span>'), pre: META, tabs: BT, tab: 2, fix: fix, f: SP + B('Close') + B('End Broadcast', 'pri', 1),
-        b: '<div class="prose">' + SUMMARY + '</div><div class="hp">Written by the Operator at 16:05</div>' });
-      return [FIG('<b>Board.</b> Status and count on one line, the brief as an aligned list, tabs neutral. The sheet keeps its 560 pt, so the row of columns still scrolls sideways.', board),
-        FIG('<b>Activity</b>, one entry open on the call the Operator made.', act), FIG('<b>Summary.</b> End Broadcast is the one accent on the sheet.', sum)];
-    }
-
-    /* ---- Shelf, Unplugged, failure footers ---------------------------------------------- */
-    function SROW(o) {
-      return '<div class="li' + (o.sel ? ' sel' : '') + '">' + VM(o.a, 18) + '<div class="grow"><div style="display:flex;gap:8px"><span class="cut grow" style="font-weight:' + (o.sel ? 500 : 400) + '">' + o.t + '</span><span class="i2 num" style="font-size:11px">' + o.w +
-        '</span></div><div class="i2" style="display:flex;gap:12px;font-size:11px;margin-top:3px;align-items:center">' + o.m.join('') + '</div></div></div>';
-    }
-    function sj(k) { return '<span class="num" style="display:inline-flex;gap:4px;align-items:center">' + G('jira', 10) + k + '</span>'; }
-    function sm(k) { return '<span class="num" style="display:inline-flex;gap:4px;align-items:center">' + G('gitlab', 10) + k + '</span>'; }
-    function sb(b) { return '<span class="mono">' + b + '</span>'; }
-    function OTHER() {
-      var shelf = SH({ t: 'Shelf', band: IN('Search title, ticket, !MR, branch, project', { ph: 1, foc: 1, lead: '<span class="i2">' + I('search', 12) + '</span>' }), h: P === 1 ? 470 : 450,
-        bs: 'padding:12px 14px;gap:0', f: '<span class="i2" style="font-size:12px">5 shelved</span>' + SP + B('Close') + B('Restore', 'pri', 1),
-        b: '<div class="lst">' + SROW({ sel: 1, a: 'claude', t: 'Login flow', w: '2 hr ago', m: [sj('SHOP-123'), sb('feat/SHOP-123-login'), 'acme-storefront'] }) +
-          SROW({ a: 'claude', t: 'Header refactor', w: 'yesterday', m: [sm('!482'), sb('feat/header-refactor'), 'acme-storefront'] }) +
-          SROW({ a: 'codex', t: 'Checkout payment retry', w: '9 Oct', m: [sj('SHOP-118'), sb('fix/SHOP-118-payment-retry'), 'acme-storefront'] }) +
-          SROW({ a: 'claude', t: 'Daemon backoff', w: '3 Oct', m: [sb('feat/daemon-backoff'), 'aiterm'] }) +
-          SROW({ a: 'codex', t: 'Jira project picker', w: '27 Sep', m: [sj('AIT-41'), sm('!37'), sb('feat/jira-projects'), 'aiterm'] }) + '</div>' });
-      var unp = SH({ t: 'Unplugged', sub: 'Frees your agents from the desk: they keep working with the lid closed, online through your phone’s hotspot.', f: SP + B('Done', 'pri', 1),
-        b: CARD({ mark: VM('mac', 28), t: 'Unplugged. Safe to close the lid.', tone: 'grn', st: 'Unplugged enabled', b: '<div class="hp">On Sam’s iPhone. Unplugged stays on until you turn it off, or at 10 % battery.</div>' }) });
-      return [FIG('<b>Shelf.</b>', shelf), FIG('<b>Unplugged</b>, once it is safe.', unp)];
-    }
-    function FAILURE() {
-      function FT(inner) { return '<div class="st frag"><div class="ft" style="flex-direction:column;align-items:stretch;gap:12px;border-top:0;border-radius:var(--r-win)">' + inner + '</div></div>'; }
-      var notice = FT('<div class="notice">' + NM() + '<div><b style="font-weight:500">“feat/pay-231-cart-drawer” is checked out in webshop itself. Switch that folder to main, and the review gets a worktree of its own.</b></div></div>' +
-        '<div style="display:flex;gap:8px">' + B('Switch to main') + SP + B('Back') + B('Create Review', 'pri', 1) + '</div>');
-      var fix = FT('<div class="notice">' + VM('claude', 16) + '<div><b>Your 2 local commits are an older copy of what’s on origin.</b><p>The merge request was rebased and force-pushed since you last fetched it: the same 2 changes are in origin’s 4, rewritten. Replace your copy with origin’s, then create the review.</p>' +
-        '<p style="display:grid;grid-template-columns:14px 1fr;gap:3px 4px"><span class="num">1.</span><span>Keep your 2 commits as aiterm/backup/feat-gift-card</span><span class="num">2.</span><span>Point feat-gift-card at origin’s</span><span class="num">3.</span><span>Create the review. Nothing is pushed.</span></p></div></div>' +
-        '<div style="display:flex;gap:8px">' + SP + B('Cancel') + B('Apply', 'pri', 1) + '</div>');
-      return [FIG('<b>A Notice in a sheet’s footer</b>, with its own fix beside Back.', notice), FIG('<b>Find a Fix, proposal up.</b> Apply takes the primary slot.', fix)];
-    }
-
-    /* ---- foundations strip -------------------------------------------------------------- */
-    function FD() {
-      var g1 = [['#1E1E1E', 'surface', 'Sidebar and sheet. Unchanged.'], ['#282828', 'surfaceRaised', 'Footer and menus, and now every card and group.'], ['#2B2B2B', 'fieldFill · new name', 'White 6 % on its ground. Every field, select and segmented track.'], ['#141519', 'codeBackground', 'The command block. Unchanged.']];
-      var g2 = [['#111214', 'well', 'Command block.'], ['#141518', 'field', 'Anything you type into or pick from.'], ['#17181B', 'sidebar', 'The window.'], ['#1E1F23', 'sheet', 'Sheets, one step above the window.'],
-        ['#26272C', 'card', 'Cards and groups.'], ['#2A2C31', 'popover', 'Menus, pickers, completions.'], ['#2F3137', 'button', 'Anything you press.']];
-      var i1 = [['rgba(255,255,255,.847)', 'text'], ['rgba(255,255,255,.549)', 'muted'], ['rgba(255,255,255,.247)', 'idleRing · placeholder'], ['#007AFF', 'accent: primary, focus, selection'], ['#FF9230', 'amber: you must act'], ['#30D158', 'green']];
-      var i2 = [['#ECEDEF', 'ink'], ['#A1A4AC', 'ink secondary'], ['#6E717A', 'ink tertiary: headings, placeholders'], ['#007AFF', 'accent: primary, focus, switches, links'], ['#FF9230', 'amber: you must act'], ['#30D158', 'green']];
-      function SWS(list) { return '<div class="sw2">' + list.map(function (s) { return '<i style="background:' + s[0] + '"></i><div><b>' + s[1] + '</b><span>' + (s[2] ? s[2] + ' ' : '') + '<span class="mono" style="font-size:10px">' + s[0] + '</span></span></div>'; }).join('') + '</div>'; }
-      var t1 = [['600 15px', 'Sheet title', 'title 15 semibold'], ['600 12px', 'Card heading', 'card 12 semibold'], ['400 13px', 'Body, rows, buttons', 'body 13'], ['500 12px', 'Field label', 'label 12 medium'], ['400 11px', 'Help text, telemetry', 'help 11'],
-        ['600 10px;letter-spacing:.08em;text-transform:uppercase', 'Sidebar heading', 'micro 10 caps'], ['400 11px var(--mono);x', 'feat/pay-214-apple-pay', 'mono 11 · code only']];
-      var t2 = [['600 17px', 'Sheet title', 'title 17 semibold · new'], ['600 13px', 'Group heading', 'heading 13 semibold · new'], ['400 13px', 'Body, rows, buttons', 'body 13'], ['500 12px', 'Field label', 'label 12 medium'], ['400 11px', 'Help text, telemetry', 'help 11'],
-        ['600 11px;color:var(--ink3)', 'Sidebar heading', 'section 11 semibold · new'], ['400 11px var(--mono);x', 'feat/pay-214-apple-pay', 'mono 11 · code only']];
-      var ty = (P === 1 ? t1 : t2).map(function (t) { var mono = t[0].indexOf('--mono') > 0; return '<div><span style="font:' + (mono ? '400 11px/16px var(--mono)' : t[0].split(';')[0] + '/1.3 var(--font)') + ';' + t[0].split(';').slice(1).join(';') + '">' + t[1] + '</span><small>' + t[2] + '</small></div>'; }).join('');
-      var rad = (P === 1 ? [[4, 'chip'], [6, 'control'], [8, 'group'], [10, 'panel']] : [[5, 'chip'], [7, 'control'], [10, 'group'], [12, 'panel, window']]).map(function (r) {
-        return '<div style="display:flex;flex-direction:column;gap:6px;align-items:center"><div style="width:44px;height:32px;border:1px solid var(--line2);background:var(--g-card);border-radius:' + r[0] + 'px"></div><span class="i2" style="font-size:10px">' + r[1] + ' ' + r[0] + '</span></div>';
-      }).join('');
-      var ctl = '<div class="ctl">' + B('Create Task', 'pri', 1) + B('Cancel') + B('Continue', 'pri dis', 1) + '</div><div class="ctl" style="margin-top:10px">' + W(150, IN('Task name')) + W(150, IN('Focused', { foc: 1 })) + W(150, IN('Placeholder', { ph: 1 })) + W(120, SEL('Opus')) + '</div>' +
-        '<div class="ctl" style="margin-top:10px">' + W(240, SEG(['Commit', 'Draft MR', 'Merge'], 1)) + CK('Checked', 1) + CK('Off', 0) + SW(1) + SW(0) + '</div>' +
-        '<div class="ctl" style="margin-top:10px"><span class="bd num">+1</span><span class="bd amb">Waiting on you</span>' + CHIPS + K('⌘', '↩') + '<span style="display:inline-flex;gap:8px;align-items:center">' + ST('idle') + ST('work') + ST('amb') + ST('done') + ST('bg') + ST('merged') + '</span>' + UR(61) + UR(88, 1) + '</div>';
-      return '<div class="fd"><div><h4>Grounds</h4><div class="zbox">' + SWS(P === 1 ? g1 : g2) + '</div></div><div><h4>Ink and signal</h4><div class="zbox">' + SWS(P === 1 ? i1 : i2) + '</div></div>' +
-        '<div><h4>Type</h4><div class="zbox ty">' + ty + '</div><h4 style="margin-top:14px">Radius</h4><div class="zbox" style="display:flex;gap:16px">' + rad + '</div></div>' +
-        '<div style="grid-column:1/-1"><h4>Controls, one shape</h4><div class="zbox">' + ctl + '</div></div></div>';
-    }
-
-    /* ---- proposal 3 · sidebar ----------------------------------------------------------- */
-    function d3(a, r) { return '<span class="num">' + (a ? '<b class="grn" style="font-weight:500">+' + a + '</b>' : '') + (r ? ' <b class="red" style="font-weight:500">−' + r + '</b>' : '') + '</span>'; }
-    function b3(b, c) { return '<span class="br ' + (c || '') + '">' + b + '</span>'; }
-    function n3(t) { return '<span class="num">' + t + '</span>'; }
-    function R3(o) {
-      return '<div class="r3 ' + (o.c || '') + '"><span class="slot">' + ST(o.s || 'idle', 12) + '</span><div class="tx"><div class="ti cut">' + o.t + '</div><div class="me">' + o.m.join('<span class="i3">·</span>') +
-        '</div></div>' + (o.av ? VMS(o.av, 16) : '') + (o.over || '') + '</div>';
-    }
-    function PH3(o) {
-      return '<div class="ph3"><span style="width:20px;display:flex;justify-content:center;color:var(--ink2);flex:none">' + (o.ch ? I(o.ch, 10) : '') + '</span><span class="tile">' + o.g + '</span><span class="nm2">' + o.n + '</span>' +
-        (o.j ? '<span class="bd q num i2">' + G('jira', 10) + o.j + '</span>' : '') + '<span class="grow"></span>' + (o.chips || '') + PLUS + '</div>';
-    }
-    function BAR(states, w) { return '<span class="zbar"' + (w ? ' style="flex:none;width:' + w + 'px"' : '') + '>' + states.split('').map(function (s) { return '<i class="' + (s === '.' ? '' : s) + '"></i>'; }).join('') + '</span>'; }
-    function BCARD3(line) {
-      return '<div class="pg" style="padding:8px 8px 10px 10px;margin-top:4px"><div style="display:flex;align-items:center;gap:8px;height:24px">' + VM('claude', 18) + '<span style="font-weight:600" class="cut">Checkout redesign</span><span class="grow"></span>' +
-        WAITCHIP(1) + '<span class="slot">' + I('cols', 13) + '</span></div><div style="display:flex;align-items:center;gap:10px;margin-top:8px;padding-right:6px">' + BAR('ddaww...') + '<span class="i2 num" style="font-size:11px">2 of 8</span></div>' +
-        '<div class="i2" style="font-size:11px;margin-top:6px">' + line + '</div></div>';
-    }
-    function SBAR(open) {
-      return '<div class="sbar">' + VM('pi', 14) + UW('', 84, 1) + '<span class="vr"></span>' + VM('claude', 14) + UW('', 61) + VM('codex', 14) + UW('', 88, 1) + '<span class="grow"></span><span class="i2">' + I(open ? 'down' : 'up', 11) + '</span></div>';
-    }
-    function SIDEBAR3() {
-      return '<div class="sb">' + TB + BCARD3('Operator · watching 3 tasks') + HEAD('Projects', '', PLUS) +
-        '<div class="pg" style="margin-top:2px">' + PH3({ ch: 'down', g: G('gitlab', 14, GITLAB), n: 'acme-storefront', j: 2 }) +
-        R3({ t: 'Dev server', m: [b3('main')], av: ['shell'] }) +
-        R3({ s: 'work', t: 'Add Apple Pay to the checkout flow', m: [n3('PAY-214'), d3(148, 12), b3('feat/pay-214-apple-pay')], av: ['claude', '+2'] }) +
-        R3({ s: 'amb', t: 'Cut product page load time in half', m: [n3('SHOP-1088'), d3(3), b3('main', 'amb')], av: ['codex', 'shell'] }) +
-        R3({ c: 'sel', s: 'work', t: 'Fix rounding in cart totals', m: [d3(7, 2), b3('fix/cart-total-rounding')], av: ['pi'] }) +
-        R3({ c: 'hov', s: 'done', t: 'Write the release notes for v2.4', m: [b3('docs/release-notes-2-4')], av: ['codex'] }) +
-        R3({ s: 'bg', t: 'Apple Pay on checkout', m: [n3('!87'), '<span class="num" style="display:inline-flex;gap:3px;align-items:center">' + I('msg', 10) + '2/5</span>', b3('review/87')], av: ['claude'] }) + '</div>' +
-        HEAD('Personal') + '<div class="pg" style="margin-top:2px">' + PH3({ ch: 'right', g: G('github', 14, '#FFFFFF'), n: 'aiterm', chips: CHIPS }) + '</div>' +
-        '<div class="pg">' + PH3({ g: '<span class="i2">' + I('fork', 13) + '</span>', n: 'dotfiles' }) + '</div><div style="height:24px"></div>' + SBAR() + '</div>';
-    }
-    function FOOT3() {
-      return '<div class="sb frag"><div style="margin:8px;background:var(--g-pop);border:1px solid var(--line2);border-radius:var(--r-pan);box-shadow:0 6px 16px rgba(0,0,0,.45);overflow:hidden;--g-sfoot:transparent">' + SFOOT() + '</div>' + SBAR(1) + '</div>';
-    }
-    function DRIVEN3() {
-      var card = '<div class="bwc" style="left:28px;right:8px"><span class="i2" style="font-size:11px">Background work · 3 jobs</span><span style="display:flex;gap:6px;align-items:center" class="mono"><span class="i2">' + I('term', 12) + '</span><span style="font-size:12px">npm run test</span></span></div>';
-      return '<div class="sb frag" style="padding:4px 0 10px">' + BCARD3('Operator · answering Claude · PAY-231') + '<div class="pg">' +
-        R3({ s: 'merged', t: 'Checkout layout', m: ['<span>Merged</span>', '<span class="mono">9b3e07d</span>'] }) +
-        R3({ c: 'sel', s: 'amb', t: 'Payment provider switch', m: ['<b class="amb" style="font-weight:600">Waiting on you</b>', n3('PAY-232'), b3('feat/pay-232-payment-provider-switch')], av: ['codex'] }) +
-        R3({ s: 'work', t: 'Cart drawer', m: ['<span>Operator answering</span>', n3('PAY-231')], av: ['claude'] }) +
-        R3({ s: 'bg', t: 'Order summary copy', m: [n3('PAY-234'), b3('feat/pay-234-order-summary')], av: ['claude'], over: card }) + '</div></div>';
-    }
-
-    /* ---- proposal 3 · one-page composer ------------------------------------------------- */
-    function COMP(o) {
-      return '<div class="st" style="width:780px"><div class="hd"><div class="tline"><div class="ttl">' + o.t + '</div><span class="pk">' + G('gitlab', 11, GITLAB) + 'acme-storefront</span></div></div>' +
-        '<div style="display:flex;flex:1"><div class="bd2 grow" style="gap:14px">' + o.left + '</div><div class="side">' + o.side + '</div></div><div class="ft">' + o.foot + '</div></div>';
-    }
-    function AGENT3() { return HL() + F('Agent', SEL('Claude Code', { lead: VM('claude', 14) })) + HR([GW(F('Model', SEL('Opus'))), GW(F('Reasoning', SEL('High')))]); }
-    function SIDE3(ticket, name, branch) { return F('Ticket', ticket) + F('Task name', name) + F('Branch', HR([W(76, SEL('feat', { mono: 1 })), GW(branch)])) + F('From', SEL('main', { mono: 1 })) + AGENT3(); }
-    var TK3 = '<div class="in">' + G('jira', 12, JIRA) + '<span class="mono lnk" style="font-size:12px">PAY-230</span><span class="cut grow i2">Retry failed payment…</span><span class="i2">' + I('x', 11) + '</span></div>';
-    var HELP3 = 'Type / for commands and skills, @ for files and folders.';
-    function LEFT3(txt, pop, ph) {
-      return F('First prompt (optional)', '<div style="position:relative">' + ED(txt, 214, 1, ph) + (pop || '') + '</div>', HELP3) + CK('Include ticket details', 1) +
-        CMD(ph ? 'claude --model opus --effort high' : 'claude --model opus --effort high \'/superpowers:brainstorming Start with the worker’s shutdown path and…\'');
-    }
-    function FOOT3C(dest, label, dis) { return '<span class="dest cut grow">' + dest + '</span>' + B('Cancel') + B(label, 'pri' + (dis ? ' dis' : ''), 1); }
-    function COMPOSER() {
-      var dest = 'Opens in iTerm2 · acme-storefront/.worktrees/pay-230-retry-failed-payment-webhooks-with-backoff', full = SIDE3(TK3, IN('Retry failed payment webhooks…'), IN('pay-230-retry-failed…', { mono: 1 }));
-      var empty = COMP({ t: 'New task', left: LEFT3('What should the agent do first?', '', 1), foot: FOOT3C('Opens in iTerm2 · a new worktree of acme-storefront', 'Create Task', 1),
-        side: SIDE3(PICK('Search by key or title'), IN('Describe the task', { ph: 1 }), IN('branch-name', { mono: 1, ph: 1 })) });
-      var filled = COMP({ t: 'New task', left: LEFT3('/superpowers:brainstorming\nStart with the worker’s shutdown path and the queue drain.'), side: full, foot: FOOT3C(dest, 'Create Task') });
-      var compl = COMP({ t: 'New task', left: LEFT3('Start with the worker’s shutdown path.\nThen the queue drain.\n/s', COMPL(66, 8, 440)), side: full, foot: FOOT3C(dest, 'Create Task') });
-      var picker = COMP({ t: 'New task', left: LEFT3('What should the agent do first?', '', 1), foot: FOOT3C('Opens in iTerm2 · a new worktree of acme-storefront', 'Create Task', 1),
-        side: '<div style="position:relative">' + F('Ticket', IN('pay', { foc: 1, lead: '<span class="i2">' + I('search', 12) + '</span>', trail: '<span class="ud">' + I('up', 11) + '</span>' })) +
-          '<div class="dd pop" style="right:0;width:430px;top:50px">' + TROW('PAY-230', 'Retry failed payment webhooks with backoff', 'In Progress', 1) + TROW('PAY-231', 'Cart drawer keeps the last coupon', 'To Do') + TROW('PAY-236', 'Refund partial captures', 'To Do') + '</div></div>' +
-          F('Task name', IN('Describe the task', { ph: 1 })) + F('Branch', HR([W(76, SEL('feat', { mono: 1 })), GW(IN('branch-name', { mono: 1, ph: 1 }))])) + F('From', SEL('main', { mono: 1 })) + AGENT3() });
-      return [FIG('<b>Empty.</b> One page, no steps: the prompt on the left, what the task is and who runs it on the right. Create waits for a name.', empty),
-        FIG('<b>Filled</b> from a ticket. The command line follows every change, and the destination moved into the footer.', filled),
-        FIG('<b>Completions open</b> in the prompt.', compl), FIG('<b>Ticket picker open.</b> Its list hangs leftwards, over the prompt.', picker)];
-    }
-    function REVIEW3() {
-      function MR(n, t, s, hi) { return '<div class="' + (hi ? 'hi' : '') + '">' + G('gitlab', 11, GITLAB) + '<span class="mono" style="font-size:12px;width:30px">' + n + '</span><span class="cut grow">' + t + '</span><span class="i2" style="font-size:11px">' + s + '</span></div>'; }
-      return [FIG('<b>New Review</b> is the same page; its right column starts from the merge request.', COMP({ t: 'New review', left: LEFT3('What should the reviewer look at first?', '', 1), foot: FOOT3C('Opens in iTerm2 · a new worktree of acme-storefront', 'Create Review', 1),
-        side: '<div style="position:relative">' + F('Merge request', PICK('!number, title or branch', { foc: 1, open: 1 })) + '<div class="dd pop" style="right:0;width:400px;top:50px">' + MR('!4', 'Add a gift-card field to checkout', 'Opened', 1) + MR('!7', 'Drop the unused CDN origin', 'Draft') + '</div></div>' +
-          F('Ticket', PICK('Search by key or title')) + F('Review name', IN('Describe the review', { ph: 1 })) + F('Branch', PICK('Search branches')) + AGENT3() }))];
-    }
-
-    /* ---- proposal 3 · two-pane Settings ------------------------------------------------- */
-    var NAV3 = [['agents', 'Agents'], ['op', 'Operator'], ['plug', 'Integrations'], ['win', 'Interface'], ['key', 'Keyboard']];
-    function SET3(on, title, desc, body) {
-      return '<div class="st wide" style="width:780px;min-height:560px"><div class="rail"><div class="ttl">Settings</div>' + NAV3.map(function (n, i) {
-        return '<div class="ni' + (i === on ? ' on' : '') + '">' + I(n[0], 14) + n[1] + '<span class="grow"></span><span class="i3 num" style="font-size:11px">⌘' + (i + 1) + '</span></div>';
-      }).join('') + '</div><div class="main"><div class="bd2" style="gap:12px"><div><div class="pt">' + title + '</div>' + (desc ? '<div class="hp" style="margin-top:2px">' + desc + '</div>' : '') + '</div>' + body +
-        '</div><div class="ft">' + SETFOOT() + '</div></div></div>';
-    }
-    function RWS(rows, c) { return '<div class="rows ' + (c || '') + '">' + rows.map(function (r) { return '<div>' + (r[3] || '') + '<div class="gx"><b>' + r[0] + '</b>' + (r[1] ? '<div class="hp">' + r[1] + '</div>' : '') + '</div>' + (r[2] || '') + '</div>'; }).join('') + '</div>'; }
-    function PS(t, d) { return '<div><div class="ps">' + t + '</div>' + (d ? '<div class="hp" style="margin-top:2px">' + d + '</div>' : '') + '</div>'; }
-    function HDR(name, chips) { return '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + name + (chips || []).join('') + '</span>'; }
-    function VAL(t) { return '<span class="mono i2" style="font-size:11px">' + t + '</span>'; }
-    function SETTINGS3() {
-      var agents = RWS([['Help with problems', HELPFIX, SW(1)]]) + AGENTS.map(function (a) {
-        return RWS([[HDR(a.n, CHKS(a.c)), TONE(a.tone, a.st), B('Run check', 'sm'), VM(a.k, 28)], ['Configuration', '', VAL(a.cfg)], ['Default model', '', SEL(a.m)], ['Default reasoning', '', SEL(a.r)]]);
-      }).join('');
-      var op = PS('Agent') + RWS([['Runs on', '', '<span style="display:flex;gap:6px;align-items:center">' + VM('claude', 16) + 'Claude Code</span>'], ['Model', '', SEL('Opus 5.5')], ['Reasoning', '', SEL('High')]]) +
-        PS('Autonomy', 'Each switch is one slice of trust on top of the base. Changes apply to the next broadcast.') +
-        RWS(AUTO.map(function (a) { return [a[0], a[1], typeof a[2] === 'string' ? a[2] : SW(a[2])]; })) +
-        '<div style="display:flex;flex-direction:column;gap:4px">' + NEVERS.map(function (n) { return '<div class="hp" style="display:flex;gap:6px;align-items:center">' + I('never', 11) + n + '</div>'; }).join('') + '</div>' +
-        PS('Oracle') + RWS([['Check the Operator with an Oracle', ORACLE, SW(1)], ['Agent', '', SEL('Codex')], ['Model', '', SEL('gpt-6-astra')], ['Reasoning', '', SEL('Medium')]]) +
-        PS('Instructions', 'House rules for every broadcast. Type / for the agents’ skills.') + ED('Draft MRs only on Fridays. Every task starts with /superpowers:brainstorming.', 72);
-      var num = function (n) { return '<span class="i2 num" style="width:28px;text-align:center;flex:none">' + n + '</span>'; };
-      var integ = PS('Core') + RWS([[HDR('iTerm2'), TONE('grn', 'Connected to iTerm2 3.7.2'), '', VM('shell', 28)],
-          [HDR('Mac', [CHK('Lid sleep', 0), CHK('Network discovery', 0)]), TONE('amb', 'Unplugged needs lid sleep and network discovery'), B('Allow…', 'sm'), VM('mac', 28)],
-          ['Allow AiTerm to keep the Mac awake with the lid closed', 'macOS asks for your password once.', '', num(1)], ['Allow AiTerm to see nearby Wi-Fi networks', 'macOS hides their names from apps without Location access.', '', num(2)]]) +
-        PS('Services') + RWS([[HDR('Jira'), TONE('grn', 'Connected as Sam Rivera'), B('Disconnect', 'sm'), VM('jira', 28)], ['Site URL', '', IN('https://acme.atlassian.net', { w: 260 })], ['Email', '', IN('sam@acme.example', { w: 260 })], ['API token', '', IN('••••••••••••••••', { w: 260 })]]) +
-        RWS([[HDR('GitLab'), TONE('idle', 'Not set up'), '', VM('gitlab', 28)], ['Host URL', '', IN('https://gitlab.com', { w: 260, ph: 1 })], ['Access token', 'Reading needs read_api. Opening or merging merge requests needs api.', IN('Personal access token', { w: 260, ph: 1 })]]) +
-        RWS([[HDR('GitHub'), TONE('idle', 'Not set up'), '', VM('github', 28)], ['Access token', 'Needs read access to pull requests; write access to pull requests and contents to open or merge them.', IN('Personal access token', { w: 260, ph: 1 })]]);
-      var iface = RWS([['Use dark terminal background', 'Applies to terminal windows opened by AiTerm, including existing ones. Your iTerm2 profiles stay unchanged.', SW(0)],
-          ['Sidebar size', 'View › Zoom In (⌘+), Zoom Out (⌘−) and Actual Size (⌘0) pick the same sizes.', W(260, SEG(['Actual Size', 'Large', 'Extra Large'], 0))]]) +
-        PS('Sidebar badges', 'Turn one off to show only its mark. Clicking it and its tooltip still work.') +
-        RWS(BADGES.map(function (b) { return [b[1], b[2], SW(1), '<span class="i2 num" style="width:72px;display:flex;gap:4px;align-items:center;font-size:11px;flex:none">' + b[0] + '</span>']; }));
-      var keys = KEYS.map(function (k) { return PS(k[0], k[1]) + RWS(k[2].map(function (r) { return [r[0], '', K.apply(null, r[1])]; }), 'c'); }).join('');
-      return [FIG('<b>Agents.</b> One list per harness: its checks and status in the first row, its settings under it.', SET3(0, 'Agents', 'The coding harnesses AiTerm starts, and what a new task opens them with.', agents)),
-        FIG('<b>Operator.</b>', SET3(1, 'Operator', 'It plans the work and steers the agents in your tasks. It reads code but never writes it.', op)),
-        FIG('<b>Integrations.</b> Labels left, fields right, so a service is three lines, not a form.', SET3(2, 'Integrations', 'What AiTerm needs from this Mac, then the optional services.', integ)),
-        FIG('<b>Interface.</b>', SET3(3, 'Interface', '', iface)), FIG('<b>Keyboard</b> has its own pane instead of ending Interface.', SET3(4, 'Keyboard', 'Shortcuts can’t be changed yet.', keys))];
-    }
-
-    /* ---- proposal 3 · one-page New Broadcast -------------------------------------------- */
-    function BR3(on, state, sections, foot) {
-      var names = ['Broadcast', 'Prompt', 'Agents', 'Task', 'Done'];
-      return '<div class="st wide" style="width:780px;min-height:600px"><div class="rail"><div class="ttl">New broadcast</div>' + names.map(function (n, i) {
-        var s = state[i];
-        return '<div class="ni' + (i === on ? ' on' : '') + '"><span style="width:14px;display:flex;justify-content:center" class="' + (s[0] ? 'grn' : 'i3') + '">' + (s[0] ? I('check', 11) : ST('idle', 8)) + '</span>' + n +
-          '<span class="grow"></span><span class="i3" style="font-size:11px;white-space:nowrap">' + s[1] + '</span></div>';
-      }).join('') + '<div class="hp" style="padding:12px 8px 0;margin-top:auto">Only the prompt is required. The rest starts as your last broadcast’s.</div></div><div class="main"><div class="bd2" style="gap:14px">' + sections + '</div><div class="ft"' +
-        (foot.col ? ' style="flex-direction:column;align-items:stretch;gap:12px"' : '') + '>' + foot.h + '</div></div></div>';
-    }
-    function BROADCAST3() {
-      var start = SP + B('Cancel') + B('Start Broadcast', 'pri', 1), pt = function (t, d) { return '<div><div class="pt">' + t + '</div>' + (d ? '<div class="hp" style="margin-top:2px">' + d + '</div>' : '') + '</div>'; };
-      var top = BR3(1, [[1, '2 projects'], [0, 'required'], [1, '3'], [1, 'draft MR'], [0, 'no goal']],
-        pt('Broadcast') + F('Name', IN('Named by the Operator from the prompt', { ph: 1 })) +
-        HR([GW(F('Jira projects', CHIPFIELD([JCHIP], 'Add'), 'Where it reads and files tickets.')), GW(F('Projects', CHIPFIELD(PCHIPS, 'Add'), 'The repositories it may work in.'))]) + HL() +
-        pt('Prompt') + F('', ED(BPROMPT.slice(0, 77), 150, 1), 'What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files.'),
-        { h: '<span class="dest grow">Opens in iTerm2 · the Operator’s window</span>' + B('Cancel') + B('Start Broadcast', 'pri', 1) });
-      var mid = BR3(3, [[1, '2 projects'], [1, 'written'], [1, '3'], [1, 'draft MR'], [0, 'no goal']],
-        pt('Agents') + AGENTGRID() + HL() + pt('Task', 'Every task follows these.') + TASKFIELDS(64), { h: start });
-      var end = BR3(4, [[1, '2 projects'], [1, 'written'], [1, '3'], [1, 'draft MR'], [1, '2 rounds']], pt('Done', 'The broadcast’s own goal, checked once every task is done.') + DONEFIELDS(110, 1),
-        { col: 1, h: '<div class="notice">' + NM() + '<div><b>Not ready to start</b><p>Codex: Messaging not checked for 0.161<br>iTerm2 checks not run</p></div></div><div style="display:flex;gap:8px">' + SP + B('Cancel') + B('Start Broadcast', 'pri dis', 1) + '</div>' });
-      return [FIG('<b>Top of the page.</b> One scroll in five sections; the rail says what each holds and jumps to it. Start is there from the first keystroke.', top),
-        FIG('<b>Scrolled to Agents and Task.</b>', mid), FIG('<b>Done</b>, with the not-ready Notice in the footer.', end)];
-    }
-
-    /* ---- proposal 3 · wide board -------------------------------------------------------- */
-    function B3HEAD(tab, stat, off) {
-      function it(l, v) { return '<span class="cut" style="flex:0 1 auto"><span class="i2">' + l + '</span> ' + v + '</span>'; }
-      return '<div class="hd"><div class="tline"><div class="ttl">Checkout redesign</div>' + stat + '<span class="grow"></span><div style="width:270px;flex:none">' + SEG(BT, tab, off) + '</div></div>' +
-        '<div class="krow" style="font-size:12px;gap:20px">' + it('Asked', 'implement PAY-230 to PAY-236, the new checkout') + it('Goal', 'merged after Jan’s approval') + it('Each task', '“assign Jan, fix his feedback” · ends at draft MR') + '</div></div>';
-    }
-    function BOARD3() {
-      var run = WAITCHIP(1) + BAR('ddaww...', 110) + '<span class="i2 num" style="font-size:12px">2 of 8 done</span>';
-      var board = '<div class="st" style="width:980px;height:640px">' + B3HEAD(0, run, [2]) + '<div class="bd2" style="overflow:hidden"><div class="sht">Waiting on you <span class="num">1</span></div><div class="qs">' + QC() + '</div>' +
-        '<div class="cols" style="margin-top:4px">' + COL('Todo', CARDS.todo, 'w4') + COL('In progress', CARDS.prog, 'w4') + COL('Review', CARDS.rev, 'w4') + COL('Done', CARDS.done, 'w4') + '</div></div><div class="ft">' + BFOOT + '</div></div>';
-      var act = '<div class="st" style="width:980px;height:640px">' + B3HEAD(1, run, [2]) + '<div style="display:flex;flex:1;min-height:0"><div class="bd2 grow" style="gap:8px"><div class="sht">Today</div>' + ACTLIST(3) + '</div><div class="insp"><div style="font-weight:600">Marked Payment provider switch failed</div>' +
-        '<div class="i2 num" style="font-size:11px">14:35 · PAY-232 · payments-api</div><div class="hp">refund flow returns 500 on partial refunds</div><pre style="margin:4px 0 0;padding:10px;border-radius:var(--r-ctl);background:var(--g-well);border:1px solid var(--line);font:11px/15px var(--mono);white-space:pre-wrap">' + CALL + '</pre></div></div><div class="ft">' + BFOOT + '</div></div>';
-      var sum = '<div class="st" style="width:980px;height:640px">' + B3HEAD(2, BAR('dddddddd', 110) + '<span class="i2 num" style="font-size:12px">8 of 8 done</span>') + '<div style="display:flex;flex:1;min-height:0"><div class="bd2 grow"><div class="prose" style="max-width:600px">' + SUMMARY + '</div></div>' +
-        '<div class="insp"><div class="sht">Goal</div><div style="display:flex;gap:8px;align-items:flex-start">' + ST('merged', 10) + '<div><div style="font-weight:500">Met</div><div class="hp" style="margin-top:2px">merged after Jan’s approval</div></div></div>' + HL() +
-        '<div class="sht">Tasks</div><div class="num">8 merged · 1 added by the Operator</div><div class="hp" style="margin-top:auto">Written by the Operator at 16:05</div></div></div><div class="ft">' + SP + B('Close') + B('End Broadcast', 'pri', 1) + '</div></div>';
-      return [FIG('<b>Board, 980 by 640.</b> All four columns whole, questions across the top, the brief on one line, progress as a bar by task state.', board),
-        FIG('<b>Activity</b> with an inspector: the list stays a list, the picked call opens beside it.', act), FIG('<b>Summary</b> at a reading measure, the goal’s outcome beside it.', sum)];
-    }
-
-    /* ---- the three panels --------------------------------------------------------------- */
-    var LEDE = {
-      1: ['Polish', 'Same layouts, same tokens, fewer exceptions. Nothing moves; what is already there starts agreeing with itself.',
-        ['<b>One control shape.</b> Field, select, button and segment share <code>Radius.control</code> and one filled ground. No pill beside a box.',
-          '<b>Three grounds, used the same way everywhere:</b> surface, raised (footer, menus, cards, groups) and a field wash.',
-          '<b>Accent means primary action, focus and selection.</b> Steps and tabs take the neutral segmented style that already exists.',
-          '<b>Mono is for code:</b> branches, commands, the prompt. Status words, counts, model names and telemetry labels are set in the system face with tabular figures.',
-          '<b>A sheet is as tall as its tallest step,</b> up to <code>Sheet.height</code>. Rename is 246 pt, not 560.',
-          '<b>Compact step bar:</b> left-aligned, past steps ticked.',
-          '<b>Calmer sidebar:</b> marks on the badge line take secondary ink (diff keeps green and red), the divider joins the heading grid, the footer says Context, Week and Battery.',
-          '<b>Board header:</b> status and count on one line, the brief as an aligned list.'],
-        ['<b>Palette:</b> one new name, <code>fieldFill</code>. No new hex.', '<b>Primitives:</b> a house button style; <code>Select</code> drawn in <code>fieldChrome</code> over the native menu; <code>StepBar</code>; <code>SheetLayout</code> takes a fitted height.',
-          '<b>Sweep:</b> every <code>Typography.mono</code> use that is not code.', '<b>Risk:</b> low. Every snapshot changes, no behaviour does.']],
-      2: ['Layered', 'Same layouts, new foundation. Everything in proposal 1, plus real depth and a quieter selection.',
-        ['<b>A graphite ramp of seven grounds</b> replaces AppKit’s greys. One rule: you type into what is darker than its ground, you press what is lighter.',
-          '<b>Selection is neutral.</b> The selected row is a lighter ground, so status keeps its own colour on it: amber stays amber. Accent is left to the primary button, focus, switches and links.',
-          '<b>Type:</b> a 17 pt sheet title, 13 semibold group headings, sentence-case sidebar headings in a third, quieter ink.',
-          '<b>Radii one step rounder</b> (5, 7, 10, 12), concentric with the window.',
-          '<b>Sheet header:</b> the stepper moves into the title row (numbers, the current step named) and tabs become underline tabs on the header’s rule. The band’s 28 pt go back to the content.',
-          '<b>The sidebar footer sits on its own darker ground.</b>'],
-        ['<b>Palette:</b> grounds and inks become literal values, so Increase Contrast has to be written by hand where AppKit gives it for free today.',
-          '<b>Surface:</b> a neutral selected surface; the accent row and the accent <code>SegmentedControl</code> style retire.', '<b>Metrics:</b> new radii, two new type styles.',
-          '<b>Risk:</b> medium. A reskin of everything, still no behaviour change.']],
-      3: ['Workbench', 'New layouts on proposal 2’s foundation. This one changes how the app is used, so it can be taken per surface.',
-        ['<b>The sidebar reads status first.</b> The mark leads the row, agents trail it, each project is one block, vendor glyphs leave the meta line, rows are 46 pt. The footer is a 32 pt bar that opens the System and Usage panel.',
-          '<b>The broadcast is a card</b> with a progress bar by task state.',
-          '<b>New Task and New Review are one page:</b> prompt left, properties right, no steps. 780 pt wide.',
-          '<b>Settings is two panes:</b> navigation left, plain rows right. Keyboard gets its own pane.',
-          '<b>New Broadcast is one scroll</b> with a section rail. Only the prompt is required.',
-          '<b>The board is 980 pt wide:</b> four whole columns, questions across the top, a one-line brief. Activity gets an inspector.'],
-        ['<b>Keyboard:</b> steps go, so ⌘↩ creates and ⎋ closes from anywhere in a sheet; Settings takes ⌘1 to ⌘5. <code>docs/keyboard.md</code> changes.',
-          '<b>Sheet:</b> two new widths (780, 980) that have to fit a 13-inch screen beside the sidebar.',
-          '<b>Sidebar:</b> new row geometry, so the minimum-width and focus tests are rewritten.', '<b>Risk:</b> high if taken whole. The board and Settings stand alone and are the cheapest to take first.']]
-    };
-    function LEDEHTML(p) {
-      var l = LEDE[p];
-      return '<div class="pz-lede"><div><p class="tag">Proposal ' + p + (p === 2 ? ' · picked as the base' : p === 3 ? ' · the board and Settings are picked' : '') + '</p><h3>' + l[0] + '</h3><p>' + l[1] + '</p><ol>' + l[2].map(function (x) { return '<li>' + x + '</li>'; }).join('') +
-        '</ol></div><div><p class="tag" style="color:var(--muted)">What it costs in Swift</p><ul>' + l[3].map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul></div></div>';
-    }
-    function PANEL(p) {
-      P = p;
-      var h = LEDEHTML(p);
-      h += GRP('Foundations', p === 3 ? 'Proposal 3 is drawn on proposal 2’s foundation.' : p === 2 ? 'Every value here is new and would be added to <code>Palette</code> and <code>Metrics</code> under these names.' : 'The shipped tokens, with one new name.', [FIG('Grounds, inks, type, radii and every control in its states.', FD())]);
-      if (p < 3) {
-        h += GRP('Sidebar', 'At its 420 pt opening width.', [FIG('<b>The whole sidebar.</b> Fix rounding in cart totals is selected, the release notes row is hovered. Every status is on screen: idle, working, needs you, done, background work.', SIDEBAR()),
-          FIG('<b>Operator-driven rows</b>, one selected and waiting on you, and the background-work card over its row.', DRIVEN()), FIG('<b>Notices</b> above the list.', NOTICES()), FIG('<b>Empty.</b>', EMPTY())]);
-        h += GRP('New Task', 'Three steps, one sheet height.', NEWTASK());
-        h += GRP('New Review and the small sheets', '', NEWREVIEW().concat(SMALL()));
-        h += GRP('Settings', p === 2 ? 'Not shipping in this shape: proposal 3’s two-pane Settings is picked.' : '', SETTINGS());
-        h += GRP('New Broadcast', 'Five steps. The editors are sized so no step hides a field below the fold.', NEWBROADCAST());
-        h += GRP('Broadcast board', p === 2 ? 'Not shipping in this shape: proposal 3’s wide board is picked.' : '', BOARD());
-      } else {
-        h += GRP('Sidebar', 'At its 420 pt opening width.', [FIG('<b>The whole sidebar.</b> Scan the left edge for amber: the status mark leads every row. Fix rounding in cart totals is selected, the release notes row is hovered.', SIDEBAR3()),
-          FIG('<b>Operator-driven rows</b> and the background-work card.', DRIVEN3()), FIG('<b>The footer bar opened:</b> the same System and Usage readings as today, on demand.', FOOT3()),
-          FIG('<b>Notices</b> above the list.', NOTICES()), FIG('<b>Empty.</b>', EMPTY())]);
-        h += GRP('New Task', 'One page instead of three steps.', COMPOSER());
-        h += GRP('New Review and the small sheets', 'The small sheets are proposal 2’s.', REVIEW3().concat(SMALL()));
-        h += GRP('Settings · picked', 'Two panes, each drawn at full scroll height.', SETTINGS3());
-        h += GRP('New Broadcast', 'One page instead of five steps.', BROADCAST3());
-        h += GRP('Broadcast board · picked', '', BOARD3());
+      if (q.there) {
+        return `<div class="qk"><div class="there"><div class="grow">${QH(q)}<div class="qt">${q.text}</div></div>${B(q.there)}</div></div>`;
       }
-      h += GRP('Shelf and Unplugged', p === 3 ? 'As in proposal 2.' : '', OTHER());
-      h += GRP('When something fails', p === 3 ? 'As in proposal 2.' : '', FAILURE());
-      return '<div class="pz-panel" data-p="' + p + '"' + (p === 2 ? '' : ' hidden') + '>' + h + '</div>';
+      var acts = '';
+      if (q.choices) {
+        acts = `<div class="acts">${q.choices.map(function (c) { return B(c); }).join('')}${q.noField ? '' : (q.typing ? '' : `<span class="sp"></span>${LINK('Another answer…')}`)}</div>`;
+        if (q.typing) { acts += `<div class="acts" style="flex-wrap:nowrap">${IN('Another answer', { foc: 1, val: q.typing })}${B('Send', '', 1)}</div>`; }
+      } else {
+        acts = `<div class="acts" style="flex-wrap:nowrap">${IN('Your answer', { foc: q.foc, val: q.val })}${q.val ? B('Send', '', 1) : B('Send', 'dis')}</div>`;
+      }
+      return `<div class="qk">${QH(q)}<div class="qt">${q.text}</div>${q.counts ? `<div class="help">${q.counts}</div>` : ''}` +
+        (q.why ? `<div class="acts" style="gap:12px"><span class="help">${q.why}</span>${LINK('Read the discussion')}</div>` : '') + acts + `</div>`;
     }
-    root.innerHTML = PANEL(1) + PANEL(2) + PANEL(3);
+    /* ---- the block as it ships today -------------------------------------------------------- */
+    function QOLD(q) {
+      var head = `<div class="qh">${q.ticket ? QB('jira', q.ticket) : ''}<span class="t cut grow">${q.title}</span><span class="age">${q.age}</span></div><div class="help">${q.oldFrom}</div>`;
+      var a = '';
+      if (q.there) { a = `<div class="acts">${LINK(q.oldThere)}</div>`; }
+      else {
+        if (q.choices) { a += `<div class="acts" style="gap:12px">${q.choices.map(function (c) { return LINK(c); }).join('')}</div>`; }
+        if (!q.noField) { a += `<div class="acts" style="flex-wrap:nowrap">${IN(q.choices ? 'Another answer' : 'Your answer')}${B('Send', 'dis')}</div>`; }
+      }
+      return `<div class="qk old">${head}<div class="qt">${q.text}</div>${a}</div>`;
+    }
 
-    var buttons = [].slice.call(document.querySelectorAll('.pz-switch button'));
-    function pick(p) {
-      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.p === String(p))); });
-      [].forEach.call(root.children, function (panel) { panel.hidden = panel.dataset.p !== String(p); });
-      try { localStorage.setItem('aiterm-ds-polish', String(p)); } catch (e) {}
+    /* ---- a task's row ------------------------------------------------------------------------ */
+    function TL(t) { return `<div class="tl">${VM(t[0], 12)}<span class="k">${t[1]}</span>${OB(t[2], t[3])}<span class="tr">${ST(t[4], 8)}</span></div>`; }
+    function ROW(r) {
+      var tail = (r.end ? `<span class="help">ends at</span><span class="bd" style="margin-left:-6px">${r.end}</span>` : '') + (r.ticket ? QB('jira', r.ticket) : '') + (r.mr ? QB('gitlab', r.mr) : '') +
+        (r.project ? `<span class="help cut">${r.project}</span>` : '');
+      var row = `<div class="row ${r.dim ? 'dim ' : ''}${r.cls || ''}"><span class="lead">${VMS(r.vm)}</span><div class="mid grow">` +
+        `<div class="l1"><span class="ti cut grow">${r.title}</span><span class="tr">${ST(r.mark)}</span></div>` +
+        `<div class="l2">${r.taken ? '<span class="help">taken over</span>' : OB(r.status[0], r.status[1])}<span class="grow"></span>${tail}</div></div></div>`;
+      if (r.tabs || r.help) {
+        row += `<div class="sub">${(r.tabs || []).map(TL).join('')}${r.help ? `<div class="help">${r.help}</div>` : ''}</div>`;
+      }
+      return row;
     }
-    buttons.forEach(function (b) { b.addEventListener('click', function () { pick(b.dataset.p); }); });
-    try {
-      var asked = /[?&]pz=([123])/.exec(location.search), saved = asked ? asked[1] : localStorage.getItem('aiterm-ds-polish');
-      if (saved === '1' || saved === '2' || saved === '3') { pick(saved); }
-    } catch (e) {}
+    function GROUP(t, rows, extra) { return `<div class="grp">${GH(t, rows.length)}${rows.map(ROW).join('')}${extra || ''}</div>`; }
+
+    /* ---- the sheet --------------------------------------------------------------------------- */
+    function TABS(on, cls, first) {
+      return `<div class="xtabs ${cls || ''}">${['Tasks', 'Activity', 'Summary'].map(function (t, i) {
+        return `<span class="${t === on ? 'on' : ''}${t === 'Summary' ? ' off' : ''}">${i === 0 && first ? first : t}</span>`; }).join('')}</div>`;
+    }
+    function SHEET(o) {
+      var brief = o.briefOpen
+        ? `<div class="bl open">${o.briefOpen.map(function (b, i) { return `<div>${i === 0 ? `<span class="chev">${I('down', 10)}</span>` : '<span class="chev"></span>'}<span><b>${b[0]}</b> ${b[1]}</span></div>`; }).join('')}</div>`
+        : `<div class="bl"><span class="chev">${I('right', 10)}</span><span class="cut"><b>${o.brief[0]}</b> ${o.brief[1]}</span></div>`;
+      var head = o.tabsInRow
+        ? `<div class="trow"><h4 class="grow cut">${o.title}</h4>${TABS('Tasks', 'inrow', 'Board')}</div><div class="sl">${o.status}</div>${brief}<div style="height:16px"></div>`
+        : `<h4>${o.title}</h4><div class="sl">${o.status}</div>${brief}${TABS('Tasks')}`;
+      return `<div class="bx"><div class="sheet" style="width:${o.w}px;height:${o.h}px"><div class="hd">${head}</div><div class="hl"></div>` +
+        (o.split || `<div class="bodyc">${o.body}</div>`) +
+        `<div class="hl"></div><div class="ft">${B('Pause Broadcast')}${B('End Broadcast…')}<span class="sp"></span>${B('Close')}</div></div></div>`;
+    }
+
+    /* ---- the fixture: one broadcast, eight tasks, two questions ------------------------------ */
+    var STATUS = `${OB('waiting on you · 2 tasks', 'you')} · 2 of 8 done`;
+    var BRIEF = ['Asked', 'implement PAY-230 to PAY-236, the new checkout'];
+    var BRIEF_ALL = [BRIEF, ['Goal', 'every PAY ticket in sprint 12 merged and in Review'],
+      ['Each task', '“An adversarial review with /code-review. It passes with no Critical or Important findings.” · ends at merge · closed at the end']];
+    var Q1 = { ticket: 'PAY-232', title: 'Payment provider switch', from: 'The Operator asks', oldFrom: 'The Operator asks', age: '24 min',
+               text: 'Keep the access gate on the export page for admins too, or drop it for them?', choices: ['Keep it', 'Drop it for admins'] };
+    var Q2 = { ticket: 'PAY-234', title: 'Order summary copy', from: 'e2e-tests tab', oldFrom: 'Waits in its e2e-tests tab', age: '1 min',
+               text: 'Codex asks for permission', there: 'Open Its Window', oldThere: 'Open its window' };
+    var QFIX = { ticket: 'PAY-233', title: 'Address autocomplete', from: 'The Operator asks', oldFrom: 'The Operator asks', age: '5 min',
+                 text: 'Address autocomplete is out of fix rounds: one more, or accept it?', choices: ['One More Round', 'Accept As It Is'], noField: 1,
+                 counts: '3 rounds of fixes, and the last review, of 4f2a91c, still found 1 Important.' };
+    var R = {
+      pps: { vm: ['codex'], title: 'Payment provider switch', status: ['waiting on you', 'you'], mark: 'you', ticket: 'PAY-232', mr: '!87', project: 'payments-api' },
+      cart: { vm: ['claude'], title: 'Cart drawer', status: ['Operator watching', 'act'], mark: 'work', ticket: 'PAY-231', project: 'webshop', end: 'draft MR' },
+      order: { vm: ['claude', 'codex'], title: 'Order summary copy', status: ['Operator watching · 2 tabs', 'act'], mark: 'you', ticket: 'PAY-234', project: 'webshop',
+               tabs: [['claude', 'main', 'at work', 'act', 'work'], ['codex', 'e2e-tests', 'waiting on you', 'you', 'you']] },
+      addr: { vm: ['claude'], title: 'Address autocomplete', status: ['in review · round 2 of 3', 'act'], mark: 'work', ticket: 'PAY-233', mr: '!85', project: 'webshop' },
+      price: { vm: ['claude'], title: 'Price formatting', status: ['queued · after PAY-232'], mark: 'pause', ticket: 'PAY-236', project: 'webshop', dim: 1 },
+      retry: { vm: ['codex'], title: 'Retry failed payments', status: ['added by the Operator'], mark: 'pause', project: 'payments-api', dim: 1 },
+      layout: { vm: ['claude'], title: 'Checkout layout', status: ['merged · 9b3e07d'], mark: 'done', ticket: 'PAY-230', mr: '!81', project: 'webshop' },
+      ship: { vm: ['claude'], title: 'Shipping step', status: ['merged · 41c0a7e'], mark: 'done', ticket: 'PAY-235', mr: '!83', project: 'webshop' }
+    };
+    function put(id, html) { var el = document.getElementById(id); if (el) { el.innerHTML = html; } }
+
+    /* ---- 1A · one list ----------------------------------------------------------------------- */
+    var LIST = `<div class="lst8">${GROUP('In progress', [R.pps, R.cart, R.order]) + GROUP('Review', [R.addr]) + GROUP('Todo', [R.price, R.retry]) + GROUP('Done', [R.layout, R.ship])}</div>`;
+    put('bx-1a', SHEET({ w: 560, h: 640, title: 'Checkout redesign', status: STATUS, brief: BRIEF,
+      body: `<div class="grp">${GH('Waiting on you', 2)}<div class="stack">${QK(Q1)}${QK(Q2)}</div></div>${LIST}` }));
+    /* the same sheet scrolled to its tasks */
+    put('bx-1a2', SHEET({ w: 560, h: 640, title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF, body: LIST }));
+
+    /* ---- 1B · one list, one line per task ---------------------------------------------------- */
+    function ROW1(r) {
+      var row = `<div class="row1 ${r.dim ? 'dim' : ''}"><span class="lead">${VMS(r.vm)}</span><span class="ti cut grow">${r.title}</span>` +
+        (r.end ? `<span class="help">ends at</span><span class="bd" style="margin-left:-4px">${r.end}</span>` : '') + (r.ticket ? QB('jira', r.ticket) : '') + (r.mr ? QB('gitlab', r.mr) : '') +
+        `<span class="stw">${OB(r.status[0], r.status[1])}</span><span class="tr">${ST(r.mark)}</span></div>`;
+      if (r.tabs) { row += `<div class="sub" style="margin-top:0;padding-top:2px">${r.tabs.map(TL).join('')}</div>`; }
+      return row;
+    }
+    function GROUP1(t, rows) { return `<div class="grp">${GH(t, rows.length)}${rows.map(ROW1).join('')}</div>`; }
+    put('bx-1b1', SHEET({ w: 560, h: 640, title: 'Checkout redesign', status: `${OB('watching 4 tasks')} · 2 of 8 done`, brief: BRIEF,
+      body: `<div class="lst8">${GROUP1('In progress', [R.pps, R.cart, R.order]) + GROUP1('Review', [R.addr]) + GROUP1('Todo', [R.price, R.retry]) + GROUP1('Done', [R.layout, R.ship])}</div>` }));
+
+    /* ---- 1C · the wide board ----------------------------------------------------------------- */
+    function CARD(c) {
+      var lines = `<div><span class="ti" style="font:13px/16px var(--font)">${c.title}</span></div>` +
+        `<div>${c.ticket ? QB('jira', c.ticket) : ''}${c.mr ? QB('gitlab', c.mr) : ''}<span class="help cut">${c.project}</span></div>` +
+        (c.model ? `<div class="cap12">${c.model}</div>` : '') +
+        (c.end ? `<div><span class="cap12">ends at</span><span class="bd">${c.end}</span></div>` : '') +
+        `<div>${OB(c.status[0], c.status[1])}</div>`;
+      var foot = '';
+      if (c.tabs) { foot += `<div class="cf">${c.tabs.map(function (t) { return TL(t) + `<div class="cap12" style="padding-left:20px">${t[5]}</div>`; }).join('')}</div>`; }
+      if (c.q) { foot += `<div class="cf"><div class="help">${c.q}</div>${LINK('Answer…')}</div>`; }
+      return `<div class="xcard ${c.you ? 'you' : ''}"><div class="ch">${VM(c.vm)}<div class="cl grow">${lines}</div></div>${foot}</div>`;
+    }
+    function COL(t, cards, w) { return `<div class="col" style="width:${w}px">${GH(t, cards.length)}<div class="xcards">${cards.map(CARD).join('')}</div></div>`; }
+    var CW = 224;
+    var C = {
+      price: { vm: 'claude', title: 'Price formatting', ticket: 'PAY-236', project: 'webshop', model: 'Opus 5.5 · High', end: 'merge', status: ['queued · after PAY-232'] },
+      retry: { vm: 'codex', title: 'Retry failed payments', project: 'payments-api', model: 'gpt-6-astra · Medium', end: 'merge', status: ['added by the Operator'] },
+      pps: { vm: 'codex', title: 'Payment provider switch', ticket: 'PAY-232', mr: '!87', project: 'payments-api', model: 'gpt-6-astra · High', end: 'merge',
+             status: ['waiting on you', 'you'], you: 1, q: 'Keep the access gate on the export page for admins too, or drop it for them?' },
+      cart: { vm: 'claude', title: 'Cart drawer', ticket: 'PAY-231', project: 'webshop', model: 'Opus 5.5 · High', end: 'draft MR', status: ['Operator watching', 'act'] },
+      order: { vm: 'claude', title: 'Order summary copy', ticket: 'PAY-234', project: 'webshop', end: 'merge', status: ['Operator watching · 2 tabs', 'act'], you: 1,
+               tabs: [['claude', 'main', 'at work', 'act', 'work', 'Opus 5.5 · High'], ['codex', 'e2e-tests', 'waiting on you', 'you', 'you', 'gpt-6-astra · Medium']] },
+      addr: { vm: 'claude', title: 'Address autocomplete', ticket: 'PAY-233', mr: '!85', project: 'webshop', model: 'Opus 5.5 · High', end: 'merge', status: ['in review · round 2 of 3', 'act'] },
+      layout: { vm: 'claude', title: 'Checkout layout', ticket: 'PAY-230', mr: '!81', project: 'webshop', model: 'Opus 5.5 · High', status: ['merged · 9b3e07d'] },
+      ship: { vm: 'claude', title: 'Shipping step', ticket: 'PAY-235', mr: '!83', project: 'webshop', model: 'Opus 5.5 · High', status: ['merged · 41c0a7e'] }
+    };
+    put('bx-1c', SHEET({ w: 980, h: 640, title: 'Checkout redesign', status: STATUS, brief: BRIEF, tabsInRow: 1,
+      body: `<div class="grp">${GH('Waiting on you', 2)}<div style="display:flex;gap:12px;align-items:flex-start"><div class="grow">${QK(Q1)}</div><div class="grow">${QK(Q2)}</div></div></div>` +
+        `<div class="cols">${COL('Todo', [C.price, C.retry], CW)}${COL('In progress', [C.pps, C.cart, C.order], CW)}${COL('Review', [C.addr], CW)}${COL('Done', [C.layout, C.ship], CW)}</div>` }));
+
+    /* ---- 1D · list and detail ---------------------------------------------------------------- */
+    function bare(r) { var c = {}; for (var k in r) { c[k] = r[k]; } c.ticket = c.mr = c.project = c.end = c.tabs = null; return c; }
+    function R1(q, sel) { return `<div class="r1 ${sel ? 'sel' : ''}">${ST('you')}<span class="cut grow">${q.title}</span><span class="ob num">${q.age}</span></div>`; }
+    var lst = `<div class="grp">${GH('Waiting on you', 2)}${R1(Q1, 1)}${R1(Q2)}</div>` +
+      GROUP('In progress', [R.pps, R.cart, R.order].map(bare)) + GROUP('Review', [bare(R.addr)]) + GROUP('Todo', [bare(R.price)]);
+    var det = `<div class="qh" style="display:flex;gap:8px;align-items:center">${QB('jira', 'PAY-232')}<span class="help grow">Payment provider switch</span><span class="ob num">The Operator asks · 24 min</span></div>` +
+      `<div style="font:13px/18px var(--font)">${Q1.text}</div>` +
+      `<div style="display:flex;gap:8px">${B('Keep it')}${B('Drop it for admins')}</div>` +
+      `<div style="display:flex;gap:8px">${IN('Another answer')}${B('Send', 'dis')}</div>` +
+      `<div class="hl" style="margin-block:4px"></div>${GH('This task')}` +
+      `<div class="kv"><span>Status</span><b>waiting on you</b><span>Worker</span><b>Codex · gpt-6-astra · High</b><span>Ends at</span><span><span class="bd">merge</span></span><span>Request</span><b>!87 in payments-api</b></div>` +
+      `${GH('Latest')}<div class="log"><div><span class="tm">14:38</span><span>Asked you: Keep the access gate on the export page…</span></div>` +
+      `<div><span class="tm">14:36</span><span class="mu">Read Payment provider switch’s diff</span></div>` +
+      `<div><span class="tm">14:31</span><span>Told its worker: keep the old provider behind a flag</span></div></div>`;
+    put('bx-1d', SHEET({ w: 780, h: 640, title: 'Checkout redesign', status: STATUS, brief: BRIEF,
+      split: `<div class="split"><div class="lst">${lst}</div><div class="det">${det}</div></div>` }));
+
+    /* ---- 2 · answering ----------------------------------------------------------------------- */
+    put('bx-2today', `<div class="bx"><div class="frag q">${GH('Waiting on you', 3)}${QOLD(Q1)}${QOLD(QFIX)}${QOLD(Q2)}</div></div>`);
+    put('bx-2a', `<div class="bx"><div class="frag q">${GH('Waiting on you', 3)}${QK(Q1)}${QK(QFIX)}${QK(Q2)}</div></div>`);
+    var QS = [
+      ['No choices: the field, ⌘↩ sends', { ticket: 'PAY-235', title: 'Shipping step', from: 'AiTerm asks', age: '31 min', foc: 1, val: 'Leave !71 as it is and go on with the rest',
+        text: '!71 was merged on GitLab at 988ed6c, a head nobody accepted. AiTerm publishes nothing more of it or on top of it: decide how the broadcast goes on.' }],
+      ['Another answer…, opened', { ticket: 'PAY-232', title: 'Payment provider switch', from: 'The Operator asks', age: '24 min', text: Q1.text, choices: Q1.choices, typing: 'Keep it, but log every admin export' }],
+      ['A worker’s question, relayed', { ticket: 'PAY-231', title: 'Cart drawer', from: 'Its worker, relayed by the Operator', age: '9 min',
+        text: 'Should the drawer’s remove-all ask first too, or only a single remove?', why: 'The Oracle looked at it once, and the Operator kept it for you.',
+        choices: ['Remove-all asks too', 'Single removes only'] }],
+      ['A command the Oracle stopped', { title: 'The broadcast', from: 'The Operator’s chat', age: '2 min', text: 'The Oracle stopped <code>npm publish --dry-run</code> in payments-api: it publishes to the registry.', there: 'Open the Operator’s Chat' }],
+      ['Answered, until the Operator takes it', { ticket: 'PAY-231', title: 'Cart drawer', age: '26 min', answered: 'Clear it', ago: '2 min' }]
+    ];
+    put('bx-2states', `<div class="bx"><div class="frag">${QS.map(function (s) { return `<div class="lab">${s[0]}</div>${QK(s[1])}`; }).join('')}<div style="height:8px"></div></div></div>`);
+    var pager = `<span class="pg"><i>${I('left', 10)}</i><span class="num">1 of 3</span><i>${I('right', 10)}</i></span>`;
+    put('bx-2b', `<div class="bx"><div class="frag q">${GH('Waiting on you', null, pager)}${QK({ ticket: 'PAY-232', title: 'Payment provider switch', from: 'The Operator asks', age: '24 min', text: Q1.text, choices: Q1.choices, typing: ' ' }).replace('<span class="cut "> </span>', '<span class="cut ph">Another answer</span>')}</div></div>`);
+
+    /* ---- rows, every state ------------------------------------------------------------------- */
+    var M = [
+      ['Queued', { vm: ['claude'], title: 'Price formatting', status: ['queued · after PAY-232'], mark: 'pause', ticket: 'PAY-236', dim: 1 }],
+      ['At work', { vm: ['claude'], title: 'Cart drawer', status: ['Operator watching', 'act'], mark: 'work', ticket: 'PAY-231' }],
+      ['Hovered: its click closes the sheet and opens its window', { vm: ['claude'], title: 'Cart drawer', status: ['Operator watching', 'act'], mark: 'work', ticket: 'PAY-231', cls: 'hov' }],
+      ['Several worker tabs: each its own line and click', R.order],
+      ['Its worker asks the Operator', { vm: ['claude'], title: 'Order summary copy', status: ['asking the Operator', 'act'], mark: 'work', ticket: 'PAY-234',
+        help: 'Question: Should the summary show the coupon line when no coupon applies?' }],
+      ['Waiting on you', { vm: ['codex'], title: 'Payment provider switch', status: ['waiting on you', 'you'], mark: 'you', ticket: 'PAY-232', mr: '!87' }],
+      ['Blocked', { vm: ['claude'], title: 'Coupon field', status: ['blocked · the tests fail on main', 'you'], mark: 'you' }],
+      ['In people’s review', { vm: ['claude'], title: 'Shipping step', status: ['in review · waiting on Jan'], mark: 'idle', ticket: 'PAY-235', mr: '!83' }],
+      ['Out of fix rounds', { vm: ['claude'], title: 'Address autocomplete', status: ['out of fix rounds', 'you'], mark: 'you', ticket: 'PAY-233', mr: '!85' }],
+      ['An end other than the broadcast’s', { vm: ['claude'], title: 'Cart drawer', status: ['Operator watching', 'act'], mark: 'work', ticket: 'PAY-231', end: 'draft MR' }],
+      ['Merge refused', { vm: ['claude'], title: 'Save the basket', status: ['accepted · waiting on the Operator'], mark: 'idle', mr: '!90', help: 'merge refused by the Oracle' }],
+      ['Taken over', { vm: ['claude'], title: 'Tidy the footer', taken: 1, status: [''], mark: 'idle' }],
+      ['Paused', { vm: ['claude'], title: 'Express checkout', status: ['paused'], mark: 'pause', dim: 1 }],
+      ['Done', R.layout],
+      ['Done, its worktree kept', { vm: ['claude'], title: 'Gift wrap option', status: ['draft MR · worktree kept'], mark: 'done', mr: '!422',
+        help: 'Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe.' }],
+      ['Done and removed: no click', { vm: ['claude'], title: 'Basket icon', status: ['merged · 77d02ce · removed'], mark: 'done', dim: 1 }]
+    ];
+    put('bx-rows', `<div class="bx"><div class="frag">${M.map(function (m) { return `<div class="lab">${m[0]}</div>${ROW(m[1])}`; }).join('')}</div></div>`);
+    put('bx-brief', `<div class="bx"><div class="sheet" style="width:560px;box-shadow:none"><div class="hd"><h4>Checkout redesign</h4><div class="sl">${STATUS}</div>` +
+      `<div class="bl open">${BRIEF_ALL.map(function (b, i) { return `<div>${i === 0 ? `<span class="chev">${I('down', 10)}</span>` : '<span class="chev"></span>'}<span><b>${b[0]}</b> ${b[1]}</span></div>`; }).join('')}</div>${TABS('Tasks')}</div><div class="hl"></div><div style="height:24px"></div></div></div>`);
+
+    /* ---- a live broadcast on the same sheet -------------------------------------------------- */
+    var LV = {
+      a: { vm: ['claude'], title: 'Export fails for orders without a VAT number', status: ['waiting on you', 'you'], mark: 'you', ticket: 'PAY-251' },
+      b: { vm: ['codex'], title: 'Refund email shows the wrong currency', status: ['Operator watching', 'act'], mark: 'work', ticket: 'PAY-249' },
+      c: { vm: ['claude'], title: 'Coupon field loses focus on mobile', status: ['in review · round 1 of 3', 'act'], mark: 'work', ticket: 'PAY-247', mr: '!96' },
+      d: { vm: ['claude'], title: 'Order history pagination', status: ['draft MR · !95'], mark: 'done', ticket: 'PAY-246', mr: '!95' },
+      e: { vm: ['codex'], title: 'Invoice PDF cuts long addresses', status: ['draft MR · !94'], mark: 'done', ticket: 'PAY-244', mr: '!94' }
+    };
+    put('bx-live', SHEET({ w: 560, h: 640, title: 'PAY tickets marked ai-ready', status: `${OB('waiting on you', 'you')} · 2 in flight · 14 done today`,
+      brief: ['When', 'a PAY ticket gets the label ai-ready'],
+      body: `<div class="grp">${GH('Waiting on you', 1)}<div class="stack">${QK({ ticket: 'PAY-251', title: 'Export fails for orders without a VAT number', from: 'The Operator asks', age: '3 min',
+        text: 'The ticket names no acceptance check. Reproduce with the March export, or with a fixture?', choices: ['The March export', 'A fixture'] })}</div></div>` +
+        `<div class="lst8">${GROUP('In progress', [LV.a]) + GROUP('Review', [LV.c])}<div class="grp">${GH('Done today', 14)}${ROW(LV.d)}<div style="padding:0 0 0 38px">${LINK('Show all 14')}</div></div></div>` }));
   })();
 </script>
-    <!-- polish-proposal:end -->
+    <!-- board-proposal:end -->
 
 
   </section>
