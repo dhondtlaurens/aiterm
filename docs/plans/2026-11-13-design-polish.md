@@ -1,6 +1,6 @@
 # Give the app a professional finish: a layered foundation, two-pane Settings and a wide board
 
-Status: plan agreed on 2026-11-13. Part 1 is built, gated and reviewed, not yet merged. Parts 2 and
+Status: plan agreed on 2026-11-13. Part 1 is merged (merge 1) and ships in 0.47.0. Parts 2 and
 3 are not started.
 
 ## Goal
@@ -207,7 +207,7 @@ Part 1, foundation:
 - [x] Sidebar details: badge-line marks, divider label, footer words and ground.
 - [x] README, patterns doc and the design page's Foundations and Components synced; publish.
 - [x] Snapshots read after every slice; the gate green on the whole part.
-- [ ] Review, one commit, `scripts/test.sh all`, merge 1.
+- [x] Review, one commit, `scripts/test.sh all`, merge 1.
 
 Part 2, Settings:
 
