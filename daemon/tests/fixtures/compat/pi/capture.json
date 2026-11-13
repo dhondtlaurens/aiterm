@@ -1,0 +1,18 @@
+{
+  "agent": "pi",
+  "capturedAt": "2026-11-13",
+  "launch": [
+    "pi",
+    "--model",
+    "openai-codex/gpt-6-luna",
+    "--thinking",
+    "low"
+  ],
+  "model": "openai-codex/gpt-6-luna",
+  "reasoning": "low",
+  "turns": [
+    "plain",
+    "shellCommand"
+  ],
+  "version": "1.4.0"
+}

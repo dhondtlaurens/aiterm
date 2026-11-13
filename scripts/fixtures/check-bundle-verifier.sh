@@ -5,11 +5,12 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture_dir="$(mktemp -d -t aiterm-bundle-fixture)"
 trap 'rm -rf "$fixture_dir"' EXIT
 app="$fixture_dir/AiTerm.app"
-mkdir -p "$app/Contents/Resources/hooks" "$app/Contents/Resources/daemon/tools" "$app/Contents/MacOS"
+mkdir -p "$app/Contents/Resources/hooks" "$app/Contents/Resources/daemon/tools" "$app/Contents/Resources/compat" "$app/Contents/MacOS"
 cp "$ROOT/app/Sources/AiTerm/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$ROOT/app/Sources/AiTerm/Resources/AiTerm.icns" "$app/Contents/Resources/"
 cp "$ROOT/hooks/"* "$app/Contents/Resources/hooks/"
 cp "$ROOT/daemon/tools/delivery_check.py" "$app/Contents/Resources/daemon/tools/"
+cp "$ROOT/compat/verified.json" "$app/Contents/Resources/compat/"
 touch "$app/Contents/MacOS/AiTerm"
 chmod +x "$app/Contents/MacOS/AiTerm"
 cat > "$fixture_dir/python" <<'PYTHON'

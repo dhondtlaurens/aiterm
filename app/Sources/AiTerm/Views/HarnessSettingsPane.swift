@@ -72,8 +72,10 @@ struct HarnessSettingsPane: View {
     let model: HarnessSettingsModel
     /// Help with problems' switch, and which agents are installed.
     let agents: AgentIntegrations
-    /// Each card's Messaging, and its Run check.
+    /// Each card's Messaging, and its Run check; its versions are also what the verified line reads.
     var messaging = MessagingChecks.inert()
+    /// The CLI versions this build was checked with, for each card's muted line.
+    var verified = CompatVerified(lines: [:])
     /// The card Settings was opened at (`SheetCoordinator.presentSettings(tab:agent:)`), scrolled to once
     /// its probe has drawn it, through the sheet's scroll view.
     var focus: AgentKind?
@@ -109,6 +111,11 @@ struct HarnessSettingsPane: View {
         } actions: {
             actions(snapshot)
         } content: {
+            if snapshot.health != .unavailable,
+               let line = verified.sentence(for: snapshot.agent, installed: messaging.versions[snapshot.agent]) {
+                HelpText(line)
+                    .accessibilityIdentifier("verified-\(snapshot.agent.rawValue)")
+            }
             if snapshot.agent == .claude, let path = agents.claudeConfigPath {
                 HelpText("Configuration: \(path)")
             }

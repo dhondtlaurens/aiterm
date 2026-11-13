@@ -110,27 +110,42 @@ You review and commit. It is never run by the test suite: it opens windows and s
 
 **In the app:** `compat/verified.json` is bundled the way `hooks/` is (`scripts/make-app.sh`). Each
 agent card in Settings › Agents gets one muted line, drawn from the installed version and that list:
-"Verified with 2.1" or "2.2 not yet verified with this AiTerm". It is not a check row, never amber,
+"2.1 verified with this AiTerm" or "2.2 not yet verified with this AiTerm". It is not a check row, never amber,
 and doesn't change the card's health, because nothing is gated on it. Codex ships a minor every week,
 so an amber state would be on most of the time.
+
+## Added while building: Claude's SessionStart
+
+The first live capture found a real break, as the check is meant to: Claude Code 2.1.323 runs a
+`SessionStart` command hook but never posts a `SessionStart` http hook (probed directly in a scratch
+config), and AiTerm installs it as http, so the daemon never hears a conversation start, a `/clear`
+or a compaction from it. Agreed with the maintainer: fix it in this branch. `ClaudeSettings` installs
+`SessionStart` alone as an async command hook that posts its stdin with curl to the same endpoint, as
+Codex's command hooks do (probed: it arrives with `session_id`, `cwd`, `source` and
+`transcript_path`, and holds nothing up); every other event stays http, which the capture shows
+arriving. An install with the old http entry reads as outdated and Repair replaces it. Proof:
+`HookConfigTests` for the new entry and the repair, the templates recorded again, a new capture whose
+`SessionStart` contract tests pass.
 
 ## Files
 
 | File | Change | Why |
 |---|---|---|
 | `daemon/tools/compat_capture.py` | create | Live capture: scratch configs, driver install, capture listener, scripted turns, scrubber, fixture writer |
-| `daemon/tools/delivery_check.py` | modify | Share the scratch-config and iTerm2 session helpers with the capture rather than copying them |
+| `daemon/tools/delivery_check.py` | reuse | The capture imports its scratch-config and iTerm2 session helpers (`Live`, `answer_trust`, `scratch_*_config`); no change was needed |
 | `daemon/tests/fixtures/compat/{claude,codex,pi}/` | create | The newest scrubbed capture per CLI, with a `capture.json` naming version and date |
 | `daemon/tests/test_compat_captures.py` | create | Python contract suite over the captures |
 | `daemon/tests/test_compat_capture.py` | create | Unit tests for the tool's pure parts: scrubber and its guard, turn-script selection, verified-list merge |
 | `app/Tests/AiTermCoreTests/CompatContractTests.swift` | create | Swift contract suite over the same captures: catalogues against the raw files, headless output, flags (reads across targets, like `WireContractTests`) |
 | `app/Tests/AiTermTests/CompatTranscriptTests.swift` | create | `WorkerTranscript` over the captured transcripts; it lives where that internal type is reachable |
 | `compat/drivers/` | create | The Claude settings entries and Codex hook block the app installs, with a port placeholder, kept byte-equal by a Swift test; the capture installs from them |
-| `compat/launch-flags.json` | create | Every flag AiTerm passes to each CLI, kept in step by a Swift test |
+| `compat/launch.json` | create | Every command line AiTerm runs each CLI with, as templates (`{model}`, `{prompt}`…), kept in step by a Swift test; the capture launches from them and the flag check reads them. A flag `--help` leaves out (`--append-system-prompt-file`) is proved by a headless probe whose answer carries a marker |
 | `compat/verified.json` | create | The major.minor per CLI the last green run verified; bundled into the app |
 | `scripts/compat-check.sh` | create | The one maintainer command |
 | `scripts/make-app.sh` | modify | Bundle `compat/verified.json` |
 | `scripts/test-routes.tsv` | modify | Route `daemon/tests/fixtures/compat/*` and `compat/*` to both suites; register the cross-target reader |
+| `app/Sources/AiTermCore/Harnesses/ClaudeSettings.swift` | modify | `SessionStart` as a curl command hook (above) |
+| `app/Tests/AiTermCoreTests/HookConfigTests.swift` | modify | The command entry, and the repair of an http one |
 | `app/Sources/AiTermCore/Harnesses/` (new `CompatVerified.swift`) | create | Read the bundled list; pure "verified / not yet verified" from the installed version |
 | `app/Sources/AiTerm/Views/HarnessSettingsPane.swift` | modify | The muted line on each agent card, PI included |
 | `app/Sources/AiTerm/Snapshots/SettingsSnapshots.swift` | modify | Snapshot both line states |
@@ -145,7 +160,7 @@ so an amber state would be on most of the time.
   - the launch-flag list matches what the builders produce
   - the driver templates match what `ClaudeSettings` and `CodexHookConfig` write
   - the delivery-policy gate in `compat-check.sh` turns down a missing, old or failed entry (a
-    script guard beside the existing `scripts/check-*.sh`)
+    pure function, `compat_capture.delivery_problems`, pinned by `test_compat_capture.py`)
 - **Contract suites** run green against the first real captures (Claude 2.1.323, Codex 0.167.0,
   PI 1.4.0) and are routed so ordinary `scripts/test.sh` runs them whenever captures or parsers
   change.
@@ -161,20 +176,21 @@ so an amber state would be on most of the time.
 
 ## To-dos
 
-- [ ] **Claude core capture.** Driver templates with their Swift in-step test, capture listener,
+- [x] **Claude core capture.** Driver templates with their Swift in-step test, capture listener,
   scratch config with those hooks and the unchanged shim on a scratch `HOME`, one plain turn, scrubber with its guard, fixture writer. Python contract tests for hook posts, the
   status line and the session file. Runnable by hand for Claude.
-- [ ] **Claude extended turns.** Approval, subagent, background shell, slash command, and the headless
+- [x] **Claude extended turns.** Approval, subagent, background shell, slash command, and the headless
   runs. Contract tests for each.
-- [ ] **Codex capture.** Scratch `CODEX_HOME` with AiTerm's hook block, rollout and `models_cache.json`.
+- [x] **Codex capture.** Scratch `CODEX_HOME` with AiTerm's hook block, rollout and `models_cache.json`.
   Contract tests.
-- [ ] **PI capture.** Scratch agent dir with sign-ins and the extension, `--list-models`, headless `-p`.
-  Contract tests. Verify PI honours a scratch agent dir first; if it doesn't, stop and re-plan PI.
-- [ ] **Swift contract suites.** In Core: model catalogues compared with the raw files, with the
-  fallback refused, headless output decoding, and `launch-flags.json` with its in-step test and its
+- [x] **PI capture.** Scratch agent dir with sign-ins and the extension, `--list-models`, headless `-p`.
+  Contract tests. (PI honours a scratch agent dir through `PI_CODING_AGENT_DIR`, checked in its bundle.)
+- [x] **Swift contract suites.** In Core: model catalogues compared with the raw files, with the
+  fallback refused, headless output decoding, and `launch.json` with its in-step test and its
   `--help` check. In `AiTermTests`: worker transcripts. Routing rows for both.
-- [ ] **One command.** `scripts/compat-check.sh`, delivery check included and judged from the
+- [x] **One command.** `scripts/compat-check.sh`, delivery check included and judged from the
   policy file it writes, `compat/verified.json` written only on green, summary and diff stat. First real run, fixtures committed.
-- [ ] **Settings line.** Bundle the list, `CompatVerified`, the muted line on every agent card,
+- [x] **Settings line.** Bundle the list, `CompatVerified`, the muted line on every agent card,
   snapshots.
-- [ ] **Docs.** `testing.md` provenance rows, `configuration.md`, `scripts/README.md`.
+- [x] **Claude's SessionStart.** Command hook in `ClaudeSettings`, its tests, templates recorded again, Claude captured again with its SessionStart tests green.
+- [x] **Docs.** `testing.md` provenance rows, `configuration.md`, `scripts/README.md`.

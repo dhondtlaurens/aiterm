@@ -101,6 +101,32 @@ runs are opt-in (`AITERM_LIVE_OPERATOR=1`), require the local stub and incur age
 working brief/status wording unless capped before/after runs on the same model and effort prove an
 intended change. Neither refactor round rewrote that wording.
 
+## Agent compatibility
+
+Claude Code, Codex and PI update themselves; what AiTerm reads from them (hook and status-line
+payloads, session files, transcripts and rollouts, model lists, the flags it launches with, headless
+answers) can change in any release. After an update, run `scripts/compat-check.sh` by hand, with
+iTerm2 open: it opens windows and spends a little of each CLI's quota, so no gate runs it.
+
+`daemon/tools/compat_capture.py` drives each CLI live on its cheapest model, in a scratch config with
+AiTerm's driver installed from `compat/drivers/` and pointed at a listener of its own: nothing reaches
+the running app, and nothing lands in the person's own CLI config or AiTerm's support folder. It
+saves what the CLI sent and wrote into `daemon/tests/fixtures/compat/<agent>/` in place of the last
+capture, once scrubbed of the home folder, user name, scratch folder and every account detail; a
+capture still holding one is not written. The delivery check runs for Claude Code and Codex beside
+it, and its verdict is read back from its file. Only when that passed and the contract suites below
+pass does `compat/verified.json` record each CLI's major and minor: the line each Settings › Agents
+card shows. Review the capture's diff, which is what the CLI changed, and commit both.
+
+| Fixture | Always-on reader |
+| --- | --- |
+| `compat/launch.json`, `compat/drivers/` | `CompatContractTests`: every command line the app builds, and the Claude settings and Codex hook block it merges, as the capture runs and installs them. A deliberate change records them again (`AITERM_RECORD_COMPAT=1`), then a capture follows. |
+| `daemon/tests/fixtures/compat/<agent>/` | `test_compat_captures.py`: the daemon's hook, status-line, session, transcript, rollout and title readers. `CompatContractTests`: model lists against the raw files (never the fallback), headless answers, every flag the app passes in the CLI's `--help` or a probe. `CompatTranscriptTests`: the Operator's transcript reader. |
+| `compat/verified.json` | `CompatVerifiedTests` for its reading; the bundle check for its copy in the app. |
+
+A contract failure after a new capture is a CLI change AiTerm must follow: fix the reader, or decide
+the change on purpose. Never edit or regenerate a capture to make a suite pass.
+
 ## Isolation
 
 The normal suite uses fake iTerm2/HTTP, temporary repositories/homes and `ScratchDefaults.make()`.

@@ -13,8 +13,8 @@ scripts/test-app-bundle.sh build/AiTerm.app
 ```
 
 `make-app.sh` produces `build/AiTerm.app` without launching it: release executable, Info.plist,
-icon, license, daemon package and delivery-check tool, pinned Python dependencies, Claude status
-shim and PI extension. Integration code comes from this checkout. Bundled `PYTHONPATH` keeps
+icon, license, daemon package and delivery-check tool, pinned Python dependencies, the verified CLI
+versions, Claude status shim and PI extension. Integration code comes from this checkout. Bundled `PYTHONPATH` keeps
 runtime packages out of the user's Python installation.
 
 `build-app.sh [debug|release]` shares Swift build/log handling; it builds only product AiTerm.
@@ -81,6 +81,19 @@ requires completed host results and at least one matching test for a filter. Fai
 `AITERM_TEST_LOGS_KEEP=0` discards them. New AiTerm preference domains fail the run; tests use
 `ScratchDefaults`. The test-only window hook makes ordered windows transparent and click-through.
 See [testing](../docs/testing.md) for coverage ownership and opt-in live boundaries.
+
+## Agent compatibility
+
+```sh
+scripts/compat-check.sh               # claude,codex,pi
+scripts/compat-check.sh codex
+```
+
+After Claude Code, Codex or PI updates: captures each CLI live, runs the delivery check for Claude
+Code and Codex, then the contract suites, and records the versions in `compat/verified.json` only
+when all of it passed. It takes several minutes, opens iTerm2 windows and spends a little quota on
+each CLI's cheapest model; never part of the gate. It commits nothing. See
+[testing](../docs/testing.md#agent-compatibility).
 
 ## Snapshots and README picture
 

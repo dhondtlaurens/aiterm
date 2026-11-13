@@ -1,0 +1,63 @@
+# >>> aiterm hooks >>>
+[mcp_servers.aiterm_hooks]
+url = "http://127.0.0.1:__AITERM_HOOK_PORT__/mcp"
+enabled = true
+required = false
+enabled_tools = ["post_codex_hook"]
+
+[mcp_servers.aiterm_hooks.http_headers]
+X-AiTerm-Hook = "1"
+
+[mcp_servers.aiterm_hooks.env_http_headers]
+X-AiTerm-iTerm-Session = "ITERM_SESSION_ID"
+
+[[hooks.SessionStart]]
+matcher = ""
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = 'curl -s -m 2 -X POST -H "Content-Type: application/json" -H "X-AiTerm-Hook: 1" -H "X-AiTerm-iTerm-Session: $ITERM_SESSION_ID" -H "Expect:" --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/codex'
+timeout = 5
+async = true
+
+[[hooks.UserPromptSubmit]]
+matcher = ""
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = 'curl -s -m 2 -X POST -H "Content-Type: application/json" -H "X-AiTerm-Hook: 1" -H "X-AiTerm-iTerm-Session: $ITERM_SESSION_ID" -H "Expect:" --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/codex'
+timeout = 5
+async = true
+
+[[hooks.SubagentStart]]
+matcher = ""
+[[hooks.SubagentStart.hooks]]
+type = "command"
+command = 'curl -s -m 2 -X POST -H "Content-Type: application/json" -H "X-AiTerm-Hook: 1" -H "X-AiTerm-iTerm-Session: $ITERM_SESSION_ID" -H "Expect:" --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/codex'
+timeout = 5
+async = true
+
+[[hooks.SubagentStop]]
+matcher = ""
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = 'curl -s -m 2 -X POST -H "Content-Type: application/json" -H "X-AiTerm-Hook: 1" -H "X-AiTerm-iTerm-Session: $ITERM_SESSION_ID" -H "Expect:" --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/codex'
+timeout = 5
+async = true
+
+[[hooks.Stop]]
+matcher = ""
+[[hooks.Stop.hooks]]
+type = "mcp_tool"
+server = "aiterm_hooks"
+tool = "post_codex_hook"
+input = { session_id = "${session_id}", cwd = "${cwd}", hook_event_name = "${hook_event_name}", model = "${model}", turn_id = "${turn_id}", stop_hook_active = "${stop_hook_active}", last_assistant_message = "${last_assistant_message}" }
+timeout = 5
+
+[[hooks.PermissionRequest]]
+matcher = ""
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = 'curl -s -m 2 -X POST -H "Content-Type: application/json" -H "X-AiTerm-Hook: 1" -H "X-AiTerm-iTerm-Session: $ITERM_SESSION_ID" -H "Expect:" --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/codex'
+timeout = 5
+async = true
+
+# <<< aiterm hooks <<<

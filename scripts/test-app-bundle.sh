@@ -30,6 +30,9 @@ for hook in claude-statusline-shim.sh pi-aiterm-status.ts; do
     fi
     cmp -s "$ROOT/hooks/$hook" "$bundled" || { echo "bundled $hook differs from source" >&2; exit 1; }
 done
+# Each Settings › Agents card's verified line reads it (`CompatVerified.bundled`).
+cmp -s "$ROOT/compat/verified.json" "$APP/Contents/Resources/compat/verified.json" \
+    || { echo "the bundled compat/verified.json is missing or differs from the repo's" >&2; exit 1; }
 # Settings › Agents' Run check runs it from the bundle, beside the helper's package.
 cmp -s "$ROOT/daemon/tools/delivery_check.py" "$APP/Contents/Resources/daemon/tools/delivery_check.py" \
     || { echo "the bundled delivery check is missing or differs from the repo's" >&2; exit 1; }
