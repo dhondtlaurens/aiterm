@@ -1,7 +1,7 @@
 # Rebuild the broadcast's sheet around its two jobs: answering what waits on you, and seeing where each task is
 
 Status: design picked on 2026-11-14 on the Proposals tab of `docs/design/design-system.html`
-("The broadcast's sheet", commit `51953c32`). Built, gated and reviewed on `feat/design-polish`, not yet merged.
+("The broadcast's sheet", commit `51953c32`). Built, gated, reviewed and merged; it ships in 0.49.0.
 The first three steps were built as one change before the package was built again. This replaces part 3 of
 `2026-11-13-design-polish.md`; part 2 of that plan (two-pane Settings) is dropped.
 
@@ -158,4 +158,4 @@ as the last view, snapshot and test that reads it.
 - [x] Activity's filter and link; tests.
 - [x] Snapshots and their pinned list; every image read.
 - [x] Docs, the README inventory, the design page synced with the proposal removed and published.
-- [ ] Gate, review, one commit, `scripts/test.sh all`; stop before the merge.
+- [x] Gate, review, one commit, `scripts/test.sh all`; stop before the merge.
