@@ -79,24 +79,28 @@ struct InterfaceSettingsPane: View {
         }
     }
 
-    /// A `Grid` rather than stacked rows so every title starts after the widest preview, `+12 −3`,
-    /// without a measured column width. The brand colours come last: the one switch about the marks
-    /// themselves, which every preview above it follows.
+    /// A `Grid` rather than stacked rows so every title starts after the widest preview without a
+    /// measured column width. Brand colours comes first, with every sidebar badge mark previewed;
+    /// the detail previews below follow the same setting.
     private var badgeGroup: some View {
         SettingsGroup(title: "Sidebar badges",
                       help: "Turn a detail off to show only its mark. Clicking it and its tooltip still work.") {
             Grid(alignment: .leading, horizontalSpacing: Space.gap, verticalSpacing: Space.gap) {
+                badgeRow(title: "Brand colours", help: "Draws each mark in its own colours instead of the ink of its row",
+                         isOn: badgeDetails.brandColours) {
+                    HStack(spacing: Space.gap) {
+                        ForEach([Palette.jira, Palette.gitlab, Palette.github, Palette.vscode], id: \.name) { brand in
+                            Badge(icon: .brand(brand), style: .quiet, markInk: markInk)
+                        }
+                    }
+                }
                 ForEach(BadgeDetailSwitch.all) { item in
+                    Hairline()
                     let on = badgeDetails[dynamicMember: item.detail]
                     badgeRow(title: item.title, help: item.help, isOn: on) {
                         Badge(on.wrappedValue ? item.label : nil, icon: .brand(item.brand),
                               diff: on.wrappedValue ? item.diff : nil, style: .quiet, markInk: markInk)
                     }
-                    Hairline()
-                }
-                badgeRow(title: "Brand colours", help: "Draws each mark in its own colours instead of the ink of its row",
-                         isOn: badgeDetails.brandColours) {
-                    Badge(icon: .brand(Palette.jira), style: .quiet, markInk: markInk)
                 }
             }
         }
