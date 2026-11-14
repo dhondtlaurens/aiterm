@@ -418,7 +418,7 @@ board and most of challenge and review; `BroadcastContractTests` and the tests o
 Each step leaves the package building and the gate green.
 
 - [x] Spikes: idle compaction off and the context-size field for Claude Code; Codex pre-tool hooks.
-- [ ] Domain in Core: signals, sources' conditions, items, the task's record, phases, transitions
+- [x] Domain in Core: signals, sources' conditions, items, the task's record, phases, transitions
       and pending stages, done check, journal, the Operator's session, fresh starts, digest; the
       new keys decode and encode beside the old ones. Unused yet; the broadcast keys stay.
 - [ ] Sources: Jira paging, labels and count; host-wide GitLab and GitHub accounts; the mapper; the
@@ -549,4 +549,16 @@ Installed executable SHA-256 at the probe (versions can update independently of 
 
 Verification: both isolated probes passed; `git diff --check` passed; plain `scripts/test.sh`
 exited 0 with no suites selected for the documentation-only changes. No live app run was needed
-for this to-do. The next to-do is Domain in Core; the implementation remains uncommitted for review.
+for this to-do.
+
+## Implementation progress
+
+- **Domain in Core:** added the new values and workspace keys beside the broadcast records;
+  the current runtime is unchanged. Pure rules cover source-specific finish choices, JQL quoting,
+  item identity, complete-read matching, stage ordering, pending work before Then, done conditions,
+  idle fresh starts, bounded idempotency and seen retention. Journals distinguish our text from
+  quoted host text. Unknown associated enum kinds round-trip inertly. New keys are omitted when
+  unused, preserving the current saved-format fixtures.
+- **Domain proof:** focused domain tests passed, then plain `scripts/test.sh` passed: 2,179 Core,
+  2,013 app, 123 UI and 5 snapshot tests. Existing labelled known issues remained known issues.
+  No contract fixtures were regenerated and no live app was launched.
