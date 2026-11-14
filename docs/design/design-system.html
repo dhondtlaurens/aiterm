@@ -3722,595 +3722,109 @@
     </div>
 
     <!-- signals-proposal:start -->
-    <div class="section op bs2 sgp" id="signals-result">
-      <p class="eyebrow proposal-flag">Proposal · the Operator’s signals and one family of creation sheets · 14 Nov 2026</p>
-      <h2>The end result</h2>
-      <p class="why"><strong>Picked in full on 14 Nov 2026:</strong> the family’s rules, the prompt and the agent on one step (2A), every
-        sheet as drawn, the Jira conditions as chips, the Operator group as a mirror of Projects, no Operator sheet, and Settings ›
-        Operator. So are the three departures from the brief: one trigger for each GitLab or GitHub signal, “merge request” spelled
-        out, and one line on New Signal’s first step saying what a signal is.</p>
-      <div class="note sg-picked"><b>Changed after the first review</b>
-        <ol>
-          <li><b>Keys and names.</b> New Signal… is ⌘S. The Shelf is the Archive: Archive it, archived, Show Archive on ⌘A. In a text field ⌘A stays Select All.</li>
-          <li><b>What AiTerm adds.</b> Only descriptions: the ticket’s and the merge request’s.</li>
-          <li><b>What matches now starts.</b> The list reads “Starts when you create it · 3”. In Edit Signal… it lists only what never started, “Starts when you save · 1”. Switching a signal back on reads Switch On (starts 2).</li>
-          <li><b>GitLab and GitHub, Starts when.</b> Plainer and parallel: I’m asked to review, My merge request needs me; It’s waiting on my reply, It’s sent back to me.</li>
-          <li><b>The decode.</b> A task’s whole second line decodes into the action and back, not only its branch.</li>
-          <li><b>One result.</b> This section shows only the final design. The reference parts below keep the reasons and the other states.</li>
-        </ol>
-      </div>
-      <div class="note sg-picked"><b>Changed after the second review. Still to pick: 3A, drawn here, or 3B, in Reference Part A</b>
-        <ol>
-          <li><b>Finish is a task’s life.</b> One rail, top to bottom: Starts, Works, Questions, Check, Done when, Merge, Then. Starts and Works are what the earlier steps decided, with Change to go back.</li>
-          <li><b>“Review prompt” is Check.</b> Another agent checks the work before it counts as done. It is off until you switch it on; then it shows its prompt.</li>
-          <li><b>Only what fits the source.</b> When you’re asked to review there is no Check and no Merge, and Done when opens on My review is posted. Nothing is ever disabled.</li>
-          <li><b>One closing block.</b> The last step of New Task, New Review and New Signal ends with the life of what you make, in a sentence. “Opens in iTerm2” is said there once, no longer on step 1 too.</li>
-          <li><b>Extras open in place.</b> One switch or link each: Only in some projects…, Check, Merge.</li>
-          <li><b>Every step checked against the rules below.</b> Also changed: the agent row of New Task and New Review has no help line, and the prompt’s help is one voice in all three.</li>
-        </ol>
-      </div>
-      <p class="why">Every frame is drawn at 1 px = 1 pt from the shipped tokens. Nothing here is in the code yet.</p>
+    <div class="section op bs2 sgp" id="sheets-proposal">
+      <p class="eyebrow proposal-flag">Proposal · one family of creation sheets, one control for each kind of question · 14 Nov 2026</p>
+      <h2>Every creation sheet, built from the same six controls</h2>
+      <p class="why">New Task and New Review have four steps and New Signal five, each asking one thing, in the same order in all
+        three; Add Project, Edit Project, New Terminal and Add Divider have one. Every field in every sheet is one of the six
+        controls below, labelled, helped and spaced the same way, and every sheet ends with the same box saying what its button does.</p>
 
-      <h3 class="group">The rules every sheet follows</h3>
-      <div class="bx-scroll"><table class="bx-audit sg-map">
-        <thead><tr><th>Step</th><th>The question it answers</th><th>New Task… ⌘N</th><th>New Review… ⌘R</th><th>New Signal… ⌘S</th></tr></thead>
+      <h3 class="group">One control for each kind of question</h3>
+      <div class="bx-scroll"><table class="bx-audit sg-rule">
+        <thead><tr><th>What is asked</th><th>Control</th><th>Where</th></tr></thead>
         <tbody>
-          <tr><td>1</td><td>What is it, and where does it come from?</td><td><b>Task:</b> ticket, name, branch</td><td><b>Review:</b> merge request, ticket, name, branch</td><td><b>Signal:</b> Jira, GitLab or GitHub; name</td></tr>
-          <tr><td>2</td><td>When does it start?</td><td class="sg-no">left out: when you create it</td><td class="sg-no">left out: when you create it</td><td><b>Starts when:</b> the conditions, what starts now</td></tr>
-          <tr><td>3</td><td>What is the agent told, and which agent runs it?</td><td><b>Prompt:</b> prompt, AiTerm adds, agent</td><td><b>Prompt:</b> prompt, AiTerm adds, agent</td><td><b>Prompt:</b> prompt, AiTerm adds, agents</td></tr>
-          <tr><td>4</td><td>What happens to it after that?</td><td class="sg-no">left out: it’s yours</td><td class="sg-no">left out: it’s yours</td><td><b>Finish:</b> questions, check, done when, merge, then</td></tr>
-          <tr><td>Closing block</td><td>What does the button do?</td><td>Where it opens, which agent starts, the command</td><td>Where it opens, which agent starts, the command</td><td>The task’s life in a sentence, and what starts now</td></tr>
+          <tr><td>One of two or three short options</td><td><code>SegmentedControl</code></td><td>Starts from. Find tickets by. Start a task when. Then.</td></tr>
+          <tr><td>One of more, or of a list that grows</td><td><code>Select</code></td><td>Base branch. Agent, Model, Reasoning. Done when, and its status.</td></tr>
+          <tr><td>On or off</td><td>Checkbox, with what it does as the help line under it</td><td>Copy the files in .worktreeinclude. Add a description. It’s waiting on my reply, It’s sent back to me. Merge it when it’s ready. Delete its branch. Import its worktrees.</td></tr>
+          <tr><td>A short single line</td><td><code>Input</code></td><td>Name. Branch, in New Task and New Review (New Review offers the existing branches as you type). Folder.</td></tr>
+          <tr><td>Prose: a prompt, or JQL</td><td><code>PromptEditor</code>, 150 pt tall everywhere</td><td>Prompt, in all three sheets. JQL.</td></tr>
+          <tr><td>Items picked from a search</td><td>The search field with chips (<code>ChipsPicker</code>)</td><td>Ticket. Merge request. Jira projects. Conditions. Projects.</td></tr>
         </tbody>
       </table></div>
       <ul class="impl">
-        <li><b>Same question, same place.</b> A sheet leaves a step out. It never reorders, and a step’s name means the same in every sheet.</li>
-        <li><b>Source, then name, then place.</b> One pick on step 1 fills in the rest.</li>
-        <li><b>Only what applies.</b> A control that doesn’t fit an earlier pick is left out, never disabled. An extra sits behind one switch or link and opens in place.</li>
-        <li><b>One of each.</b> One prompt field, one AiTerm adds block, one agent row (a list for a signal), one closing block, one footer.</li>
-        <li><b>Defaults.</b> New Task and New Review: pick, Continue, Create. New Signal fills in its name and every Finish choice; the conditions and the prompt are yours to give.</li>
+        <li><b>Label, help, spacing.</b> The label is above its control in <code>Typography.label</code>, <code>Space.snug</code> apart. The help is under it in <code>Typography.help</code>. Fields are <code>Space.block</code> apart. A checkbox’s help sits under its own label.</li>
+        <li><b>Optional.</b> The label ends in (optional). The help says what empty means, starting with “Empty:”.</li>
+        <li><b>Order in a step.</b> The main field first, its options under it. Nothing is ever disabled: what doesn’t apply isn’t there.</li>
+        <li><b>The last thing on every sheet</b> is the closing box: what the button does, written from your picks.</li>
+      </ul>
+      <p class="why"><strong>Where today’s controls broke the rule, and what was decided.</strong></p>
+      <ul class="impl">
+        <li><b>Then</b> is a segmented control: three fixed, short options. A select would hide two of them.</li>
+        <li><b>Starts from</b> is a segmented control: three fixed sources. Each segment leads with its vendor’s mark, the one place a segment names a vendor.</li>
+        <li><b>Find tickets by</b> is a segmented control, Conditions or JQL, in place of the “Write JQL instead” link: two answers, only one of which can hold. JQL is prose, so it is the prompt editor.</li>
+        <li><b>Start a task when</b> is a segmented control: two answers, only one of which can hold. The two ways your merge request can need you are separate on/offs, so they are checkboxes.</li>
+        <li><b>Agent</b> is a select, no longer a segmented control with marks: the list grows with each new CLI, and a signal needs it as a row in a list.</li>
+        <li><b>Reasoning</b> is a select: its levels differ per model.</li>
+        <li><b>Ticket, Merge request and New Review’s Branch</b> are the search field with one chip, as Jira projects and conditions are. The separate picked-item field goes.</li>
+        <li><b>What AiTerm adds</b> is one checkbox per description, each with its effect. The group label goes.</li>
+        <li><b>Projects</b>, in a GitLab or GitHub signal, is an optional field that is always there. The “Only in some projects…” link goes.</li>
+        <li><b>Done</b> is laid out as every other step: labels above their controls.</li>
+        <li><b>Folder</b> is an input with Choose…, since Finder’s panel does the picking. In Edit Project it can’t change, so it is a line under the title, not a disabled field.</li>
+        <li><b>A signal’s Agents</b> is the agent row as a list, with Add an agent under it: the one list a sheet edits in place.</li>
       </ul>
 
-      <h3 class="group">The sidebar</h3>
-      <div class="bx-stage bx-bleed sg-center"><div id="sg-r-side"></div></div>
+      <h3 class="group">Moving between steps</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-nav"></div></div>
 
-      <h3 class="group">New Task… ⌘N</h3>
-      <div class="bx-stage bx-bleed sg-center"><div id="sg-r-task1"></div><div id="sg-r-task2"></div></div>
+      <h3 class="group">New Task… ⌘N · Ticket, Name and branch, Prompt, Agent</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-t1"></div><div id="sg-t2"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-t3"></div><div id="sg-t4"></div></div>
 
-      <h3 class="group">New Review… ⌘R</h3>
-      <div class="bx-stage bx-bleed sg-center"><div id="sg-r-rev1"></div><div id="sg-r-rev2"></div></div>
+      <h3 class="group">New Review… ⌘R · Merge request, Name and branch, Prompt, Agent</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-r1"></div><div id="sg-r2"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-r3"></div><div id="sg-r4"></div></div>
 
-      <h3 class="group">New Signal… ⌘S</h3>
-      <div class="bx-stage bx-bleed sg-center"><div id="sg-r-sig1"></div></div>
-      <div class="bx-stage bx-bleed sg-center sg-next"><div id="sg-r-sig2j"></div><div id="sg-r-sig2g"></div></div>
-      <div class="bx-stage bx-bleed sg-center sg-next"><div id="sg-r-sig3"></div><div id="sg-r-fin-j"></div></div>
-      <div class="bx-stage bx-bleed sg-center sg-next"><div id="sg-r-fin-m"></div><div id="sg-r-fin-r"></div></div>
+      <h3 class="group">New Signal… ⌘S, from Jira · Signal, Starts when, Prompt, Agents, Done</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-j1"></div><div id="sg-j2"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-j2b"></div><div id="sg-j3"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-j4"></div><div id="sg-j5"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-j5b"></div><div id="sg-j5c"></div></div>
+
+      <h3 class="group">New Signal, from GitLab or GitHub: My merge request needs me · the steps that differ</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-m1"></div><div id="sg-m2"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-m3"></div><div id="sg-m5"></div></div>
+
+      <h3 class="group">New Signal, from GitLab or GitHub: I’m asked to review · the steps that differ</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-v2"></div><div id="sg-v3"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-v5"></div></div>
+
+      <h3 class="group">The sheets with one step · Add Project… ⌘P, Edit Project…, New Terminal… ⌘T, Add Divider… ⌘D</h3>
+      <div class="bx-stage bx-bleed"><div id="sg-p1"></div><div id="sg-p2"></div></div>
+      <div class="bx-stage bx-bleed sg-next"><div id="sg-o1"></div><div id="sg-o2"></div></div>
     </div>
 
-    <div class="section op bs2 sgp" id="signals-sheets">
-      <p class="eyebrow proposal-flag">Proposal · the Operator’s signals and one family of creation sheets · 14 Nov 2026</p>
-      <h2>Reference · Part A · One family of creation sheets</h2>
-      <p class="why">Six things are made from the File menu: a signal, a project, a task, a review, a terminal and a divider. Today each
-        sheet grew by itself, so the same decision sits in a different place, under a different name, in each. This part makes them one
-        family: the same frame, the same order of decisions, the same words, the same agent control, the same footer.
-        <strong>New Signal (⌘S) replaces New Broadcast (⌘B).</strong> Every frame is drawn at 1 px = 1 pt from the shipped tokens; nothing
-        below is in the code yet.</p>
-      <div class="rules">
-        <div class="no"><p class="h">Today</p>
-          <ul>
-            <li><strong>The order differs:</strong> New Task asks for the agent before the prompt, New Broadcast after it.</li>
-            <li><strong>The agent is two controls:</strong> a segmented control with two selects in New Task and New Review, rows of three selects in New Broadcast.</li>
-            <li><strong>The same field has five names:</strong> Task name, Review name, Terminal name, Divider name, Name.</li>
-            <li><strong>Optional is said three ways:</strong> in the label, in the help line, or not at all.</li>
-            <li><strong>Add Project asks nothing:</strong> Jira projects are linked later from a menu, and an alert offers the worktrees.</li>
-            <li><strong>The Agent step is a Continue you press past:</strong> your last pick is remembered, so it rarely changes.</li>
-          </ul>
-        </div>
-        <div class="yes"><p class="h">Picked</p>
-          <ul>
-            <li><strong>1</strong>, one set of rules for every sheet: frame, order, names, help lines, footer.</li>
-            <li><strong>2A</strong>, the prompt and the agent share a step: New Task and New Review in two steps, New Signal in four.</li>
-            <li><strong>3</strong>, the sheets with one step, and New Signal’s other states. The main steps are in the End result.</li>
-            <li><strong>3A</strong>, still to pick: Finish as a task’s life on a rail. 3B is the other option.</li>
-            <li><strong>4</strong>, a signal’s Jira conditions as chips, each changed in a small popover.</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="options">
-
-        <!-- 1 · the rules ------------------------------------------------------------------------------------ -->
-        <div class="option pick">
-          <header><span class="letter">1</span><h3>The family’s rules</h3><span class="rec">As picked</span></header>
-          <p><b>Decided, with the reason for each.</b></p>
-          <div class="bx-scroll"><table class="bx-audit sg-rules">
-            <thead><tr><th>Rule</th><th>What it means</th><th>Why</th></tr></thead>
-            <tbody>
-              <tr><td>One frame</td><td><code>SheetLayout</code> at <code>Sheet.width</code>. Under the title: the <code>SheetStepper</code> when there are steps, one sentence when there is one. A hairline, the fields, a hairline, the footer.</td><td>A one-field sheet and a four-step sheet read as the same thing.</td></tr>
-              <tr><td>One order</td><td>What it is and where it comes from, then what the agent is told, then which agent runs it, then how it ends. A sheet leaves out what it has no use for. It never reorders.</td><td>You learn it once.</td></tr>
-              <tr><td>The title is the menu item</td><td>New task in webshop, Add project. <b>New</b> starts something that runs. <b>Add</b> puts something in the sidebar. The button repeats it: Create Task, Add Project. Editing opens the same sheet with Save.</td><td>Three words you can predict.</td></tr>
-              <tr><td>Source, name, place</td><td>A first step starts with what fills in the rest (a ticket, a merge request, a folder, Jira or GitLab), then the name, then where it runs.</td><td>One pick fills the step.</td></tr>
-              <tr><td>Name is called Name</td><td>The title already says what is named.</td><td>Five labels become one.</td></tr>
-              <tr><td>Prompt is called Prompt</td><td>Its placeholder is a real prompt you could send. Under it, <b>AiTerm adds</b> lists what is put in front of your prompt for you.</td><td>You see what to write and what not to repeat.</td></tr>
-              <tr><td>One agent control</td><td>A row of Agent, Model and Reasoning, right under the prompt. A signal has the same row as a list.</td><td>The segmented control and the rows were two answers to one question.</td></tr>
-              <tr><td>Optional</td><td>The label ends in (optional). The help line says what empty means, starting with “Empty:”.</td><td>No guessing which fields can be skipped.</td></tr>
-              <tr><td>Help lines</td><td>What the field does, in the present tense, in one or two short sentences. Never an instruction, and only where there is something to say.</td><td>“Fills in the name and the branch.” tells you more than “Select a ticket to…”.</td></tr>
-              <tr><td>The closing block</td><td>The last step ends with one block: the life of what you make, in a sentence written from your picks. New Task and New Review add the command. It is said once, there.</td><td>No surprise after ⌘↩.</td></tr>
-              <tr><td>Only what applies</td><td>A control that doesn’t fit an earlier pick is left out, never disabled. An extra sits behind one switch or link and opens in place.</td><td>Nothing to read that you can’t use.</td></tr>
-              <tr><td>One footer</td><td>Cancel on the first step, Back after it. Continue until the last step, then the button. ⌘↩ presses it. Escape closes an open list first, then goes back.</td><td>As New Task has it today; now everywhere.</td></tr>
-              <tr><td>Heights</td><td>One step: as tall as its fields. New Task and New Review: <code>Sheet.height</code> (560). New Signal: <code>Sheet.boardHeight</code> (640). No step changes the sheet’s height.</td><td>No new value. <code>Sheet.creationHeight</code> (500) is no longer used.</td></tr>
-            </tbody>
-          </table></div>
-          <p style="margin-top: var(--space-block)"><b>Which sheet has which step.</b> The names in the stepper are the cells.</p>
-          <div class="bx-scroll"><table class="bx-audit sg-matrix">
-            <thead><tr><th>Sheet</th><th>What it is</th><th>When it starts</th><th>What the agent is told, and which agent</th><th>How it ends</th></tr></thead>
-            <tbody>
-              <tr><td>New Signal… ⌘S</td><td>Signal</td><td>Starts when</td><td>Prompt</td><td>Finish</td></tr>
-              <tr><td>New Task… ⌘N</td><td>Task</td><td class="sg-no">when you create it</td><td>Prompt</td><td class="sg-no">when you say so</td></tr>
-              <tr><td>New Review… ⌘R</td><td>Review</td><td class="sg-no">when you create it</td><td>Prompt</td><td class="sg-no">when you say so</td></tr>
-              <tr><td>New Terminal… ⌘T</td><td>one step</td><td class="sg-no">when you create it</td><td class="sg-no">no agent</td><td class="sg-no"></td></tr>
-              <tr><td>Add Project… ⌘P</td><td>one step</td><td class="sg-no"></td><td class="sg-no"></td><td class="sg-no"></td></tr>
-              <tr><td>Add Divider… ⌘D</td><td>one step</td><td class="sg-no"></td><td class="sg-no"></td><td class="sg-no"></td></tr>
-            </tbody>
-          </table></div>
-          <p style="margin-top: var(--space-block)"><b>Keys.</b> New Signal… is ⌘S, which Show Shelf has today. The Shelf is called the Archive, and Show Archive is ⌘A. In a text field ⌘A stays Select All.</p>
-          <p style="margin-top: var(--space-block)"><b>Today and proposed, sheet by sheet.</b></p>
-          <div class="bx-scroll"><table class="bx-audit sg-today">
-            <thead><tr><th>Sheet</th><th>Today</th><th>Proposed</th></tr></thead>
-            <tbody>
-              <tr><td>New Task… ⌘N</td><td>Task, Agent, Prompt. “Task name”. Type, New branch and Base branch as three controls. The agent as a segmented control and two selects on a step of their own. “First prompt (optional)”. 500 pt.</td><td>Task, Prompt. “Name”. Branch and Base branch: the type is the branch’s first word, set from the ticket, typed over in place. “Prompt (optional)” with what AiTerm adds, the agent row under it. One Continue less. 560 pt.</td></tr>
-              <tr><td>New Review… ⌘R</td><td>Branch, Agent, Prompt. “Review name”. The same Agent step. Only the ticket can be added to the prompt.</td><td>Review, Prompt. “Name”. The same fields in the same order. AiTerm adds the merge request’s description and the ticket’s.</td></tr>
-              <tr><td>New Terminal… ⌘T</td><td>One field, “Terminal name”.</td><td>The same sheet. “Name”. The sentence under the title says no agent starts.</td></tr>
-              <tr><td>Add Divider… ⌘D</td><td>“Divider name”, and “Leave it empty for a plain rule.”</td><td>“Name (optional)”, and “Empty: a plain rule.”</td></tr>
-              <tr><td>Add Project… ⌘P</td><td>Finder’s folder panel and nothing else. Then an alert: “Import 3 worktrees?”. Jira projects are linked later, from the project’s menu.</td><td>The folder panel, then one sheet: the folder and what was found in it, its Jira projects, its worktrees. One ⌘↩ more, one alert and one hidden sheet less.</td></tr>
-              <tr><td>Jira Projects…</td><td>A sheet of its own, from the project’s menu, with Save.</td><td>Gone as a sheet. It is a field of Add Project; Edit Project… in the project’s menu opens the same sheet.</td></tr>
-              <tr><td>New Broadcast… ⌘B</td><td>Broadcast, Prompt, Agents, Task, Done.</td><td>New Signal… ⌘S: Signal, Starts when, Prompt, Finish.</td></tr>
-              <tr><td>Show Shelf ⌘S</td><td>The Shelf: where a shelved task goes.</td><td>Show Archive ⌘A: the Archive. Shelve is Archive. In a text field ⌘A stays Select All.</td></tr>
-              <tr><td>Rename…</td><td>One field: “Task name”, “Terminal name”, “Divider name”.</td><td>The same sheet. “Name”.</td></tr>
-            </tbody>
-          </table></div>
-        </div>
-
-        <!-- 2 · how many steps ------------------------------------------------------------------------------- -->
-        <div class="option pick">
-          <header><span class="letter">2A</span><h3>The prompt and the agent share a step</h3><span class="rec">As picked</span></header>
-          <p><b>New Task and New Review in two steps, New Signal in four.</b> The agent is one row under the prompt, on the same step in
-            every sheet. Your last pick is still remembered, so most of the time you read the row and press ⌘↩. The End result draws
-            every step this way.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-steps-a"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>New Task, the sheet you open most, loses the step you press past.</li>
-              <li>The agent is in view while you write: <code>/</code> lists that agent’s skills, and changing the agent changes the list at once.</li>
-              <li>The closing block under the row says where it opens, which agent starts and the command.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>The prompt editor is 112 pt tall. It is 150 today. It scrolls inside, as it does now.</li>
-              <li>New Signal needs 640 pt (<code>Sheet.boardHeight</code>) for its Finish step to fit without scrolling.</li>
-              <li>A signal with more than three agent rows scrolls its Prompt step.</li></ul></div></div>
-
-        <p style="color: var(--muted)">Not picked: 2B, one decision on each step (Task, Prompt, Agent; five steps for a signal).</p>
-        <!-- 3 · every sheet ---------------------------------------------------------------------------------- -->
-        <div class="option pick">
-          <header><span class="letter">3</span><h3>The other sheets, and the other states of New Signal</h3><span class="rec">As picked</span></header>
-          <p><b>The End result, at the top, draws New Task, New Review and New Signal step by step.</b> Here are the three sheets with one
-            step, then what New Signal’s steps look like for the other source and in Edit Signal…. A stepped sheet is drawn at its real
-            height, so what you see is what fits.</p>
-          <p><b>New Task.</b> A ticket fills in the name and the branch. Where it opens is said once, in the closing block of the Prompt step. The Type select is gone: <code>feat/</code> is the branch’s first
-            word, a bug’s ticket gives <code>fix/</code>, and you type over it. With no ticket picked, AiTerm adds nothing and that field
-            is left out. A missing CLI is said under the agent row: “Codex isn’t installed. Install it in Settings › Agents.”</p>
-          <p><b>New Review.</b> The merge request and the ticket still find each other. Its Prompt step is New Task’s, field for field. New:
-            the merge request’s description can be added, as a signal adds it. A branch that already has a task opens there: the button
-            reads Open in Task and the last line names it.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-one-divider"></div><div id="sg-one-terminal"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">One step</span>
-            <ul><li><b>Add Divider</b> and <b>New Terminal</b> keep their one field. Only the words change: Name, and what empty means.</li>
-              <li>The sentence under the title stands where a stepped sheet has its stepper.</li>
-              <li>Rename… is the same sheet with the name filled in and Rename as its button.</li></ul></div></div>
-        <div class="bx-stage bx-bleed"><div id="sg-one-project"></div><div id="sg-one-project2"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Add Project</span>
-            <ul><li>⌘P opens Finder’s folder panel first, as today. The sheet comes up with the folder filled in and what AiTerm found in it.</li>
-              <li><b>Jira projects</b> is asked here because a signal needs it: a ticket starts a task only in a project its Jira project is linked to.</li>
-              <li>The worktrees alert becomes a checkbox, ticked.</li>
-              <li><b>Edit Project…</b> in the project’s menu opens the same sheet. It replaces Jira Projects….</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>One ⌘↩ more than today for a project with nothing to link.</li></ul></div></div>
-        <div class="bx-stage bx-bleed"><div id="sg-signal-1b"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">New Signal · 1 Signal</span>
-            <ul><li>Only two questions: where it starts from, and its name. One line above them says what a signal is.</li>
-              <li>The three starting points are one <code>SegmentedControl</code> with their marks, as the agent picker was. The line under it says what that source can start on.</li>
-              <li>A source that isn’t connected is dimmed (<code>Opacity.disabled</code>) and can’t be picked. The line says where to connect it.</li>
-              <li>There is no manual start: a signal only starts on Jira, GitLab or GitHub.</li></ul></div></div>
-        <div class="bx-stage bx-bleed"><div id="sg-signal-2r"></div><div id="sg-signal-2e"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">2 Starts when</span>
-            <ul><li><b>Jira:</b> a ticket must meet every condition. Section 4 draws how a chip is changed and added.</li>
-              <li><b>GitLab and GitHub:</b> one of two. You’re asked to review, or your own merge request needs you. Each wants its own prompt, so each is its own signal. On GitHub the step says pull request.</li>
-              <li><b>Starts when you create it</b> is live: what matches now starts as soon as the signal is created. After that, each new match starts a task.</li>
-              <li><b>Edit Signal…</b> lists only what matches and never started: Starts when you save.</li>
-              <li>A match AiTerm can’t start is dimmed, with the reason: no project is linked to it.</li></ul></div></div>
-        <div class="bx-stage bx-bleed"><div id="sg-signal-3r"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">3 Prompt</span>
-            <ul><li><b>AiTerm adds</b> only descriptions. For Jira: the ticket’s, and its merge request’s once there is one. For GitLab and GitHub: the merge request’s, and its ticket’s when there is one.</li>
-              <li><b>Agents</b> is New Task’s row as a list. The Operator picks a row for each task and for each check.</li>
-              <li>The frame is Edit Signal…: the same sheet, Edit signal as its title, Save as its button. A change applies the next time the Operator tells a task what to do, never in the middle of a turn.</li></ul></div></div>
-
-        <!-- 3A, 3B · Finish as a task's life ------------------------------------------------------------------- -->
-        <div class="option pick">
-          <header><span class="letter">3A</span><h3>New Signal’s Finish step is a task’s life, top to bottom</h3><span class="rec">Recommended</span></header>
-          <p><b>Seven moments, in the order they happen:</b> Starts, Works, Questions, Check, Done when, Merge, Then. The first two are
-            what steps 2 and 3 decided, one line each, with Change to go back. The rest are decided here, each beside its name on one rail.
-            The three kinds of signal are drawn in the End result.</p>
-          <p><b>Only what fits the source is drawn.</b> A signal for reviews asked of you has no Check, since the work is a review, and no
-            Merge, since the merge request isn’t yours. Its Done when opens on My review is posted. <b>Check</b> is what the review prompt
-            was: another agent checks the work before it counts as done. It is off until you switch it on; then it shows its prompt.</p>
-          <p><b>Every last step ends the same way,</b> in all three sheets: one block that says the life of what you make in a sentence,
-            written from your picks. New Task and New Review add the command under it. “Opens in iTerm2” is said there, once.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-finish-states"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>You read down the rail and know what happens to a task, in order.</li>
-              <li>A prompt that already reviews is no longer followed by “Review prompt”. Check is one switch, and it is off.</li>
-              <li>Nothing is disabled. What doesn’t fit the source isn’t there.</li>
-              <li>Every pick has a default, so Create works as the step opens.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>The rail is new: marks and a name column that no other step has.</li>
-              <li>The sentence is written by AiTerm from the picks, so every combination needs its wording.</li>
-              <li>With Check on, the Jira step is nearly full at 640 pt.</li></ul>
-            <span class="h g">Needs a token</span>
-            <ul><li>None. The name column’s 68 pt is local to the rail.</li></ul></div></div>
-
-        <div class="option">
-          <header><span class="letter">3B</span><h3>The rail on every step past the first</h3></header>
-          <p>3A’s Finish, unchanged. In addition, every step after the first opens with the earlier steps as done lines on the rail,
-            each with Change, in New Task, New Review and New Signal.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-fb-task"></div><div id="sg-fb-prompt"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>What you chose so far is always in view.</li>
-              <li>The rail is in every sheet, not only in Finish.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>28 pt off every step for each earlier one. New Review’s Prompt step no longer fits 560 pt without a shorter editor.</li>
-              <li>It repeats the title and the closing block.</li>
-              <li>A step you just left rarely needs reading again.</li></ul></div></div>
-        <!-- 4 · Jira conditions ------------------------------------------------------------------------------ -->
-        <div class="option pick">
-          <header><span class="letter">4</span><h3>A signal’s Jira conditions: chips, each changed in a popover</h3><span class="rec">As picked</span></header>
-          <p>Each condition is a chip in the field, as a project’s Jira projects are. <b>Add a condition</b> offers five kinds: Label, Sprint,
-            Assignee, Status and Jira project. A click on a chip opens a small popover to change it. <b>Write JQL instead</b> turns the
-            chips into one JQL field, filled in with what they said; <b>Use conditions instead</b> goes back.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-jira"></div><div id="sg-jira2"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>It reads as a sentence: label is operator, in my open sprints.</li>
-              <li>Three conditions fit one 28 pt field.</li>
-              <li>The sprint chip is your open sprints on any board, so one signal covers every team you are in.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>Changing a chip takes a click into its popover.</li>
-              <li>JQL that the chips can’t say stays JQL: Use conditions instead is dimmed for it.</li></ul></div></div>
-      </div>
-
-      <p class="why" style="margin-top: var(--space-margin)"><strong>Needs a token:</strong> none. Two values change their use:
-        <code>Sheet.boardHeight</code> (640) becomes New Signal’s height once the broadcast’s sheet is gone, and
-        <code>Sheet.creationHeight</code> (500) is no longer used with 2A. Three numbers are local to one view, as the Swift
-        keeps such numbers today, and are not tokens: the prompt editor’s 112 pt (<code>PromptStep.editorHeight</code>, 150 today), the
-        Check prompt’s 56 pt editor, the rail’s 68 pt name column, and a condition popover’s 248 pt width.</p>
-    </div>
-
-    <div class="section op bs2 sgp" id="signals-operator">
-      <p class="eyebrow proposal-flag">Proposal · the Operator’s signals and one family of creation sheets · 14 Nov 2026</p>
-      <h2>Reference · Part B · The Operator in the sidebar</h2>
-      <p class="why">The Operator group becomes a mirror of Projects. The Operator’s own row comes first. Under it, each
-        <strong>signal</strong> is a heading drawn as a project’s, with the tasks it started. A task under a signal is the same row as a
-        task under a project. <strong>There is no Operator sheet:</strong> the sidebar shows what runs, and what the Operator needs from
-        you it asks in its own chat.</p>
-      <div class="rules">
-        <div class="no"><p class="h">Today</p>
-          <ul>
-            <li><strong>The group is one broadcast:</strong> its lead row and its tasks, then nothing once it ends.</li>
-            <li><strong>A driven task is a different row:</strong> its badge line folds away under the Operator’s words.</li>
-            <li><strong>Questions live in a sheet:</strong> a board with a pager, answer buttons, tasks and Activity.</li>
-            <li><strong>Nothing starts by itself:</strong> a labelled ticket or a review asked of you waits until you open a sheet.</li>
-          </ul>
-        </div>
-        <div class="yes"><p class="h">Picked</p>
-          <ul>
-            <li><strong>5</strong>, the group: the Operator’s row, then each signal as a project’s heading with its tasks. The whole sidebar is in the End result; here are its states.</li>
-            <li><strong>6</strong>, one difference on a task’s row: its second line decodes into what the Operator is doing, and back.</li>
-            <li><strong>7</strong>, a task that moves, is archived, or is taken over.</li>
-            <li><strong>8</strong>, no Operator sheet: its questions are in its chat, its row counts them.</li>
-            <li><strong>9</strong>, Settings says what the Operator and the Oracle do, and how to steer them.</li>
-            <li><strong>10</strong>, part by part: kept, folded or gone.</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="options">
-
-        <!-- 5 · the group ------------------------------------------------------------------------------------ -->
-        <div class="option pick">
-          <header><span class="letter">5</span><h3>The group: the Operator’s row, then signals as projects</h3><span class="rec">As picked</span></header>
-          <p><b>The Operator’s row</b> behaves as a task’s: a click brings its window to the front, and its line says what it is doing.
-            <b>A signal’s heading</b> is <code>ProjectHeaderRow</code>, unchanged: the chevron, the mark of Jira, GitLab or GitHub where a
-            project has its provider, the name. Folded, it counts its tasks in <code>StatusCountChips</code>, as a project does. Where a
-            project has its “+”, a signal has nothing, or the pause sign once you switch it off: a signal starts its own tasks. Its menu has Edit
-            Signal…, Switch Off and Remove Signal…. Off, the menu reads Switch On (starts 2): what matched in the meantime starts then.
-            The Operator heading’s “+” is New Signal… (⌘S).</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-side-op"></div><div id="sg-side-heads"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>One thing to learn: a signal folds, counts and lists as a project does.</li>
-              <li>A task at rest reads the same wherever it sits: ticket, merge request, diff, branch, status mark.</li>
-              <li>What needs you is amber in three places that agree: the task’s mark, the Operator’s row, a folded heading’s chip.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>A signal’s conditions are not on its heading. They are its tooltip and its Edit Signal… sheet.</li>
-              <li>A signal with no task running is a heading with nothing under it.</li></ul></div></div>
-
-        <!-- 6 · the action line ------------------------------------------------------------------------------ -->
-        <div class="option pick">
-          <header><span class="letter">6</span><h3>The one difference: the second line decodes into what the Operator is doing</h3><span class="rec">As picked</span></header>
-          <p>While the Operator acts on a task, the row’s whole second line (ticket, merge request, diff and branch) gives way to the
-            action, in <code>OperatorBadge</code>’s acting look: <code>Typography.chip</code> in the row’s own ink. When the Operator is
-            done with it, the line decodes back to the ticket, the merge request, the diff and the branch.</p>
-          <p><b>Timing.</b> The line scrambles and settles from the left as one, in half a second (<code>OperatorBadge.decodeDuration</code>,
-            0.5 s), once, then stands still; the row’s spinner carries the motion from there. An action stays at least three seconds
-            (<code>OperatorTitle.hold</code>), so a short one can be read. One action turning into the next decodes straight across, not
-            through the badges. Under the pointer the badge line is back in a third of a second
-            (<code>OperatorTitle.hoverDuration</code>, 0.35 s) and stays while you hover, so the ticket and the merge request can
-            be clicked. With Reduce Motion the lines swap without the scramble.</p>
-          <p><b>Width.</b> The action has the whole line, so it reads in full down to the narrowest sidebar (360 pt). Past that it is cut
-            at its end, and the whole of it is the tooltip.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-decode"></div><div id="sg-decode-acts"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>The action has room: it is never squeezed between badges.</li>
-              <li>You see what the Operator is doing with each task without opening anything.</li>
-              <li>It is the line a driven task has today, decoding where it used to fold. No new motion, no new token.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>While an action shows, the ticket, the merge request and the branch are a hover away.</li>
-              <li>A task that waits on a reviewer for days shows “waiting on a reviewer” for days.</li></ul>
-            <span class="h g">Needs a token</span>
-            <ul><li>None. If a row’s hold should differ from the heading’s three seconds, that is one new constant on <code>OperatorBadge</code>.</li></ul></div></div>
-
-        <!-- 7 · moves ---------------------------------------------------------------------------------------- -->
-        <div class="option pick">
-          <header><span class="letter">7</span><h3>A task that moves, is archived, or is taken over</h3><span class="rec">As picked</span></header>
-          <p>One ticket or merge request is one task for its whole life: the same worktree, window and conversation. Only where its row sits
-            changes. Each pair below is before and after.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-move"></div><div id="sg-archive"></div><div id="sg-take"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">What you see</span>
-            <ul><li><b>Moved:</b> its merge request came back with threads, so My merge requests picks it up. The row leaves one heading and appears under the other. A toast says so.</li>
-              <li><b>Archived:</b> the signal’s Then is Archive it. The row leaves the sidebar; the task is in the Archive (Show Archive, ⌘A) with its branch and conversation. If it comes back, the row does too.</li>
-              <li><b>Take Over:</b> the first item of a signal task’s menu. The row moves under its project and the Operator lets go of it. There is no way back in this version.</li>
-              <li><b>Switched off:</b> a signal you switch off starts nothing new. Its tasks end their turn and wait. Switch On (starts 2) starts what matched in the meantime.</li></ul></div></div>
-
-        <!-- 8 · no sheet ------------------------------------------------------------------------------------- -->
-        <div class="option pick">
-          <header><span class="letter">8</span><h3>No Operator sheet: it asks in its own chat</h3><span class="rec">As picked</span></header>
-          <p><b>The board is gone:</b> no Tasks tab, no Activity tab, no question pager, no answer buttons. When the Operator and the Oracle
-            can’t agree, or the decision is yours, the Operator writes the question in its own window as plain text, with both views. Its
-            row reads <b>waiting on you · 2</b> with the amber mark, a notification arrives, and a click on either opens its window. You
-            answer by typing there. The same window is where you ask it anything.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-chat"></div><div id="sg-notif"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>One place to answer and to ask, and it is a chat you already know how to use.</li>
-              <li>Your answer can be more than a button: “Block them, and add a line to the ticket.”</li>
-              <li>A whole sheet, its tabs and its states leave the app.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>Questions are read in iTerm2, not in AiTerm: one at a time, in the order asked.</li>
-              <li>There is no list of what happened today. You ask: “What did you skip today, and why?”</li></ul>
-            <span class="h g">Things you can type there</span>
-            <ul><li>“What is PAY-142 waiting on?”</li>
-              <li>“Switch Sprint tickets off until Monday.”</li>
-              <li>“From now on, ask me before any merge.”</li></ul></div></div>
-
-        <!-- 9 · settings ------------------------------------------------------------------------------------- -->
-        <div class="option pick">
-          <header><span class="letter">9</span><h3>Settings › Operator: what each one does, and how to steer it</h3><span class="rec">As picked</span></header>
-          <p>The direction picked before, with the words brought up to date. Each group opens with one line saying what it is, then three
-            short lines of what it does (for the Oracle: when the Operator asks it), then one line of what it never does, then its fields.
-            <b>Steer the Operator</b> holds your standing instructions; its empty field shows three real ones. The Autonomy switches
-            (Jira, Review, Merge) go: what the Operator may do in your name follows each signal’s Finish step.</p>
-        </div>
-        <div class="bx-stage bx-bleed"><div id="sg-settings"></div>
-          <div class="b-cap"><span class="h g" style="margin-top:0">Gains</span>
-            <ul><li>Each job is a line you can check against what you saw it do.</li>
-              <li>The Oracle reads as a partner: what it answers, when it is asked, what it checks.</li>
-              <li>The placeholder teaches the field: three instructions you could keep as they are.</li></ul>
-            <span class="h c">Costs</span>
-            <ul><li>The pane scrolls.</li></ul></div></div>
-
-        <!-- 10 · part by part -------------------------------------------------------------------------------- -->
-        <div class="option">
-          <header><span class="letter">10</span><h3>Part by part</h3></header>
-          <p>Each part of today’s broadcast and of today’s creation sheets, and what happens to it.</p>
-          <div class="bx-scroll"><table class="bx-audit">
-            <thead><tr><th>Part</th><th></th><th>What happens</th></tr></thead>
-            <tbody>
-              <tr><td>New Broadcast… (⌘B)</td><td><span class="v fold">Fold</span></td><td>New Signal… (⌘S), four steps.</td></tr>
-              <tr><td>Step 1, Broadcast: name, Jira projects, projects</td><td><span class="v fold">Fold</span></td><td>Name and starting point. The project follows from each ticket or merge request; a Jira project is a condition.</td></tr>
-              <tr><td>Step 2, Prompt</td><td><span class="v keep">Keep</span></td><td>The family’s Prompt step, with what AiTerm adds.</td></tr>
-              <tr><td>Step 3, Agents</td><td><span class="v fold">Fold</span></td><td>The same rows, under the prompt. New Task and New Review get the row too.</td></tr>
-              <tr><td>Step 4, Task: review prompt</td><td><span class="v fold">Fold</span></td><td>Check, a switch in Finish: another agent checks the work before it counts as done.</td></tr>
-              <tr><td>Step 4, Task: Commit, Draft MR, Merge, Local merge</td><td><span class="v drop">Gone</span></td><td>The worker’s skills publish. Done when, and Merge it when it’s ready, say how far it goes.</td></tr>
-              <tr><td>Step 4, Task: close tabs and worktrees, delete merged branches</td><td><span class="v fold">Fold</span></td><td>Then: Keep the task, Archive it or Remove it.</td></tr>
-              <tr><td>Step 5, Done: goal and extra rounds</td><td><span class="v drop">Gone</span></td><td>A signal has no end. Done when is per task.</td></tr>
-              <tr><td>Step 5, Done: worker questions, three levels</td><td><span class="v fold">Fold</span></td><td>Two: the Operator and the Oracle, or you.</td></tr>
-              <tr><td>The Operator heading and its “+”</td><td><span class="v keep">Keep</span></td><td>The “+” is New Signal….</td></tr>
-              <tr><td>The Operator heading’s progress, “2 of 8”</td><td><span class="v drop">Gone</span></td><td>Nothing ends, so nothing counts down. Folded, the heading counts what needs you.</td></tr>
-              <tr><td>The Operator heading’s board button</td><td><span class="v drop">Gone</span></td><td>There is no sheet to open.</td></tr>
-              <tr><td>The broadcast’s lead row</td><td><span class="v fold">Fold</span></td><td>The Operator’s row: one, always there, titled Operator.</td></tr>
-              <tr><td>A driven task’s row: badge line folded under the Operator’s words</td><td><span class="v fold">Fold</span></td><td>A task’s own row. Its second line decodes into the action and back.</td></tr>
-              <tr><td>Queued tasks, “queued · after PAY-232”</td><td><span class="v drop">Gone</span></td><td>Nothing is planned ahead. A task exists once its ticket or merge request matches.</td></tr>
-              <tr><td>Take Over</td><td><span class="v keep">Keep</span></td><td>Moves the row to its project.</td></tr>
-              <tr><td>Hand Back, Stop Task…</td><td><span class="v drop">Gone</span></td><td>Left out of this version, with manual starts.</td></tr>
-              <tr><td>The broadcast’s sheet: header, Tasks, Activity, Summary</td><td><span class="v drop">Gone</span></td><td>The sidebar shows the tasks. What happened is asked in the Operator’s chat.</td></tr>
-              <tr><td>Waiting on you: the question block, pager, answer buttons</td><td><span class="v drop">Gone</span></td><td>The Operator asks in its chat. Its row counts the open questions.</td></tr>
-              <tr><td>The question notification</td><td><span class="v keep">Keep</span></td><td>A click opens the Operator’s window, not a sheet.</td></tr>
-              <tr><td>Pause, Resume</td><td><span class="v keep">Keep</span></td><td>Pause Operator on its row’s menu pauses every signal. Switch Off on a signal’s menu stops one; Switch On (starts 2) starts what matched in the meantime.</td></tr>
-              <tr><td>End Broadcast…, the Shelf’s ended broadcasts</td><td><span class="v drop">Gone</span></td><td>Always on. An archived task is in the Archive as any task is.</td></tr>
-              <tr><td>Show Shelf (⌘S), Shelve Task</td><td><span class="v fold">Fold</span></td><td>Show Archive (⌘A; in a text field ⌘A stays Select All), Archive Task. ⌘S is New Signal….</td></tr>
-              <tr><td>Settings › Operator: Autonomy (Jira, Review, Merge)</td><td><span class="v drop">Gone</span></td><td>Who answers, and Merge it when it’s ready, are per signal.</td></tr>
-              <tr><td>New Task and New Review: the Agent step</td><td><span class="v fold">Fold</span></td><td>One row under the prompt (2A).</td></tr>
-              <tr><td>New Task: the Type select</td><td><span class="v fold">Fold</span></td><td>The branch’s first word.</td></tr>
-              <tr><td>New Task and New Review: “Include ticket details”</td><td><span class="v fold">Fold</span></td><td>AiTerm adds: the ticket’s description.</td></tr>
-              <tr><td>The command preview and the “Opens in iTerm2” line</td><td><span class="v fold">Fold</span></td><td>The closing block of the last step: where it opens and which agent starts, in a sentence, over the command.</td></tr>
-              <tr><td>New Terminal, Add Divider, Rename…</td><td><span class="v keep">Keep</span></td><td>The same sheet, with “Name”.</td></tr>
-              <tr><td>Add Project’s folder panel</td><td><span class="v keep">Keep</span></td><td>Opens first, then the sheet.</td></tr>
-              <tr><td>“Import 3 worktrees?” alert</td><td><span class="v fold">Fold</span></td><td>A checkbox on Add Project.</td></tr>
-              <tr><td>Jira Projects… and its sheet</td><td><span class="v fold">Fold</span></td><td>A field on Add Project and Edit Project….</td></tr>
-            </tbody>
-          </table></div>
-        </div>
-      </div>
-
-      <p class="why" style="margin-top: var(--space-margin)"><strong>What stays as it is:</strong> the task row and its marks, the project
-        heading and its count chips, <code>OperatorBadge</code> and its decode, the Operator row’s wash, the toast, every token.
-        <strong>Needs a token:</strong> none.</p>
-    </div>
 <style>
   /* ==========================================================================================
-     Proposal · the Operator's signals and one family of creation sheets. Every rule is scoped to .sgp, the class
-     both of its sections carry (#signals-sheets, #signals-operator), and every new class starts with sg-. It
-     reuses the page's sidebar (.mk-*, .op), creation sheet (.mk-sheet, .ai-stepper, .bs2) and stage (.bx-stage,
-     .bx-audit) kits. Leaves with the proposal.
+     Proposal · one family of creation sheets. Every rule is scoped to .sgp, the class its section carries (#sheets-proposal),
+     and every new class starts with sg-. It reuses the page's creation sheet (.mk-sheet, .ai-stepper, .bs2) and stage
+     (.bx-stage) kits. Leaves with the proposal.
      ========================================================================================== */
-  .sgp .bx-stage { flex-wrap: wrap; }
+  .sgp .bx-stage { flex-wrap: wrap; justify-content: center; }
+  .sgp .bx-stage.sg-next { margin-top: var(--space-block); }
   /* a figure is as wide as its frame; a long caption wraps under it */
   .sgp .bx-stage .fig { width: min-content; }
   .sgp .bx-stage .fig .scroll { overflow: visible; max-width: none; }
-  .sgp .sg-col { display: flex; flex-direction: column; gap: var(--space-section); flex: none; }
-  /* the End result: its frames in a centred grid, no captions beside them */
-  .sgp .bx-stage.sg-center { justify-content: center; }
-  .sgp .bx-stage.sg-next { margin-top: var(--space-block); }
-  .sgp .note.sg-picked ol { margin: var(--space-snug) 0 0; padding-left: var(--space-section); display: flex; flex-direction: column; gap: var(--space-tight); }
-  .sgp .note.sg-picked + .why { margin-top: var(--space-block); }
-  .sgp .bx-audit.sg-map td b { font-weight: 600; }
-  .sgp .bx-audit.sg-map td { white-space: normal; }
-  .sgp .bx-audit.sg-map td:first-child { white-space: nowrap; }
-  .sgp .bx-audit.sg-rules td:nth-child(3), .sgp .bx-audit.sg-today td:nth-child(2) { color: var(--muted); }
-  .sgp .bx-audit.sg-rules td:nth-child(2), .sgp .bx-audit.sg-today td:nth-child(3) { color: var(--text); }
-  .sgp .bx-audit.sg-rules td b { font-weight: 600; }
-  .sgp .bx-audit.sg-matrix td { color: var(--text); white-space: nowrap; }
-  .sgp .bx-audit.sg-matrix td.sg-no { color: var(--tertiary); }
-  .sgp .option > p + p { margin-top: var(--space-snug); }
 
-  /* ---- the sidebar ------------------------------------------------------------------------------------------ */
-  /* Size.sidebarWidth, the width the sidebar opens at; the kit's .mk-sidebar is Size.sidebarMinWidth. */
-  .sgp .mk-sidebar.sg-w420 { width: 420px; }
-  .sgp .mk-head .prov svg { display: block; }
-  .sgp .mk-head .prov.sym { color: var(--muted); }
-  .sgp .mk-head.sg-paused .nm { color: var(--muted); }
-  .sgp .mk-head .chev.closed svg { transform: rotate(-90deg); }
-  .sgp .mk-head .chev.none { visibility: hidden; }
-  /* where a project has its "+": a signal's pause sign (pause.fill, Palette.idleRing), or nothing, in the same Size.slot */
-  .sgp .mk-head .sg-slot { width: var(--size-slot); height: var(--size-slot); flex: none; display: flex; align-items: center;
-                           justify-content: center; color: var(--idle-ring); }
-  /* StatusCountChips' other two families: quiet (statusChipQuietFill and Stroke, Palette.muted at 14 % and 30 %, the count in
-     Palette.text while working) and done (statusChipDoneFill and Stroke, the count in Palette.link). */
-  .sgp .scc.q { background: rgba(161, 164, 172, 0.14); box-shadow: inset 0 0 0 1px rgba(161, 164, 172, 0.30); color: var(--text); }
-  .sgp .scc.d { background: var(--status-chip-done-fill); box-shadow: inset 0 0 0 1px var(--status-chip-done-stroke); color: var(--link); }
-  .sgp .scc .st.done { border: 1.2px solid var(--accent); }
-  .sgp .scc svg { width: 8px; height: 8px; display: block; }
-  /* the action in the branch's place: OperatorBadge, acting (Typography.chip in the surface's ink, no box) or needs you */
-  .sgp .mk-row .cl .ob { flex: 0 1 auto; min-width: 0; }
-  .sgp .mk-row .cl .br.sg-mid { color: var(--muted); }
-  .sgp .mk-row .q.vs svg { width: 10px; height: 10px; }
-  .sgp .mk-row.sg-hov { background: var(--row-hover); }
-  .sgp .mk-row.sg-hov .av .mark { box-shadow: 0 0 0 1px var(--row-hover-solid); }
-  .sgp .statecol .lab:first-child { margin-top: 0; }
-  .sgp .sg-toast { display: flex; justify-content: center; padding: var(--space-base) 0 var(--space-tight); }
-  .sgp .sg-pair { display: flex; flex-direction: column; gap: var(--space-base); }
-  .sgp .sg-menuwrap { padding: var(--space-tight) 0 var(--space-tight) calc(var(--space-section) + 41px); }
-  .sgp .mk-menu.sg-ctx { width: 200px; }
-
-  /* ---- the sheets ------------------------------------------------------------------------------------------- */
-  .sgp .mk-sheet { flex: none; }
-  .sgp .mk-sheet.sg-h500 { height: 500px; } /* Sheet.creationHeight */
-  .sgp .mk-sheet.sg-h560 { height: 560px; } /* Sheet.height */
-  .sgp .mk-sheet.sg-h640 { height: 640px; } /* Sheet.boardHeight */
-  .sgp .mk-sheet.sg-head { height: auto; }
-  .sgp .mk-sheet .hd .nav { display: block; }
+  /* ---- the sheet: Sheet.creationHeight for every step of New Task and New Review, Sheet.height for New Signal's ---- */
+  .sgp .mk-sheet { flex: none; height: 500px; }
+  .sgp .mk-sheet.sg-h560 { height: 560px; }
   .sgp .mk-sheet .ft { align-items: center; }
-  .sgp .mk-ff > .lbl i { font-style: normal; font-weight: 400; }
-  .sgp .mk-field .mk { display: flex; flex: none; }
-  .sgp .mk-field .mk svg { display: block; }
-  .sgp .mk-field.mono .t, .sgp .mk-field.mono .ph { font: 12px/1 var(--mono); }
-  .sgp .mk-field.sg-off { opacity: 0.4; }
+  .sgp .mk-field.mono .t { font: 12px/1 var(--mono); }
   .sgp .sg-row2 { display: flex; gap: var(--space-gap); align-items: flex-start; }
   .sgp .sg-row2 > .mk-ff { flex: 1; min-width: 0; }
   .sgp .sg-row2 > .mk-ff.w190 { flex: none; width: 190px; } /* NewTaskFirstStep.baseBranchWidth */
-  .sgp .sg-cbs { display: flex; flex-direction: column; gap: var(--space-tight); }
-  .sgp .cb.sg-wrap { height: auto; align-items: flex-start; line-height: 1.4; }
-  .sgp .cb.sg-wrap i { margin-top: 2px; }
-  /* a checkbox's own help line, under its label: the box (14) and Space.snug in */
-  .sgp .sg-cbhelp { margin: calc(-1 * var(--space-hairline)) 0 var(--space-tight) var(--space-section); }
+  /* a select or an input in a row fills its share, as it fills its column alone; a select beside another one is 190 */
+  .sgp .sg-row2 > .ai-select, .sgp .sg-row2 > .mk-field { flex: 1; min-width: 0; }
+  .sgp .sg-row2 > .ai-select.w190 { flex: none; width: 190px; }
+  .sgp .sg-row2 > .btn { flex: none; }
   /* the agent row: the Agents rows' grid, without the remove column when there is one row */
   .sgp .agents.sg-one { grid-template-columns: 136px 1fr 1fr; }
   .sgp .ai-select { width: auto; }
-  .sgp .ai-select.sg-fit { width: 260px; }
-  /* a segment's mark: Size.vendorMark */
-  .sgp .ai-seg .sg-m { display: flex; flex: none; }
-  .sgp .ai-seg .sg-m svg { display: block; }
   /* SegmentedControl fills its column, its segments equal (each .frame(maxWidth: .infinity)) */
   .sgp .ai-seg { display: flex; }
   .sgp .ai-seg > span { flex: 1; white-space: nowrap; }
-  /* where it opens over the command it runs: DestinationLine as CommandBlock's caption (HelpText, Space.tight, then the
-     block on Palette.codeBackground at Radius.control, Typography.monoCode, the $ in Palette.green) */
-  .sgp .sg-cmd { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; }
-  .sgp .sg-cmd .cap { font: 11px/1.4 var(--font); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sgp .sg-cmd .blk { display: flex; gap: var(--space-snug); padding: var(--space-base) var(--space-inset); background: var(--code-background);
-                      border-radius: var(--radius-control); font: 12px/16px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; }
-  .sgp .sg-cmd .blk i { color: var(--green); font-style: normal; flex: none; }
-  .sgp .sg-cmd .blk span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .sgp .mk-help.warn { color: var(--amber); }
-  /* The closing block of a sheet's last step: the life of what it makes, in a sentence (HelpText's size, the picks in
-     Palette.text), on CommandBlock's ground (Palette.codeBackground, Radius.control, Space.base by Space.inset); New Task and
-     New Review add their command under it in Typography.monoCode, the $ in Palette.green. */
-  .sgp .sg-life { display: flex; flex-direction: column; gap: var(--space-snug); padding: var(--space-base) var(--space-inset);
-                  background: var(--code-background); border-radius: var(--radius-control); min-width: 0; }
-  .sgp .sg-life .say { font: 11px/1.4 var(--font); color: var(--muted); }
-  .sgp .sg-life .say b { font-weight: 400; color: var(--text); }
-  .sgp .sg-life .cm { display: flex; gap: var(--space-snug); font: 12px/16px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; }
-  .sgp .sg-life .cm i { color: var(--green); font-style: normal; flex: none; }
-  .sgp .sg-life .cm span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  /* A summary line: what an earlier step decided, Size.slot tall, its link trailing in Palette.link. */
-  .sgp .sg-sum { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-slot); min-width: 0; font: 13px/1 var(--font); color: var(--text); }
-  .sgp .sg-sum .mk { display: flex; flex: none; }
-  .sgp .sg-sum .mk svg { display: block; }
-  .sgp .sg-sum .t, .sgp .sg-sum .pr { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sgp .sg-sum .pr { font: 12px/1 var(--mono); }
-  .sgp .sg-sum .ag { flex: none; color: var(--muted); white-space: nowrap; }
-  .sgp .sg-sum .sp { flex: 1; }
-  .sgp .sg-sum .lnk { flex: none; font: 11px/1 var(--font); }
-  /* The rail: a task's life, top to bottom. Each node is its mark in a Size.chip column, its name in Typography.label,
-     its content; a firm Hairline joins the marks, as it joins a stepper's. A done step's mark is the stepper's (a check in
-     a borderStrong ring, Size.chip); a decision's is a ring at Size.statusMarkSmall in Palette.idleRing. The name column's
-     width is local to the rail. Nodes are Space.gap apart. */
-  .sgp .sg-tl { display: flex; flex-direction: column; }
-  .sgp .sg-node { position: relative; display: grid; grid-template-columns: var(--size-chip) 68px minmax(0, 1fr); column-gap: var(--space-base);
-                  padding-bottom: var(--space-gap); --h: var(--size-control); }
-  .sgp .sg-node.h20 { --h: var(--size-slot); }
-  .sgp .sg-node:last-child { padding-bottom: 0; }
-  .sgp .sg-node::before { content: ""; position: absolute; left: calc(var(--size-chip) / 2 - 0.5px); top: 0; bottom: 0; width: 1px; background: var(--border-strong); }
-  .sgp .sg-node:first-child::before { top: calc(var(--h) / 2); }
-  .sgp .sg-node:last-child::before { bottom: auto; height: calc(var(--h) / 2); }
-  .sgp .sg-node:only-child::before { display: none; }
-  .sgp .sg-nmk { position: relative; height: var(--h); display: flex; align-items: center; justify-content: center; }
-  .sgp .sg-nmk i { width: var(--size-chip); height: var(--size-chip); border-radius: 50%; box-sizing: border-box; background: var(--surface);
-                   display: flex; align-items: center; justify-content: center; }
-  .sgp .sg-nmk i.done { box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--muted); }
-  .sgp .sg-nmk i.done svg { width: 8px; height: 8px; }
-  .sgp .sg-nmk i.dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box; border: 1.2px solid var(--idle-ring); }
-  .sgp .sg-frag .sg-nmk i { background: var(--surface); }
-  .sgp .sg-nl { height: var(--h); display: flex; align-items: center; font: 500 12px/1 var(--font); color: var(--muted); white-space: nowrap; }
-  .sgp .sg-nc { display: flex; flex-direction: column; gap: var(--space-snug); min-width: 0; }
-  .sgp .sg-nc .sg-row2 > .ai-select { flex: 1; min-width: 0; }
-  .sgp .sg-nc .sg-row2 > .ai-select:first-child { flex: 2; }
-  .sgp .mk-help .lnk { white-space: nowrap; }
-  .sgp .bx-audit.sg-map td { color: var(--text); }
-  .sgp .bx-audit.sg-map td.sg-no { color: var(--tertiary); }
-  .sgp .bx-audit.sg-map td:nth-child(2) { color: var(--muted); }
+  .sgp .ai-seg .sg-m { display: flex; flex: none; } /* a segment's mark: Size.vendorMark */
+  .sgp .ai-seg .sg-m svg { display: block; }
   /* the matches list: on Palette.well, Size.menuRow rows, the key as SearchPicker's */
   .sgp .sg-match { background: var(--well); border-radius: var(--radius-control); padding: var(--space-tight); }
   .sgp .sg-match .r { display: flex; align-items: center; gap: var(--space-base); height: var(--size-menu-row); padding-inline: var(--space-base); font-size: 12px; }
@@ -4321,576 +3835,298 @@
   .sgp .sg-lblrow { display: flex; align-items: baseline; gap: var(--space-base); }
   .sgp .sg-lblrow .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
   .sgp .sg-lblrow .n { font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--muted); }
-  .sgp .sg-lblrow .sp { flex: 1; }
-  .sgp .sg-lblrow .lnk { font: 11px/1 var(--font); }
-  .sgp .sg-lblrow .lnk.off { color: var(--muted); opacity: 0.4; }
-  /* a chip's popover and the add menu: menuChrome */
-  .sgp .sg-pop { position: absolute; z-index: 2; width: 248px; box-sizing: border-box; padding: var(--space-gap); display: flex; flex-direction: column; gap: var(--space-base);
-                 background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-panel); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
-  .sgp .sg-pop .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
-  .sgp .sg-menu { position: absolute; z-index: 2; width: 200px; box-sizing: border-box; padding: var(--space-tight);
-                  background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-panel); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
-  .sgp .sg-menu .r { display: flex; align-items: center; height: var(--size-menu-row); padding-inline: var(--space-base); border-radius: var(--radius-chip); font-size: 13px; color: var(--text); }
-  .sgp .sg-menu .r.on { background: var(--menu-highlight); }
-  .sgp .sg-menu .r .d { margin-left: auto; font-size: 11px; color: var(--muted); }
-  .sgp .sg-menu.sg-inl { position: static; width: 260px; }
-  .sgp .sg-menu .r .ck { width: var(--space-block); flex: none; display: flex; color: var(--text); }
-  .sgp .sg-menu .r .ck svg { width: 9px; height: 9px; }
-  .sgp .lane.sg-on { background: var(--badge-hovered); }
-  .sgp .sg-frag { width: 560px; box-sizing: border-box; background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); border-radius: var(--radius-panel);
-                  padding: var(--space-margin); display: flex; flex-direction: column; gap: var(--space-block); font: 13px/1.3 var(--font); color: var(--text); }
 
-  /* ---- the Operator's chat and the notification: iTerm2 and macOS draw these; approximated, nothing here is a token -------- */
-  .sgp .sg-chat { width: 560px; box-sizing: border-box; background: var(--sidebar); box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius-group);
-                  padding: var(--space-block); font: 12px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; }
-  .sgp .sg-chat .mu { color: var(--muted); }
-  .sgp .sg-chat .me { color: var(--text); display: block; margin-top: var(--space-gap); padding-top: var(--space-gap); border-top: 1px solid var(--border); }
-  .sgp .sg-chat .me i { color: var(--muted); font-style: normal; }
-  .sgp .sg-notifs { display: flex; flex-direction: column; gap: var(--space-block); }
+  /* ---- the closing block of a sheet's last step: the life of what it makes, in a sentence (HelpText's size, the picks
+     in Palette.text), on CommandBlock's ground (Palette.codeBackground, Radius.control, Space.base by Space.inset); New
+     Task and New Review add their command under it in Typography.monoCode, the $ in Palette.green. ---------------- */
+  .sgp .sg-life { display: flex; flex-direction: column; gap: var(--space-snug); padding: var(--space-base) var(--space-inset);
+                  background: var(--code-background); border-radius: var(--radius-control); min-width: 0; }
+  .sgp .sg-life .say { font: 11px/1.4 var(--font); color: var(--muted); }
+  .sgp .sg-life .say b { font-weight: 400; color: var(--text); }
+  .sgp .sg-life .cm { display: flex; gap: var(--space-snug); font: 12px/16px var(--mono); color: var(--text); white-space: nowrap; overflow: hidden; }
+  .sgp .sg-life .cm i { color: var(--green); font-style: normal; flex: none; }
+  .sgp .sg-life .cm span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-  /* ---- Settings: the pane on the sheet, its groups as SettingsGroup ------------------------------------------- */
-  .sgp .sg-set .bd { gap: var(--space-block); }
-  .sgp .sg-does { margin: 0; padding-left: var(--space-block); display: flex; flex-direction: column; gap: var(--space-hairline);
-                  font: 11px/1.4 var(--font); color: var(--text); }
-  .sgp .sg-sub { display: block; font: 500 12px/1 var(--font); color: var(--muted); margin-bottom: var(--space-snug); }
-  .sgp .sg-never { font: 11px/1.4 var(--font); color: var(--muted); }
-  .sgp .sg-2col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-gap); }
-  .sgp .sg-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-gap); }
-  .sgp .sg-swrow { display: flex; align-items: flex-start; gap: var(--space-gap); }
-  .sgp .sg-swrow .gh { flex: 1; min-width: 0; }
+  /* ---- the stepper as navigation: a done step is a round button (Palette.button under a Palette.border edge, its check
+     in Palette.text), a wash of badgeHovered under the pointer. Its tooltip is macOS's own; approximated, not a token. ---- */
+  .sgp .ai-stepper > i.done { position: relative; background: var(--button); box-shadow: inset 0 0 0 1px var(--border); color: var(--text); }
+  .sgp .ai-stepper > i.done.hov { background-image: linear-gradient(var(--badge-hovered), var(--badge-hovered)); }
+  .sgp .sg-tip { position: absolute; top: calc(var(--size-chip) + var(--space-snug)); left: 50%; transform: translateX(-50%); z-index: 2; white-space: nowrap;
+                 padding: 3px var(--space-snug); background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-chip);
+                 font: 400 11px/1.3 var(--font); color: var(--text); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); }
+  .sgp .sg-nav { display: flex; flex-direction: column; gap: var(--space-block); }
+  .sgp .mk-sheet.sg-fit { height: auto; }
+  .sgp .mk-sheet.sg-fit.sg-bar .hd { padding-bottom: calc(var(--space-block) + var(--space-margin)); }
+  /* ---- the rule table ---- */
+  .sgp .bx-audit.sg-rule td { color: var(--text); white-space: normal; }
+  .sgp .bx-audit.sg-rule td:first-child { white-space: nowrap; }
+  .sgp .bx-audit.sg-rule td:nth-child(3) { color: var(--muted); }
+  .sgp .why + .impl, .sgp .impl + .why { margin-top: var(--space-gap); }
+  /* ---- a checkbox and what it does: the help under its label, the box (14) and Space.snug in; checkboxes Space.base apart ---- */
+  .sgp .sg-cb { display: flex; flex-direction: column; gap: var(--space-hairline); }
+  .sgp .sg-cb .mk-help { margin-left: var(--space-section); }
+  .sgp .sg-cbs { display: flex; flex-direction: column; gap: var(--space-base); }
+  /* ---- a chip in the search field: PickChip; a branch's label is code ---- */
+  .sgp .lane.mono { font: 12px/1 var(--mono); }
+  .sgp .lanes .ph { color: var(--placeholder); }
+  .sgp .mk-field .ph { color: var(--placeholder); }
+  .sgp .mk-sheet .hd .nav { display: block; }
 </style>
 <script>
-  /* Proposal · the Operator's signals and one family of creation sheets. One fixture (five signals, six tasks) drawn by one
-     set of builders, which copy the sidebar's and the creation sheets' markup. Marks are inlined so the Proposals tab draws
-     them with the other tabs hidden. Leaves with the proposal. */
+  /* Proposal · one family of creation sheets. Every sheet drawn by one set of builders, one per control, which copy the shipped
+     markup. Marks are inlined so the Proposals tab draws them with the other tabs hidden. Leaves with the proposal. */
   (function () {
-    if (!document.getElementById('sg-r-side')) { return; }
-    var L = { claude: 'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z', openai: 'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z', jira: 'M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z', github: 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12', vscode: 'M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z' };
+    if (!document.getElementById('sg-t1')) { return; }
+    var L = { claude: 'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z', openai: 'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z', jira: 'M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z', github: 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12' };
     function G(n, s, fill) { return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="${fill || 'currentColor'}"><path d="${L[n]}"/></svg>`; }
-    /* GitLab's tanuki in its own colours (IconSource.gitlabTanuki), or in one ink on the badge line */
-    function TANUKI(s, ink) {
-      var c = ink ? [ink, ink, ink, ink] : ['#E24329', '#FC6D26', '#FCA326', '#E24329'];
-      return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><path fill="${c[0]}" d="M12 23.6 7.6 10h8.8z"/><path fill="${c[1]}" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/>` +
-        `<path fill="${c[2]}" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="${c[3]}" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></svg>`;
+    /* GitLab's tanuki in its own colours (IconSource.gitlabTanuki) */
+    function TANUKI(s) {
+      return `<svg width="${s}" height="${s}" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/>` +
+        `<path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></svg>`;
     }
     /* a source's mark in its vendor's colours: Jira's blue, GitLab's tanuki, GitHub's white */
     function SRC(k, s) { return k === 'jira' ? G('jira', s, 'var(--jira)') : k === 'github' ? G('github', s, '#FFFFFF') : TANUKI(s); }
-    /* the same mark inked with the words beside it (Badge markInk: .label) */
-    function INK(k, s) { return k === 'gitlab' ? TANUKI(s, 'currentColor') : G(k, s); }
-    var CHEV = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
     var UPDN = '<svg width="8" height="10" viewBox="0 0 8 10"><path d="M1.5 3.5 4 1l2.5 2.5M1.5 6.5 4 9l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
     var PLUS = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
-    var PAUSE = '<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="2.2" y="1.5" width="2" height="7" rx="0.7"/><rect x="5.8" y="1.5" width="2" height="7" rx="0.7"/></svg>';
     var CHECK = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.6 5.4 4 7.7 8.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    var SPIN = '<svg class="st spin" width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4.25" fill="none" style="stroke: var(--spinner-track)" stroke-width="1.5"/><path class="arc" d="M5 .75a4.25 4.25 0 0 1 4.25 4.25" fill="none" style="stroke: var(--muted)" stroke-width="1.5" stroke-linecap="round"/></svg>';
-    var SPIN8 = '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4.25" fill="none" style="stroke: var(--spinner-track)" stroke-width="1.5"/><path d="M5 .75a4.25 4.25 0 0 1 4.25 4.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
-    var FOLDER = '<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.2l1.6 1.8H13A1.5 1.5 0 0 1 14.5 5.3v7.2A1.5 1.5 0 0 1 13 14H3a1.5 1.5 0 0 1-1.5-1.5z"/></svg>';
     function put(id, html) { var el = document.getElementById(id); if (el) { el.innerHTML = html; } }
     function FIG(inner, cap) { return `<figure class="fig" style="margin:0"><div class="scroll">${inner}</div><figcaption>${cap}</figcaption></figure>`; }
-    function COL() { return `<div class="sg-col">${[].join.call(arguments, '')}</div>`; }
-    function LAB(t) { return `<div class="lab">${t}</div>`; }
 
-    /* ================================================================================================================
-       The sidebar
-       ================================================================================================================ */
-    function SLOT(k) {
-      if (k === 'work') { return SPIN; }
-      if (k === 'pause') { return `<span class="st pause" style="display:flex">${PAUSE}</span>`; }
-      if (k === 'check') { return `<span class="st check" style="display:flex;width:10px;height:10px">${CHECK}</span>`; }
-      return `<span class="st ${k === 'you' ? 'needs' : k === 'done' ? 'done' : 'idle'}"></span>`;
-    }
-    function MK(vm) { return vm.map(function (k) { return `<span class="mark vm ${k} s18">${G(k === 'codex' ? 'openai' : k, 11)}</span>`; }).join(''); }
-    /* StatusCountChips: working, needs you, done */
-    function CHIPS(list) {
-      return `<span class="sccs">` + list.map(function (c) {
-        if (c[0] === 'you') { return `<span class="scc a"><span class="st needs"></span><span class="n">${c[1]}</span></span>`; }
-        if (c[0] === 'done') { return `<span class="scc d"><span class="st done"></span><span class="n">${c[1]}</span></span>`; }
-        return `<span class="scc q">${SPIN8}<span class="n">${c[1]}</span></span>`;
-      }).join('') + `</span>`;
-    }
-    /* SidebarHeader: the section's word, its fold chevron (shown folded or under the pointer), its "+" */
-    function HDG(word, o) {
-      o = o || {};
-      return `<div class="hdg"${o.gap ? ' style="margin-top: var(--space-base)"' : ''}><span class="word">${word}</span><span class="sp"></span>${o.chips ? CHIPS(o.chips) : ''}` +
-        `${o.folded || o.hover ? `<span class="fold ${o.folded ? 'closed' : 'shown'}">${CHEV}</span>` : ''}<span class="plus">${PLUS}</span></div>`;
-    }
-    /* ProjectHeaderRow, for a signal: the chevron, the source's mark at ProviderIcon's 13 pt, the name; folded, its counts;
-       the pause sign where a project has its "+" */
-    function SHEAD(s, o) {
-      o = o || {};
-      var closed = o.closed || s.paused && o.closed !== false;
-      return `<div class="mk-head ${s.paused ? 'sg-paused' : ''}"><span class="chev ${closed ? 'closed' : ''} ${o.empty ? 'none' : ''}">${CHEV}</span>` +
-        `<span class="prov">${SRC(s.kind, 13)}</span><span class="nm">${s.name}</span><span class="sp"></span>${o.chips ? CHIPS(o.chips) : ''}` +
-        `<span class="sg-slot">${s.paused ? PAUSE : ''}</span></div>`;
-    }
-    function PHEAD(name, o) {
-      o = o || {};
-      return `<div class="mk-head"><span class="chev ${o.closed ? 'closed' : ''}">${CHEV}</span><span class="prov">${TANUKI(13)}</span><span class="nm">${name}</span>` +
-        `<span class="sp"></span>${o.chips ? CHIPS(o.chips) : ''}<span class="plus">${PLUS}</span></div>`;
-    }
-    function OPROW(words, look, mark, cls) {
-      return `<div class="mk-row opr ${cls || ''}"><span class="av">${MK(['claude'])}</span><span class="ln"><span class="tt">Operator</span>` +
-        `<span class="ol"><span class="ob ${look}"><span class="tx">${words}</span></span></span></span><span class="slot">${SLOT(mark)}</span></div>`;
-    }
-    /* TaskRowView: the title, then ticket, merge request, diff and branch. While the Operator acts, `act` is the whole
-       second line (OperatorBadge); `live` draws both, for the page's replay. */
-    function TROW(r, o) {
-      o = o || {};
-      var act = 'act' in o ? o.act : r.act, mark = o.mark || r.mark;
-      var q = '';
-      if (r.key) { q += `<span class="q">${INK('jira', 10)}${r.key}</span>`; }
-      if (r.mr) { q += `<span class="q">${INK(r.mr[0], 10)}${r.mr[1]}</span>`; }
-      if (r.diff) { q += `<span class="q vs">${INK('vscode', 10)}<span class="d"><span class="a">+${r.diff[0]}</span><span class="r">−${r.diff[1]}</span></span></span>`; }
-      var badges = `${q}<span class="br">${r.br}</span>`;
-      var action = act && !act.raw ? `<span class="ob ${act.look || 'acting'}"><span class="tx">${act.t}</span></span>` : '';
-      var line = o.live ? `<span class="cl sg-badges" style="display:none">${badges}</span><span class="cl sg-action">${action}</span>`
-        : `<span class="cl">${!act ? badges : act.raw || action}</span>`;
-      return `<div class="mk-row ${o.cls || ''} ${o.live ? 'sg-live' : ''}"><span class="av">${MK(r.vm)}</span><span class="ln"><span class="tt">${r.title}</span>` +
-        `${line}</span><span class="slot">${SLOT(mark)}</span></div>`;
-    }
-    var S = {
-      sprint: { kind: 'jira', name: 'Sprint tickets' },
-      reviews: { kind: 'gitlab', name: 'Reviews for me' },
-      mine: { kind: 'gitlab', name: 'My merge requests' },
-      docs: { kind: 'github', name: 'Docs reviews' },
-      deps: { kind: 'jira', name: 'Dependency bumps', paused: 1 }
-    };
-    var T = {
-      cart: { vm: ['claude'], title: 'PAY-142 Cart drawer keeps focus on close', key: 'PAY-142', mr: ['gitlab', '!231'], diff: [84, 12], br: 'feat/pay-142-cart-drawer',
-              act: { t: 'Operator answering its worker' }, mark: 'work' },
-      price: { vm: ['claude'], title: 'PAY-150 Round prices per order, not per line', key: 'PAY-150', mr: ['gitlab', '!236'], diff: [212, 40], br: 'feat/pay-150-round-prices', mark: 'work' },
-      vat: { vm: ['claude'], title: 'PAY-151 Export orders without VAT', key: 'PAY-151', br: 'feat/pay-151-export-without-vat', act: { t: 'waiting on you', look: 'you' }, mark: 'you' },
-      facets: { vm: ['codex'], title: 'WEB-77 Search facets count hidden products', key: 'WEB-77', mr: ['gitlab', '!412'], br: 'feat/web-77-search-facets', mark: 'work' },
-      coupon: { vm: ['claude', 'codex'], title: 'PAY-138 Coupon field loses focus on mobile', key: 'PAY-138', mr: ['gitlab', '!96'], diff: [31, 4], br: 'fix/pay-138-coupon-field',
-                act: { t: 'waiting on a reviewer', look: 'quiet' }, mark: 'idle' },
-      footer: { vm: ['claude'], title: 'WEB-88 Fix the footer links', key: 'WEB-88', diff: [12, 3], br: 'fix/web-88-footer-links', mark: 'idle' }
-    };
-    function SB(inner, cls) { return `<div class="mk-sidebar sg-w420 ${cls || ''}">${inner}</div>`; }
-    put('sg-r-side', FIG(SB(
-      HDG('Operator') + OPROW('waiting on you · 1', 'you', 'you') +
-      SHEAD(S.sprint) + TROW(T.cart) + TROW(T.price) + TROW(T.vat) +
-      SHEAD(S.reviews) + TROW(T.facets) +
-      SHEAD(S.mine) + TROW(T.coupon) +
-      SHEAD(S.docs, { closed: 1, chips: [['work', 1], ['done', 1]] }) +
-      HDG('Projects', { gap: 1 }) + PHEAD('webshop') + TROW(T.footer)),
-      'The Operator’s row, four signals with their tasks (one folded), then Projects. PAY-142’s line is the action; PAY-151 waits on you'));
+    /* ---- the sheet and its controls ------------------------------------------------------------------------------- */
 
-    put('sg-side-op', FIG(SB(
-      LAB('at work: its line says on what') + OPROW('answering PAY-142’s worker', 'acting', 'work') +
-      LAB('a question waits on you: the count, the amber mark') + OPROW('waiting on you · 2', 'you', 'you') +
-      LAB('nothing to do: what it watches') + OPROW('watching 5 tasks in 4 signals', 'quiet', 'idle') +
-      LAB('its conversation grew long: it starts a fresh one') + OPROW('starting fresh · 5 tasks carried over', 'acting', 'work') +
-      LAB('paused by you, from its menu: every signal waits') + OPROW('paused', 'quiet', 'pause') +
-      LAB('clicked: selected, its window in front') + OPROW('watching 5 tasks in 4 signals', 'quiet', 'idle', 'sel'), 'statecol'),
-      'The Operator’s row (OperatorRowView), each state'));
-
-    var ONMENU = `<div class="sg-menuwrap"><div class="mk-menu sg-ctx"><div class="it on">Switch On (starts 2)</div><div class="sep"></div><div class="it">Edit Signal…</div>` +
-      `<div class="it danger">Remove Signal…</div></div></div>`;
-    put('sg-side-heads', FIG(SB(
-      LAB('no signal yet: the heading and its “+”, New Signal… (⌘S)') + HDG('Operator') +
-      LAB('the three starting points') + SHEAD(S.sprint) + SHEAD(S.reviews) + SHEAD(S.docs) +
-      LAB('folded: its tasks counted, as a project’s are') + SHEAD(S.sprint, { closed: 1, chips: [['work', 2], ['you', 1]] }) +
-      LAB('switched off by you: starts nothing new') + SHEAD(S.deps) +
-      LAB('its menu, off: what matched in the meantime starts') + ONMENU +
-      LAB('nothing running: no chevron, as an empty project') + SHEAD(S.reviews, { empty: 1 }) +
-      LAB('the whole group folded: what needs you') + HDG('Operator', { folded: 1, chips: [['you', 1]] }) +
-      LAB('a project’s heading, for comparison') + PHEAD('webshop') + PHEAD('payments-api', { closed: 1, chips: [['work', 1], ['done', 2]] }), 'statecol'),
-      'A signal’s heading (ProjectHeaderRow), each state'));
-
-    /* ---- 6 · the decode ---------------------------------------------------------------------------------------- */
-    var MID_IN = { raw: `<span class="ob acting"><span class="tx">Operator answq7kx2 m4s w9tzpr</span></span>` };
-    var MID_OUT = { raw: `<span class="q">${INK('jira', 10)}PAY-142</span><span class="q">${INK('gitlab', 10)}!231</span>` +
-      `<span class="q vs">${INK('vscode', 10)}<span class="d"><span class="a">+39</span><span class="r">−57</span></span></span><span class="br sg-mid">fkq7/x2m-9wt-zr4p-kd8vqe</span>` };
-    put('sg-decode', FIG(SB(
-      LAB('before: a task’s row, as under a project') + TROW(T.cart, { act: null }) +
-      LAB('the Operator starts answering: mid-decode, a quarter second in') + TROW(T.cart, { act: MID_IN }) +
-      LAB('settled: the whole line is the action, still while the Operator acts') + TROW(T.cart) +
-      LAB('under the pointer: the badge line is back') + TROW(T.cart, { act: null, cls: 'sg-hov' }) +
-      LAB('answered: mid-decode back, settling from the left') + TROW(T.cart, { act: MID_OUT }) +
-      LAB('after: ticket, merge request, diff and branch') + TROW(T.cart, { act: null }) +
-      LAB('live: replays every few seconds') + TROW(T.cart, { live: 1 }), 'statecol'),
-      'Before, mid-decode and after, at 420 pt'));
-    function A(t, look) { return { t: t, look: look }; }
-    var NARROW = `<div class="mk-sidebar statecol">` +
-      LAB('at Size.sidebarMinWidth (360 pt): the action still reads in full') + TROW(T.cart) +
-      LAB('under the pointer there: the badges, the branch cut as today') + TROW(T.cart, { act: null, cls: 'sg-hov' }) + `</div>`;
-    put('sg-decode-acts', COL(FIG(SB(
-      LAB('acting, in the row’s ink: AiTerm or the Operator is working on it') +
-      TROW(T.cart) +
-      TROW(T.price, { act: A('checking its work') }) +
-      TROW(T.coupon, { act: A('answering 2 threads'), mark: 'work' }) +
-      TROW(T.facets, { act: A('merging') }) +
-      LAB('waiting on someone else, in the secondary ink') +
-      TROW(T.coupon) +
-      TROW(T.price, { act: A('waiting on the pipeline', 'quiet'), mark: 'idle' }) +
-      LAB('waiting on you: the attention chip, the amber mark') +
-      TROW(T.vat) +
-      LAB('its signal is switched off') +
-      TROW(T.price, { act: A('paused', 'quiet'), mark: 'pause' }), 'statecol'),
-      'What the line says: OperatorBadge’s three looks'),
-      FIG(NARROW, 'The narrowest sidebar')));
-
-    /* ---- 7 · moves ---------------------------------------------------------------------------------------------- */
-    function TOAST(t) { return `<div class="sg-toast"><span class="mk-toast">${t}</span></div>`; }
-    var DONE138 = { act: null, mark: 'check' };
-    put('sg-move', COL(
-      FIG(SB(SHEAD(S.sprint) + TROW(T.coupon, DONE138) + SHEAD(S.mine, { empty: 1 })), 'Before: done under Sprint tickets, kept'),
-      FIG(SB(SHEAD(S.sprint, { empty: 1 }) + SHEAD(S.mine) + TROW(T.coupon, { act: A('answering 2 threads'), mark: 'work' }) +
-        TOAST('PAY-138 moved to My merge requests')), 'After: two threads came in on !96. The same task, under the signal that has it now')));
-    put('sg-archive', COL(
-      FIG(SB(SHEAD(S.sprint) + TROW(T.coupon, DONE138)), 'Before: its merge request has a reviewer, so it is done'),
-      FIG(SB(SHEAD(S.sprint, { empty: 1 }) + TOAST('Archived PAY-138. It comes back if its merge request does.')), 'After, with Then: Archive it. The row is in the Archive'),
-      FIG(SB(SHEAD(S.deps, { closed: false }) + TROW(T.price, { act: A('paused', 'quiet'), mark: 'pause' })), 'A signal switched off, open: its task ended its turn and waits')));
-    var MENU = `<div class="sg-menuwrap"><div class="mk-menu sg-ctx"><div class="it on">Take Over</div><div class="sep"></div><div class="it">Open in VS Code</div>` +
-      `<div class="it">Rename…</div><div class="sep"></div><div class="it danger">Remove…</div></div></div>`;
-    put('sg-take', COL(
-      FIG(SB(SHEAD(S.sprint) + TROW(T.price, { cls: 'sel' }) + MENU), 'Before: the task’s menu leads with Take Over'),
-      FIG(SB(SHEAD(S.sprint, { empty: 1 }) + HDG('Projects', { gap: 1 }) + PHEAD('webshop') + TROW(T.price, { cls: 'sel' }) + TROW(T.footer) +
-        TOAST('PAY-150 is yours. The Operator let go of it.')), 'After: the same row, under its project')));
-
-    /* ---- 8 · the Operator's chat and the notification -------------------------------------------------------------- */
-    put('sg-chat', FIG(`<div class="sg-chat"><span class="mu">⏺</span> PAY-151 Export orders without VAT needs you.
-
-  Its worker asks: orders without a VAT number, block their export
-  or export them with the VAT field empty?
-
-  I would export them with the field empty. The ticket says finance
-  fills the number in later.
-  The Oracle would block them. The tax filing rejects a line without
-  VAT, and the ticket doesn’t say who fills it in.
-
-  Tell me which, or what to do instead.<span class="me"><i>&gt;</i> Block them, and add a line to the ticket saying why.</span></div>`,
-      'The Operator’s window in iTerm2: its question as plain text, your answer typed under it (iTerm2 draws this; approximated)'));
-    function NOTIF(title, body) { return `<div class="mk-notif"><span class="ic">AiT</span><div><b>${title}</b><span class="bd2">${body}</span></div></div>`; }
-    put('sg-notif', COL(
-      FIG(`<div class="sg-notifs">${NOTIF('The Operator has a question', 'PAY-151 Export orders without VAT: block orders without a VAT number, or export them with the field empty?')}` +
-        `${NOTIF('The Operator has 2 questions', 'PAY-151 Export orders without VAT, and PAY-142 Cart drawer keeps focus on close.')}</div>`,
-        'The notification, for one question and for more. A click opens the Operator’s window'),
-      FIG(SB(HDG('Operator') + OPROW('waiting on you · 2', 'you', 'you') + SHEAD(S.sprint) + TROW(T.cart, { act: A('waiting on you', 'you'), mark: 'you' }) + TROW(T.vat)),
-        'In the sidebar: the count on the Operator’s row, the chip and the amber mark on each task')));
-
-    /* ================================================================================================================
-       The sheets
-       ================================================================================================================ */
-    var DONE = `<i class="done">${CHECK}</i>`;
-    function STEPPER(names, on) {
+    /* ---- the sheet and its controls: one builder per control, the same in every sheet ---------------------------- */
+    var PH = 150; /* PromptStep.editorHeight: every prompt and the JQL field */
+    /* the stepper: a done step is a button (⌘ and its number); `hov` draws one under the pointer, with its tooltip */
+    function STEPPER(names, on, hov) {
       return `<span class="ai-stepper" aria-label="steps">` + names.map(function (n, i) {
-        var dot = i < on ? DONE : `<i class="${i === on ? 'on' : ''}">${i + 1}</i>`;
+        var dot = i < on ? `<i class="done ${i === hov ? 'hov' : ''}">${CHECK}${i === hov ? `<span class="sg-tip">${n} · ⌘${i + 1}</span>` : ''}</i>`
+          : `<i class="${i === on ? 'on' : ''}">${i + 1}</i>`;
         return (i ? '<span class="hl"></span>' : '') + dot + (i === on ? `<b>${n}</b>` : '');
       }).join('') + `</span>`;
     }
     var KEYS = `<span class="kc"><span>⌘</span><span>↩</span></span>`;
-    /* o: title, steps, on, sub, body, primary, h (500, 560, 640 or none for a one-step sheet) */
-    function SHEET(o) {
-      var steps = o.steps || [], on = o.on || 0, last = !steps.length || on === steps.length - 1;
-      var head = `<div class="hd"><div class="tr"><span class="ttl">${o.title}</span>${steps.length ? STEPPER(steps, on) : ''}</div>${o.sub ? `<span class="nav">${o.sub}</span>` : ''}</div>`;
-      var foot = `<div class="ft"><span class="btn">${on === 0 ? 'Cancel' : 'Back'}</span><span class="btn2 primary">${last ? o.primary : 'Continue'} ${KEYS}</span></div>`;
-      return `<div class="mk-sheet ${o.h ? 'sg-h' + o.h : 'short'}">${head}<div class="rule"></div><div class="bd">${o.body}</div><div class="rule"></div>${foot}</div>`;
+    /* a step of a stepped sheet: title and stepper, its fields, the footer */
+    function STEP(sheet, on, body, o) {
+      o = o || {};
+      var last = on === sheet.steps.length - 1;
+      return `<div class="mk-sheet ${sheet.h ? 'sg-h' + sheet.h : ''} ${o.cls || ''}"><div class="hd"><div class="tr"><span class="ttl">${sheet.title}</span>${STEPPER(sheet.steps, on, o.hov)}</div></div><div class="rule"></div>` +
+        (o.bar ? '' : `<div class="bd">${body}</div><div class="rule"></div>` +
+        `<div class="ft"><span class="btn">${on === 0 ? 'Cancel' : 'Back'}</span><span class="btn2 primary">${last ? sheet.create : 'Continue'} ${KEYS}</span></div>`) + `</div>`;
     }
-    function HEADONLY(title, steps, on) { return `<div class="mk-sheet sg-head"><div class="hd"><div class="tr"><span class="ttl">${title}</span>${STEPPER(steps, on)}</div></div></div>`; }
+    /* a sheet with one step: its title, a line under it when it has one, its fields, the footer */
+    function ONE(title, body, create, nav) {
+      return `<div class="mk-sheet sg-fit"><div class="hd"><div class="tr"><span class="ttl">${title}</span></div>${nav ? `<span class="nav">${nav}</span>` : ''}</div><div class="rule"></div>` +
+        `<div class="bd">${body}</div><div class="rule"></div><div class="ft"><span class="btn">Cancel</span><span class="btn2 primary">${create} ${KEYS}</span></div></div>`;
+    }
+    /* a field: its label above, its control, its help under it */
     function FF(lbl, body, help, cls) {
-      return `<div class="mk-ff ${cls || ''}">${lbl ? (lbl.indexOf('<') === 0 ? lbl : `<span class="lbl">${lbl}</span>`) : ''}${body}${help ? `<span class="mk-help">${help}</span>` : ''}</div>`;
+      return `<div class="mk-ff ${cls || ''}">${lbl ? `<span class="lbl">${lbl}</span>` : ''}${body}${help ? `<span class="mk-help">${help}</span>` : ''}</div>`;
     }
-    function FIELD(t, o) {
+    function HELP(t) { return `<span class="mk-help">${t}</span>`; }
+    /* Input */
+    function INPUT(t, o) {
       o = o || {};
-      return `<div class="mk-field ${o.foc ? 'focused' : ''} ${o.mono ? 'mono' : ''} ${o.off ? 'sg-off' : ''}">${o.mark ? `<span class="mk">${o.mark}</span>` : ''}${o.key ? `<span class="k">${o.key}</span>` : ''}` +
-        `${o.ph ? `<span class="ph">${t}</span>` : `<span class="t">${t}</span>`}${o.x ? `<span class="x">✕</span>` : ''}</div>`;
+      return `<div class="mk-field ${o.foc ? 'focused' : ''} ${o.mono ? 'mono' : ''}">${t ? `<span class="t">${t}</span>` : `<span class="ph">${o.ph || ''}</span>`}</div>`;
     }
+    /* Select: fills its column */
     function SEL(t, cls) { return `<div class="ai-select ${cls || ''}"><span>${t}</span><span class="chev">${UPDN}</span></div>`; }
-    function CB(on, t, cls) { return `<div class="cb ${on ? 'on' : ''} ${cls || ''}"><i>${on ? `<svg viewBox="0 0 10 10"><path d="M1.6 5.4 4 7.7 8.5 2.5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}</i><span>${t}</span></div>`; }
-    function CBS() { return `<div class="sg-cbs">${[].join.call(arguments, '')}</div>`; }
-    function SEG(items, on, o) {
-      o = o || {};
-      return `<div class="ai-seg">${items.map(function (t, i) { return `<span class="${i === on ? 'on' : ''} ${o.off === i ? 'disabled' : ''}">${t}</span>`; }).join('')}</div>`;
+    /* Checkbox, with what it does under it */
+    function CB(on, t, help) {
+      return `<div class="sg-cb"><div class="cb ${on ? 'on' : ''}"><i>${on ? `<svg viewBox="0 0 10 10"><path d="M1.6 5.4 4 7.7 8.5 2.5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}</i><span>${t}</span></div>` +
+        `${help ? HELP(help) : ''}</div>`;
     }
-    function EDITOR(h, inner, foc) { return `<div class="editor ${foc ? 'focused' : ''}" style="height: ${h}px">${inner}</div>`; }
+    function CBS() { return `<div class="sg-cbs">${[].join.call(arguments, '')}</div>`; }
+    /* SegmentedControl: fills its column, its segments equal */
+    function SEG(items, on) { return `<div class="ai-seg">${items.map(function (t, i) { return `<span class="${i === on ? 'on' : ''}">${t}</span>`; }).join('')}</div>`; }
+    /* PromptEditor, PH tall */
     var CARET = `<span style="display:inline-block;width:1px;height:15px;background:var(--accent);vertical-align:-3px"></span>`;
-    function PH(t, foc) { return `${foc ? CARET : ''}<span class="ph">${t}</span>`; }
-    function LANE(icon, t, on) { return `<span class="lane ${on ? 'sg-on' : ''}">${icon}${t}<span class="x">✕</span></span>`; }
-    function LANES(lanes, ph, foc) { return `<div class="mk-field ${foc ? 'focused' : ''}" style="height: auto; min-height: 28px; padding-block: 3px"><span class="lanes">${lanes.join('')}<span class="ph" style="flex: none">${ph}</span></span></div>`; }
+    function EDITOR(text, o) {
+      o = o || {};
+      return `<div class="editor ${o.foc ? 'focused' : ''}" style="height: ${PH}px">${o.foc && !o.typed ? CARET : ''}` +
+        (o.typed ? `<span>${text}</span>` : `<span class="ph">${text}</span>`) + `</div>`;
+    }
+    /* the search field with chips: a picked item is a chip with ✕; the placeholder stays while more can be added */
+    function CHIP(icon, t, o) {
+      o = o || {};
+      return `<span class="lane ${o.mono ? 'mono' : ''}">${icon || ''}${o.key ? `<span class="k" style="color:var(--link)">${o.key}</span>` : ''}${t}<span class="x">✕</span></span>`;
+    }
+    function CHIPS(chips, ph, o) {
+      o = o || {};
+      return `<div class="mk-field ${o.foc ? 'focused' : ''}" style="height: auto; min-height: 28px; padding-block: 3px"><span class="lanes">${chips.join('')}` +
+        `${ph ? `<span class="ph" style="flex: none">${ph}</span>` : ''}</span></div>`;
+    }
     function MATCH(rows) { return `<div class="sg-match">${rows.map(function (r) { return `<div class="r ${r[3] ? 'off' : ''}"><span class="k">${r[0]}</span><span class="t">${r[1]}</span><span class="d">${r[2]}</span></div>`; }).join('')}</div>`; }
-    function LROW(lbl, n, link, off) { return `<div class="sg-lblrow"><span class="lbl">${lbl}</span>${n != null ? `<span class="n">${n}</span>` : ''}<span class="sp"></span>${link ? `<span class="lnk ${off ? 'off' : ''}">${link}</span>` : ''}</div>`; }
-    /* the agent control: one row of Agent, Model and Reasoning; a signal's is the same row as a list */
+    function LROW(lbl, n) { return `<span class="sg-lblrow"><span class="lbl">${lbl}</span>${n != null ? `<span class="n">${n}</span>` : ''}</span>`; }
+    /* the agent row: Agent, Model and Reasoning as selects; a signal's is the same row as a list */
     function AGENTS(rows, list, help) {
       var cells = rows.map(function (r) { return SEL(r[0]) + SEL(r[1]) + SEL(r[2]) + (list ? `<span class="x">✕</span>` : ''); }).join('');
       return `<div class="mk-ff"><div class="agents ${list ? '' : 'sg-one'}"><span class="lbl">Agent</span><span class="lbl">Model</span><span class="lbl">Reasoning</span>${list ? '<span></span>' : ''}${cells}</div>` +
-        `${list ? `<span class="add">${PLUS}Add an agent</span>` : ''}${help ? `<span class="mk-help">${help}</span>` : ''}</div>`;
+        `${list ? `<span class="add">${PLUS}Add an agent</span>` : ''}${help ? HELP(help) : ''}</div>`;
     }
-    /* where it opens over the command it runs */
-    function CMD(cap, cmd) { return `<div class="sg-cmd"><span class="cap">${cap}</span><div class="blk"><i>$</i><span>${cmd}</span></div></div>`; }
-    function DEST(t) { return `<span class="dest">${t}</span>`; }
-    var JM = SRC('jira', 13), GM = TANUKI(13), JL = G('jira', 11, 'var(--jira)');
-
-    /* ---- one step -------------------------------------------------------------------------------------------------- */
-    put('sg-one-divider', FIG(SHEET({ title: 'Add divider', sub: 'A heading over the projects under it.', primary: 'Add Divider',
-      body: FF('Name (optional)', FIELD('Work', { ph: 1, foc: 1 }), 'Empty: a plain rule.') }), 'Add Divider… ⌘D'));
-    put('sg-one-terminal', FIG(SHEET({ title: 'New terminal in webshop', sub: 'A shell in the project folder. No agent starts.', primary: 'Create Terminal',
-      body: FF('Name', FIELD('Terminal 2', { foc: 1 })) + DEST('Opens in iTerm2 · webshop · main') }), 'New Terminal… ⌘T'));
-    var JPROJ = [LANE(JL, 'PAY · Payments'), LANE(JL, 'WEB · Webshop')];
-    var FOLDERF = `<div class="sg-row2" style="align-items:center"><div class="mk-field mono" style="flex:1; min-width:0"><span class="t">~/Sites/shop/webshop</span></div><span class="btn">Choose…</span></div>`;
-    put('sg-one-project', FIG(SHEET({ title: 'Add project', sub: 'A folder with a git repository. Its tasks, reviews and terminals open in it.', primary: 'Add Project',
-      body: FF('Folder', FOLDERF, 'Found a GitLab repository, git.example.com/shop/webshop. Its default branch is main.') +
-        FF('Jira projects (optional)', LANES(JPROJ, 'Add a Jira project', 1),
-          'New Task looks for tickets here, and a signal starts these projects’ tickets in webshop. Empty: New Task searches every Jira project, and no signal starts a ticket here.') +
-        CB(1, 'Import its 3 worktrees as tasks. No agent starts.') +
-        DEST('Adds webshop under Projects. Nothing in the folder changes.') }), 'Add Project… ⌘P, after the folder is picked'));
-    put('sg-one-project2', FIG(SHEET({ title: 'Edit project', sub: 'A folder with a git repository. Its tasks, reviews and terminals open in it.', primary: 'Save',
-      body: FF('Folder', `<div class="mk-field mono sg-off"><span class="t">~/Sites/shop/webshop</span></div>`, 'A GitLab repository, git.example.com/shop/webshop. To move a project, remove it and add its new folder.') +
-        FF('Jira projects (optional)', LANES([JPROJ[0]], 'Add a Jira project', 1),
-          'New Task looks for tickets here, and a signal starts these projects’ tickets in webshop. Empty: New Task searches every Jira project, and no signal starts a ticket here.') }),
-      'Edit Project…, from the project’s menu: the same sheet, Save'));
-
-    /* ---- the two elements every stepped sheet shares past its first step ------------------------------------------- */
-    /* the closing block: the life of what the sheet makes, in a sentence; New Task and New Review add the command */
+    /* the closing box: what the button does, from your picks; New Task and New Review add the command */
     function LIFE(say, cmd) { return `<div class="sg-life"><span class="say">${say}</span>${cmd ? `<span class="cm"><i>$</i><span>${cmd}</span></span>` : ''}</div>`; }
-    /* a summary line: what an earlier step decided, with the link that goes back to it */
-    function SUM(inner, link) { return `<div class="sg-sum">${inner}<span class="sp"></span><span class="lnk">${link || 'Change'}</span></div>`; }
-    /* a node on the rail: its mark (a done step's check, or a ring), its name, its content */
-    function NODE(kind, label, content, h) {
-      return `<div class="sg-node ${h === 20 ? 'h20' : ''}"><span class="sg-nmk"><i class="${kind}">${kind === 'done' ? CHECK : ''}</i></span>` +
-        `<span class="sg-nl">${label}</span><div class="sg-nc">${content}</div></div>`;
-    }
-    function HELP(t) { return `<span class="mk-help">${t}</span>`; }
-
-    /* ---- New Task ---------------------------------------------------------------------------------------------------- */
-    var TASK = ['Task', 'Prompt'], REVIEW = ['Review', 'Prompt'], SIGNAL = ['Signal', 'Starts when', 'Prompt', 'Finish'];
-    var WT = CB(1, 'Copy files listed in .worktreeinclude');
-    var t1 = FF('Ticket (optional)', FIELD('Cart drawer keeps focus on close', { mark: JM, key: 'PAY-142', x: 1 }), 'Fills in the name and the branch. Its description can go to the agent with your prompt.') +
-      FF('Name', FIELD('PAY-142 Cart drawer keeps focus on close')) +
-      `<div class="sg-row2">${FF('Branch', FIELD('feat/pay-142-cart-drawer', { mono: 1 }))}${FF('Base branch', SEL('main', 'mono'), null, 'w190')}</div>` +
-      WT;
-    put('sg-r-task1', FIG(SHEET({ title: 'New task in webshop', steps: TASK, on: 0, h: 560, primary: 'Create Task', body: t1 }), '1 Task: what it is and where it comes from'));
+    var JM = SRC('jira', 11), GM = TANUKI(11);
     var PROMPT_HELP = 'What the agent does first. Type / for skills, @ for files. Empty: it waits for you.';
-    var TASK_LIFE = LIFE('Opens in iTerm2 in <b>webshop/.worktrees/pay-142-cart-drawer</b>, on <b>feat/pay-142-cart-drawer</b>. <b>Claude Code</b> starts with your prompt and the ticket’s description.',
-      'claude --model claude-opus-5-5 --effort high');
-    var TASK_PROMPT = FF('Prompt (optional)', EDITOR(112, PH('/psg:plan, then /psg:implement. Ask me before any API change.', 1), 1), PROMPT_HELP) +
-      FF('AiTerm adds', CBS(CB(1, 'The ticket’s description'))) +
-      AGENTS([['Claude Code', 'Opus 5.5', 'High']], 0);
-    put('sg-r-task2', FIG(SHEET({ title: 'New task in webshop', steps: TASK, on: 1, h: 560, primary: 'Create Task', body: TASK_PROMPT + TASK_LIFE }), '2 Prompt: what the agent is told and which agent runs it, then what happens'));
+    var WT_HELP = 'The ignored files it lists, such as .env, go into the new worktree.';
 
-    /* ---- New Review -------------------------------------------------------------------------------------------------- */
-    var r1 = FF('Merge request (optional)', FIELD('Search facets count hidden products', { mark: GM, key: '!412', x: 1 }), 'Fills in the ticket, the name and the branch.') +
-      FF('Ticket (optional)', FIELD('Search facets count hidden products', { mark: JM, key: 'WEB-77', x: 1 }), 'Found from !412.') +
-      FF('Name', FIELD('WEB-77 Search facets count hidden products')) +
-      FF('Branch', FIELD('feat/web-77-search-facets', { mono: 1, x: 1 })) +
-      WT;
-    put('sg-r-rev1', FIG(SHEET({ title: 'New review in webshop', steps: REVIEW, on: 0, h: 560, primary: 'Create Review', body: r1 }), '1 Review: what it is and where it comes from'));
-    var r2 = FF('Prompt (optional)', EDITOR(112, PH('/psg:peer-review. Post only Critical and Important findings.', 1), 1), PROMPT_HELP) +
-      FF('AiTerm adds', CBS(CB(1, 'The merge request’s description'), CB(1, 'The ticket’s description'))) +
-      AGENTS([['Codex', 'gpt-6-astra', 'High']], 0) +
+    /* ---- New Task: Ticket, Name and branch, Prompt, Agent -------------------------------------------------------------- */
+    var TASK = { title: 'New task in webshop', steps: ['Ticket', 'Name and branch', 'Prompt', 'Agent'], create: 'Create Task' };
+    put('sg-t1', FIG(STEP(TASK, 0,
+      FF('Ticket (optional)', CHIPS([CHIP(JM, ' Cart drawer keeps focus on close', { key: 'PAY-142' })], '', { foc: 1 }),
+        'Fills in the name and the branch. Empty: a task without a ticket.')), '1 Ticket: where the task comes from'));
+    put('sg-t2', FIG(STEP(TASK, 1,
+      FF('Name', INPUT('PAY-142 Cart drawer keeps focus on close', { foc: 1 })) +
+      `<div class="sg-row2">${FF('Branch', INPUT('feat/pay-142-cart-drawer', { mono: 1 }))}${FF('Base branch', SEL('main', 'mono'), null, 'w190')}</div>` +
+      CB(1, 'Copy files listed in .worktreeinclude', WT_HELP)), '2 Name and branch: filled in from the ticket'));
+    put('sg-t3', FIG(STEP(TASK, 2,
+      FF('Prompt (optional)', EDITOR('/psg:plan, then /psg:implement. Ask me before any API change.', { foc: 1 }), PROMPT_HELP) +
+      CB(1, 'Add the ticket’s description', 'It goes to the agent under your prompt.')), '3 Prompt: what the agent is told'));
+    put('sg-t4', FIG(STEP(TASK, 3,
+      AGENTS([['Claude Code', 'Opus 5.5', 'High']], 0, 'Your last pick for webshop.') +
+      LIFE('Opens in iTerm2 in <b>webshop/.worktrees/pay-142-cart-drawer</b>, on <b>feat/pay-142-cart-drawer</b>. <b>Claude Code</b> starts with your prompt and the ticket’s description.',
+        'claude --model claude-opus-5-5 --effort high')), '4 Agent: which agent runs it, then what Create Task does'));
+
+    /* moving between steps: Back, a click on a done step, or ⌘ and its number */
+    put('sg-nav', FIG(STEP(TASK, 2, '', { hov: 0, bar: 1, cls: 'sg-fit sg-bar' }),
+      'A done step is a button: the pointer over it shows its name and key. Back, a click on a done step, or ⌘1 to ⌘4 (⌘5 in New Signal) move between steps; ⌘↩ continues'));
+
+    /* ---- New Review: Merge request, Name and branch, Prompt, Agent --------------------------------------------------- */
+    var REVIEW = { title: 'New review in webshop', steps: ['Merge request', 'Name and branch', 'Prompt', 'Agent'], create: 'Create Review' };
+    put('sg-r1', FIG(STEP(REVIEW, 0,
+      FF('Merge request (optional)', CHIPS([CHIP(GM, ' Search facets count hidden products', { key: '!412' })], '', { foc: 1 }),
+        'Fills in the ticket, the name and the branch. Empty: you pick a branch on the next step.') +
+      FF('Ticket (optional)', CHIPS([CHIP(JM, ' Search facets count hidden products', { key: 'WEB-77' })], ''), 'Found from !412.')),
+      '1 Merge request: where the review comes from, with its ticket'));
+    put('sg-r2', FIG(STEP(REVIEW, 1,
+      FF('Name', INPUT('WEB-77 Search facets count hidden products', { foc: 1 })) +
+      FF('Branch', INPUT('feat/web-77-search-facets', { mono: 1 }), 'The merge request’s branch. Typing offers the repository’s branches; one that doesn’t exist is said here.') +
+      CB(1, 'Copy files listed in .worktreeinclude', WT_HELP)), '2 Name and branch: filled in from the merge request'));
+    put('sg-r3', FIG(STEP(REVIEW, 2,
+      FF('Prompt (optional)', EDITOR('/psg:peer-review. Post only Critical and Important findings.', { foc: 1 }), PROMPT_HELP) +
+      CBS(CB(1, 'Add the merge request’s description', 'It goes to the agent under your prompt.'),
+        CB(1, 'Add the ticket’s description', 'It goes under the merge request’s.'))), '3 Prompt: the same step as New Task’s'));
+    put('sg-r4', FIG(STEP(REVIEW, 3,
+      AGENTS([['Codex', 'gpt-6-astra', 'High']], 0, 'Your last pick for webshop.') +
       LIFE('Opens in iTerm2 in <b>webshop/.worktrees/web-77-search-facets</b>, on <b>feat/web-77-search-facets</b>. <b>Codex</b> starts with your prompt and both descriptions.',
-        'codex --model gpt-6-astra -c model_reasoning_effort=high');
-    put('sg-r-rev2', FIG(SHEET({ title: 'New review in webshop', steps: REVIEW, on: 1, h: 560, primary: 'Create Review', body: r2 }), '2 Prompt: the same step as New Task’s, field for field'));
+        'codex --model gpt-6-astra -c model_reasoning_effort=high')), '4 Agent: the same step as New Task’s'));
 
-    /* ---- New Signal --------------------------------------------------------------------------------------------------- */
+    /* ---- New Signal: Signal, Starts when, Prompt, Agents, Done ---------------------------------------------------------- */
+    var SIGNAL = { title: 'New signal', steps: ['Signal', 'Starts when', 'Prompt', 'Agents', 'Done'], create: 'Create Signal', h: 560 };
     function SM(k, name) { return `<span class="sg-m">${SRC(k, 16)}</span>${name}`; }
     var SOURCES = [SM('jira', 'Jira'), SM('gitlab', 'GitLab'), SM('github', 'GitHub')];
     var LEAD = `<span class="lead"><b>A signal starts tasks for you.</b> It watches Jira, GitLab or GitHub. When a ticket or a merge request matches, the Operator starts a task for it in the right project, gives it your prompt and follows it until it’s done.</span>`;
-    var s1 = LEAD + FF('Starts from', SEG(SOURCES, 0), 'Starts a task for each Jira ticket that matches your conditions. You set them on the next step.') +
-      FF('Name', FIELD('Sprint tickets', { foc: 1 }), 'Its heading under Operator in the sidebar.');
-    put('sg-r-sig1', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 0, h: 640, primary: 'Create Signal', body: s1 }), '1 Signal: what it is and where it comes from'));
-    var s1b = `<div class="sg-frag">` +
-      FF('Starts from', SEG(SOURCES, 1), 'Starts a task when you’re asked to review, or when your own merge request needs you. You pick which on the next step.') +
-      FF('Starts from', SEG(SOURCES, 1, { off: 2 }), 'GitHub isn’t connected. Connect it in Settings › Integrations.') + `</div>`;
-    put('sg-signal-1b', FIG(s1b, 'The line under the control follows the pick. Below: GitHub not connected'));
-
-    /* a checkbox with its own help line under it */
-    function CBH(on, t, help) { return CB(on, t) + `<span class="mk-help sg-cbhelp">${help}</span>`; }
-    var JLANES = [LANE(JL, 'label is operator'), LANE(JL, 'in my open sprints')];
-    var JMATCH = MATCH([['PAY-142', 'Cart drawer keeps focus on close', 'webshop'], ['PAY-150', 'Round prices per order, not per line', 'webshop'],
-      ['PAY-151', 'Export orders without VAT', 'payments-api'], ['OPS-12', 'Rotate the staging certificates', 'no project linked to OPS', 1]]);
-    var JCOND_HELP = 'A ticket must meet every condition, in any Jira project and on any board. AiTerm checks every minute.';
-    var s2j = FF(LROW('Tickets that match', null, 'Write JQL instead'), LANES(JLANES, 'Add a condition'), JCOND_HELP) +
-      FF(LROW('Starts when you create it', 3), JMATCH,
-        'These match now and start as soon as you create the signal. After that, each ticket that starts to match starts a task. OPS-12 can’t start: its Jira project is linked to none of your projects. Link it with Edit Project….');
-    put('sg-r-sig2j', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 1, h: 640, primary: 'Create Signal', body: s2j }), '2 Starts when, for Jira'));
-    var GLANES = [LANE(TANUKI(11), 'webshop'), LANE(TANUKI(11), 'payments-api')];
-    var WHEN = ['I’m asked to review', 'My merge request needs me'];
-    var EVERY = HELP('In every project of yours on GitLab. AiTerm checks every minute. <span class="lnk">Only in some projects…</span>');
-    var s2m = FF('Start a task when', SEG(WHEN, 1), 'A merge request you wrote, in either of the ways ticked here.') +
-      `<div class="sg-cbs">${CBH(1, 'It’s waiting on my reply', 'A reviewer left threads I haven’t answered.')}${CBH(1, 'It’s sent back to me', 'It’s assigned to me again, or a reviewer asked for changes.')}</div>` +
-      EVERY +
-      FF(LROW('Starts when you create it', 1), MATCH([['!96', 'Coupon field loses focus on mobile', '2 threads · webshop']]),
-        'This one needs you now and starts as soon as you create the signal. After that, each merge request that starts to need you starts a task. One that already has a task carries on in that task.');
-    put('sg-r-sig2g', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 1, h: 640, primary: 'Create Signal', body: s2m }), '2 Starts when, for GitLab or GitHub'));
-    var s2r = FF('Start a task when', SEG(WHEN, 0), 'Someone else’s merge request, with you as a reviewer.') +
-      FF('Only in', LANES(GLANES, 'Add a project', 1), 'Only merge requests in these projects. AiTerm checks every minute. <span class="lnk">Every project</span>') +
-      FF(LROW('Starts when you create it', 1), MATCH([['!412', 'Search facets count hidden products', 'webshop · Jan']]),
-        'This request is open now and starts as soon as you create the signal. After that, each new request starts a task.');
-    put('sg-signal-2r', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 1, h: 640, primary: 'Create Signal', body: s2r }), '2 Starts when: you’re asked to review, after Only in some projects…'));
-    var s2e = FF(LROW('Tickets that match', null, 'Write JQL instead'), LANES([JLANES[0]], 'Add a condition', 1), JCOND_HELP) +
-      FF(LROW('Starts when you save', 1), MATCH([['PAY-160', 'Refund email shows the wrong total', 'webshop']]),
-        'This ticket matches now and never started, so it starts when you save. The three tasks that already started carry on.');
-    put('sg-signal-2e', FIG(SHEET({ title: 'Edit signal', steps: SIGNAL, on: 1, h: 640, primary: 'Save', body: s2e }), '2 Starts when, in Edit Signal…, after a condition is removed'));
-
-    var AG_HELP = 'The Operator picks one of these for each task and for each check. It moves to the next when one passes 80 % of its weekly limit.';
-    var JPROMPT = '/psg:plan, then /psg:implement and /psg:review. Ask me only about scope.';
-    var SIG_PROMPT = FF('Prompt', EDITOR(112, PH(JPROMPT, 1), 1), 'What the worker does with each ticket. Type / for skills, @ for files.') +
-      FF('AiTerm adds', CBS(CB(1, 'The ticket’s description'), CB(1, 'The merge request’s description, once there is one'))) +
-      AGENTS([['Claude Code', 'Opus 5.5', 'High'], ['Codex', 'gpt-6-astra', 'Medium']], 1, AG_HELP);
-    put('sg-r-sig3', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 2, h: 640, primary: 'Create Signal', body: SIG_PROMPT }), '3 Prompt: what the agent is told and which agents may run it'));
-    var s3r = FF('Prompt', EDITOR(112, `<span class="sk">/psg:peer-review</span>. Post only Critical and Important findings.`), 'What the worker does with each merge request. Type / for skills, @ for files.') +
-      FF('AiTerm adds', CBS(CB(1, 'The merge request’s description'), CB(1, 'The ticket’s description, when there is one'))) +
-      AGENTS([['Codex', 'gpt-6-astra', 'High']], 1, AG_HELP);
-    put('sg-signal-3r', FIG(SHEET({ title: 'Edit signal', steps: SIGNAL, on: 2, h: 640, primary: 'Save', body: s3r }), '3 Prompt, for a GitLab signal, in Edit Signal…'));
-
-    /* ---- 4 Finish: a task's life on a rail. Starts and Works are what steps 2 and 3 decided; the rest is decided here.
-            Only the nodes that fit the source are drawn. ------------------------------------------------------------- */
+    var AG_HELP = 'The Operator picks one of these for each task. It moves to the next when one passes 80 % of its weekly limit.';
     var THEN = ['Keep the task', 'Archive it', 'Remove it'];
     var THEN_HELP = ['It stays under the signal, with its window and worktree.', 'Its window and worktree close. Branch and conversation stay in the Archive.',
       'The task and its worktree go. Unsaved work keeps the worktree.'];
-    var KIND = {
-      jira: { starts: `<span class="mk">${JL}</span><span class="t">A ticket: label is operator · in my open sprints</span>`,
-              works: `<span class="pr">${JPROMPT}</span><span class="ag">on Claude Code or Codex</span>`, check: 1, merge: 1,
-              done: ['The Operator judges it done', 'Its merge request has a reviewer', 'Its merge request is approved', 'Every thread is resolved', 'Its merge request is merged', 'The ticket reaches a status…'] },
-      mine: { starts: `<span class="mk">${TANUKI(11)}</span><span class="t">My merge request needs me: a reply, or it’s sent back</span>`,
-              works: `<span class="pr">/psg:review. Answer every open thread.</span><span class="ag">on Claude Code</span>`, check: 1, merge: 1,
-              done: ['Every thread is resolved', 'Its merge request is approved', 'Its merge request is merged', 'The Operator judges it done'] },
-      review: { starts: `<span class="mk">${TANUKI(11)}</span><span class="t">I’m asked to review</span>`,
-                works: `<span class="pr">/psg:peer-review. Post only Critical and Important findings.</span><span class="ag">on Codex</span>`,
-                done: ['My review is posted', 'The merge request is merged or closed', 'The Operator judges it done'] }
-    };
-    /* o: check (on), done (index), doneHelp, merge (on), then (index), life */
-    function FINISH(kind, o) {
-      var k = KIND[kind], nodes = '';
-      nodes += NODE('done', 'Starts', SUM(k.starts), 20) + NODE('done', 'Works', SUM(k.works), 20);
-      nodes += NODE('dot', 'Questions', SEG(['The Operator and the Oracle', 'Me'], o.me ? 1 : 0) +
-        HELP(o.me ? 'Every question a worker asks comes to you, in the Operator’s chat.' : 'You’re asked only when they disagree or it’s yours to decide.'));
-      if (k.check) {
-        nodes += NODE('dot', 'Check', CB(o.check, 'Another agent checks the work before it counts as done') +
-          (o.check ? EDITOR(56, PH('/psg:review. Fix what it finds, then run the tests again.')) : ''), 20);
-      }
-      nodes += NODE('dot', 'Done when', (o.status ? `<div class="sg-row2">${SEL(k.done[o.done])}${SEL(o.status)}</div>` : SEL(k.done[o.done], 'sg-fit')) + (o.doneHelp ? HELP(o.doneHelp) : ''));
-      if (k.merge) {
-        nodes += NODE('dot', 'Merge', CB(o.merge, 'Merge it when it’s ready') +
-          HELP('Approved, the pipeline green, every thread resolved and the Oracle agreeing. AiTerm merges; a worker never does.'), 20);
-      }
-      nodes += NODE('dot', 'Then', SEG(THEN, o.then) + (o.then === 2 ? CB(0, 'Delete its branch once merged') : '') + HELP(THEN_HELP[o.then]));
-      return `<div class="sg-tl">${nodes}</div>` + (o.life ? LIFE(o.life) : '');
+    var ASKS = 'The Operator and the Oracle answer its questions and ask you only when they disagree or it’s yours to decide.';
+    var MERGE_HELP = 'Once it’s approved, the pipeline is green, every thread is resolved and the Oracle agrees. AiTerm merges; a worker never does.';
+    /* Done: when it's done, whether AiTerm then merges it, then what happens to the task.
+       o: done, effect, status (a second select), merge (undefined: not offered), then, del */
+    function DONE(o) {
+      var when = o.status ? `<div class="sg-row2">${SEL(o.done)}${SEL(o.status, 'w190')}</div>` : SEL(o.done);
+      return FF('Done when', when, o.effect) +
+        (o.merge != null ? CB(o.merge, 'Merge it when it’s ready', MERGE_HELP) : '') +
+        FF('Then', SEG(THEN, o.then), THEN_HELP[o.then]) +
+        (o.then === 2 ? CB(o.del, 'Delete its branch once merged', 'Only when it’s merged and still at the commit that was merged.') : '');
     }
-    var BOTH = '<b>The Operator and the Oracle</b> answer its questions';
-    put('sg-r-fin-j', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 3, h: 640, primary: 'Create Signal',
-      body: FINISH('jira', { check: 1, done: 1, then: 1,
-        life: `Each <b>ticket that matches</b> starts a task for <b>Claude Code or Codex</b>. ${BOTH}, and <b>another agent checks the work</b>. It’s done when <b>its merge request has a reviewer</b>; then <b>it’s archived</b>. 3 tickets match now and start when you create it.` }) }),
-      '4 Finish, for a Jira signal, with Check switched on'));
-    put('sg-r-fin-m', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 3, h: 640, primary: 'Create Signal',
-      body: FINISH('mine', { done: 0, then: 1,
-        life: `Each <b>merge request of yours that needs you</b> starts a task for <b>Claude Code</b>, or carries on in the task it has. ${BOTH}. It’s done when <b>every thread is resolved</b>; then <b>it’s archived</b>. 1 needs you now and starts when you create it.` }) }),
-      '4 Finish, for My merge request needs me, as it opens'));
-    put('sg-r-fin-r', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 3, h: 640, primary: 'Create Signal',
-      body: FINISH('review', { done: 0, then: 1, doneHelp: 'AiTerm sees a review, comments or an approval from you, made after the task started.',
-        life: `Each <b>review you’re asked for</b> starts a task for <b>Codex</b>. ${BOTH}. It’s done when <b>your review is posted</b>; then <b>it’s archived</b>. 1 request is open now and starts when you create it.` }) }),
-      '4 Finish, for I’m asked to review: no Check, no Merge'));
+    var CHECK_HELP = ' Put the check in it too, such as /psg:review. Type / for skills, @ for files.';
 
-    /* the other states of the rail's nodes, for the reference */
-    function DWMENU(list, on) { return `<div class="sg-menu sg-inl">` + list.map(function (t, i) { return `<div class="r ${i === on ? 'on' : ''}"><span class="ck">${i === on ? CHECK : ''}</span>${t}</div>`; }).join('') + `</div>`; }
-    put('sg-finish-states', COL(
-      FIG(`<div class="sg-frag"><div class="sg-tl">` +
-        NODE('dot', 'Questions', SEG(['The Operator and the Oracle', 'Me'], 1) + HELP('Every question a worker asks comes to you, in the Operator’s chat.')) +
-        NODE('dot', 'Check', CB(0, 'Another agent checks the work before it counts as done'), 20) +
-        NODE('dot', 'Done when', `<div class="sg-row2">${SEL('The ticket reaches a status…')}${SEL('In Review')}</div>`) +
-        NODE('dot', 'Merge', CB(1, 'Merge it when it’s ready') + HELP('Approved, the pipeline green, every thread resolved and the Oracle agreeing. AiTerm merges; a worker never does.'), 20) +
-        NODE('dot', 'Then', SEG(THEN, 2) + CB(0, 'Delete its branch once merged') + HELP(THEN_HELP[2])) + `</div></div>`,
-        'The same nodes with other picks: Me, Check off, a status to reach, Merge on, Remove it'),
-      FIG(`<div class="sg-frag"><div class="sg-row2">` +
-        `<div class="mk-ff"><span class="lbl">Jira ticket</span>${DWMENU(KIND.jira.done, 1)}</div>` +
-        `<div class="mk-ff"><span class="lbl">My merge request needs me</span>${DWMENU(KIND.mine.done, 0)}</div></div>` +
-        `<div class="mk-ff"><span class="lbl">I’m asked to review</span>${DWMENU(KIND.review.done, 0).replace('sg-inl"', 'sg-inl" style="width:300px"')}</div></div>`,
-        'Done when’s choices for each kind of signal. The checked one is what the step opens with')));
+    /* from Jira */
+    var JPROMPT = '/psg:plan, then /psg:implement and /psg:review. Ask me only about scope.';
+    put('sg-j1', FIG(STEP(SIGNAL, 0, LEAD +
+      FF('Starts from', SEG(SOURCES, 0), 'A task for each Jira ticket that matches your conditions. You set them on the next step.') +
+      FF('Name', INPUT('Sprint tickets', { foc: 1 }), 'Its heading under Operator in the sidebar.')), '1 Signal: where its tasks come from, then its name'));
+    var JMATCH = [['PAY-142', 'Cart drawer keeps focus on close', 'webshop'], ['PAY-150', 'Round prices per order, not per line', 'webshop'],
+      ['PAY-151', 'Export orders without VAT', 'payments-api'], ['OPS-12', 'Rotate the staging certificates', 'no project linked to OPS', 1]];
+    var JMATCH_HELP = 'These start as soon as you create the signal. After that, each ticket that starts to match starts a task. OPS-12 can’t: no project of yours is linked to OPS.';
+    put('sg-j2', FIG(STEP(SIGNAL, 1,
+      FF('Find tickets by', SEG(['Conditions', 'JQL'], 0)) +
+      FF('Conditions', CHIPS([CHIP(JM, 'label is operator'), CHIP(JM, 'in my open sprints')], 'Add a condition'),
+        'A ticket must meet every condition, in any Jira project and on any board. AiTerm checks every minute.') +
+      FF(LROW('Starts when you create it', 3), MATCH(JMATCH), JMATCH_HELP)), '2 Starts when: which tickets, and what starts now'));
+    put('sg-j2b', FIG(STEP(SIGNAL, 1,
+      FF('Find tickets by', SEG(['Conditions', 'JQL'], 1)) +
+      FF('JQL', EDITOR('labels = operator AND sprint in openSprints() AND statusCategory != Done', { foc: 1, typed: 1 }),
+        'Your query as written, in the Jira projects you can see. AiTerm checks every minute.') +
+      FF(LROW('Starts when you create it', 3), MATCH(JMATCH.slice(0, 3)), 'These start as soon as you create the signal.')),
+      '2 Starts when, with JQL: the same field as a prompt'));
+    put('sg-j3', FIG(STEP(SIGNAL, 2,
+      FF('Prompt', EDITOR(JPROMPT, { foc: 1 }), 'What the worker does with each ticket, start to end.' + CHECK_HELP) +
+      CBS(CB(1, 'Add the ticket’s description', 'It goes to the worker under your prompt.'),
+        CB(1, 'Add the merge request’s description', 'When the task has one, for its later stages.'))), '3 Prompt: what the worker is told, its own check included'));
+    put('sg-j4', FIG(STEP(SIGNAL, 3, AGENTS([['Claude Code', 'Opus 5.5', 'High'], ['Codex', 'gpt-6-astra', 'Medium']], 1, AG_HELP)), '4 Agents: which agents may run it'));
+    put('sg-j5', FIG(STEP(SIGNAL, 4,
+      DONE({ done: 'Its merge request has a reviewer', effect: 'Someone is set to review it. The Operator lets go of the task.', merge: 0, then: 1 }) +
+      LIFE(`Each <b>ticket that matches</b> starts a task for <b>Claude Code or Codex</b>. ${ASKS} It’s done when <b>its merge request has a reviewer</b>; then <b>it’s archived</b>. 3 tickets match now and start at once.`)),
+      '5 Done, as it opens. Done when also offers: the Operator judges it done, approved, every thread resolved, merged, the ticket reaches a status'));
+    put('sg-j5b', FIG(STEP(SIGNAL, 4,
+      DONE({ done: 'The ticket reaches a status', status: 'Ready for QA', effect: 'Its status in Jira. The Operator lets go of the task.', merge: 1, then: 0 }) +
+      LIFE(`Each <b>ticket that matches</b> starts a task for <b>Claude Code or Codex</b>. ${ASKS} It’s done when <b>the ticket reaches Ready for QA</b>; then <b>AiTerm merges it when it’s ready</b> and <b>the task is kept</b>. 3 tickets match now and start at once.`)),
+      '5 Done, with a status: a second select beside the first'));
+    put('sg-j5c', FIG(STEP(SIGNAL, 4,
+      DONE({ done: 'Its merge request is merged', effect: 'You or a colleague merges it. The Operator follows the task until then.', then: 2, del: 1 }) +
+      LIFE(`Each <b>ticket that matches</b> starts a task for <b>Claude Code or Codex</b>. ${ASKS} It’s done when <b>its merge request is merged</b>; then <b>it’s removed, and its branch deleted</b>. 3 tickets match now and start at once.`)),
+      '5 Done, merged: no Merge, since done already means merged; Remove it adds its one checkbox'));
 
-    /* ---- 3B, not recommended: the rail on every step past the first ------------------------------------------------- */
-    var B_TASK = `<div class="sg-tl">` + NODE('done', 'Task', SUM(`<span class="mk">${JL}</span><span class="t">PAY-142 Cart drawer keeps focus on close</span>`), 20) + `</div>`;
-    put('sg-fb-task', FIG(SHEET({ title: 'New task in webshop', steps: TASK, on: 1, h: 560, primary: 'Create Task', body: B_TASK + TASK_PROMPT + TASK_LIFE }), '3B · New Task’s Prompt step: the Task step as a line above it'));
-    var B_SIG = `<div class="sg-tl">` + NODE('done', 'Signal', SUM(`<span class="mk">${JL}</span><span class="t">Sprint tickets, from Jira</span>`), 20) +
-      NODE('done', 'Starts', SUM(`<span class="t">A ticket: label is operator · in my open sprints</span>`), 20) + `</div>`;
-    put('sg-fb-prompt', FIG(SHEET({ title: 'New signal', steps: SIGNAL, on: 2, h: 640, primary: 'Create Signal', body: B_SIG + SIG_PROMPT }), '3B · New Signal’s Prompt step: both earlier steps as lines above it'));
+    /* from GitLab or GitHub: My merge request needs me */
+    var WHEN = ['I’m asked to review', 'My merge request needs me'];
+    var PROJ = function (chips) { return FF('Projects (optional)', CHIPS(chips, 'Add a project'), 'Empty: every project of yours on GitLab. AiTerm checks every minute.'); };
+    var MPROMPT = '/psg:review. Answer every open thread, then run the tests.';
+    put('sg-m1', FIG(STEP(SIGNAL, 0, LEAD +
+      FF('Starts from', SEG(SOURCES, 1), 'A task when you’re asked to review, or when your own merge request needs you. You pick which on the next step.') +
+      FF('Name', INPUT('My merge requests', { foc: 1 }), 'Its heading under Operator in the sidebar.')), '1 Signal, with GitLab picked'));
+    put('sg-m2', FIG(STEP(SIGNAL, 1,
+      FF('Start a task when', SEG(WHEN, 1)) +
+      CBS(CB(1, 'It’s waiting on my reply', 'A reviewer left threads I haven’t answered.'), CB(1, 'It’s sent back to me', 'It’s assigned to me again, or a reviewer asked for changes.')) +
+      PROJ([]) +
+      FF(LROW('Starts when you create it', 1), MATCH([['!96', 'Coupon field loses focus on mobile', '2 threads · webshop']]),
+        'This one starts as soon as you create the signal. One that already has a task carries on in that task.')), '2 Starts when: which of your merge requests'));
+    put('sg-m3', FIG(STEP(SIGNAL, 2,
+      FF('Prompt', EDITOR(MPROMPT, { foc: 1 }), 'What the worker does with each merge request, start to end.' + CHECK_HELP) +
+      CBS(CB(1, 'Add the merge request’s description', 'It goes to the worker under your prompt.'),
+        CB(1, 'Add the ticket’s description', 'When it has one, under the merge request’s.'))), '3 Prompt: the merge request’s description first'));
+    put('sg-m5', FIG(STEP(SIGNAL, 4,
+      DONE({ done: 'Every thread is resolved', effect: 'No open thread is left on it. The Operator lets go of the task.', merge: 1, then: 1 }) +
+      LIFE(`Each <b>merge request of yours that needs you</b> starts a task for <b>Claude Code</b>, or carries on in the task it has. ${ASKS} It’s done when <b>every thread is resolved</b>; then <b>AiTerm merges it when it’s ready</b> and <b>the task is archived</b>. 1 needs you now and starts at once.`)),
+      '5 Done, with Merge switched on. Done when also offers: approved, merged, the Operator judges it done'));
 
-    /* ---- 2A: the steppers ----------------------------------------------------------------------------------------------- */
-    put('sg-steps-a', COL(
-      FIG(HEADONLY('New task in webshop', TASK, 1), '2A · New Task: Task, Prompt'),
-      FIG(HEADONLY('New review in webshop', REVIEW, 1), '2A · New Review: Review, Prompt'),
-      FIG(HEADONLY('New signal', SIGNAL, 2), '2A · New Signal: Signal, Starts when, Prompt, Finish')));
+    /* from GitLab or GitHub: I'm asked to review */
+    var VPROMPT = '/psg:peer-review. Post only Critical and Important findings.';
+    put('sg-v2', FIG(STEP(SIGNAL, 1,
+      FF('Start a task when', SEG(WHEN, 0), 'Someone else’s merge request, with you as a reviewer.') +
+      PROJ([CHIP(GM, 'webshop'), CHIP(GM, 'payments-api')]) +
+      FF(LROW('Starts when you create it', 1), MATCH([['!412', 'Search facets count hidden products', 'webshop · Jan']]),
+        'This one starts as soon as you create the signal. After that, each new request starts a task.')), '2 Starts when: you’re asked to review'));
+    put('sg-v3', FIG(STEP(SIGNAL, 2,
+      FF('Prompt', EDITOR(VPROMPT, { foc: 1 }), 'What the worker does with each merge request, start to end. Type / for skills, @ for files.') +
+      CBS(CB(1, 'Add the merge request’s description', 'It goes to the worker under your prompt.'),
+        CB(1, 'Add the ticket’s description', 'When it has one, under the merge request’s.'))), '3 Prompt: the work is the review'));
+    put('sg-v5', FIG(STEP(SIGNAL, 4,
+      DONE({ done: 'My review is posted', effect: 'AiTerm sees a review, comments or an approval from you, made after the task started.', then: 1 }) +
+      LIFE(`Each <b>review you’re asked for</b> starts a task for <b>Codex</b>. ${ASKS} It’s done when <b>your review is posted</b>; then <b>it’s archived</b>. 1 request is open now and starts at once.`)),
+      '5 Done: no Merge, since the merge request isn’t yours. Done when also offers: merged or closed, the Operator judges it done'));
 
-    /* ---- 4 · the Jira conditions -------------------------------------------------------------------------------------- */
-    var POP = `<div class="sg-pop" style="left: 132px; top: 62px"><span class="lbl">Sprint</span>${SEG(['is', 'is not'], 0)}` +
-      `${SEL('My open sprints, any board')}<span class="mk-help">Or one sprint, by name.</span></div>`;
-    var ADD = `<div class="sg-menu" style="left: 300px; top: 62px"><div class="r">Label</div><div class="r">Sprint</div><div class="r on">Assignee<span class="d">is me</span></div><div class="r">Status</div><div class="r">Jira project</div></div>`;
-    var jc = `<div class="sg-frag"><div class="mk-ff">${LROW('Tickets that match', null, 'Write JQL instead')}${LANES([LANE(JL, 'label is operator'), LANE(JL, 'in my open sprints', 1)], 'Add a condition', 1)}${POP}<div style="height:150px"></div></div></div>`;
-    var jc2 = `<div class="sg-frag"><div class="mk-ff">${LROW('Tickets that match', null, 'Write JQL instead')}${LANES(JLANES, 'Add a condition', 1)}${ADD}<div style="height:134px"></div></div></div>`;
-    put('sg-jira', COL(FIG(jc, 'A click on a chip: its popover'), FIG(jc2, 'Add a condition: the five kinds')));
-    var jq = `<div class="sg-frag">` + FF(LROW('Tickets that match', null, 'Use conditions instead'),
-        `<div class="editor focused" style="height: 56px">labels = operator AND sprint in openSprints() AND assignee = currentUser()</div>`,
-        'Filled in with what your conditions said. AiTerm runs it as written.') +
-      FF(LROW('Starts when you create it', 2), MATCH([['PAY-142', 'Cart drawer keeps focus on close', 'webshop'], ['PAY-151', 'Export orders without VAT', 'payments-api']])) + `</div>`;
-    var jq2 = `<div class="sg-frag">` + FF(LROW('Tickets that match', null, 'Use conditions instead', 1),
-        `<div class="editor" style="height: 56px">labels = operator AND (priority = Highest OR duedate &lt; endOfWeek())</div>`,
-        'This can’t be said in conditions, so it stays JQL.') +
-      FF(LROW('Starts when you create it', 0), `<div class="sg-match"><div class="r"><span class="t" style="color:var(--muted)">No ticket matches right now.</span></div></div>`) + `</div>`;
-    put('sg-jira2', COL(FIG(jq, 'Write JQL instead: one field, filled in from the chips'), FIG(jq2, 'JQL the conditions can’t say; and nothing matching yet')));
-
-    /* ================================================================================================================
-       Settings › Operator
-       ================================================================================================================ */
-    var SW = `<span class="mk-sw"></span>`;
-    function GROUP(title, help, body, sw) {
-      var head = `<div class="gh"><b>${title}</b>${help ? `<span>${help}</span>` : ''}</div>`;
-      return `<div class="mk-group">${sw ? `<div class="sg-swrow">${head}${SW}</div>` : head}${body ? `<div class="hl2"></div>${body}` : ''}</div>`;
-    }
-    function LIST(lines) { return `<ul class="sg-does">${lines.map(function (l) { return `<li>${l}</li>`; }).join('')}</ul>`; }
-    var MR = `<div class="sg-2col">${FF('Model', SEL('Opus 5.5'))}${FF('Reasoning', SEL('High'))}</div>`;
-    var OR = `<div class="sg-3col">${FF('Agent', SEL('Codex'))}${FF('Model', SEL('gpt-6-astra'))}${FF('Reasoning', SEL('Medium'))}</div>`;
-    var INSTR = `<div class="editor" style="height: 96px; white-space: pre-line"><span class="ph">Answer plan questions about naming yourself; ask me about scope.
-Prefer Codex for reviews.
-Never move a ticket to Done.</span></div>`;
-    put('sg-settings', FIG(`<div class="mk-sheet short sg-set"><div class="hd tabs-end"><div class="tr"><span class="ttl">Settings</span></div>` +
-      `<div class="ai-tabbar"><span>Agents</span><span class="on">Operator</span><span>Integrations</span><span>Interface</span></div></div><div class="rule"></div><div class="bd">` +
-      GROUP('Operator', 'One Claude Code session, always on, that runs your signals. Its window is a chat: click its row in the sidebar.',
-        LIST(['Starts a task for each ticket or merge request a signal picks up, in its own worktree and window.',
-          'Reads every turn a worker ends and tells it what’s next: the next step, a check, done.',
-          'Answers workers’ questions with the Oracle. What they can’t settle it asks you, in its chat.']) +
-        `<span class="sg-never">It never writes code, force-pushes, pushes to a default branch or answers a permission prompt. When its conversation grows long it starts a fresh one; nothing is lost.</span>` + MR) +
-      GROUP('Oracle', 'A second model, from another family, that the Operator checks with.',
-        `<span class="sg-sub">The Operator asks it</span>` +
-        LIST(['When a worker asks a question: they agree on the answer, in up to three rounds.',
-          'When it isn’t sure about a step or a verdict.',
-          'Before a risky shell command, a merge or a reply on a review thread.']) +
-        `<span class="sg-never">It never talks to a worker or to you. Turned off, every worker question comes to you in the Operator’s chat.</span>` + OR, 1) +
-      GROUP('Steer the Operator', 'Standing instructions, in plain sentences. They hold in every signal; a signal’s own prompt comes on top.',
-        FF('Instructions', INSTR, 'Type / for skills. You can also say it in the Operator’s chat: “From now on, ask me before any merge.”')) +
-      `</div></div>`, 'Settings › Operator: what each is, does and never does, then how to steer it'));
-
-    /* ================================================================================================================
-       The live row: the branch decodes into the action and back, with OperatorBadge's decode (0.5 s), here every few
-       seconds. Still under Reduce Motion.
-       ================================================================================================================ */
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
-    var lower = 'abcdefghijklmnopqrstuvwxyz', upper = lower.toUpperCase(), digits = '0123456789';
-    function frame(text, settled) {
-      return text.split('').map(function (c, i) {
-        if (i < settled || !/[0-9a-z]/i.test(c)) { return c; }
-        var glyphs = /[0-9]/.test(c) ? digits : c === c.toUpperCase() ? upper + digits : lower + digits;
-        return glyphs[Math.floor(Math.random() * glyphs.length)];
-      }).join('');
-    }
-    /* every text node of a line decodes as one, settling from the left */
-    function decodeLine(el, done) {
-      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [], n;
-      while ((n = walker.nextNode())) { nodes.push([n, n._full || (n._full = n.nodeValue)]); }
-      var total = nodes.reduce(function (sum, p) { return sum + p[1].length; }, 0), f = 0, frames = 15;
-      var t = setInterval(function () {
-        f += 1;
-        var settled = Math.floor(total * f / frames);
-        nodes.forEach(function (p) { p[0].nodeValue = frame(p[1], Math.max(0, Math.min(p[1].length, settled))); settled -= p[1].length; });
-        if (f >= frames) { clearInterval(t); nodes.forEach(function (p) { p[0].nodeValue = p[1]; }); if (done) { done(); } }
-      }, 500 / frames);
-    }
-    document.querySelectorAll('.sgp .sg-live').forEach(function (row) {
-      var badges = row.querySelector('.sg-badges'), action = row.querySelector('.sg-action');
-      function show(a, b) { b.style.display = 'none'; a.style.display = ''; }
-      function toBadges() { show(badges, action); decodeLine(badges, function () { setTimeout(toAction, 2500); }); }
-      function toAction() { show(action, badges); decodeLine(action, function () { setTimeout(toBadges, 3500); }); }
-      setTimeout(toBadges, 3500);
-    });
+    /* ---- the sheets with one step -------------------------------------------------------------------------------------- */
+    var JIRA_PROJ_HELP = 'New Task looks for tickets here, and a signal starts these projects’ tickets in webshop. Empty: New Task searches every Jira project.';
+    put('sg-p1', FIG(ONE('Add project',
+      FF('Folder', `<div class="sg-row2">${INPUT('~/Sites/shop/webshop', { mono: 1 })}<span class="btn">Choose…</span></div>`,
+        'A GitLab repository, git.example.com/shop/webshop. Its default branch is main.') +
+      FF('Jira projects (optional)', CHIPS([CHIP(JM, 'PAY · Payments'), CHIP(JM, 'WEB · Webshop')], 'Add a Jira project', { foc: 1 }), JIRA_PROJ_HELP) +
+      CB(1, 'Import its 3 worktrees as tasks', 'They show under webshop. No agent starts.') +
+      LIFE('Adds <b>webshop</b> under Projects, with its 3 worktrees as tasks. Nothing in the folder changes.'), 'Add Project'),
+      'Add Project… ⌘P, after Finder’s folder panel'));
+    put('sg-p2', FIG(ONE('Edit webshop',
+      FF('Jira projects (optional)', CHIPS([CHIP(JM, 'PAY · Payments')], 'Add a Jira project', { foc: 1 }), JIRA_PROJ_HELP) +
+      LIFE('Saves the Jira projects of <b>webshop</b>. Its folder, name and tasks stay as they are.'), 'Save',
+      '~/Sites/shop/webshop · GitLab · main'),
+      'Edit Project…, from the project’s menu: the folder can’t change, so it’s the line under the title'));
+    put('sg-o1', FIG(ONE('New terminal in webshop',
+      FF('Name', INPUT('Terminal 2', { foc: 1 })) +
+      LIFE('Opens a shell in iTerm2 in <b>webshop</b>, on <b>main</b>. No agent starts.'), 'Create Terminal'), 'New Terminal… ⌘T'));
+    put('sg-o2', FIG(ONE('Add divider',
+      FF('Name (optional)', INPUT('', { foc: 1, ph: 'Work' }), 'Empty: a plain line.') +
+      LIFE('Adds a heading over the projects under it.'), 'Add Divider'), 'Add Divider… ⌘D'));
   })();
 </script>
     <!-- signals-proposal:end -->
