@@ -269,12 +269,12 @@ struct RowPill: ViewModifier {
     var ground = Surface.sidebar
     @Environment(\.interfaceScale) private var scale
 
-    /// The ground the row declares: `.selected` (or `.selectedOnSheet` on a sheet) selected, `.hover` or
-    /// `.washedHover` hovered, `.washed` at rest on the Operator's.
+    /// The ground the row declares: `.selected` (or `.selectedOnSheet` on a sheet) selected, `.hover` (or
+    /// `.hoverOnSheet`) or `.washedHover` hovered, `.washed` at rest on the Operator's.
     static func surface(selected: Bool, hovered: Bool, washed: Bool, ground: Surface) -> Surface {
         if selected { return ground == .sheet ? .selectedOnSheet : .selected }
         if washed { return hovered ? .washedHover : .washed }
-        return hovered ? .hover : ground
+        return hovered ? (ground == .sheet ? .hoverOnSheet : .hover) : ground
     }
 
     /// The pill's fill, under the row's own padding.

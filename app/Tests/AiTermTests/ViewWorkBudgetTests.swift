@@ -130,15 +130,15 @@ import AiTermUI
         let sheet = BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil)
             .seeded(tab: .activity, entries: entries)
         let host = testHost(sheet.environment(\.rowBodyCounter, counter).environment(\.footerClock, Snapshots.clock),
-                            size: CGSize(width: Sheet.width, height: Sheet.height), appearance: NSAppearance(named: .darkAqua))
+                            size: CGSize(width: Sheet.width, height: Sheet.boardHeight), appearance: NSAppearance(named: .darkAqua))
         let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         settle(host, describing: "the board sheet's Activity rows") { !entryIDs.isDisjoint(with: counter.counts.keys) }
         let initial = entryIDs.intersection(counter.counts.keys).count
         print("Board sheet Activity initial materialized rows: \(initial) of 100")
-        // 11 rows fill the viewport since the tabs stand on the header's rule: the header lost the band's
-        // padding under the tab bar, and the list gained a row's height. Still a viewport, not all 100.
-        #expect(initial == 11, "baseline 100; final 11 Activity rows in the real board sheet")
+        // 16 rows fill the viewport since the sheet is `Sheet.boardHeight` tall and its header one line of the brief
+        // (14 Nov 2026; 11 before, in a `Sheet.height` sheet under three). Still a viewport, not all 100.
+        #expect(initial == 16, "baseline 100; final 16 Activity rows in the real board sheet")
         let scroll = try #require(host.firstDescendant(NSScrollView.self))
         let document = try #require(scroll.documentView)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))

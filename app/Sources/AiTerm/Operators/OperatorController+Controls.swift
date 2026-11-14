@@ -93,8 +93,8 @@ extension OperatorController {
 
     /// Your answer to a question in its block under Waiting on you (D1a): recorded once on the question (`answeredHere`),
     /// which `run_status` and the block say, and the Operator woken with a fixed line that names the question's task, never
-    /// the answer. It stays open: the Operator acts on it and resolves it. A `fixRounds` block's link is its card's
-    /// answer (`answerFixRounds`). Refused: a question no longer open, one answered already, one AiTerm waits on
+    /// the answer. It stays open: the Operator acts on it and resolves it. A `fixRounds` block's button is
+    /// recorded as its fix rounds' answer (`answerFixRounds`). Refused: a question no longer open, one answered already, one AiTerm waits on
     /// elsewhere (a prompt in its window, a stopped command in the Operator's chat), and one about a task you took over,
     /// or about a finished task it held.
     func answer(question key: String, in id: UUID, with text: String) throws {

@@ -42,8 +42,8 @@ to `controlActive`; fields are darker than their ground, buttons lighter. Inks a
 Inks and hairlines take a stronger value of their own under Increase Contrast; grounds do not.
 
 A component reads `@Environment(\.surface)` for the ground beneath it, rather than taking a
-`selected` flag to derive colours. `Surface.sidebar`, `.hover`, `.washed`, `.washedHover`,
-`.selected`, `.selectedOnSheet`, `.accent` and `.sheet` supply ink, secondary ink, badge washes and
+`selected` flag to derive colours. `Surface.sidebar`, `.hover`, `.hoverOnSheet`, `.washed`,
+`.washedHover`, `.selected`, `.selectedOnSheet`, `.accent` and `.sheet` supply ink, secondary ink, badge washes and
 occluding background. The container drawing the ground declares it: `RowPill`, `menuRowHighlight` or
 `PushButtonStyle`'s primary. The label does not repeat the selection decision.
 Selection is neutral: a selected row lifts its title to white and keeps every mark's colour; only the

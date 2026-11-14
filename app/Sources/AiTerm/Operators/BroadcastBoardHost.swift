@@ -3,13 +3,13 @@ import AiTermUI
 import AiTermCore
 
 /// The broadcast's sheet as the sidebar presents it, from one of two sources. Live: the projection's board
-/// (`SidebarProjection.board`), derived again with the rows and written only when it differs, so a card moves right
-/// while the sheet is open and every card sits in Done once every task is done, while a change it draws nothing of
+/// (`SidebarProjection.board`), derived again with the rows and written only when it differs, so a task changes stage
+/// while the sheet is open and every task sits in Done once every one is done, while a change it draws nothing of
 /// redraws nothing; a failed reopening behind it (`OperatorController.reopenFailed`) puts its Notice in the footer, and
 /// its Activity follows the run's log: read as the sheet opens and again after each line the Operator's calls write
 /// (`OperatorController.activityGeneration(of:)`). Shelved, opened from the Shelf (`SheetKind.shelvedBroadcast`): an
-/// ended broadcast's board as it ended (`BroadcastBoard.shelved`), cards that open nothing, Close alone, opening on
-/// Summary, its Activity read once as the sheet opens, since an ended broadcast's log no longer grows. A broadcast
+/// ended broadcast's board as it ended (`BroadcastBoard.shelved`), rows that open nothing, Close alone, its Activity
+/// read once as the sheet opens, since an ended broadcast's log no longer grows. A broadcast
 /// ended (live) or removed (shelved) meanwhile closes it. The sheet is compared by what it draws alone, its actions
 /// left out.
 struct BroadcastBoardHost: View {

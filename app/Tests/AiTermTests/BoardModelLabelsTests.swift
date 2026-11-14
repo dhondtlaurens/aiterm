@@ -23,10 +23,10 @@ struct BoardModelLabelsTests {
         shown.value = true
         rows.refresh()
         await rows.labelLoad?.value
-        let drawer = try #require(rows.board?.columns.flatMap(\.cards).first { $0.id == scene.drawer })
-        #expect(drawer.combination == "Opus 5.5 · High")
-        let provider = try #require(rows.board?.columns.flatMap(\.cards).first { $0.id == scene.provider })
-        #expect(provider.combination == "gpt-6-astra · Medium", "no Codex label read: its id")
+        let drawer = try #require(rows.board?.stages.flatMap(\.cards).first { $0.id == scene.drawer })
+        #expect(drawer.modelTooltip?.hasPrefix("Claude · Opus 5.5 · high") == true)
+        let provider = try #require(rows.board?.stages.flatMap(\.cards).first { $0.id == scene.provider })
+        #expect(provider.modelTooltip?.hasPrefix("Codex · gpt-6-astra · medium") == true, "no Codex label read: its id")
     }
 
     /// The Shelf's sheet reads them as it opens too: its cards name the models as the live board's do.

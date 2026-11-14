@@ -17,49 +17,76 @@ struct BroadcastBoardSheetTests {
         return BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
     }
 
-    /// The sheet closes first, then what the card opens comes forward; a Todo card is not a button.
-    @Test func clickingACardDismissesFirst() {
+    /// The sheet closes first, then what the row opens comes forward; a Todo task's row is not a button.
+    @Test func clickingARowDismissesFirst() {
         var moments: [String] = []
         let task = UUID()
         let actions = BoardActions(open: { opens in
             switch opens {
             case .taskWindow(let id): moments.append(id == task ? "open the task's window" : "open another window")
-            case .tab(_, let session): moments.append("bring tab \(session)")
             case .prompt(_, let tab): moments.append("bring the prompt's tab \(tab)")
             case .operatorWindow: moments.append("open the Operator's window")
             case .sidebarBanner(let issue): moments.append("show the banner's \(issue)")
             case .nothing: moments.append("open nothing")
             }
         })
-        for opens: BroadcastBoard.Opens in [.taskWindow(task), .tab(task: task, sessionId: "s2"), .prompt(task: task, tab: "e2e"), .operatorWindow,
+        for opens: BroadcastBoard.Opens in [.taskWindow(task), .prompt(task: task, tab: "e2e"), .operatorWindow,
                                             .sidebarBanner(issue: "issue-7"), .nothing] {
             BroadcastBoardSheet.choose(opens, dismiss: { moments.append("dismiss") }, actions: actions)
         }
-        #expect(moments == ["dismiss", "open the task's window", "dismiss", "bring tab s2", "dismiss", "bring the prompt's tab e2e",
+        #expect(moments == ["dismiss", "open the task's window", "dismiss", "bring the prompt's tab e2e",
                             "dismiss", "open the Operator's window",
-                            "dismiss", "show the banner's issue-7"], "a Todo card does nothing, not even close the sheet")
+                            "dismiss", "show the banner's issue-7"], "a Todo task's row does nothing, not even close the sheet")
         #expect(!BroadcastBoardSheet.isButton(.nothing) && BroadcastBoardSheet.isButton(.operatorWindow))
     }
 
-    /// A card's tab line brings that tab forward: the task's row selected and its window raised as a row's click
-    /// raises it, then that tab selected in the window.
-    @Test func aTabLineBringsItsTab() async throws {
-        let controller = AppController(preferences: .scratch())
-        defer { controller.shutdown() }
-        try controller.workspace.load()
-        let daemon = RecordingDaemon()
-        controller.helper.setDaemonClient(daemon)
-        let run = OperatorUIFixtures.run()
+    /// A row whose task has a question answered in the sheet shows that question instead of opening a window; a prompt,
+    /// answered in its own window, leaves the row its window; an answered question no longer takes the click.
+    @Test func aWaitingRowShowsItsQuestion() throws {
+        var run = OperatorUIFixtures.run()
         let project = OperatorUIFixtures.project("pluto-web")
-        let task = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
-                                           operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
-        controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
-        controller.open(.tab(task: task.id, sessionId: "s2"), run: run.id)
-        #expect(controller.focus.selection == .task(task.id))
-        #expect(await eventually(describing: "the tab brought forward") { !daemon.requests("session.activate").isEmpty })
-        #expect(daemon.requests("session.activate").map { $0.params["sessionId"] as? String } == ["s2"])
-        #expect(daemon.requests.map(\.method).filter { $0.hasSuffix(".activate") } == ["window.activate", "session.activate"],
-                "its window raised first, then the tab selected in it")
+        let asked = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
+                                            operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
+        let prompted = OperatorUIFixtures.task("Header", project: project.id, windowId: "w2",
+                                               operated: OperatorUIFixtures.operated(run: run.id, key: "b", state: .working))
+        let prompt = OperatorUIFixtures.question("Claude asks to run npm install.", id: OperatorQuestion.promptPrefix + "b", task: prompted.id)
+        #expect(prompt.kind == .prompt)
+        run.questions = [OperatorUIFixtures.question("Keep the footer's links?", id: "a-links", task: asked.id), prompt]
+        func board(_ run: OperatorRun) -> BroadcastBoard {
+            var state = AppState()
+            state.append(project: project); state.runs = [run]; state.tasks = [asked, prompted]
+            return BroadcastBoard.make(run: run, state: state, acting: .none, requests: OperatorRequests.open(run: run, state: state))
+        }
+        #expect(BroadcastBoardSheet.shows(asked.id, on: board(run)) == "a-links")
+        #expect(BroadcastBoardSheet.shows(prompted.id, on: board(run)) == nil, "a prompt is answered in its window")
+        let card = try #require(board(run).stages.flatMap(\.cards).first { $0.id == asked.id })
+        #expect(BoardRow.isButton(card, showsQuestion: true))
+        #expect(BoardRow.hint(card, showsQuestion: true) == "Shows its question under Waiting on you.")
+        #expect(BoardRow.hint(card, showsQuestion: false) == BoardRow.hint(opens: card.opens))
+        // A second question of the same task is the row's next click: the row is another row once the first is answered.
+        run.questions.append(OperatorUIFixtures.question("And its icons?", id: "a-icons", task: asked.id))
+        let first = BoardRow(card: card, question: BroadcastBoardSheet.shows(asked.id, on: board(run)), actions: BoardActions(), click: {})
+        run.questions[0].answeredHere = "Keep them"
+        #expect(BroadcastBoardSheet.shows(asked.id, on: board(run)) == "a-icons")
+        let second = BoardRow(card: card, question: BroadcastBoardSheet.shows(asked.id, on: board(run)), actions: BoardActions(), click: {})
+        #expect(first != second, "the click's question changed: the row is drawn again with it")
+        run.questions[2].answeredHere = "Them too"
+        #expect(BroadcastBoardSheet.shows(asked.id, on: board(run)) == nil, "all answered: the row is its window's again")
+    }
+
+    /// The row's mark is its sidebar row's: the pause sign while it is queued, the check once the Operator's work on it
+    /// is over, else its status.
+    @Test func aRowsMarkIsItsSidebarRows() {
+        var card = BroadcastBoard.Card(id: UUID(), title: "Footer", avatars: AvatarGroup(marks: [AgentKind.claude.session], overflow: 0),
+                                       status: .working, ticket: nil, ticketSummary: nil, mr: nil, mrHost: nil, mrTitle: nil, project: nil,
+                                       line: OperatorLine("Operator watching", look: .acting), takenOver: false, needsYou: false,
+                                       opens: .nothing, modelTooltip: nil, result: nil)
+        #expect(BoardRow.mark(of: card) == .status(.working))
+        #expect(!BoardRow.isButton(card, showsQuestion: false), "not started: no button")
+        card.queued = true
+        #expect(BoardRow.mark(of: card) == .pauseSign)
+        card.queued = false; card.status = .idle; card.line = OperatorLine("merged · 9b3e07d", look: .ended)
+        #expect(BoardRow.mark(of: card) == .ended)
     }
 
     @Test func theFooterOffersWhatTheMomentAllows() {
@@ -115,18 +142,62 @@ struct BroadcastBoardSheetTests {
         #expect(moments == ["pause", "resume", "end…", "end", "fresh"])
     }
 
-    /// A Summary left selected when a new plan makes the broadcast active again shows the Board, as the tab bar does;
-    /// the other tabs stay where they are.
-    @Test func aSummaryNoLongerReachedShowsTheBoard() {
-        let active = board(OperatorUIFixtures.run())
-        #expect(active.summary == .notYet)
-        #expect(BroadcastBoardSheet.shownTab(.summary, on: active) == .board)
-        #expect(BroadcastBoardSheet.shownTab(.activity, on: active) == .activity)
-        #expect(BroadcastBoardSheet.shownTab(.board, on: active) == .board)
-        var complete = OperatorUIFixtures.run(state: .complete)
-        complete.completedAt = OperatorUIFixtures.epoch
-        complete.summary = "Done."; complete.summaryAt = OperatorUIFixtures.epoch
-        #expect(BroadcastBoardSheet.shownTab(.summary, on: board(complete)) == .summary)
+    /// The pager: it opens on the oldest question that still waits, shows one asked for, moves on after an answer to the
+    /// next that still waits, and keeps an answered one in view when nothing else does.
+    @Test func thePagerShowsTheOldestThatStillWaits() {
+        func question(_ key: String, answered: String? = nil) -> BroadcastBoard.ListedQuestion {
+            BroadcastBoard.ListedQuestion(key: key, task: nil, ticket: nil, title: "The broadcast", askedAt: OperatorUIFixtures.epoch,
+                                          from: "The Operator asks", text: key, answer: .here(choices: [], field: true), answered: answered)
+        }
+        let questions = [question("a", answered: "yes"), question("b"), question("c")]
+        #expect(QuestionPager.shown(nil, in: questions)?.key == "b", "the oldest that still waits")
+        #expect(QuestionPager.shown("c", in: questions)?.key == "c", "the one asked for")
+        #expect(QuestionPager.shown("gone", in: questions)?.key == "b", "resolved meanwhile: the oldest that still waits")
+        #expect(QuestionPager.shown(nil, in: [question("a", answered: "yes")])?.key == "a", "all answered: the oldest")
+        #expect(QuestionPager.shown(nil, in: []) == nil)
+
+        #expect(QuestionPager.afterAnswering("b", in: questions) == "c")
+        #expect(QuestionPager.afterAnswering("c", in: questions) == "b", "none after it: the first before it that waits")
+        let last = [question("a", answered: "yes"), question("b")]
+        #expect(QuestionPager.afterAnswering("b", in: last) == "b", "nothing else waits: it stays")
+        #expect(QuestionPager.shown(QuestionPager.afterAnswering("b", in: last), in: [last[0], question("b", answered: "no")])?.key == "b",
+                "and says what was answered, an older answer not taking its place")
+
+        #expect(QuestionPager.step(1, from: "a", in: questions) == "b" && QuestionPager.step(-1, from: "b", in: questions) == "a")
+        #expect(QuestionPager.step(-1, from: "a", in: questions) == nil && QuestionPager.step(1, from: "c", in: questions) == nil)
+        #expect(QuestionPager.position(of: "b", in: questions) == "2 of 3")
+    }
+
+    /// Activity lists what changed and offers Show everything only while a call is folded away; with everything, Show
+    /// what changed.
+    @Test func activityFoldsTheLookingAwayBehindItsLink() {
+        func entry(_ tool: String) -> ActivityEntry {
+            ActivityEntry(at: OperatorUIFixtures.epoch, tool: tool, task: nil, taskLabel: nil, arguments: [:], outcome: .ok, result: "",
+                          line: tool, reason: nil)
+        }
+        let mixed = [entry("mark_task"), entry("run_status"), entry("shell"), entry("ask_you")]
+        #expect(BroadcastActivityView.listed(mixed, everything: false).map(\.tool) == ["mark_task", "ask_you"])
+        #expect(BroadcastActivityView.listed(mixed, everything: true) == mixed)
+        #expect(BroadcastActivityView.link(mixed, everything: false) == "Show everything")
+        #expect(BroadcastActivityView.link(mixed, everything: true) == "Show what changed")
+        #expect(BroadcastActivityView.link([entry("mark_task")], everything: false) == nil, "nothing folded away: no link")
+        #expect(BroadcastActivityView.listed([entry("run_status")], everything: false).isEmpty)
+        #expect(BroadcastActivityView.nothingChanged == "Nothing changed yet.")
+    }
+
+    /// A question's answers are buttons: its choices, or the one that opens where it waits; the line trailing its head
+    /// says who asks and how long ago.
+    @Test func aQuestionAnsweredElsewhereHasOneButton() {
+        let task = UUID()
+        #expect(QuestionBlock.elsewhere(.here(choices: ["Keep it"], field: true)) == nil)
+        let window = QuestionBlock.elsewhere(.window(task: task, tab: "e2e-tests"))
+        #expect(window?.title == "Open Its Window" && window?.opens == .prompt(task: task, tab: "e2e-tests"))
+        let chat = QuestionBlock.elsewhere(.chat)
+        #expect(chat?.title == "Open the Operator’s Chat" && chat?.opens == .operatorWindow)
+        let question = BroadcastBoard.ListedQuestion(key: "k", task: task, ticket: "PAY-232", title: "Payment provider switch",
+                                                     askedAt: OperatorUIFixtures.epoch, from: "The Operator asks", text: "Keep the gate?",
+                                                     answer: .here(choices: [], field: true))
+        #expect(QuestionBlock.asker(question, now: OperatorUIFixtures.epoch.addingTimeInterval(24 * 60)) == "The Operator asks · 24 min")
     }
 
     /// Settings' width, whichever tab it is on.
@@ -177,21 +248,17 @@ struct BroadcastBoardSheetTests {
         #expect(BroadcastSummaryView.paragraphs("First.\nStill first.\n\n  \nSecond.\n\n") == ["First.\nStill first.", "Second."])
     }
 
-    /// Worked around in AiTerm comes after Left for you, only when the Operator reported a snag. Each item's Copy says
-    /// what it puts on the clipboard, and what AiTerm showed and how the Operator got unstuck, on screen nowhere else,
-    /// are its tooltip and what VoiceOver reads as its value.
-    @Test func theSummaryListsSnagsAfterLeftForYou() {
+    /// The Tasks tab's sections are named once each. A snag's Copy says what it puts on the clipboard, and what AiTerm
+    /// showed and how the Operator got unstuck, on screen nowhere else, are its tooltip and what VoiceOver reads as its value.
+    @Test func theSummarysSectionsAndASnagsCopy() {
         let snag = OperatorSnag(key: "prompt", title: "Waiting on you showed a task with no prompt open",
                                 showed: "run_status listed PAY-232 under promptsWaitingOnYou.",
                                 actual: "No prompt was open: read_task what: prompt was null and Codex had ended its turn.",
                                 workaround: "Read the task's screen, saw the finished turn and checked the work.",
                                 appVersion: "0.28.1", at: Snapshots.clock.now)
-        #expect(BroadcastSummaryView.lists(leftForYou: ["File the finds"], snags: [snag]) == [.leftForYou, .workedAround])
-        #expect(BroadcastSummaryView.lists(leftForYou: [], snags: [snag]) == [.workedAround])
-        #expect(BroadcastSummaryView.lists(leftForYou: ["File the finds"], snags: []) == [.leftForYou], "left out with none")
-        #expect(BroadcastSummaryView.lists(leftForYou: [], snags: []).isEmpty)
-        #expect(BroadcastSummaryView.SummaryList.workedAround.title == "Worked around in AiTerm")
-        #expect(BroadcastSummaryView.SummaryList.leftForYou.title == "Left for you")
+        #expect(BroadcastSummaryView.title == "Summary")
+        #expect(LeftForYouList.title == "Left for you")
+        #expect(WorkedAroundList.title == "Worked around in AiTerm")
 
         #expect(BroadcastSummaryView.details(of: snag) == """
             AiTerm showed: run_status listed PAY-232 under promptsWaitingOnYou.
@@ -264,8 +331,8 @@ struct BroadcastBoardSheetTests {
     }
 
     /// The board is the projection's, written only when it differs: a change it draws nothing of — another
-    /// project's task, the sidebar's frame — re-runs neither the board's body nor a card's; a change to its
-    /// run re-runs the board and the card that moved, not the others.
+    /// project's task, the sidebar's frame — re-runs neither the board's body nor a row's; a change to its
+    /// run re-runs the board and the row that moved, not the others.
     @Test func theBoardRedrawsForItsRunAlone() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
@@ -281,7 +348,7 @@ struct BroadcastBoardSheetTests {
         }
         controller.sheet = .broadcastBoard(run.id)
         let counter = RowBodyCounter()
-        let host = testHost(BroadcastBoardHost(runId: run.id, controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let host = testHost(BroadcastBoardHost(runId: run.id, controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: Sheet.width, height: Sheet.boardHeight))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
 
         window.contentView = host
@@ -301,8 +368,8 @@ struct BroadcastBoardSheetTests {
         settle(host) { counter.counts[run.id] != nil }
         settle(host, for: 0.1)
         #expect(counter.counts[run.id] != nil, "its run changed: the board redraws")
-        #expect(counter.counts[moving.id] != nil, "the card that moved is drawn again")
-        #expect(counter.counts[waiting.id] == nil, "a card that did not change is not")
+        #expect(counter.counts[moving.id] != nil, "the row that moved is drawn again")
+        #expect(counter.counts[waiting.id] == nil, "a row that did not change is not")
     }
 
     @Test func endingAsksFirstWithCancelOnEscape() {
@@ -366,9 +433,9 @@ struct BroadcastBoardSheetTests {
         #expect(controller.operatorController.presentBoard == nil, "presented once, then cleared")
     }
 
-    /// A question's notification, the Operator row's click or a card's Answer… opens the board at its block: presented,
-    /// asked to show that question, which it scrolls to while it is listed and to its top once it is gone.
-    @Test func aQuestionsClickOpensTheBoardAtItsBlock() async throws {
+    /// A question's notification or the Operator row's click opens the board on that question: presented, and asked to
+    /// show it, which the pager does while it is listed; once it is gone, the oldest that still waits.
+    @Test func aQuestionsClickOpensTheBoardOnIt() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         try controller.workspace.load()
@@ -382,14 +449,14 @@ struct BroadcastBoardSheetTests {
         #expect(controller.operatorController.boardFocus?.key == "t2-gate" && controller.operatorController.boardFocus?.run == run.id)
 
         let board = BroadcastBoard.make(run: run, state: controller.state, acting: .none, requests: [])
-        #expect(BroadcastBoardSheet.scrollTarget("t2-gate", on: board) == "t2-gate")
-        #expect(BroadcastBoardSheet.scrollTarget("gone", on: board) == BroadcastBoardSheet.topId, "resolved before the click: the top")
+        #expect(QuestionPager.shown("t2-gate", in: board.waiting)?.key == "t2-gate")
+        #expect(QuestionPager.shown("gone", in: board.waiting)?.key == "t2-gate", "resolved before the click: the oldest that waits")
         let sheet = BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil,
                                         focus: controller.operatorController.boardFocus)
         #expect(sheet != BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil),
                 "a new focus draws again")
 
-        // The Operator row waiting on that question opens the same block.
+        // The Operator row waiting on that question shows the same one.
         let row = OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, title: run.name,
                               line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, question: "t2-gate")
         let before = controller.operatorController.boardFocus?.id

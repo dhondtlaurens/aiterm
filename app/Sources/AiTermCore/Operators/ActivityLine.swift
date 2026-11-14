@@ -6,6 +6,10 @@ public enum ActivityLine {
     /// plain read (spec §A.1), and `shell` any other one it judged: both are the gate's own lines, never a tool's.
     public static let reads: Set<String> = Set(OperatorTool.allCases.filter(\.isReadOnly).map(\.rawValue)).union([shellRead])
 
+    /// The tools whose calls Activity folds away until Show everything, while they go through: the reads, and every
+    /// shell command, which the Operator runs to look (it writes through its tools).
+    public static let looks: Set<String> = reads.union([shell])
+
     /// The gate's own tool names for a shell command it let run as a plain read, and for any other one it judged.
     private static let shellRead = "shell_read", shell = "shell"
 

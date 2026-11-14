@@ -226,9 +226,8 @@ public enum Palette {
     /// materially distort a dark base colour. sRGB is also the space the wash actually paints in on
     /// screen, so blending its components directly is the faithful composite, not an approximation.
     public static let rowHoverSolid: Color = composited(rowHover, over: sidebar)
-    /// A board card under the pointer: `rowHover` composited over the card's own `surfaceRaised`, so
-    /// the card lifts rather than sinking to a sidebar row's hover.
-    public static let cardHoverSolid: Color = composited(rowHover, over: surfaceRaised)
+    /// `rowHover` over `surface`: a hovered row on a sheet, the broadcast's tasks.
+    public static let rowHoverOnSheetSolid: Color = composited(rowHover, over: surface)
     /// The Operator's row at rest, behind it in `RowPill`'s pill, which selection replaces (decided 21 Oct
     /// 2026, wash A): a neutral wash of its own, fainter than the hover's, so it says the row is different
     /// without a colour meaning anything and never reads as hover. Hovered, the row takes `badgeHovered`.

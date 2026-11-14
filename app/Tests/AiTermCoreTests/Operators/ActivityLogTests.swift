@@ -27,6 +27,27 @@ import Foundation
         return String(decoding: try encoder.encode(entry), as: UTF8.self)
     }
 
+    /// Activity lists what changed until Show everything: a call that only looked and went through waits, a status
+    /// check, a read, a shell command; a call that did not go through always shows, whatever it was.
+    @Test func whatOnlyLookedWaitsBehindShowEverything() {
+        func shows(_ tool: String, _ outcome: ActivityEntry.Outcome = .ok) -> Bool {
+            var entry = entry(tool: tool)
+            entry.outcome = outcome
+            return entry.showsAmongChanges
+        }
+        for tool in ["mark_task", "message_task", "finish_task", "ask_you", "log_decision", "create_task", "jira_move", "write_summary"] {
+            #expect(shows(tool), "\(tool) changes something")
+        }
+        for tool in ["run_status", "read_task", "jira_search", "jira_board", "find_user", "shell_read", "shell"] {
+            #expect(!shows(tool), "\(tool) only looks")
+            #expect(!shows(tool, .repeated))
+            for outcome in [ActivityEntry.Outcome.refused, .challenged, .failed] {
+                #expect(shows(tool, outcome), "\(tool) \(outcome.rawValue): what did not go through always shows")
+            }
+        }
+        #expect(ActivityLine.looks == ActivityLine.reads.union(["shell"]))
+    }
+
     @Test func appendsAndReadsInOrder() throws {
         let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2, tool: "log_decision")

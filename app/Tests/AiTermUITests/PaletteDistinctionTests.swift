@@ -63,7 +63,7 @@ struct PaletteDistinctionTests {
         ("menuHighlightPressed", Palette.menuHighlightPressed),
         ("rowHover", Palette.rowHover),
         ("rowHoverSolid", Palette.rowHoverSolid),
-        ("cardHoverSolid", Palette.cardHoverSolid),
+        ("rowHoverOnSheetSolid", Palette.rowHoverOnSheetSolid),
         ("operatorRow", Palette.operatorRow),
         ("operatorRowSolid", Palette.operatorRowSolid),
         ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid),
@@ -191,11 +191,11 @@ struct PaletteDistinctionTests {
     /// hex — so what is pinned is the relationship: each solid tracks its wash composited over its
     /// ground, whatever the ground's number becomes.
     @Test(arguments: [("rowHoverSolid", Palette.rowHoverSolid, Palette.rowHover, Palette.sidebar),
+                      ("rowHoverOnSheetSolid", Palette.rowHoverOnSheetSolid, Palette.rowHover, Palette.surface),
                       ("operatorRowSolid", Palette.operatorRowSolid, Palette.operatorRow, Palette.sidebar),
                       ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid, Palette.badgeHovered, Palette.sidebar),
                       ("selectedSolid", Palette.selectedSolid, Palette.selected, Palette.sidebar),
-                      ("selectedOnSheetSolid", Palette.selectedOnSheetSolid, Palette.selected, Palette.surface),
-                      ("cardHoverSolid", Palette.cardHoverSolid, Palette.rowHover, Palette.surfaceRaised)])
+                      ("selectedOnSheetSolid", Palette.selectedOnSheetSolid, Palette.selected, Palette.surface)])
     func aSolidIsItsWashCompositedOverItsGround(name: String, solid: Color, wash: Color, ground: Color) {
         expectComposite(solid, of: wash, over: ground, named: name)
     }

@@ -72,13 +72,13 @@ import Testing
         #expect(made.history?.map(\.kind) == [.asked] && made.history?.first?.text == Self.t6, "the worker's message in full")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
 
-        // Its card shows it from its worker, its block says who asks, run_status says it is a worker's, and the
+        // Its row no longer carries it, its block says who asks, run_status says it is a worker's, and the
         // notification names the task's worker.
         let current = try #require(world.run(run.id))
         let board = BroadcastBoard.make(run: current, state: world.state, acting: world.controller.acting,
                                         requests: OperatorRequests.open(run: current, state: world.state))
-        let card = try #require(board.columns.flatMap(\.cards).first { $0.id == task.id })
-        #expect(card.question?.asker == .worker && card.workerAsks == nil, "relayed, the record is the card's question")
+        let card = try #require(board.stages.flatMap(\.cards).first { $0.id == task.id })
+        #expect(card.workerAsks == nil && board.waiting.first?.task == task.id, "relayed, the record is a question of yours")
         #expect(board.waiting.first?.from == "Its worker asks · relayed by the Operator" && board.waiting.first?.why == nil)
         let waiting = try #require(world.controller.status(of: current)).obligations.questionsWaiting
         #expect(waiting.first?.asker == "worker" && waiting.first?.tab == "main")
@@ -333,17 +333,18 @@ import Testing
 
     // -- the card ------------------------------------------------------------------------------
 
-    /// Before it is relayed, the worker's question is the Operator's: its card shows it muted, and message_task clears it.
-    @Test func theCardShowsTheWorkersQuestionUntilItIsAnsweredOrRelayed() async throws {
+    /// Before it is relayed, the worker's question is the Operator's: its row's tooltip has it, and message_task clears it.
+    @Test func theRowsTooltipHasTheWorkersQuestionUntilItIsAnsweredOrRelayed() async throws {
         let (world, run, task) = try makeWorld(check: .straight)
         try await endTurn(world, run, task)
         func card() throws -> BroadcastBoard.Card {
             let current = try #require(world.run(run.id))
             return try #require(BroadcastBoard.make(run: current, state: world.state, acting: world.controller.acting, requests: [],
-                                                    sessions: world.live.sessions).columns.flatMap(\.cards).first { $0.id == task.id })
+                                                    sessions: world.live.sessions).stages.flatMap(\.cards).first { $0.id == task.id })
         }
         let asking = try card()
         #expect(asking.workerAsks == Self.t6Question)
+        #expect(asking.tooltip?.hasSuffix("Its worker asks the Operator: " + Self.t6Question) == true)
         #expect(asking.line?.text == "asking the Operator")
         world.controller.turns.messaged(task.id)
         #expect(try card().workerAsks == nil, "answered with message_task")

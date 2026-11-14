@@ -2,8 +2,11 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// The Operator sheet's Activity (option 2A, 21 Oct 2026): every call the Operator made, newest first, under a
-/// `SidebarHeading` for each day (`Today`, then the day). A row is the time in `Typography.help.tabular` in a leading
+/// The Operator sheet's Activity (option 2A, 21 Oct 2026; what changed, 14 Nov 2026): the calls the Operator made,
+/// newest first, under a `SidebarHeading` for each day (`Today`, then the day). It lists what changed
+/// (`ActivityEntry.showsAmongChanges`) until Show everything, a link in `Typography.help` at the first heading's
+/// trailing edge, shown while a call is folded away; then every call, and the link reads Show what changed. With
+/// calls recorded and none of them a change, one muted line says so beside the link. A row is the time in `Typography.help.tabular` in a leading
 /// column, the line in `Typography.caption` with the task's name in medium weight (muted for a call that only
 /// read), and the task's key trailing in `Typography.chip.tabular`; a call that did not go through leads with its
 /// `label`, and a reason sits under the line in `Typography.help`. A click opens the row in place, on
@@ -15,14 +18,31 @@ struct BroadcastActivityView: View {
     let entries: [ActivityEntry]
     /// The broadcast's task titles by id, to set a line's task name in medium weight.
     var titles: [UUID: String] = [:]
+    /// Whether the looking is listed too: the sheet's, so it lasts across its tabs.
+    @Binding var showsEverything: Bool
     @State private var presentation = ActivityPresentation()
     @State private var openId: UUID? = nil
     @Environment(\.footerClock) private var clock
 
-    init(entries: [ActivityEntry], titles: [UUID: String] = [:], openId: UUID? = nil) {
+    init(entries: [ActivityEntry], titles: [UUID: String] = [:], openId: UUID? = nil, showsEverything: Binding<Bool> = .constant(false)) {
         self.entries = entries; self.titles = titles
+        _showsEverything = showsEverything
         _openId = State(initialValue: openId)
     }
+
+    /// What the tab lists of `entries`: all of them with `everything`, else what changed.
+    static func listed(_ entries: [ActivityEntry], everything: Bool) -> [ActivityEntry] {
+        everything ? entries : entries.filter(\.showsAmongChanges)
+    }
+
+    /// The link's title, when it is offered: only while a call is folded away, or to fold them away again.
+    static func link(_ entries: [ActivityEntry], everything: Bool) -> String? {
+        guard entries.contains(where: { !$0.showsAmongChanges }) else { return nil }
+        return everything ? "Show what changed" : "Show everything"
+    }
+
+    /// What the tab says with calls recorded and none of them a change.
+    static let nothingChanged = "Nothing changed yet."
 
     /// One day's run of entries, newest first.
     struct Day: Identifiable {
@@ -37,12 +57,26 @@ struct BroadcastActivityView: View {
         if entries.isEmpty {
             HelpText("Nothing recorded yet.", fixedVerticalSize: false)
         } else {
-            let days = presentation.layout(entries, now: now, calendar: calendar)
+            let days = presentation.layout(Self.listed(entries, everything: showsEverything), now: now, calendar: calendar)
+            let link = Self.link(entries, everything: showsEverything)
             LazyVStack(alignment: .leading, spacing: 0) {
+                if days.isEmpty {
+                    HStack(spacing: Space.gap) {
+                        HelpText(Self.nothingChanged, fixedVerticalSize: false)
+                        Spacer(minLength: 0)
+                        if let link { toggle(link) }
+                    }
+                    .frame(height: Size.menuRow)
+                    .padding(.horizontal, Space.base)
+                }
                 ForEach(days) { day in
-                    SidebarHeading(day.title)
-                        .frame(height: Size.menuRow)
-                        .padding(.horizontal, Space.base)
+                    HStack(spacing: Space.gap) {
+                        SidebarHeading(day.title)
+                        Spacer(minLength: 0)
+                        if let link, day.id == days.first?.id { toggle(link) }
+                    }
+                    .frame(height: Size.menuRow)
+                    .padding(.horizontal, Space.base)
                     ForEach(day.entries) { entry in
                         ActivityRow(entry: entry, title: entry.task.flatMap { titles[$0] }, time: Self.timeText(at: entry.at, calendar: calendar),
                                     isOpen: openId == entry.id) {
@@ -54,6 +88,11 @@ struct BroadcastActivityView: View {
             // The rows' ground reaches `Space.base` past the content's margins; their text stays on them.
             .padding(.horizontal, -Space.base)
         }
+    }
+
+    /// Show everything, or Show what changed: a link.
+    private func toggle(_ title: String) -> some View {
+        Button(title) { showsEverything.toggle() }.buttonStyle(.link).font(Typography.help).fixedSize()
     }
 
     /// `entries`, newest first, in runs of one calendar day.

@@ -10,6 +10,9 @@ public enum Surface: Equatable, Sendable {
     case sidebar
     /// A hovered row: the sidebar plus a white wash.
     case hover
+    /// A hovered row on a sheet: the sheet plus `Palette.rowHover`. Its inks and washes are `hover`'s; only the
+    /// ground beneath, and so `occludingBackground`, differs.
+    case hoverOnSheet
     /// A row washed at rest, the Operator's: the sidebar plus `Palette.operatorRow`.
     case washed
     /// That row hovered: the sidebar plus `Palette.badgeHovered`, in the wash's place.
@@ -43,6 +46,7 @@ public enum Surface: Equatable, Sendable {
         switch self {
         case .sidebar: Palette.sidebar
         case .hover: Palette.rowHoverSolid
+        case .hoverOnSheet: Palette.rowHoverOnSheetSolid
         case .washed: Palette.operatorRowSolid
         case .washedHover: Palette.operatorRowHoveredSolid
         case .selected: Palette.selectedSolid

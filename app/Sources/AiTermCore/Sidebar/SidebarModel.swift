@@ -536,6 +536,26 @@ public enum SidebarModel {
                               tasks: operated.tasks, sessions: own, turn: operated.turns[task.id], now: operated.pass?.now ?? Date(),
                               tabs: matched)
         }
+        let facts = rowFacts(task, own: own, line: line, run: run, matched: matched)
+        var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
+                       branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
+                       avatars: facts.avatars, status: facts.status,
+                       diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
+                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: facts.queued, paused: facts.paused,
+                       background: displayJobs(of: own))
+        row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
+        return row
+    }
+
+    /// What a task's row draws beside its words: its avatars, its status, and whether the pause sign stands in for its
+    /// mark. One derivation for the sidebar's row and for the task's row on its broadcast's sheet (`BroadcastBoard.Card`).
+    struct RowFacts: Equatable {
+        var avatars: AvatarGroup, status: TaskStatus, queued: Bool, paused: Bool
+    }
+
+    /// `task`'s row facts from its `own` tabs and the Operator's `line` for it; `matched` is its worker tabs when a pass
+    /// matched them already.
+    static func rowFacts(_ task: TaskItem, own: [SessionInfo], line: OperatorLine?, run: OperatorRun?, matched: [WorkerTab]?) -> RowFacts {
         let queued = line != nil && task.isQueuedByOperator
         let status = aggregate(tabs: own)
         // The review text stays useful during a pause. Check every task tab, including inherited tabs outside
@@ -544,15 +564,8 @@ public enum SidebarModel {
             && (status == .idle || status == .done)
             && !(matched?.map(\.asListed) ?? task.workerTabs(in: own)).contains(where: \.isOpening)
         let paused = line == .paused || pausedReview
-        var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
-                       branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
-                       avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
-                       status: paused ? .idle : queued ? status : heldStatus(status, line: line),
-                       diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued, paused: paused,
-                       background: displayJobs(of: own))
-        row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
-        return row
+        return RowFacts(avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
+                        status: paused ? .idle : queued ? status : heldStatus(status, line: line), queued: queued, paused: paused)
     }
 
     /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct

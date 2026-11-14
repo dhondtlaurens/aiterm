@@ -43,8 +43,8 @@ import Testing
         return OperatorUIFixtures.task(title, jira: jira, agent: agent, project: (project ?? web).id, operated: operated)
     }
 
-    private func column(_ board: BroadcastBoard, _ column: BroadcastBoard.Column) -> [String] {
-        board.columns.first { $0.column == column }?.cards.map(\.title) ?? []
+    private func column(_ board: BroadcastBoard, _ stage: BroadcastBoard.Stage) -> [String] {
+        board.stages.first { $0.stage == stage }?.cards.map(\.title) ?? []
     }
 
     @Test func anOracleRefusalKeepsTheReviewStatusAndAddsASeparateNote() throws {
@@ -52,7 +52,7 @@ import Testing
         var task = task("Review me", run: run.id, .inReview, end: .merge)
         task.operated?.publication = TaskPublication(mergeRefusal: "Jan has not approved it.")
         let board = BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
-        let card = try #require(board.columns.first { $0.column == .review }?.cards.first)
+        let card = try #require(board.stages.first { $0.stage == .review }?.cards.first)
         #expect(card.line?.text == "in review")
         #expect(card.mergeRefusal == "Jan has not approved it.")
         #expect(!card.needsYou)
@@ -63,7 +63,7 @@ import Testing
         var task = task("Merge me", run: run.id, .accepted, end: .merge)
         task.operated?.publication = TaskPublication(mergeRefusal: "Jan has not approved it.")
         let board = BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
-        let card = try #require(board.columns.flatMap(\.cards).first)
+        let card = try #require(board.stages.flatMap(\.cards).first)
         #expect(card.line?.text == "waiting to merge · refused by the Oracle")
         #expect(card.line?.look == .quiet)
         #expect(card.mergeRefusal == "Jan has not approved it.")
@@ -91,7 +91,7 @@ import Testing
         #expect(early.clauses.map(\.label) == ["Asked", "Goal"], "no Review clause without a review")
     }
 
-    @Test func cardsSitInTheirColumns() {
+    @Test func tasksSitUnderTheirStages() {
         let run = run()
         let tasks = [
             task("Address autocomplete", run: run.id, .queued),
@@ -107,29 +107,53 @@ import Testing
             task("You stopped it", run: run.id, .stopped),
         ]
         let board = BroadcastBoard.make(run: run, state: state(run, tasks), acting: .none, requests: [])
-        #expect(board.columns.map(\.column) == [.todo, .inProgress, .review, .done])
-        #expect(board.columns.map(\.title) == ["Todo", "In progress", "Review", "Done"])
+        #expect(board.stages.map(\.stage) == [.todo, .inProgress, .review, .done])
+        #expect(board.stages.map(\.title) == ["Todo", "In progress", "Review", "Done"])
         #expect(column(board, .todo) == ["Address autocomplete", "Retry failed payments", "Waiting on main"])
         #expect(column(board, .inProgress) == ["Payment provider switch", "Flaky", "Stuck"])
         #expect(column(board, .review) == ["Shipping step"])
-        #expect(column(board, .done) == ["Checkout layout", "Price formatting", "Nothing to do"], "a stopped task is on no column")
+        #expect(column(board, .done) == ["Checkout layout", "Price formatting", "Nothing to do"], "a stopped task is under no stage")
+        // The sheet lists what is at work first, then what waits to start, then what is done.
+        #expect(board.listed.map(\.title) == ["In progress", "Review", "Todo", "Done"])
 
-        // The agent's mark on every card, started or not (spec §15.4), and the line its row says.
-        let cards = board.columns.flatMap(\.cards)
-        #expect(cards.first { $0.title == "Address autocomplete" }?.agent == .claude, "a Todo card wears its agent before launch")
-        #expect(cards.filter { $0.agent == nil }.isEmpty, "no card is without its agent")
-        #expect(cards.first { $0.title == "Payment provider switch" }?.agent == .codex)
+        // The agent's mark on every row, started or not (spec §15.4), and the line its row says.
+        let cards = board.stages.flatMap(\.cards)
+        #expect(cards.first { $0.title == "Address autocomplete" }?.avatars.marks == [AgentKind.claude.session],
+                "a Todo row wears its agent before launch")
+        #expect(cards.filter { $0.avatars.marks.isEmpty }.isEmpty, "no row is without its agent")
+        #expect(cards.first { $0.title == "Payment provider switch" }?.avatars.marks == [AgentKind.codex.session])
         #expect(cards.first { $0.title == "Checkout layout" }?.line?.text == "merged · 9b3e07d")
         #expect(cards.first { $0.title == "Address autocomplete" }?.line?.text == "queued")
 
-        // Empty columns say so in one muted line.
+        // A stage with no task is left out of the list; with no task at all, nothing is listed.
         var planning = self.run(.planning)
         planning.firstPlanSize = nil
-        let empty = BroadcastBoard.make(run: planning, state: state(planning, [task("Checkout layout", run: planning.id, .planned)]),
-                                        acting: .none, requests: [])
-        #expect(empty.columns.map(\.empty) == ["Nothing left to start.", "Nothing started yet.", "Nothing in review.", "Nothing done yet."])
-        #expect(BroadcastBoard.make(run: planning, state: state(planning), acting: .none, requests: []).columns[0].empty
-                == "Nothing planned yet.")
+        let one = BroadcastBoard.make(run: planning, state: state(planning, [task("Checkout layout", run: planning.id, .planned)]),
+                                      acting: .none, requests: [])
+        #expect(one.stages.map(\.title) == ["Todo", "In progress", "Review", "Done"])
+        #expect(one.listed.map(\.title) == ["Todo"])
+        #expect(BroadcastBoard.make(run: planning, state: state(planning), acting: .none, requests: []).listed.isEmpty)
+        #expect(BroadcastBoard.nothingPlanned == "Nothing planned yet.")
+    }
+
+    /// A row draws what its sidebar row does: the spinner while the Operator holds the task, amber once its line asks
+    /// for you, the pause sign while it is queued, and its own tabs' status once the Operator's work on it is over.
+    @Test func aRowsMarkFactsAreItsSidebarRows() throws {
+        let run = run()
+        let tasks = [task("Queued", run: run.id, .queued), task("Working", run: run.id, .working),
+                     task("Stuck", run: run.id, .blocked, blockedReason: "it needs a key"), task("Merged", run: run.id, .published, end: .merge)]
+        let state = state(run, tasks)
+        let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: OperatorRequests.open(run: run, state: state))
+        let cards = Dictionary(uniqueKeysWithValues: board.stages.flatMap(\.cards).map { ($0.title, $0) })
+        for task in tasks {
+            let card = try #require(cards[task.title])
+            let facts = SidebarModel.rowFacts(task, own: [], line: card.line, run: run, matched: nil)
+            #expect(card.status == facts.status && card.queued == facts.queued && card.paused == facts.paused, "\(task.title)")
+        }
+        #expect(cards["Queued"]?.queued == true)
+        #expect(cards["Working"]?.status == .working, "held by the Operator: at work whatever its tabs say")
+        #expect(cards["Stuck"]?.status == .needsInput)
+        #expect(cards["Merged"]?.status == .idle && cards["Merged"]?.line?.look == .ended)
     }
 
 
@@ -138,14 +162,14 @@ import Testing
         let several = run()
         let tasks = [task("Payment provider switch", jira: "PAY-232", run: several.id, .working, project: api)]
         let card = try #require(BroadcastBoard.make(run: several, state: state(several, tasks), acting: .none, requests: [])
-            .columns.flatMap(\.cards).first)
+            .stages.flatMap(\.cards).first)
         #expect(card.project == "payments-api")
         #expect(card.ticket == "PAY-232")
 
         let one = run(projects: [web.id])
         let alone = [task("Fix the RSS feed's dates", run: one.id, .working)]
         let single = try #require(BroadcastBoard.make(run: one, state: state(one, alone), acting: .none, requests: [])
-            .columns.flatMap(\.cards).first)
+            .stages.flatMap(\.cards).first)
         #expect(single.project == nil, "one project: no project on the cards")
         #expect(single.ticket == nil)
     }
@@ -167,7 +191,7 @@ import Testing
         let state = state(asking, [permission, question, blocked, problem, working, todo])
         let requests = OperatorRequests.open(run: asking, state: state)
         let board = BroadcastBoard.make(run: asking, state: state, acting: .none, requests: requests)
-        let cards = Dictionary(uniqueKeysWithValues: board.columns.flatMap(\.cards).map { ($0.title, $0) })
+        let cards = Dictionary(uniqueKeysWithValues: board.stages.flatMap(\.cards).map { ($0.title, $0) })
 
         #expect(cards["Payment provider switch"]?.opens == .taskWindow(permission.id), "a permission prompt: the task's window")
         #expect(cards["Payment provider switch"]?.line?.text == "waiting on you")
@@ -187,14 +211,13 @@ import Testing
         // The Operator acting on a card says so there.
         let acting = OperatorActs(tasks: [working.id: .answering], runs: [asking.id: .init(act: .answering, task: "PAY-231")])
         let answering = BroadcastBoard.make(run: asking, state: state, acting: acting, requests: requests)
-        let line = answering.columns.flatMap(\.cards).first { $0.id == working.id }?.line
+        let line = answering.stages.flatMap(\.cards).first { $0.id == working.id }?.line
         #expect(line?.text == "Operator answering" && line?.look == .acting)
     }
 
-    /// T2's scope question doesn't hold T2: its card keeps its own line and opens its window, and carries the question,
-    /// edged as needing you. T4's question holds T4: its card says `waiting on you` and carries it too. Once T2 is
-    /// accepted as a commit-only task, its question still shows, as it still asks; a finished task's holding one doesn't.
-    @Test func aCardShowsItsQuestionAndOnlyAHoldingOneIsItsLine() throws {
+    /// A question about a task that doesn't hold it leaves its line as it is; one that holds it is its line, `waiting on
+    /// you`. Either is answered under Waiting on you: the row carries neither.
+    @Test func onlyAHoldingQuestionIsATasksLine() throws {
         let plain = run()
         let t2 = task("Payment provider switch", jira: "PAY-232", run: plain.id, .working)
         let t4 = task("Refund webhook", jira: "PAY-238", run: plain.id, .working)
@@ -204,29 +227,21 @@ import Testing
         let token = OperatorUIFixtures.question("Which token does the refund webhook use?", id: "t4-token", task: t4.id)
         var asking = plain
         asking.questions = [gate, token]
-        func cards(_ run: OperatorRun, _ tasks: [TaskItem]) -> [String: BroadcastBoard.Card] {
+        func board(_ run: OperatorRun, _ tasks: [TaskItem]) -> BroadcastBoard {
             let state = state(run, tasks)
-            let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: OperatorRequests.open(run: run, state: state))
-            return Dictionary(uniqueKeysWithValues: board.columns.flatMap(\.cards).map { ($0.title, $0) })
+            return BroadcastBoard.make(run: run, state: state, acting: .none, requests: OperatorRequests.open(run: run, state: state))
         }
-        let before = cards(plain, [t2, t4]), after = cards(asking, [t2, t4])
+        func cards(_ board: BroadcastBoard) -> [String: BroadcastBoard.Card] {
+            Dictionary(uniqueKeysWithValues: board.stages.flatMap(\.cards).map { ($0.title, $0) })
+        }
+        let before = cards(board(plain, [t2, t4])), asked = board(asking, [t2, t4]), after = cards(asked)
         let scope = try #require(after["Payment provider switch"]), held = try #require(after["Refund webhook"])
         #expect(scope.line == before["Payment provider switch"]?.line, "a question that doesn't hold leaves the line as it is")
         #expect(scope.opens == .taskWindow(t2.id))
-        #expect(scope.needsYou)
-        #expect(scope.question == BroadcastBoard.CardQuestion(key: "t2-gate", text: gate.text, holds: false, asker: .theOperator))
-        #expect(held.line?.text == "waiting on you" && held.needsYou)
-        #expect(held.question == BroadcastBoard.CardQuestion(key: "t4-token", text: token.text, holds: true, asker: .theOperator))
-        #expect(before["Payment provider switch"]?.question == nil && before["Payment provider switch"]?.needsYou == false)
-
-        let accepted = task("Payment provider switch", jira: "PAY-232", run: plain.id, .accepted)
-        let finished = task("Refund webhook", jira: "PAY-238", run: plain.id, .noChange)
-        var ended = asking
-        ended.questions[0].task = accepted.id
-        ended.questions[1].task = finished.id
-        let done = cards(ended, [accepted, finished])
-        #expect(done["Payment provider switch"]?.question?.key == "t2-gate", "it still asks after T2 is accepted")
-        #expect(done["Refund webhook"]?.question == nil, "a finished task's holding question asks nothing")
+        #expect(!scope.needsYou && scope.status == .working)
+        #expect(held.line?.text == "waiting on you" && held.needsYou && held.status == .needsInput)
+        #expect(asked.waiting.map(\.key) == ["t2-gate", "t4-token"])
+        #expect(asked.waiting.allSatisfy { $0.isAnsweredHere })
     }
 
     /// Waiting on you (D1a): T2, T4, T7 and a prompt on T6, oldest first, each with its task, who asks and how it is
@@ -323,12 +338,12 @@ import Testing
         task.reasoning = "high"
         task.operated?.modelReason = "The provider's SDK is new; Codex has read it."
         let card = try #require(BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
-            .columns.flatMap(\.cards).first)
+            .stages.flatMap(\.cards).first)
         #expect(card.modelTooltip == "Codex · gpt-5.5 · high\nThe provider's SDK is new; Codex has read it.")
         task.reasoning = nil
         task.operated?.modelReason = nil
         let plain = try #require(BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
-            .columns.flatMap(\.cards).first)
+            .stages.flatMap(\.cards).first)
         #expect(plain.modelTooltip == "Codex · gpt-5.5")
     }
 
@@ -350,7 +365,7 @@ import Testing
             let state = state(run, [task])
             let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [], sessions: [worker.rowRelevant],
                                             liveModels: BroadcastBoard.liveModels(of: run, state: state, sessions: [worker]))
-            return try #require(board.columns.flatMap(\.cards).first).modelTooltip
+            return try #require(board.stages.flatMap(\.cards).first).modelTooltip
         }
         #expect(try tooltip(now: "claude-opus-5-5", "high") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.\nNow on claude-opus-5-5 · high")
         #expect(try tooltip(now: "claude-fable-5-1[1m]", "low") == "Claude · claude-fable-5-1[1m] · max\nA wide refactor.\nNow on claude-fable-5-1[1m] · low")
@@ -372,7 +387,7 @@ import Testing
         let mine = task("Order summary copy", jira: "PAY-234", run: run.id, .working, takenOver: true)
         let board = BroadcastBoard.make(run: run, state: state(run, [mine]), acting: .none, requests: [])
         #expect(column(board, .inProgress) == ["Order summary copy"], "it stays in its column")
-        let card = try #require(board.columns.flatMap(\.cards).first)
+        let card = try #require(board.stages.flatMap(\.cards).first)
         #expect(card.takenOver)
         #expect(card.line == nil, "no badge until you Hand Back")
         #expect(!card.needsYou)
@@ -381,7 +396,7 @@ import Testing
 
     /// Once every task is done the board keeps its columns, everything in Done: the Summary tab holds what the
     /// debrief did, and the board has no value of its own for it.
-    @Test func aCompleteRunKeepsItsColumnsAndOpensOnItsSummary() throws {
+    @Test func aCompleteRunKeepsItsStagesAndReachesItsSummary() throws {
         var run = run(.complete)
         run.leftForYou = ["Marking !412 ready is yours."]
         run.completedAt = OperatorUIFixtures.epoch
@@ -393,17 +408,16 @@ import Testing
         let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
         #expect(column(board, .done) == ["Checkout layout", "Cart drawer", "Already done"])
         #expect(column(board, .todo).isEmpty && column(board, .inProgress).isEmpty && column(board, .review).isEmpty)
-        let cards = board.columns.flatMap(\.cards)
+        let cards = board.stages.flatMap(\.cards)
         #expect(cards.map(\.result) == ["merged · 9b3e07d", "done · 9b3e07d", "done · no change"])
         #expect(cards.first?.mr == "!412" && cards.first?.opens == .taskWindow(layout.id))
         #expect(board.isComplete && !board.isShelved)
         #expect(board.band.text == "done · writing summary", "every task done, no summary written yet")
         #expect(board.leftForYou == ["Marking !412 ready is yours."])
         #expect(board.summary == .writing)
-        #expect(board.firstTab == .summary)
-        #expect(board.isSelectable(.summary) && board.isSelectable(.board) && board.isSelectable(.activity))
+        #expect(board.listed.map(\.title) == ["Done"], "every task done: one stage is listed")
 
-        // A task waiting on a person keeps the run going, on its Board.
+        // A task waiting on a person keeps the run going.
         var waiting = self.run()
         waiting.state = .active
         var reviewed = task("Shipping step", run: waiting.id, .inReview)
@@ -412,18 +426,21 @@ import Testing
         #expect(!working.isComplete)
     }
 
-    /// The tabs: Board · Activity · Summary. A running broadcast opens on its Board and has no Summary to select;
-    /// a written one opens on its Summary.
-    @Test func theBoardOpensOnItsSummaryOnceThereIsOne() {
-        #expect(BroadcastBoard.Tab.allCases == [.board, .activity, .summary])
-        #expect(BroadcastBoard.Tab.allCases.map(\.title) == ["Board", "Activity", "Summary"])
+    /// The tabs: Tasks · Activity. A running broadcast has no summary yet; a written one has it on its Tasks tab, which
+    /// reads it from the board.
+    @Test func theSummaryIsTheBoardsOnceThereIsOne() {
+        #expect(BroadcastBoard.Tab.allCases == [.tasks, .activity])
+        #expect(BroadcastBoard.Tab.allCases.map(\.title) == ["Tasks", "Activity"])
         let running = BroadcastBoard.make(run: run(), state: state(run()), acting: .none, requests: [])
-        #expect(running.summary == .notYet)
-        #expect(running.firstTab == .board)
-        #expect(running.isSelectable(.board) && running.isSelectable(.activity))
-        #expect(!running.isSelectable(.summary), "nothing to read while it works")
+        #expect(running.summary == .notYet, "nothing to read while it works")
         #expect(!running.isComplete && !running.isShelved)
         #expect(running.leftForYou.isEmpty)
+
+        // What is left for you is the board's from its first item, while it still runs.
+        var leaving = run()
+        leaving.leftForYou = ["Marking !412 ready is yours."]
+        let left = BroadcastBoard.make(run: leaving, state: state(leaving), acting: .none, requests: [])
+        #expect(left.summary == .notYet && left.leftForYou == ["Marking !412 ready is yours."])
 
         var written = run(.complete)
         written.completedAt = OperatorUIFixtures.epoch
@@ -431,7 +448,6 @@ import Testing
         written.summaryAt = OperatorUIFixtures.epoch
         let board = BroadcastBoard.make(run: written, state: state(written), acting: .none, requests: [])
         #expect(board.summary == .written(text: "Everything merged.", at: OperatorUIFixtures.epoch))
-        #expect(board.firstTab == .summary && board.isSelectable(.summary))
     }
 
     /// End's change to `state`, as `OperatorController.applyEnd` makes it: the run stopped, the tasks that never started
@@ -451,7 +467,7 @@ import Testing
     }
 
     /// An ended broadcast, read from the Shelf: every task it drove, the live and the archived, in the order they were
-    /// created, no card a button and no worker tab listed, never paused, opening on its Summary. What End handed you
+    /// created, no row a button and no end to change, never paused. What End handed you
     /// mid-flight stays In progress, taken over, and counts towards the total but not as done.
     @Test func aShelvedBoardListsLiveAndArchivedTasksAndOpensNothing() throws {
         var run = run(.active)
@@ -476,7 +492,7 @@ import Testing
         #expect(state.tasks.map(\.title) == ["Cart drawer", "Price formatting"], "End dropped the task that never started")
 
         let board = BroadcastBoard.shelved(run: run, state: state)
-        let cards = board.columns.flatMap(\.cards)
+        let cards = board.stages.flatMap(\.cards)
         #expect(cards.map(\.title).sorted() == ["Cart drawer", "Checkout layout", "Price formatting", "Shipping step"],
                 "the live and the archived tasks of this run, no other run's")
         #expect(column(board, .inProgress) == ["Cart drawer", "Price formatting"], "in flight when it ended")
@@ -487,11 +503,10 @@ import Testing
         #expect(board.progress == "2 of 4 done", "counted, and not as done")
         #expect(board.band.text == "ended")
         #expect(cards.allSatisfy { $0.opens == .nothing }, "a shelved board opens no window")
-        #expect(cards.allSatisfy { $0.tabs.isEmpty })
+        #expect(cards.allSatisfy { $0.end == nil }, "and changes no end")
         #expect(cards.first { $0.title == "Checkout layout" }?.ticket == "PAY-230")
         #expect(board.isShelved && !board.isPaused)
         #expect(board.summary == .endedEarly, "stopped before its plan was done, nothing written")
-        #expect(board.firstTab == .summary && board.isSelectable(.summary))
         #expect(board.leftForYou == ["Marking !412 ready is yours."])
         #expect(board.title == "Checkout redesign")
 
@@ -525,7 +540,7 @@ import Testing
         var state = state(run, [task("Cart drawer", run: run.id, .working)])
         ended(run.id, in: &state)
         let board = BroadcastBoard.shelved(run: try #require(state.run(id: run.id)), state: state)
-        #expect(board.isShelved && board.firstTab == .summary)
+        #expect(board.isShelved)
         #expect(board.snags == run.snags)
         #expect(board.fixTask(board.snags[0]) == run.snags[0].fixTask(broadcast: "Checkout redesign", runId: run.id))
     }
@@ -560,10 +575,9 @@ import Testing
         #expect(column(BroadcastBoard.shelved(run: run, state: state), .done) == ["Live one", "Live two", "Archived one", "Archived two"])
     }
 
-    /// A card whose task has several worker tabs lists each under a hairline (P5 A): its agent, its key (`main` for the
-    /// first worker), what it does and its mark. A tab's click closes the board and brings that tab forward; a closed
-    /// tab is listed, muted, and is no button. A task with one tab lists none.
-    @Test func aCardListsItsWorkerTabs() throws {
+    /// A task with several worker tabs is one row: their agents are its avatars, its line counts them, and each tab's own
+    /// state is its window's to show. One that waits on you makes the row amber, as its sidebar row.
+    @Test func aTaskWithSeveralTabsIsOneRow() throws {
         let run = run()
         var price = task("Price formatting", jira: "PAY-236", run: run.id, .working, agent: .codex)
         price.operated?.extraTabs = [OperatorUIFixtures.extraTab("docs", agent: .claude), OperatorUIFixtures.extraTab("api-mocks", agent: .claude),
@@ -573,44 +587,13 @@ import Testing
                         OperatorUIFixtures.tab("s2", of: price, .needsInput, index: 1, key: "docs"),
                         OperatorUIFixtures.tab("s9", of: drawer, .working)]
         let board = BroadcastBoard.make(run: run, state: state(run, [price, drawer]), acting: .none, requests: [], sessions: sessions)
-        let cards = try #require(board.columns.first { $0.column == .inProgress }?.cards)
-        let tabs = try #require(cards.first { $0.title == "Price formatting" }?.tabs)
-        typealias Tab = BroadcastBoard.TabLine
-        #expect(tabs == [
-            Tab(key: "main", agent: .codex, line: OperatorLine("turn ended"), status: .idle, opens: .tab(task: price.id, sessionId: "s1"), combination: "m"),
-            Tab(key: "docs", agent: .claude, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput,
-                opens: .tab(task: price.id, sessionId: "s2"), combination: "m"),
-            Tab(key: "api-mocks", agent: .claude, line: OperatorLine("closed"), status: nil, opens: .nothing, combination: "m"),
-            Tab(key: "e2e-tests", agent: .codex, line: OperatorLine("opening"), status: .working, opens: .nothing, combination: "m"),
-        ])
-        #expect(tabs.map(\.isClosed) == [false, false, true, false])
-        #expect(cards.first { $0.title == "Cart drawer" }?.tabs == [], "one tab: nothing to tell apart")
-        #expect(cards.first { $0.title == "Price formatting" }?.line == OperatorLine("Operator watching · 3 tabs", look: .acting))
-        // At work, its words say so.
-        let working = BroadcastBoard.make(run: run, state: state(run, [price]), acting: .none, requests: [],
-                                          sessions: [OperatorUIFixtures.tab("s1", of: price, .working, agent: .codex)])
-        #expect(working.columns.flatMap(\.cards).first?.tabs.first?.line == OperatorLine("at work"))
-    }
-
-    /// A tab that ended its turn with work still running reads `in background`, its jobs on the tooltip, with the
-    /// background mark; one at work, its subagents running, still says it is at work.
-    @Test func aTabWithBackgroundWorkSaysSo() throws {
-        let run = run()
-        var price = task("Price formatting", jira: "PAY-236", run: run.id, .working, agent: .codex)
-        price.operated?.extraTabs = [OperatorUIFixtures.extraTab("review", agent: .claude)]
-        var fixer = OperatorUIFixtures.tab("s1", of: price, .idle, agent: .codex)
-        fixer.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh swift --filter RunStatusTests")]
-        var review = OperatorUIFixtures.tab("s2", of: price, .working, index: 1, key: "review")
-        review.background = [BackgroundJob(kind: .subagent, text: "code-reviewer")]
-        let board = BroadcastBoard.make(run: run, state: state(run, [price]), acting: .none, requests: [], sessions: [fixer, review])
-        let tabs = try #require(board.columns.flatMap(\.cards).first?.tabs)
-        typealias Tab = BroadcastBoard.TabLine
-        #expect(tabs == [
-            Tab(key: "main", agent: .codex,
-                line: OperatorLine("in background", tooltip: "Running in the background: scripts/test.sh swift --filter RunStatusTests"),
-                status: .background, opens: .tab(task: price.id, sessionId: "s1"), combination: "m"),
-            Tab(key: "review", agent: .claude, line: OperatorLine("at work"), status: .working, opens: .tab(task: price.id, sessionId: "s2"), combination: "m"),
-        ])
+        let cards = try #require(board.stages.first { $0.stage == .inProgress }?.cards)
+        let row = try #require(cards.first { $0.title == "Price formatting" })
+        #expect(row.line == OperatorLine("Operator watching · 3 tabs", look: .acting))
+        #expect(row.avatars == SidebarModel.avatars(for: sessions.filter { $0.taskUUID == price.id }))
+        #expect(row.avatars.marks.count == 2)
+        #expect(row.status == .needsInput, "a tab that waits on input is the row's amber")
+        #expect(cards.first { $0.title == "Cart drawer" }?.avatars.marks == [AgentKind.claude.session])
     }
 
     /// An accepted task whose end is still ahead is not done: it counts as open and stays In progress.
@@ -624,7 +607,7 @@ import Testing
         #expect(BroadcastBoard.progress(of: run, tasks: [task]) == "0 of 1 done")
         #expect(OperatorLine.ending(of: task.operated!) == nil)
         let board = BroadcastBoard.make(run: run, state: state, acting: OperatorActs(), requests: [])
-        #expect(board.columns.first { $0.column == .inProgress }?.cards.count == 1)
+        #expect(board.stages.first { $0.stage == .inProgress }?.cards.count == 1)
     }
 
     /// A publication left for you is the task's end: Done on the board, the broadcast complete, kept through coding.
@@ -636,7 +619,7 @@ import Testing
         let decoded = try JSONDecoder().decode(TaskPublication.self, from: JSONEncoder().encode(task.operated!.publication!))
         #expect(decoded.leftForYou)
         let board = BroadcastBoard.make(run: run, state: OperatorFixtures.state(run, [task]), acting: .none, requests: [])
-        #expect(board.columns.first { $0.column == .done }?.cards.count == 1)
+        #expect(board.stages.first { $0.stage == .done }?.cards.count == 1)
         #expect(RunScheduler.isComplete(run, in: OperatorFixtures.state(run, [task])))
         #expect(OperatorLine.ending(of: task.operated!) == "left for you · 4f2a91c")
     }

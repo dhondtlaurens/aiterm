@@ -1,21 +1,28 @@
 import Foundation
 
-/// The broadcast's board, the sheet its row opens (spec §4, §4.2, §13), as a value: decided here, apart
-/// from the app's `BroadcastBoardSheet`, so each moment is tested without drawing it.
+/// The broadcast's sheet, which its row opens (spec §4, §4.2, §13; rebuilt 14 Nov 2026), as a value: decided here,
+/// apart from the app's `BroadcastBoardSheet`, so each moment is tested without drawing it.
 ///
-/// The header restates the brief: the title, a band line with the broadcast's own status line
-/// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then a line each for Asked, the Goal and Each task. A
-/// broadcast set up with the Agents, Task and Done steps (broadcast setup v2) has a Goal line, and its Each task line says
-/// what every task follows; its band counts the goal's rounds while it is checked, and once ended says how the goal went and how much
-/// was left for you. The board is the plan: Todo · In progress · Review · Done, Review only while the broadcast's tasks
-/// go into people's review (`TaskPublisher.Context.reviews`) or, set up with the Task step, its review prompt is written,
-/// each task's card in the column its state puts it in, in the plan's order, and once every task is done they all sit
-/// in Done, beside the cards of the tasks closed at the broadcast's end, drawn from their records.
-/// What the sheet's other tabs read is here too: the Summary's state, what is left for you and what the Operator
-/// worked around in AiTerm, and which tab it opens on. An ended broadcast read from the Shelf is a `shelved` board, read-only.
+/// The header is the title, a band line with the broadcast's own status line (`OperatorLine.broadcast`) and
+/// `· 2 of 8 done` after it, and one line of the brief, Asked, the whole of it (`brief`: Asked, the Goal, Each task) in
+/// its tooltip. A broadcast set up with the Agents, Task and Done steps counts the goal's rounds on its band while it
+/// is checked, and once ended says how the goal went and how much was left for you.
+///
+/// The Tasks tab reads, in this order: Waiting on you, every open question for the person, one shown at a time
+/// (`waiting`); the Operator's summary once there is one or a reason there is none (`summary`, `goalOutcome`); what it
+/// left for you, from the first item (`leftForYou`); the tasks, each a `Card` under its stage (`listed`: In progress,
+/// Review, Todo, Done, a stage with no task left out); and what the Operator worked around in AiTerm (`snags`).
+/// Review is a stage only while the broadcast's tasks go into people's review (`TaskPublisher.Context.reviews`) or, set
+/// up with the Task step, its review prompt is written. Once every task is done they all sit in Done, beside the tasks
+/// closed at the broadcast's end, drawn from their records. An ended broadcast read from the Shelf is a `shelved`
+/// board, read-only.
 public struct BroadcastBoard: Equatable, Sendable {
-    public enum Column: String, CaseIterable, Sendable {
+    /// Where a task is in the plan, in the plan's own order.
+    public enum Stage: String, CaseIterable, Sendable {
         case todo, inProgress, review, done
+
+        /// The order the sheet lists them in: what is at work first, then what waits to start, then what is done.
+        public static let listed: [Stage] = [.inProgress, .review, .todo, .done]
 
         /// Its head, a `SidebarHeading`, which draws it as written: sentence case.
         public var title: String {
@@ -28,7 +35,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// Where a card's click goes once the sheet is closed: what resolves its request, or its task.
+    /// Where a task's click goes once the sheet is closed: what resolves its request, or its task.
     public enum Opens: Equatable, Sendable {
         /// An agent's permission prompt, or a started task with nothing asked: the task's window.
         case taskWindow(UUID)
@@ -36,41 +43,14 @@ public struct BroadcastBoard: Equatable, Sendable {
         case operatorWindow
         /// A problem AiTerm hit: the sidebar banner's Notice already shows the issue, with its recovery.
         case sidebarBanner(issue: String)
-        /// One of a task's worker tabs, from its line on the card: that tab selected and its window brought forward.
-        case tab(task: UUID, sessionId: String)
         /// A worker's prompt, from its block under Waiting on you: its own tab, by its key (`WorkerTab.firstKey` for the
         /// first worker), brought forward, or the task's window when that tab isn't listed.
         case prompt(task: UUID, tab: String)
-        /// A Todo task that has not started: the card is not a button.
+        /// A Todo task that has not started: its row is not a button.
         case nothing
     }
 
-    /// One worker tab of a task with several (P5 A, 21 Oct 2026), a line of its card (not one of the sheet's `Tab`s): its agent, its key, what it
-    /// does and its mark. A closed tab is listed, muted, with no mark, and is no button; one opening is no button
-    /// until iTerm2 lists it.
-    public struct TabLine: Equatable, Identifiable, Sendable {
-        /// `main` for the first worker (`WorkerTab.firstKey`), else the extra tab's key.
-        public var key: String
-        public var agent: AgentKind
-        /// `at work`, `turn ended`, `in background` (its turn ended with work still running, the jobs on its tooltip),
-        /// `waiting on you` (needs you), `opening` or `closed`.
-        public var line: OperatorLine
-        /// Its `StatusMark`; nil once closed.
-        public var status: TaskStatus?
-        /// `.tab` while iTerm2 lists it, else `.nothing`.
-        public var opens: Opens
-        /// Its agent model and reasoning; a task with several workers shows each tab instead.
-        public var combination: String?
-        public var id: String { key }
-        public var isClosed: Bool { status == nil }
-
-        public init(key: String, agent: AgentKind, line: OperatorLine, status: TaskStatus?, opens: Opens, combination: String? = nil) {
-            self.key = key; self.agent = agent; self.line = line; self.status = status; self.opens = opens
-            self.combination = combination
-        }
-    }
-
-    /// A running card's end line (17A): `ends at` and its end, whose menu offers the four ends, the current one ticked.
+    /// An unfinished task's end, which its row's menu changes: the four ends, the current one ticked.
     public struct EndLine: Equatable, Sendable {
         public var current: TaskEnd
         /// The ends the menu lets you pick, in `TaskEnd`'s order: Merge and Local merge only while the Merge slice is on.
@@ -81,7 +61,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// Your answer to a task out of its review's fix rounds, which its question keeps (`AiTermCore.FixRoundsAnswer`).
     public typealias FixRoundsAnswer = AiTermCore.FixRoundsAnswer
 
-    /// What a task's Claude worker says it runs now (`SessionInfo.liveModel`, `.liveReasoning`), which its card's tooltip
+    /// What a task's Claude worker says it runs now (`SessionInfo.liveModel`, `.liveReasoning`), which its row's tooltip
     /// holds against the plan.
     public struct LiveModel: Equatable, Sendable {
         public var model: String
@@ -106,38 +86,18 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// Each agent's model labels by model id, as Settings › Agents lists them: what a card names a model by.
+    /// Each agent's model labels by model id, as Settings › Agents lists them: what a row's tooltip names a model by.
     public typealias ModelLabels = [AgentKind: [String: String]]
 
-    /// A task out of its review's fix rounds and asked about them (16): the answers' links, under the last verdict's
-    /// counts when one was recorded, or what you answered once you did (`OperatorQuestion.answeredOnCard`).
-    public struct FixRounds: Equatable, Sendable {
-        public var counts: String?
-        public var answered: FixRoundsAnswer?
-        public init(counts: String?, answered: FixRoundsAnswer? = nil) { self.counts = counts; self.answered = answered }
-    }
-
-    /// A question for you about a task, under its card's rule: the oldest open one, its fix rounds' aside (`FixRounds`)
-    /// and a worker's prompt aside (its line says it). One that holds keeps the card's line `waiting on you`; one that
-    /// doesn't adds `question for you` and leaves the line as it is.
-    public struct CardQuestion: Equatable, Sendable {
-        public var key: String
-        public var text: String
-        public var holds: Bool
-        public var asker: OperatorQuestion.Asker
-        public init(key: String, text: String, holds: Bool, asker: OperatorQuestion.Asker) {
-            self.key = key; self.text = text; self.holds = holds; self.asker = asker
-        }
-    }
-
-    /// One question in Waiting on you, the list above the columns (D1a): every open question addressed to the person,
-    /// whoever asks, oldest first. Its task (ticket and title, or `The broadcast`) and age head it; then who asks or
-    /// where it waits; the question; then how it is answered: here, in its block, or there, by one link.
+    /// One question in Waiting on you: every open question addressed to the person, whoever asks, oldest first, one
+    /// shown at a time. Its task (ticket and title, or `The broadcast`), who asks or where it waits and its age head
+    /// its block; then the question; one line of context when it has one (`why`, `note`); then how it is answered:
+    /// here, by a choice or in words, or there, by the one button that opens where it waits.
     public struct ListedQuestion: Equatable, Identifiable, Sendable {
         /// How it is answered.
         public enum Answer: Equatable, Sendable {
-            /// In its block: its choices as links, then any other answer in a field, unless `field` is false (fix rounds,
-            /// whose answers are fixed).
+            /// In its block: its choices as buttons, then any other answer in a field, unless `field` is false (fix
+            /// rounds, whose answers are fixed).
             case here(choices: [String], field: Bool)
             /// A worker's prompt: Open its window, its own tab raised. AiTerm never types a permission.
             case window(task: UUID, tab: String)
@@ -164,15 +124,20 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// one relayed straight, and for any other question.
         public var why: String? = nil
         public var discussion: [QuestionStep]? = nil
+        /// For a fix-rounds question, what the last review still found (`BroadcastBoard.counts(of:)`); nil for the rest.
+        public var note: String? = nil
         public var id: String { key }
 
         public init(key: String, task: UUID?, ticket: String?, title: String, askedAt: Date, from: String, text: String,
                     answer: Answer, answered: String? = nil, answeredAt: Date? = nil, why: String? = nil,
-                    discussion: [QuestionStep]? = nil) {
+                    discussion: [QuestionStep]? = nil, note: String? = nil) {
             self.key = key; self.task = task; self.ticket = ticket; self.title = title; self.askedAt = askedAt; self.from = from
             self.text = text; self.answer = answer; self.answered = answered; self.answeredAt = answeredAt
-            self.why = why; self.discussion = discussion
+            self.why = why; self.discussion = discussion; self.note = note
         }
+
+        /// Whether it is answered in its block: a row of its task then shows it instead of opening a window.
+        public var isAnsweredHere: Bool { if case .here = answer { true } else { false } }
 
         /// What an answered block says: `You answered “Drop it for admins” 2 min ago. Waiting for the Operator to take
         /// it.`, without the age when AiTerm didn't record when (an answer to fix rounds).
@@ -191,13 +156,18 @@ public struct BroadcastBoard: Equatable, Sendable {
         return "\(minutes / (24 * 60)) d"
     }
 
-    /// One task on the board.
+    /// One task on the sheet, a row under its stage: the sidebar's driven-task row (`SidebarModel.RowFacts`) with its
+    /// ticket and request trailing.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
         public var id: UUID
         public var title: String
-        /// Its agent, started or not (spec §15.4): the mark leading the title.
-        public var agent: AgentKind?
+        /// Its tabs' agents as its sidebar row has them; its planned agent while it has no tab, started or not (spec §15.4).
+        public var avatars: AvatarGroup
+        /// Its row's status, and whether the pause sign stands in for its mark (`TaskRow.status`, `.queued`, `.paused`).
+        public var status: TaskStatus
+        public var queued: Bool = false
+        public var paused: Bool = false
         /// Its Jira key, and the ticket's summary for the badge's tooltip.
         public var ticket: String?
         public var ticketSummary: String?
@@ -205,47 +175,54 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var mr: String?
         public var mrHost: CodeHost?
         public var mrTitle: String?
-        /// Its project, only when the broadcast spans more than one.
+        /// Its project, only when the broadcast spans more than one: the tooltip's first line.
         public var project: String?
         /// The task's status line (`OperatorLine.task`); nil for a task you took over.
         public var line: OperatorLine?
-        /// You took it over: the card reads `taken over` with no badge until you Hand Back.
+        /// You took it over: the row reads `taken over` with no badge until you Hand Back.
         public var takenOver: Bool
-        /// It carries a request, or a question for you: its edge in the attention stroke.
+        /// Its line asks for you: a prompt, a question that holds it, a block, its fix rounds.
         public var needsYou: Bool
         public var opens: Opens
-        /// The model the Operator chose and its one-line reason (spec §15.4): `Codex · gpt-5.5 · high`, then
-        /// the reason on a line of its own.
+        /// The model the Operator chose, by its label when Settings has one, and its one-line reason (spec §15.4):
+        /// `Codex · gpt-5.5 · high`, then the reason on a line of its own.
         public var modelTooltip: String?
         /// What a finished task ended at (`merged · 9b3e07d`).
         public var result: String?
-        /// Its worker tabs, the first worker's first, while it has more than one; empty otherwise.
-        public var tabs: [TabLine] = []
         /// The Oracle’s reason for refusing a merge, separate from the task’s status.
         public var mergeRefusal: String? = nil
-        /// Its agent model and reasoning; a task with several workers shows each tab instead.
-        public var combination: String? = nil
         /// The task's end while it is unfinished and owned by the Operator.
         public var end: EndLine? = nil
-        /// Out of its review's fix rounds and asked about them, while it is not yours.
-        public var fixRounds: FixRounds? = nil
-        /// Under its rule: why the closing kept its worktree once it ran (`OperatedTask.keptReason`), or while it is due what
-        /// it waits for (`closingWait`); nil while neither is recorded.
+        /// Whether its menu's Operator items include Stop Task… (`OperatedTask.isStoppable`); nil where it has none of
+        /// them: a shelved board's row, and a task closed and removed. Take Over or Hand Back follows `takenOver`.
+        public var stoppable: Bool? = nil
+        /// Why the closing kept its worktree once it ran (`OperatedTask.keptReason`), or while it is due what it waits for
+        /// (`closingWait`); nil while neither is recorded.
         public var notice: String? = nil
-        /// A question for you about it, while it is not yours.
-        public var question: CardQuestion? = nil
-        /// What its worker asks the Operator and the Operator hasn't answered nor relayed (`OperatorActs.asks`): muted under
-        /// `asking the Operator`, two lines at most, no link. Nil while it is yours, or once relayed: `question` then.
+        /// What its worker asks the Operator and the Operator hasn't answered nor relayed (`OperatorActs.asks`); nil
+        /// while it is yours, or once relayed: the question is yours then, under Waiting on you.
         public var workerAsks: String? = nil
+
+        /// The one line a row may add under itself, for what the person has to act on or know: why its worktree was kept
+        /// or what its closing waits for, else that the Oracle refused its merge.
+        public var help: String? { notice ?? (mergeRefusal == nil ? nil : Card.mergeRefused) }
+        /// What a row says under itself once the Oracle refused its merge; the reason is that line's tooltip.
+        public static let mergeRefused = "merge refused by the Oracle"
+
+        /// The row's tooltip: its project when the broadcast spans several, the model and why, and what its worker asks
+        /// the Operator. Nil with none of them.
+        public var tooltip: String? {
+            let lines = [project, modelTooltip, workerAsks.map { "Its worker asks the Operator: \($0)" }].compactMap { $0 }
+            return lines.isEmpty ? nil : lines.joined(separator: "\n")
+        }
     }
 
-    /// A column: its head, its cards, and the one muted line it says while it has none.
+    /// A stage: its head and its cards.
     public struct Lane: Equatable, Identifiable, Sendable {
-        public var column: Column
+        public var stage: Stage
         public var cards: [Card]
-        public var empty: String
-        public var id: Column { column }
-        public var title: String { column.title }
+        public var id: Stage { stage }
+        public var title: String { stage.title }
     }
 
     /// One line of the sheet's header: `Asked`, `Goal` or `Each task`, then what it says.
@@ -260,13 +237,12 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// The sheet's tabs, in the order they are drawn.
     public enum Tab: CaseIterable, Sendable {
-        case board, activity, summary
+        case tasks, activity
 
         public var title: String {
             switch self {
-            case .board: "Board"
+            case .tasks: "Tasks"
             case .activity: "Activity"
-            case .summary: "Summary"
             }
         }
     }
@@ -281,28 +257,37 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var clauses: [Clause]
     /// What every task follows: its review prompt, end and closing settings.
     public var eachTask: Clause
-    /// How the goal went, once checked: the Summary's.
+    /// How the goal went, once checked: under the summary.
     public var goalOutcome: GoalOutcome? = nil
-    /// The board's columns, Review left out unless its tasks go into people's review or, set up with the Task step, it
-    /// has a review prompt.
-    public var columns: [Lane]
+    /// The plan's stages in its own order, Review left out unless its tasks go into people's review or, set up with the
+    /// Task step, it has a review prompt.
+    public var stages: [Lane]
     /// Paused by you, or its Operator's window closed: the footer offers Resume Broadcast.
     public var isPaused: Bool
     /// Every task is done (the run is complete): the footer's End Broadcast, asking nothing.
     public var isComplete: Bool
-    /// What the Summary tab says (`RunSummary`).
+    /// What the summary says (`RunSummary`).
     public var summary: RunSummary
-    /// What the Operator left for you, as `leave_for_you` wrote it: the Summary tab's list.
+    /// What the Operator left for you, as `leave_for_you` wrote it, listed from its first item.
     public var leftForYou: [String]
-    /// What the Operator worked around in AiTerm, as `report_snag` recorded it: the Summary tab's last list.
+    /// What the Operator worked around in AiTerm, as `report_snag` recorded it: the Tasks tab's last list.
     public var snags: [OperatorSnag] = []
     /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
     public var isShelved: Bool = false
-    /// Waiting on you, above the columns: every open question for the person, oldest first (`waiting(of:state:)`).
+    /// Waiting on you: every open question for the person, oldest first (`waiting(of:state:)`).
     public var waiting: [ListedQuestion] = []
 
-    /// The header's lines, one each: Asked, Goal, then Each task.
+    /// The brief's lines, one each: Asked, Goal, then Each task. The header draws the first; `brief` says them all.
     public var headerLines: [Clause] { clauses + [eachTask] }
+    /// The whole brief, a line each: the header line's tooltip.
+    public var brief: String { headerLines.map(\.whole).joined(separator: "\n") }
+
+    /// The stages as the sheet lists them (`Stage.listed`), one with no task left out.
+    public var listed: [Lane] {
+        Stage.listed.compactMap { stage in stages.first { $0.stage == stage && !$0.cards.isEmpty } }
+    }
+    /// What the Tasks tab says in the stages' place while the broadcast has no task yet.
+    public static let nothingPlanned = "Nothing planned yet."
 
     /// What a snag's Copy puts on the clipboard: the AiTerm task that fixes it, naming this broadcast.
     public func fixTask(_ snag: OperatorSnag) -> String { snag.fixTask(broadcast: title, runId: runId) }
@@ -313,17 +298,11 @@ public struct BroadcastBoard: Equatable, Sendable {
         snags.count > 1 ? snags.map(fixTask).joined(separator: "\n\n---\n\n") : nil
     }
 
-    /// The tab the sheet opens on: the Summary once there is one to read or a reason there is none, else the Board.
-    public var firstTab: Tab { summary == .notYet ? .board : .summary }
-
-    /// Whether `tab` can be selected: the Summary only once the broadcast has reached it.
-    public func isSelectable(_ tab: Tab) -> Bool { tab != .summary || summary != .notYet }
-
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
     /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
     /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does, as of `now`; `liveModels` what each task's
-    /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the cards' tooltips say; `modelLabels` the names
-    /// the cards give the models, a model with none named by its id. `pass` is the sidebar derivation's (`SidebarPass`),
+    /// Claude worker runs now (`liveModels(of:state:sessions:)`), which the rows' tooltips say; `modelLabels` the names
+    /// they give the models, a model with none named by its id. `pass` is the sidebar derivation's (`SidebarPass`),
     /// whose tabs the board reads instead of matching them again; without one it matches them as of `now`.
     public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo] = [], now: Date = Date(), pass: SidebarPass? = nil,
@@ -358,31 +337,30 @@ public struct BroadcastBoard: Equatable, Sendable {
         let hasReview = TaskPublisher.Context.reviews(run)
             || OperatorCommand.said(run.taskSettings.review) != nil
 
-        // A task you stopped is no longer the broadcast's work: it is on no column. One End handed you stays In
+        // A task you stopped is no longer the broadcast's work: it is under no stage. One End handed you stays In
         // progress on the Shelf's board, taken over, as it was when the broadcast ended.
-        let cards = tasks.compactMap { task -> (Column, Card, AgentKind)? in
+        let cards = tasks.compactMap { task -> (Stage, Card)? in
             guard let operated = task.operated else { return nil }
             let handed = keepsHanded && Self.handedOnEnd(operated)
             guard operated.state != .stopped || handed else { return nil }
-            // Its tabs, matched once for the board as of the pass's time: its line, its tab lines and its column read them.
+            // Its tabs, matched once for the board as of the pass's time: its line, its row facts and its stage read them.
             let tabs = pass.tabs(of: task.id) ?? task.workerTabs(in: sessions, now: pass.now)
             var card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  tabs: tabs, now: pass.now, live: liveModels[task.id], turn: acting.turns[task.id], labels: modelLabels,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
-            // Relayed, it is a record of yours, which the card shows as its question instead.
+            // Relayed, it is a record of yours, a question under Waiting on you instead.
             let relayed = run.questions.contains { $0.task == task.id && $0.resolution == nil && $0.relayedFrom != nil }
             if !operated.takenOver, !relayed { card.workerAsks = acting.asks[task.id] }
             // A task is in review while one of its review tabs is open.
             let reviewing = OperatorLine.isInReview(operated, tabs: tabs.map(\.asListed))
-            return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview, reviewing: reviewing), card, task.agent)
+            return (handed ? .inProgress : Self.stage(of: operated, hasReview: hasReview, reviewing: reviewing), card)
         }
         let removed = Self.removed(of: run, tasks: tasks).map { record in
-            (Column.done, Self.card(record, labels: modelLabels, project: projects.count > 1 ? names[record.project] : nil), record.agent)
+            (Stage.done, Self.card(record, labels: modelLabels, project: projects.count > 1 ? names[record.project] : nil))
         }
-        let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
+        let stages = Stage.allCases.filter { $0 != .review || hasReview }.map { stage in
             // The closed ones first: the closing took them as they finished, before what finished since.
-            Lane(column: column, cards: (removed + cards).filter { $0.0 == column }.map(\.1),
-                 empty: Self.empty(column, planned: !tasks.isEmpty || !removed.isEmpty))
+            Lane(stage: stage, cards: (removed + cards).filter { $0.0 == stage }.map(\.1))
         }
         let band = OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
                                           ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions, pass: pass))
@@ -394,7 +372,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     text.map(oneLine).nonEmpty.map { Clause(label: label, text: $0) }
                 },
             eachTask: eachTask(run.taskSettings), goalOutcome: run.goalOutcome,
-            columns: columns,
+            stages: stages,
             isPaused: run.isPaused,
             isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags,
             waiting: waiting(of: run, state: state))
@@ -418,7 +396,8 @@ public struct BroadcastBoard: Equatable, Sendable {
             return (offset, ListedQuestion(key: question.id, task: question.task, ticket: ticket, title: title, askedAt: question.askedAt,
                                            from: from(question), text: question.text, answer: answer(question),
                                            answered: question.answer, answeredAt: question.answeredHereAt,
-                                           why: why(question.history), discussion: discussion(question.history)))
+                                           why: why(question.history), discussion: discussion(question.history),
+                                           note: question.kind == .fixRounds ? operated?.reviewVerdicts.last.map(counts) : nil))
         }
         return listed.sorted { ($0.1.askedAt, $0.0) < ($1.1.askedAt, $1.0) }.map(\.1)
     }
@@ -475,10 +454,10 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// The board of an ended `run` for the Shelf: every task it drove, the live ones and those archived since, in the
-    /// order they were created (the state's order where that ties), and no card a button, no worker tab listed, no end to
-    /// change, nothing paused. Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays
+    /// order they were created (the state's order where that ties), and no row a button, no end to change, nothing
+    /// paused. A finished task's line is what it ended at (`Card.result`). Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays
     /// In progress reading `taken over` and counts towards the total, not as done: a broadcast ended at 2 of 8 says so.
-    /// Its cards name each model by `modelLabels`, as the live board's do.
+    /// Its rows' tooltips name each model by `modelLabels`, as the live board's do.
     public static func shelved(run: OperatorRun, state: AppState, modelLabels: ModelLabels = [:]) -> BroadcastBoard {
         var all = state
         let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
@@ -486,13 +465,16 @@ public struct BroadcastBoard: Equatable, Sendable {
         let pass = SidebarPass(state: all, sessions: [], now: Date(), matching: [])
         var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], pass: pass, liveModels: [:], modelLabels: modelLabels,
                           keepsHanded: true)
-        board.columns = board.columns.map { lane in
+        board.stages = board.stages.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
                 var card = card
                 card.opens = .nothing
-                card.tabs = []
                 card.end = nil
+                card.stoppable = nil
+                // An ended broadcast's tasks have no Operator's line any more: a finished one says what it ended at, with
+                // the check that line gives its row. One End handed you has neither: it reads taken over.
+                if card.line == nil, !card.takenOver, let result = card.result { card.line = OperatorLine(result, look: .ended) }
                 return card
             }
             return lane
@@ -567,57 +549,37 @@ public struct BroadcastBoard: Equatable, Sendable {
                     return (host.reference(number), host, nil)
                 }
             }
-        let tabs = tabs(of: task, workers: workers.map(\.asListed), labels: labels)
-        let question = takenOver ? nil : self.question(on: task.id, operated, run: run)
-        return Card(id: task.id, title: task.title, agent: task.agent,
+        // Its row as the sidebar draws it, from its own tabs and the line it reads here; its planned agent while it has no tab.
+        let own = sessions.filter { $0.taskUUID == task.id }
+        let shown = takenOver ? nil : line
+        let facts = SidebarModel.rowFacts(task, own: own, line: shown, run: run, matched: workers)
+        return Card(id: task.id, title: task.title,
+                    avatars: own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : facts.avatars,
+                    status: facts.status, queued: facts.queued, paused: facts.paused,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
                     mr: mr?.reference, mrHost: mr?.host, mrTitle: mr?.title, project: project,
-                    line: takenOver ? nil : line, takenOver: takenOver,
-                    needsYou: !takenOver && (line?.look == .needsYou || question != nil),
+                    line: shown, takenOver: takenOver,
+                    needsYou: !takenOver && line?.look == .needsYou,
                     opens: opens(task, operated, requests: requests),
-                    modelTooltip: modelTooltip(task, operated, live: live), result: OperatorLine.ending(of: operated),
-                    tabs: tabs,
+                    modelTooltip: modelTooltip(task, operated, live: live, labels: labels), result: OperatorLine.ending(of: operated),
                     mergeRefusal: takenOver || operated.isFinished || (!operated.end.merges) ? nil : operated.publication?.mergeRefusal,
-                    combination: tabs.isEmpty ? combination(task.agent, task.model, task.reasoning, labels: labels) : nil,
                     end: !operated.isFinished && !takenOver
                         ? EndLine(current: operated.end, selectable: TaskEnd.allCases.filter { TaskEndChange.isSelectable($0, in: run) }) : nil,
-                    fixRounds: fixRounds.map { question in
-                        FixRounds(counts: operated.reviewVerdicts.last.map(counts),
-                                  answered: question.answeredOnCard.flatMap(FixRoundsAnswer.init(rawValue:)))
-                    },
-                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil,
-                    question: question)
+                    stoppable: operated.isStoppable,
+                    notice: kept ? operated.keptReason : closes && run.closingIsDue ? operated.closingWait?.text : nil)
     }
 
-    /// The card's question for you (`CardQuestion`): on a finished task only one that never held it, as that one still asks.
-    private static func question(on task: UUID, _ operated: OperatedTask, run: OperatorRun) -> CardQuestion? {
-        run.questions
-            .filter { $0.task == task && $0.resolution == nil && $0.kind != .prompt && $0.about != OperatorQuestion.fixRounds
-                && !(operated.isFinished && $0.holdsTask) }
-            .min { $0.askedAt < $1.askedAt }
-            .map { CardQuestion(key: $0.id, text: $0.text, holds: $0.holdsTask, asker: $0.asker) }
-    }
-
-    /// The card of a task closed at the broadcast's end, from its record: the title, agent, ticket and combination it
-    /// had, its line as it read with `· removed` after it, and nothing to open.
+    /// The card of a task closed at the broadcast's end, from its record: the title, agent and ticket it had, its line
+    /// as it read with `· removed` after it, the check its ended line gives it, and nothing to open.
     private static func card(_ record: FinishedTaskRecord, labels: ModelLabels, project: String?) -> Card {
         let effort = record.reasoning.nonEmpty
-        return Card(id: record.task, title: record.title, agent: record.agent, ticket: record.ticket, ticketSummary: nil,
-                    mr: nil, mrHost: nil, mrTitle: nil, project: project,
+        return Card(id: record.task, title: record.title, avatars: AvatarGroup(marks: [record.agent.session], overflow: 0), status: .idle,
+                    ticket: record.ticket, ticketSummary: nil, mr: nil, mrHost: nil, mrTitle: nil, project: project,
                     line: OperatorLine(record.result + " · removed", look: .ended), takenOver: false, needsYou: false, opens: .nothing,
-                    modelTooltip: modelLine(record.agent, record.model, effort), result: record.result,
-                    combination: combination(record.agent, record.model, record.reasoning, labels: labels))
+                    modelTooltip: modelLine(record.agent, record.model, effort, labels: labels), result: record.result)
     }
 
-    /// `agent`'s model and its reasoning as a card says them, `Opus 5.5 · High`: the model by its label in `labels`, or by
-    /// its id when none is known. Nil with no model.
-    static func combination(_ agent: AgentKind, _ model: String, _ reasoning: String?, labels: ModelLabels) -> String? {
-        guard !model.isEmpty else { return nil }
-        let name = labels[agent]?[model] ?? model
-        return ([name] + [reasoning.nonEmpty.map { $0.capitalized }].compactMap { $0 }).joined(separator: " · ")
-    }
-
-    /// What a card out of fix rounds says under its rule, from the last verdict: `3 rounds of fixes, and the last review,
+    /// What a fix-rounds question says under itself (`ListedQuestion.note`), from the last verdict: `3 rounds of fixes, and the last review,
     /// of 4f2a91c, still found 1 Important.`, its findings listed by weight, or `didn’t pass.` with none counted.
     static func counts(of verdict: ReviewVerdict) -> String {
         let rounds = verdict.round
@@ -627,52 +589,10 @@ public struct BroadcastBoard: Equatable, Sendable {
         return lead + (found.isEmpty ? "didn’t pass." : "still found " + found.sentenceList + ".")
     }
 
-    /// A card's tab lines, from its worker tabs each as its tab says it (`WorkerTab.asListed`); none for a task with one.
-    /// With `labels`, each tab's model and reasoning under its key.
-    private static func tabs(of task: TaskItem, workers: [WorkerTab], labels: ModelLabels?) -> [TabLine] {
-        guard workers.count > 1 else { return [] }
-        let extra = Dictionary((task.operated?.extraTabs ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        return workers.map { worker in
-            var tab = tabLine(of: worker, task: task.id)
-            if let labels {
-                tab.combination = worker.key.map { extra[$0].flatMap { combination($0.agent, $0.model, $0.reasoning, labels: labels) } }
-                    ?? combination(task.agent, task.model, task.reasoning, labels: labels)
-            }
-            return tab
-        }
-    }
-
-    /// One worker tab's line: what it does and its mark.
-    private static func tabLine(of worker: WorkerTab, task: UUID) -> TabLine {
-        let key = worker.reference.name
-        let opens = worker.session.map { Opens.tab(task: task, sessionId: $0.sessionId) } ?? .nothing
-        if worker.isOpening { return TabLine(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
-        if let tests = worker.session?.testActivity, worker.session?.state != .needsInput,
-           tests.isActive || worker.session?.state.turnEnded == true {
-            return TabLine(key: key, agent: worker.agent, line: tests.statusLine,
-                           status: tests.isActive ? .background : .idle, opens: opens)
-        }
-        switch worker.session?.state {
-        case nil: return TabLine(key: key, agent: worker.agent, line: OperatorLine("closed"), status: nil, opens: .nothing)
-        case .working?: return TabLine(key: key, agent: worker.agent, line: OperatorLine("at work"), status: .working, opens: opens)
-        case .needsInput?:
-            return TabLine(key: key, agent: worker.agent, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, opens: opens)
-        case .idle?, .done?:
-            // Its turn ended with work running in the background, which wakes it again.
-            let background = worker.background
-            guard background.isEmpty else {
-                return TabLine(key: key, agent: worker.agent,
-                               line: OperatorLine("in background", tooltip: "Running in the background: " + background.joined(separator: ", ")),
-                               status: .background, opens: opens)
-            }
-            return TabLine(key: key, agent: worker.agent, line: OperatorLine("turn ended"), status: .idle, opens: opens)
-        }
-    }
-
-    /// The column a task's state puts it in. A blocked task stays where it was: In progress once it has
+    /// The stage a task's state puts it in. A blocked task stays where it was: In progress once it has
     /// started, Todo while it has not. In review is Review's, or In progress on a board with no Review; so is a working
     /// task `reviewing` in a review tab.
-    private static func column(of operated: OperatedTask, hasReview: Bool, reviewing: Bool) -> Column {
+    private static func stage(of operated: OperatedTask, hasReview: Bool, reviewing: Bool) -> Stage {
         switch operated.state {
         case .planned, .queued: return .todo
         case .blocked: return operated.started ? .inProgress : .todo
@@ -684,9 +604,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// What resolves the card's request, by its kind (the one its line says), else its task's window once
-    /// it has started. A finished task's leftover request asks nothing, as on its line, and a question that doesn't hold
-    /// the task is opened from its own link (`CardQuestion`).
+    /// What resolves the task's request, by its kind (the one its line says), else its task's window once
+    /// it has started. A finished task's leftover request asks nothing, as on its line. A question answered in the sheet
+    /// is shown there first: the sheet reads `waiting` before it opens anything (`BroadcastBoardSheet.shows`).
     private static func opens(_ task: TaskItem, _ operated: OperatedTask, requests: [BroadcastRequest]) -> Opens {
         var kind: BroadcastRequest.Kind?
         if !operated.takenOver, !operated.isFinished {
@@ -704,12 +624,13 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// `Codex · gpt-5.5 · high`, and the Operator's reason on the line under it. A Claude worker that says it runs another
-    /// model or effort than planned (`live`, `LiveModel.differs`) adds `Now on claude-opus-5-5 · high` under them.
-    private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask, live: LiveModel?) -> String? {
+    /// `Codex · gpt-5.5 · high`, the model by its label in `labels` when it has one, and the Operator's reason on the line
+    /// under it. A Claude worker that says it runs another model or effort than planned (`live`, `LiveModel.differs`)
+    /// adds `Now on claude-opus-5-5 · high` under them.
+    private static func modelTooltip(_ task: TaskItem, _ operated: OperatedTask, live: LiveModel?, labels: ModelLabels) -> String? {
         guard !task.model.isEmpty else { return nil }
         let effort = task.reasoning.nonEmpty
-        var lines = [modelLine(task.agent, task.model, effort)]
+        var lines = [modelLine(task.agent, task.model, effort, labels: labels)]
         if let reason = operated.modelReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty { lines.append(reason) }
         if let live, live.differs(fromModel: task.model, reasoning: effort) {
             lines.append("Now on " + ([live.model] + [live.reasoning].compactMap { $0 }).joined(separator: " · "))
@@ -717,19 +638,9 @@ public struct BroadcastBoard: Equatable, Sendable {
         return lines.joined(separator: "\n")
     }
 
-    /// The tooltip's first line, `Codex · gpt-5.5 · high`.
-    private static func modelLine(_ agent: AgentKind, _ model: String, _ effort: String?) -> String {
-        ([SidebarModel.agentName(agent), model] + [effort].compactMap { $0 }).joined(separator: " · ")
-    }
-
-    /// The muted line an empty column says.
-    private static func empty(_ column: Column, planned: Bool) -> String {
-        switch column {
-        case .todo: planned ? "Nothing left to start." : "Nothing planned yet."
-        case .inProgress: "Nothing started yet."
-        case .review: "Nothing in review."
-        case .done: "Nothing done yet."
-        }
+    /// The tooltip's first line, `Codex · gpt-5.5 · high`: the model by its label in `labels`, or by its id with none.
+    static func modelLine(_ agent: AgentKind, _ model: String, _ effort: String?, labels: ModelLabels) -> String {
+        ([SidebarModel.agentName(agent), labels[agent]?[model] ?? model] + [effort].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// Text as one line: its runs of spaces and newlines each one space.
@@ -739,7 +650,7 @@ public struct BroadcastBoard: Equatable, Sendable {
 }
 
 public extension OperatorRun {
-    /// The open question asking you about `task`'s fix rounds (`OperatorQuestion.fixRounds`), which its card answers.
+    /// The open question asking you about `task`'s fix rounds (`OperatorQuestion.fixRounds`), answered under Waiting on you.
     func fixRoundsQuestion(on task: UUID) -> OperatorQuestion? {
         questions.first { $0.task == task && $0.kind == .fixRounds && $0.resolution == nil }
     }

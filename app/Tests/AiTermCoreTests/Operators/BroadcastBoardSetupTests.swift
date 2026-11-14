@@ -48,76 +48,63 @@ import Testing
     }
 
     private func card(_ board: BroadcastBoard, _ title: String) throws -> BroadcastBoard.Card {
-        try #require(board.columns.flatMap(\.cards).first { $0.title == title })
+        try #require(board.stages.flatMap(\.cards).first { $0.title == title })
     }
 
-    // -- the combination and the end (14A, 17A) ---------------------------------------------------------------------------
+    // -- the model and the end (14A, 17A; the row's tooltip and menu, 14 Nov 2026) ------------------------------------------
 
-    @Test func aRunningCardSaysItsCombinationAndItsEnd() throws {
+    @Test func aRunningTaskHasItsEndToChange() throws {
         let run = run(merge: false)
         let tasks = [task("Cart drawer", jira: "PAY-231", run: run, .working),
-                     task("Payment provider switch", run: run, .working, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
                      task("Price formatting", run: run, .published)]
         let board = board(run, tasks)
-        let drawer = try card(board, "Cart drawer")
-        #expect(drawer.combination == "claude-opus-5-5 · High")
-        #expect(drawer.end == BroadcastBoard.EndLine(current: .draftMR, selectable: [.commit, .draftMR]),
+        #expect(try card(board, "Cart drawer").end == BroadcastBoard.EndLine(current: .draftMR, selectable: [.commit, .draftMR]),
                 "Merge and Local merge can't be picked while the Merge slice is off")
-        #expect(try card(board, "Payment provider switch").combination == "gpt-6-astra · Medium", "a long model, whole")
-        let done = try card(board, "Price formatting")
-        #expect(done.end == nil, "the end line goes once the task finishes")
-        #expect(done.combination == "claude-opus-5-5 · High")
+        #expect(try card(board, "Price formatting").end == nil, "the end goes once the task finishes")
         var merging = self.run()
         merging.id = run.id
         #expect(try card(self.board(merging, [tasks[0]]), "Cart drawer").end?.selectable == TaskEnd.allCases)
     }
 
-    @Test func aCombinationNamesTheModelAsSettingsAgentsListsIt() throws {
+    @Test func aTooltipNamesTheModelAsSettingsAgentsListsIt() throws {
         var run = run(.complete)
         run.completedAt = OperatorUIFixtures.epoch
         run.closedAt = OperatorUIFixtures.epoch
         let labels: BroadcastBoard.ModelLabels = [.claude: ["claude-opus-5-5": "Opus 5.5"], .codex: ["gpt-6-astra": "gpt-6-astra"]]
-        var drawer = task("Cart drawer", run: run, .working)
+        let drawer = task("Cart drawer", run: run, .working)
         let provider = task("Payment provider switch", run: run, .working, agent: .codex, model: "gpt-9-unlisted", reasoning: "medium")
         let layout = task("Checkout layout", run: run, .published)
         run.finished = [OperatorUIFixtures.finished(layout, result: "merged · 9b3e07d")]
-        var board = board(run, [drawer, provider], modelLabels: labels)
-        #expect(try card(board, "Cart drawer").combination == "Opus 5.5 · High")
-        #expect(try card(board, "Payment provider switch").combination == "gpt-9-unlisted · Medium", "no label known: the id")
-        #expect(try card(board, "Checkout layout").combination == "Opus 5.5 · High", "a record's too")
+        let board = board(run, [drawer, provider], modelLabels: labels)
+        #expect(try card(board, "Cart drawer").modelTooltip == "Claude · Opus 5.5 · high")
+        #expect(try card(board, "Payment provider switch").modelTooltip == "Codex · gpt-9-unlisted · medium", "no label known: the id")
+        #expect(try card(board, "Checkout layout").modelTooltip == "Claude · Opus 5.5 · high", "a record's too")
+        #expect(try card(self.board(run, [drawer]), "Cart drawer").modelTooltip == "Claude · claude-opus-5-5 · high", "no labels: the id")
         // The Shelf's board, of the broadcast ended, names them as the live one does.
         var ended = run
         ended.state = .stopped
         ended.endedAt = OperatorUIFixtures.epoch
         let shelved = BroadcastBoard.shelved(run: ended, state: state(ended, [drawer]), modelLabels: labels)
-        #expect(try card(shelved, "Cart drawer").combination == "Opus 5.5 · High")
-        #expect(try card(shelved, "Checkout layout").combination == "Opus 5.5 · High")
-        // A tab's under its key, by its own agent's labels.
-        var tests = OperatorUIFixtures.extraTab("e2e-tests")
-        tests.model = "claude-opus-5-5"; tests.reasoning = "low"
-        drawer.operated?.extraTabs = [tests]
-        let sessions = [OperatorUIFixtures.tab("s1", of: drawer, .working),
-                        OperatorUIFixtures.tab("s2", of: drawer, .idle, index: 1, key: "e2e-tests", agent: .codex)]
-        board = self.board(run, [drawer], sessions: sessions, modelLabels: labels)
-        #expect(try card(board, "Cart drawer").tabs.map(\.combination) == ["Opus 5.5 · High", "claude-opus-5-5 · Low"],
-                "e2e-tests runs Codex, whose list names no claude-opus-5-5")
+        #expect(try card(shelved, "Cart drawer").modelTooltip == "Claude · Opus 5.5 · high")
+        #expect(try card(shelved, "Checkout layout").modelTooltip == "Claude · Opus 5.5 · high")
     }
 
-    @Test func aCardWithSeveralTabsPutsEachCombinationUnderItsKey() throws {
-        let run = run()
-        var drawer = task("Cart drawer", run: run, .working)
-        var tests = OperatorUIFixtures.extraTab("e2e-tests")
-        tests.model = "gpt-6-astra"; tests.reasoning = "medium"
-        drawer.operated?.extraTabs = [tests]
-        let sessions = [OperatorUIFixtures.tab("s1", of: drawer, .working),
-                        OperatorUIFixtures.tab("s2", of: drawer, .idle, index: 1, key: "e2e-tests", agent: .codex)]
-        let card = try card(board(run, [drawer], sessions: sessions), "Cart drawer")
-        #expect(card.combination == nil, "each tab says its own")
-        #expect(card.tabs.map(\.combination) == ["claude-opus-5-5 · High", "gpt-6-astra · Medium"])
-        #expect(card.end?.current == .draftMR, "the end stays on the card's own line")
+    /// The row's tooltip: the project when the broadcast spans several, the model and why, and what its worker asks the
+    /// Operator. Its one help line: why its worktree was kept, else that its merge was refused.
+    @Test func aRowsTooltipAndItsOneHelpLine() {
+        var card = BroadcastBoard.Card(id: UUID(), title: "Cart drawer", avatars: AvatarGroup(marks: [AgentKind.claude.session], overflow: 0),
+                                       status: .working, ticket: nil, ticketSummary: nil, mr: nil, mrHost: nil, mrTitle: nil, project: nil,
+                                       line: nil, takenOver: false, needsYou: false, opens: .nothing, modelTooltip: nil, result: nil)
+        #expect(card.tooltip == nil && card.help == nil)
+        card.project = "webshop"
+        card.modelTooltip = "Claude · Opus 5.5 · high\nA wide refactor."
+        card.workerAsks = "Question: Show the coupon line?"
+        #expect(card.tooltip == "webshop\nClaude · Opus 5.5 · high\nA wide refactor.\nIts worker asks the Operator: Question: Show the coupon line?")
+        card.mergeRefusal = "Jan has not approved it."
+        #expect(card.help == "merge refused by the Oracle")
+        card.notice = "Not closed: its worktree has uncommitted changes."
+        #expect(card.help == "Not closed: its worktree has uncommitted changes.", "what the person has to act on comes first")
     }
-
-
 
     // -- status lines from the current end --------------------------------------------------------------------------------
 
@@ -222,8 +209,7 @@ import Testing
                                            OperatorUIFixtures.verdict(passed: false, round: 2, important: 1)]
         let card = try card(board(run, [drawer], sessions: sessions), "Address autocomplete")
         #expect(card.line == OperatorLine("in review · round 2 of 3", look: .acting))
-        #expect(card.tabs.map(\.key) == ["main", "review"], "its review tab listed like any other")
-        #expect(board(run, [drawer], sessions: sessions).columns.first { $0.column == .review }?.cards.map(\.id) == [drawer.id],
+        #expect(board(run, [drawer], sessions: sessions).stages.first { $0.stage == .review }?.cards.map(\.id) == [drawer.id],
                 "its review tab open, it is in review")
         // A prompt that names no rounds: today's words.
         let unnamed: [ReviewVerdict] = (drawer.operated?.reviewVerdicts ?? []).map { var verdict = $0; verdict.rounds = nil; return verdict }
@@ -231,7 +217,7 @@ import Testing
         #expect(try self.card(board(run, [drawer], sessions: sessions), "Address autocomplete").line?.text == "Operator watching · 2 tabs")
     }
 
-    @Test func aTaskOutOfFixRoundsAsksYouOnItsCard() throws {
+    @Test func aTaskOutOfFixRoundsAsksYouUnderWaitingOnYou() throws {
         var question = OperatorUIFixtures.question("Address autocomplete is out of fix rounds: one more, or accept it?", id: "fix-pay-233")
         var run = run()
         var drawer = task("Address autocomplete", run: run, .working)
@@ -242,8 +228,11 @@ import Testing
         let requests = OperatorRequests.open(run: run, state: state(run, [drawer]))
         let card = try card(board(run, [drawer], requests: requests), "Address autocomplete")
         #expect(card.line == OperatorLine("out of fix rounds", look: .needsYou, tooltip: question.text))
-        #expect(card.needsYou)
-        #expect(card.fixRounds == BroadcastBoard.FixRounds(counts: "3 rounds of fixes, and the last review, of 4f2a91c, still found 1 Important."))
+        #expect(card.needsYou && card.status == .needsInput)
+        // Its question is Waiting on you's: the two fixed answers, no field, and under it what the last review still found.
+        func asked(_ tasks: [TaskItem]) throws -> BroadcastBoard.ListedQuestion { try #require(board(run, tasks, requests: requests).waiting.first) }
+        #expect(try asked([drawer]).answer == .here(choices: ["One More Round", "Accept As It Is"], field: false))
+        #expect(try asked([drawer]).note == "3 rounds of fixes, and the last review, of 4f2a91c, still found 1 Important.")
         #expect(BroadcastBoard.counts(of: OperatorUIFixtures.verdict(passed: false, round: 1, critical: 1, important: 2, minor: 3))
                 == "1 round of fixes, and the last review, of 4f2a91c, still found 1 Critical, 2 Important and 3 Minor.")
         #expect(BroadcastBoard.counts(of: OperatorUIFixtures.verdict(passed: false, round: 2))
@@ -251,21 +240,22 @@ import Testing
         // With no verdict recorded the answers are still offered, with no counts.
         var unreviewed = drawer
         unreviewed.operated?.reviewVerdicts = []
-        #expect(try self.card(board(run, [unreviewed], requests: requests), "Address autocomplete").fixRounds
-                == BroadcastBoard.FixRounds(counts: nil))
-        // A prompt waiting on you is said first, as every request is; the answers stay under the rule.
+        let plain = try asked([unreviewed])
+        #expect(plain.note == nil && plain.isAnsweredHere)
+        // A prompt waiting on you is said first, as every request is; the fix rounds still ask.
         let prompt = BroadcastRequest(kind: .permission, runId: run.id, taskId: drawer.id, text: "Claude asks to run npm install.")
         let prompted = try self.card(board(run, [drawer], requests: requests + [prompt]), "Address autocomplete")
         #expect(prompted.line?.text == "waiting on you" && prompted.line?.tooltip == "Claude asks to run npm install.")
-        #expect(prompted.fixRounds != nil && prompted.needsYou)
-        // Taken over, it is yours: no answers and no end to change.
+        #expect(prompted.needsYou)
+        // Taken over, it is yours: no question and no end to change.
         var yours = drawer
         yours.operated?.takenOver = true
-        let taken = try self.card(board(run, [yours], requests: requests), "Address autocomplete")
-        #expect(taken.fixRounds == nil && taken.end == nil)
+        let taken = board(run, [yours], requests: requests)
+        #expect(taken.waiting.isEmpty)
+        #expect(try self.card(taken, "Address autocomplete").end == nil)
         // Answered and resolved, it is gone.
         run.questions[0].resolution = "One more round."
-        #expect(try self.card(board(run, [drawer]), "Address autocomplete").fixRounds == nil)
+        #expect(board(run, [drawer]).waiting.isEmpty)
     }
 
     @Test func aKeptWorktreeIsSaidOnlyOnceTheClosingRan() throws {
@@ -312,8 +302,8 @@ import Testing
         var review = OperatorUIFixtures.extraTab("review")
         review.role = .review
         drawer.operated?.extraTabs = [review]
-        func column(_ run: OperatorRun, _ sessions: [SessionInfo]) -> BroadcastBoard.Column? {
-            board(run, [drawer], sessions: sessions).columns.first { $0.cards.contains { $0.id == drawer.id } }?.column
+        func column(_ run: OperatorRun, _ sessions: [SessionInfo]) -> BroadcastBoard.Stage? {
+            board(run, [drawer], sessions: sessions).stages.first { $0.cards.contains { $0.id == drawer.id } }?.stage
         }
         let open = [OperatorUIFixtures.tab("s1", of: drawer, .idle),
                     OperatorUIFixtures.tab("s2", of: drawer, .working, index: 1, key: "review", agent: .codex)]
@@ -327,7 +317,7 @@ import Testing
     /// a review prompt written, and the Review slice on), or, set up with the Task step, while its review prompt is
     /// written: an agent review's tabs need no slice.
     @Test func theReviewColumnFollowsWhetherTasksAreReviewed() {
-        func hasColumn(_ run: OperatorRun) -> Bool { board(run, []).columns.contains { $0.column == .review } }
+        func hasColumn(_ run: OperatorRun) -> Bool { board(run, []).stages.contains { $0.stage == .review } }
         #expect(hasColumn(run()))
         #expect(hasColumn(run(review: false)), "the Review slice off: the agent review's tabs still sit in Review")
         #expect(!hasColumn(run(settings: TaskSettings(review: "  ", end: .draftMR, closeWhenDone: true))), "no review prompt")
@@ -340,7 +330,7 @@ import Testing
         drawer.operated?.extraTabs = [tab]
         let open = [OperatorUIFixtures.tab("s1", of: drawer, .idle),
                     OperatorUIFixtures.tab("s2", of: drawer, .working, index: 1, key: "review", agent: .codex)]
-        #expect(board(unpeopled, [drawer], sessions: open).columns.first { $0.column == .review }?.cards.map(\.id) == [drawer.id],
+        #expect(board(unpeopled, [drawer], sessions: open).stages.first { $0.stage == .review }?.cards.map(\.id) == [drawer.id],
                 "a review tab open, the Review slice off: in Review")
 
 
@@ -367,23 +357,24 @@ import Testing
         run.finished = [OperatorUIFixtures.finished(layout, result: "merged · 9b3e07d")]
         let shipping = task("Shipping step", run: run, .published)
         let board = board(run, [drawer, shipping])
-        let done = try #require(board.columns.first { $0.column == .done })
+        let done = try #require(board.stages.first { $0.stage == .done })
         #expect(done.cards.map(\.id) == [layout.id, shipping.id], "closed with the plan's first tasks, before what finished since")
         let card = try #require(done.cards.first)
-        #expect(card.id == layout.id && card.title == "Checkout layout" && card.ticket == "PAY-230" && card.agent == .claude)
+        #expect(card.id == layout.id && card.title == "Checkout layout" && card.ticket == "PAY-230")
+        #expect(card.avatars.marks == [AgentKind.claude.session] && card.status == .idle, "its agent, and the check its ended line gives it")
         #expect(card.line == OperatorLine("merged · 9b3e07d · removed", look: .ended))
-        #expect(card.combination == "claude-opus-5-5 · High")
+        #expect(card.modelTooltip == "Claude · claude-opus-5-5 · high")
         #expect(card.opens == .nothing && card.end == nil && !card.needsYou)
         #expect(board.progress == "2 of 3 done", "a removed task still counts")
         #expect(BroadcastBoard.count(of: run, tasks: [drawer]) == "1 of 2")
         // A record of a row still there is that row's card, once.
         let twice = self.board(run, [layout, drawer])
-        #expect(twice.columns.flatMap(\.cards).filter { $0.id == layout.id }.count == 1)
+        #expect(twice.stages.flatMap(\.cards).filter { $0.id == layout.id }.count == 1)
         // The Shelf reads it the same.
         var ended = run
         ended.state = .stopped
         ended.endedAt = OperatorUIFixtures.epoch
         let shelved = BroadcastBoard.shelved(run: ended, state: state(ended, []))
-        #expect(shelved.columns.first { $0.column == .done }?.cards.first?.line?.text == "merged · 9b3e07d · removed")
+        #expect(shelved.stages.first { $0.stage == .done }?.cards.first?.line?.text == "merged · 9b3e07d · removed")
     }
 }

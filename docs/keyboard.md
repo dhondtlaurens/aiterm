@@ -111,7 +111,7 @@ even while typing (`ArchiveSheetModel`).
 |---|---|---|
 | ↑ ↓ | Move | The highlight, wrapping at both ends. It starts on the first row — the newest, or the best match — and goes back there whenever the search changes. A click highlights a row too. |
 | ⌘↩ | Restore | The highlighted row: its worktree back at its own path, its row back in the sidebar and chosen, its window reopened with its conversations resumed; the sheet closes. A refusal comes up as an alert and leaves it on the shelf. With nothing shelved Restore is absent, key and all. |
-| ⌘↩ | Open | On an ended broadcast the button reads Open: the Shelf closes and the broadcast's sheet opens in its place, read-only, on Summary. |
+| ⌘↩ | Open | On an ended broadcast the button reads Open: the Shelf closes and the broadcast's sheet opens in its place, read-only, its summary on top. |
 | double-click | Restore or Open | That row, as ⌘↩. VoiceOver has it as the row's Restore or Open action. |
 | ⌘⌫ | Remove from the shelf | The highlighted row, after Remove's question. In the field ⌘⌫ would delete to the line's start; with a row shown it removes the row instead, and with none the field has it back. |
 | ⎋ | Clear the search, then close | A search is cleared first, the whole shelf back; ⎋ on an empty field closes the sheet. |
@@ -133,7 +133,7 @@ Add Project… has no sheet: the folder chooser adds the project at once.
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments or tabs | Any focused `SegmentedControl` or `TabBar`: the Settings and board tabs, the agent picker, Sidebar size. |
 
-The broadcast's sheet takes ⌘1 ⌘2 ⌘3 for Board, Activity and Summary, on hidden buttons as in Settings; Summary only once the broadcast has reached it. Its ⌘↩ is the moment's, the same on every tab: End Broadcast once every task is done, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. A card's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a question or a blocked task, the sidebar's banner for a problem AiTerm hit. A Todo card is not a button. ⎋ is Close.
+The broadcast's sheet takes ⌘1 and ⌘2 for Tasks and Activity, on hidden buttons as in Settings. Its ⌘↩ is the moment's, the same on both tabs: End Broadcast once every task is done, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. While the field of the question under Waiting on you holds text, ⌘↩ is its Send. A task row's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a blocked task, the sidebar's banner for a problem AiTerm hit; a task with a question answered on the board shows that question instead, and the board stays. A Todo task's row is not a button. A row's menu (right-click) changes its end and has Take Over or Hand Back and Stop Task…. ⎋ is Close.
 
 ## Settings
 

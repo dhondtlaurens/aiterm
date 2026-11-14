@@ -209,8 +209,8 @@ final class OperatorController {
     /// The broadcast whose board a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentBoard: UUID?
-    /// The question the board was last asked to show (`BoardFocus`): a notification's click, the Operator row's, or a
-    /// card's Answer…. Observed, so a board already up scrolls to it.
+    /// The question the board was last asked to show (`BoardFocus`): a notification's click or the Operator row's.
+    /// Observed, so a board already up shows it under Waiting on you.
     var boardFocus: BoardFocus?
     /// The broadcasts whose Operator's window could not be reopened, its conversation gone (`OperatorWindows`).
     var reopenFailed: Set<UUID> { windows.reopenFailed }

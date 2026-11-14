@@ -405,7 +405,7 @@ struct OperatorScene {
         let asking = OperatorActs(turns: [scene.summary: .asks],
                                   asks: [scene.summary: "Question: Should the summary show the coupon line when no coupon applies?\n- Show it\n- Hide it"])
         scene.show(run, tasks.filter { $0.id != scene.layout } + [stuck], acting: asking, turnEnded: [scene.autocomplete, scene.summary])
-        let cards = Dictionary((scene.board?.columns.flatMap(\.cards) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let cards = Dictionary((scene.board?.stages.flatMap(\.cards) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return [scene.drawer, scene.provider, scene.summary, scene.autocomplete, outOfRounds, scene.layout].compactMap { cards[$0] }
             + [kept()].compactMap { $0 }
     }
@@ -464,7 +464,7 @@ struct OperatorScene {
         run.completedAt = Snapshots.clock.now
         run.closedAt = Snapshots.clock.now
         scene.show(run, [shipping])
-        return scene.board?.columns.flatMap(\.cards).first
+        return scene.board?.stages.flatMap(\.cards).first
     }
 
     /// A set-up broadcast while it runs (15A): a line each for Asked, the Goal and Each task.
@@ -491,7 +491,7 @@ struct OperatorScene {
         return scene
     }
 
-    /// Ended with the goal not met and two lines of it left for you, read from the Shelf on Summary.
+    /// Ended with the goal not met and two lines of it left for you, read from the Shelf.
     static func goalNotMet(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard {
         let checking = checkingTheGoal(scene)
         var run = checking.controller.state.run(id: scene.runId)!
@@ -525,8 +525,9 @@ enum OperatorSnapshots {
             Snapshot("board-planning.png") { board(OperatorScene.planning()) },
             Snapshot("board-paused.png") { board(pausedCleanup()) },
             Snapshot("board-reopen-failed.png") { board(OperatorScene.windowClosed(), reopenFailed: true) },
-            // The board's other tabs: Summary written with nothing left, while it is written, written with Left for
-            // you; Activity mid-run with the failed mark open; and an ended broadcast read from the Shelf.
+            // A complete broadcast, its summary on top: written with nothing left, while it is written, written with Left
+            // for you. Then Activity mid-run, what changed with the failed mark open, and with everything; and an ended
+            // broadcast read from the Shelf.
             Snapshot("board-summary.png") { board(OperatorScene.complete(leftForYou: [])) },
             Snapshot("board-summary-writing.png") { board(OperatorScene.complete(written: false, leftForYou: [])) },
             Snapshot("board-summary-left-for-you.png") {
@@ -535,6 +536,10 @@ enum OperatorSnapshots {
             Snapshot("board-activity.png") {
                 let scene = OperatorScene.running(), entries = scene.activity()
                 return board(scene).seeded(tab: .activity, entries: entries, open: entries[3].id)
+            },
+            Snapshot("board-activity-everything.png") {
+                let scene = OperatorScene.running()
+                return board(scene).seeded(tab: .activity, entries: scene.activity(), everything: true)
             },
             Snapshot("board-shelved.png") {
                 BroadcastBoardSheet(board: OperatorScene.shelved(), reopenFailed: false, actions: BoardActions(), activity: nil)
@@ -582,8 +587,8 @@ enum OperatorSnapshots {
             // pause sign, and the Operator's row `pausing · 1 task` until the basket stops; then all stopped, the pause sign.
             // In both scenes, idle Order tracking keeps its review text with the pause sign; Price formatting is merged.
             Snapshot("broadcast-paused.png") { paused() },
-            // Summary with what the Operator worked around in AiTerm: two snags under the summary, with Copy All; and on
-            // the Shelf one snag after Left for you, with no Copy All.
+            // What the Operator worked around in AiTerm, after the tasks: two snags with Copy All; and on the Shelf one
+            // snag, with no Copy All.
             Snapshot("board-summary-worked-around.png") {
                 let scene = OperatorScene()
                 return board(OperatorScene.complete(scene, leftForYou: [], snags: scene.snags()))
@@ -593,17 +598,17 @@ enum OperatorSnapshots {
                 return BroadcastBoardSheet(board: OperatorScene.shelved(scene, snags: Array(scene.snags().prefix(1))), reopenFailed: false,
                                            actions: BoardActions(), activity: nil)
             },
-            // A broadcast set up with the Agents, Task and Done steps (broadcast setup v2): its cards at the new stops, then
-            // its header while it runs, while the goal is checked, and ended with the goal not met, on Summary.
-            Snapshot("board-setup-cards.png") { setUpCards() },
+            // A broadcast set up with the Agents, Task and Done steps (broadcast setup v2): its rows at the new stops, then
+            // the sheet while it runs, while the goal is checked, and ended with the goal not met.
+            Snapshot("board-rows.png") { setUpRows() },
             Snapshot("board-setup-running.png") { board(OperatorScene.setUpRunning()) },
             Snapshot("board-setup-checking-goal.png") { board(OperatorScene.checkingTheGoal()) },
             Snapshot("board-setup-goal-not-met.png") {
                 BroadcastBoardSheet(board: OperatorScene.goalNotMet(), reopenFailed: false, actions: BoardActions(), activity: nil)
             },
-            // Waiting on you (D1a): the board with the list above its columns, and the list's blocks whole.
+            // Waiting on you: the sheet on its oldest question that still waits, and every kind of question's block.
             Snapshot("board-waiting-on-you.png") { board(OperatorScene.waitingOnYou()) },
-            Snapshot("board-waiting-blocks.png") { waitingBlocks() },
+            Snapshot("board-questions.png") { questionBlocks() },
         ]
     }
 
@@ -793,24 +798,28 @@ enum OperatorSnapshots {
 
     // -- the board --------------------------------------------------------------------
 
-    /// The cards at the new stops, one under another at a column's width, on the sheet's ground.
-    private static func setUpCards() -> some View {
+    /// The rows at the new stops, one under another at the sheet's width, on its ground.
+    private static func setUpRows() -> some View {
         let cards = OperatorScene.stops()
-        return VStack(alignment: .leading, spacing: Space.gap) {
-            ForEach(cards) { card in BoardCardView(card: card, choose: { _ in }, actions: BoardActions()).frame(width: Sheet.boardColumn) }
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(cards) { card in BoardRow(card: card, actions: BoardActions(), click: {}) }
         }
-        .padding(Space.margin)
+        .padding(.vertical, Space.block).padding(.horizontal, Space.margin - Space.base)
+        .frame(width: Sheet.width)
         .fixedSize(horizontal: false, vertical: true)
         .background(Palette.surface)
     }
 
-    /// Every block of Waiting on you, at the list's width.
-    private static func waitingBlocks() -> some View {
+    /// Every question of Waiting on you in its block, one under another at the sheet's width: the pager shows one.
+    private static func questionBlocks() -> some View {
         let waiting = OperatorScene.waitingOnYou().board?.waiting ?? []
-        return WaitingOnYouList(questions: waiting, actions: BoardActions(), choose: { _ in })
-            .padding(Space.margin)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(Palette.surface)
+        return VStack(alignment: .leading, spacing: Space.gap) {
+            ForEach(waiting) { question in QuestionBlock(question: question, text: .constant(""), choose: { _ in }, send: { _ in }) }
+        }
+        .padding(Space.margin)
+        .frame(width: Sheet.width)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Palette.surface)
     }
 
     private static func board(_ scene: OperatorScene, reopenFailed: Bool = false) -> BroadcastBoardSheet {
