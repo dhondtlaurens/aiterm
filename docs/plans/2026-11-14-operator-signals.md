@@ -417,7 +417,7 @@ board and most of challenge and review; `BroadcastContractTests` and the tests o
 
 Each step leaves the package building and the gate green.
 
-- [ ] Spikes: idle compaction off and the context-size field for Claude Code; Codex pre-tool hooks.
+- [x] Spikes: idle compaction off and the context-size field for Claude Code; Codex pre-tool hooks.
 - [ ] Domain in Core: signals, sources' conditions, items, the task's record, phases, transitions
       and pending stages, done check, journal, the Operator's session, fresh starts, digest; the
       new keys decode and encode beside the old ones. Unused yet; the broadcast keys stay.
@@ -451,3 +451,102 @@ Each step leaves the package building and the gate green.
       `design-system` skill's loop; publishing the page to its artifact is the maintainer's step and
       is not needed to finish).
 - [ ] Gate, review, one commit per step, `scripts/test.sh all`; stop before the merge.
+
+## Spike findings · 14 Nov 2026
+
+The first to-do is complete; no product code or worker permissions changed. Read first: the
+research named above, the current creation-sheet proposal, and the sidebar, decode, Operator-row
+and Settings frames from `9248cd3c`. The final sheet picks take precedence over its older sheets.
+
+### Claude Code: idle compaction
+
+Verified against installed **2.1.325**. Pass `"idleCompaction": false` in the Operator's existing
+per-launch `--settings` JSON/file, alongside its other settings. Do not write it into the person's
+defaults. The [settings reference](https://code.claude.com/docs/en/settings-reference#idlecompaction)
+defines this boolean separately from auto-compaction; ordinary auto-compaction can stay enabled.
+
+Evidence beyond accepting an arbitrary settings key: the installed executable's schema declares
+`idleCompaction` as an optional boolean, its setting reader defaults it to true, and its idle
+eligibility function returns `idle_compaction_off` when that reader returns false. A scratch
+`CLAUDE_CONFIG_DIR`, empty setting sources, no MCP servers/tools and a local scripted Anthropic
+endpoint successfully completed a `claude --print --settings '{"idleCompaction":false}'` launch
+(exit 0, one local model request). No personal credentials or CLI settings were used. Launch
+acceptance alone is insufficient: an exploratory invalid string value also allowed a request.
+The schema and idle-guard inspection establish the meaning of the valid boolean.
+
+Limit: this checks the setting, its idle guard and the launch path; it does not simulate an
+hour-long interactive session with 200k tokens. The fresh-session end-to-end step still owns the
+Operator launch wiring and idle handover proof.
+
+### Claude Code: current context size
+
+Use the status-line `context_window.current_usage` object. Current input context is
+`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`; exclude `output_tokens`.
+This matches `context_window.total_input_tokens` and the input-only percentage calculation in
+the installed executable and the [status-line reference](https://code.claude.com/docs/en/statusline#context-window-fields).
+Despite the earlier research's caution about the name, this version's status-line
+`total_input_tokens` is current input context, not lifetime cumulative input. Do not confuse it
+with session cost/usage totals elsewhere.
+
+Checked every populated tick in the existing **2.1.323** compatibility capture (12 ticks), without
+recapturing or editing the frozen fixture. Example: 2 input + 9,227 cache creation + 30,010 cache
+read = **39,239 tokens**, while a 1M window's rounded percentage is 4 (which would estimate 40,000).
+The **2.1.325** executable still constructs the same fields with that exact sum. Before the first
+response, or after compaction until another response, `current_usage` can be null: retain unknown,
+not a measured zero. Later daemon work should prefer the exact component sum; a finite percentage
+and positive window size can provide a fallback estimate only when exact usage is absent.
+
+### Codex: native pre-tool hooks work, with explicit trust
+
+Verified against installed **0.169.0**, whose `features list` reports `hooks` stable and enabled.
+`PreToolUse` with matcher `^Bash$` receives an `exec_command` as `tool_name: "Bash"`, with the
+shell command in `tool_input.command`. Synchronous hooks can deny before execution using
+`hookSpecificOutput.permissionDecision: "deny"` with `hookEventName: "PreToolUse"`, or exit 2
+with a reason on stderr. The [hook reference](https://learn.chatgpt.com/docs/hooks) documents
+these forms and the separate trust requirement.
+
+Ran the actual installed CLI against a local scripted Responses server, in a temporary
+`CODEX_HOME` and working directory, using the worker's
+`--dangerously-bypass-approvals-and-sandbox`. The server requested one harmless marker-writing
+`exec_command`, then completed the turn; no live model or account was involved. Both blocked
+cases returned the denial to the next model request, and no marker was written:
+
+| Hook case | Hook calls | Marker written | CLI exit |
+| --- | --- | --- | --- |
+| Trusted JSON denial | 1 | no | 0 |
+| Trusted exit 2 | 1 | no | 0 |
+| Trusted allow (control) | 1 | yes | 0 |
+| Untrusted denial (control) | 0 | yes | 0 |
+
+The trusted cases used `--dangerously-bypass-hook-trust` only with the scratch config's known
+probe hook. Each received `permission_mode: "bypassPermissions"`: sandbox bypass does not skip
+a trusted pre-tool hook. Hook trust is separate: without that trust override the new hook was
+skipped, and the command ran. A tool denial is a tool result, not a nonzero CLI exit.
+
+**Consequence for the worker-guard to-do:** the plan's native-hook option is available. It may
+carry the shared local command check instead of PATH shims only after the launch path proves
+the exact hook is enabled and trusted, including on resume. Do not assume sandbox bypass grants
+hook trust, or blindly enable unreviewed personal hooks. If that cannot be established for the
+worker environment, use the already-planned shims. Keep the git pre-push hook in either case.
+The later worker-guard tests must still prove the actual parser, `--no-verify`, force variants,
+foreign/default/protected refs, merges and repository-hook chaining under the worker launch
+environment before any push restriction lifts. This spike proves native interception only.
+
+### Reproduction and provenance
+
+Local probes and their JSON results are in `docs/research/operator-signals-spike/` (ignored, as
+the research is): `probe_claude.py` and `probe_codex.py`. Run either with `python3` from the
+worktree root. They allocate their own temporary config and loopback server, need no account,
+and clean up their temporary folders. The Claude probe also reads the existing capture at
+`daemon/tests/fixtures/compat/claude/posts.jsonl`. They do not use iTerm2 or the live daemon.
+Codex SSE construction was checked against the upstream
+[hook tests](https://github.com/openai/codex/blob/main/codex-rs/core/tests/suite/hooks.rs).
+
+Installed executable SHA-256 at the probe (versions can update independently of this worktree):
+
+- Claude: `84590fefe6338be9087f5814b61f9a54c5f21524163a4c127cb5a808e31009f2`
+- Codex: `739cda86e15d30a6e2b40cf8dcbbfb988aaf48b305b27065573bb8e9fd41d002`
+
+Verification: both isolated probes passed; `git diff --check` passed; plain `scripts/test.sh`
+exited 0 with no suites selected for the documentation-only changes. No live app run was needed
+for this to-do. The next to-do is Domain in Core; the implementation remains uncommitted for review.
