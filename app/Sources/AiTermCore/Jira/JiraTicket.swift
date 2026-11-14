@@ -15,11 +15,15 @@ public struct JiraTicket: Equatable, Sendable {
     public var source: TicketSource
     /// When it last changed, for the one list both sources share; nil sorts last.
     public var updated: Date?
+    public var labels: [String]
+    public var project: String?
+    public var assignee: String?
 
     public init(key: String, summary: String, description: String?, issueType: String?, status: String?, url: String,
-                source: TicketSource = .jira, updated: Date? = nil) {
+                source: TicketSource = .jira, updated: Date? = nil, labels: [String] = [], project: String? = nil, assignee: String? = nil) {
         self.key = key; self.summary = summary; self.description = description; self.issueType = issueType; self.status = status; self.url = url
         self.source = source; self.updated = updated
+        self.labels = labels; self.project = project; self.assignee = assignee
     }
 
     /// A GitLab issue's number, from its `#55` key; nil for a Jira ticket.

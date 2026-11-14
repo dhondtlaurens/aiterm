@@ -543,7 +543,7 @@ public struct GitLabClient: HostRepository {
 
     private func api(_ notFound: GitLabError) -> HostAPI { Self.api(config, session: session, notFound: notFound) }
 
-    private static func api(_ config: GitLabConfig, session: URLSession, notFound: GitLabError) -> HostAPI {
+    static func api(_ config: GitLabConfig, session: URLSession, notFound: GitLabError) -> HostAPI {
         HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"], session: session, malformed: GitLabError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }

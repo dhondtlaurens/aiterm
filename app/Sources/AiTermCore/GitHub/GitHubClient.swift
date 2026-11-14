@@ -723,7 +723,7 @@ public struct GitHubClient: HostRepository {
     /// `notFound` is what a 404 means for the path asked.
     private func api(_ notFound: GitHubError) -> HostAPI { Self.api(config, session: session, notFound: notFound) }
 
-    private static func api(_ config: GitHubConfig, session: URLSession, notFound: GitHubError) -> HostAPI {
+    static func api(_ config: GitHubConfig, session: URLSession, notFound: GitHubError) -> HostAPI {
         HostAPI(base: Self.api, headers: headers(config), session: session, malformed: GitHubError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }

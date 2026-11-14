@@ -421,7 +421,7 @@ Each step leaves the package building and the gate green.
 - [x] Domain in Core: signals, sources' conditions, items, the task's record, phases, transitions
       and pending stages, done check, journal, the Operator's session, fresh starts, digest; the
       new keys decode and encode beside the old ones. Unused yet; the broadcast keys stay.
-- [ ] Sources: Jira paging, labels and count; host-wide GitLab and GitHub accounts; the mapper; the
+- [x] Sources: Jira paging, labels and count; host-wide GitLab and GitHub accounts; the mapper; the
       poller behind a fake. Nothing starts a task yet.
 - [ ] The creation-sheet family as picked, on today's sheets (New Task, New Review, Add Project with
       Edit Project, New Terminal, Add Divider): shared steps, agent row and copy; the Shelf renamed
@@ -562,3 +562,17 @@ for this to-do.
 - **Domain proof:** focused domain tests passed, then plain `scripts/test.sh` passed: 2,179 Core,
   2,013 app, 123 UI and 5 snapshot tests. Existing labelled known issues remained known issues.
   No contract fixtures were regenerated and no live app was launched.
+- **Sources:** added paged Jira search with labels, project and assignee fields, label/status lists
+  and approximate count; host-wide GitLab and GitHub account listings over `HostAPI`; source readers
+  and the project mapper. The poller shares equal reads, uses one pass per source/host, performs
+  Jira delta reads with ten-minute full sweeps and backs failures off for five minutes without
+  advancing cursors. Unchanged MR timestamps reuse complete thread reads. Partial pages, GraphQL
+  errors and malformed entries never publish matches. Explicit repository filters never widen to
+  every repository when a saved remote cannot be read. The poller is not wired to task creation.
+- **Source proof:** synthetic schema recordings and fake-clock/latch tests cover pagination,
+  personal-review and author/assignee queries, rate limits, incomplete reads, query sharing,
+  cadence, stale completion after stop and thread-read reuse. The focused tests passed, followed
+  by plain `scripts/test.sh` (2,192 Core, 2,016 app, 123 UI and 5 snapshot tests). Source schemas
+  were checked against the [Jira search reference](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/),
+  [GitLab MR reference](https://docs.gitlab.com/api/merge_requests/) and
+  [GitHub search reference](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests).
