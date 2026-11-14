@@ -213,7 +213,6 @@ import Testing
 
     @Test func theFixRoundsAnswersWords() {
         #expect(BroadcastBoard.FixRoundsAnswer.allCases.map(\.title) == ["One More Round", "Accept As It Is"])
-        #expect(BoardCardView.answered(.oneMoreRound) == "You answered: one more round.")
         #expect(BroadcastBoard.FixRoundsAnswer.acceptAsItIs.words == "accept it as it is")
     }
 }

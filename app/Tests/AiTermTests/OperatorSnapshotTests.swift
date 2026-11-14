@@ -4,8 +4,8 @@ import Testing
 @testable import AiTerm
 
 /// Every Operator state has a fixture image: the OPERATOR heading with no broadcast, the
-/// broadcast's header and Operator row in each state, driven task rows, the board at each moment, its Summary
-/// and Activity tabs and its read-only form from the Shelf, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
+/// broadcast's header and Operator row in each state, driven task rows, the board at each moment, its summary,
+/// its Activity tab and its read-only form from the Shelf, its rows and its questions, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
 /// sheet's footer, and the broadcast's group folded and just started.
 @MainActor
 struct OperatorSnapshotTests {
@@ -14,7 +14,7 @@ struct OperatorSnapshotTests {
         "driven-task-rows.png",
         "board-running.png", "board-planning.png", "board-paused.png", "board-reopen-failed.png",
         "board-summary.png", "board-summary-writing.png", "board-summary-left-for-you.png", "board-activity.png",
-        "board-shelved.png",
+        "board-activity-everything.png", "board-shelved.png",
         "new-broadcast-1.png", "new-broadcast-2.png",
         "settings-operator.png", "settings-operator-oracle-off.png",
         "settings-help-with-problems.png",
@@ -24,8 +24,8 @@ struct OperatorSnapshotTests {
         "new-broadcast-not-ready.png",
         "broadcast-folded.png", "broadcast-queued.png", "broadcast-paused.png",
         "board-summary-worked-around.png", "board-shelved-worked-around.png",
-        "board-setup-cards.png", "board-setup-running.png", "board-setup-checking-goal.png", "board-setup-goal-not-met.png",
-        "board-waiting-on-you.png", "board-waiting-blocks.png",
+        "board-rows.png", "board-setup-running.png", "board-setup-checking-goal.png", "board-setup-goal-not-met.png",
+        "board-waiting-on-you.png", "board-questions.png",
     ]
 
     @Test func everyOperatorStateHasItsImage() {

@@ -55,8 +55,14 @@ enum OperatorMenus {
     /// its tasks were handed to you, and there is no Operator to hand one back to.
     static func task(_ operated: OperatedTask?, broadcastLive: Bool) -> [OperatorMenuItem] {
         guard let operated, broadcastLive else { return [] }
-        let owner: OperatorMenuItem = operated.takenOver ? .handBack : .takeOver
-        return (operated.state.isOpen || (operated.state == .accepted && operated.publication?.leftForYou != true)) ? [owner, .separator, .stopTask] : [owner]
+        return task(takenOver: operated.takenOver, stoppable: operated.isStoppable)
+    }
+
+    /// The same items from the two facts they turn on, as a task's row on its broadcast's sheet carries them
+    /// (`BroadcastBoard.Card.takenOver`, `.stoppable`).
+    static func task(takenOver: Bool, stoppable: Bool) -> [OperatorMenuItem] {
+        let owner: OperatorMenuItem = takenOver ? .handBack : .takeOver
+        return stoppable ? [owner, .separator, .stopTask] : [owner]
     }
 }
 

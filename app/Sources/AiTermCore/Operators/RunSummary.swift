@@ -1,6 +1,6 @@
 import Foundation
 
-/// What the Summary tab says about a broadcast, read from the run's own fields: nothing yet while it
+/// What the summary on the sheet's Tasks tab says about a broadcast, read from the run's own fields: nothing yet while it
 /// works, the wait while the Operator writes, the text once written, and why there is none when there never
 /// will be one.
 public enum RunSummary: Equatable, Sendable {
@@ -32,7 +32,7 @@ public enum RunSummary: Equatable, Sendable {
 }
 
 public extension GoalOutcome {
-    /// How the broadcast's goal went, as its band and its Summary say it.
+    /// How the broadcast's goal went, as its band and its summary say it.
     var words: String {
         switch self {
         case .met: "goal met"

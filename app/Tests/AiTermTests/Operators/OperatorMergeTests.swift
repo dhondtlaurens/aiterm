@@ -240,7 +240,7 @@ import Synchronization
         #expect(publication(m)?.conditionsHeld == nil)
         #expect(publication(m)?.problem == nil)
         let board = BroadcastBoard.make(run: m.run, state: m.world.state, acting: .none, requests: [])
-        let card = try #require(board.columns.flatMap(\.cards).first)
+        let card = try #require(board.stages.flatMap(\.cards).first)
         #expect(card.mergeRefusal == publication(m)?.mergeRefusal)
         #expect(!card.needsYou)
         let status = await m.world.call(m.run.id, "run_status")

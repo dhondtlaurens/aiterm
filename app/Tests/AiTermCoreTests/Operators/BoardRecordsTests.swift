@@ -77,7 +77,7 @@ import Testing
             state.append(project: web)
             state.runs = [run]
             state.tasks = tasks
-            return try #require(BroadcastBoard.make(run: run, state: state, acting: .none, requests: []).columns.flatMap(\.cards).first)
+            return try #require(BroadcastBoard.make(run: run, state: state, acting: .none, requests: []).stages.flatMap(\.cards).first)
         }
         #expect(try card(run, [kept]).notice == nil, "no reason recorded: the line alone")
         kept.operated?.keptReason = "Not closed: its worktree has uncommitted changes. Remove it yourself once they are safe."
@@ -109,8 +109,16 @@ import Testing
         var asked = question
         asked.task = working.id
         active.questions = [asked]
-        #expect(try card(active, [working]).fixRounds?.answered == nil)
+        // The answer its question keeps is what Waiting on you says was answered.
+        func answered(_ run: OperatorRun) -> String? {
+            var state = AppState()
+            state.append(project: web)
+            state.runs = [run]
+            state.tasks = [working]
+            return BroadcastBoard.make(run: run, state: state, acting: .none, requests: []).waiting.first?.answered
+        }
+        #expect(answered(active) == nil)
         active.questions[0].answeredOnCard = "oneMoreRound"
-        #expect(try card(active, [working]).fixRounds?.answered == .oneMoreRound)
+        #expect(answered(active) == "One More Round")
     }
 }

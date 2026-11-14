@@ -40,8 +40,17 @@ public struct ActivityEntry: Codable, Equatable, Sendable, Identifiable {
         self.result = String(result.prefix(Self.resultLimit))
     }
 
-    /// Whether the call only looked, so the Activity tab can fold it away.
+    /// Whether the call only looked: the Activity tab reads its line muted.
     public var isRead: Bool { ActivityLine.reads.contains(tool) }
+
+    /// Whether Activity lists it before Show everything (14 Nov 2026): a call that changed something, and any call that
+    /// did not go through. What only looked and went through waits: a status check, a read, a shell command.
+    public var showsAmongChanges: Bool {
+        switch outcome {
+        case .refused, .challenged, .failed: true
+        case .ok, .repeated: !ActivityLine.looks.contains(tool)
+        }
+    }
 }
 
 /// The run's `activity.jsonl`: one JSON line per Operator tool call, oldest first, written as each call is

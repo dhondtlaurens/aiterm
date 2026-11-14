@@ -272,9 +272,9 @@ public enum Sheet {
     public static let creationHeight: CGFloat = 500
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
-    /// One column of the broadcast's board, which sits in a `width` sheet: two and a bit of them
-    /// show at once and the row of columns scrolls sideways (the Operator sheet, option 1B, 21 Oct 2026).
-    public static let boardColumn: CGFloat = 236
+    /// The broadcast's sheet, taller than the rest so a question and the tasks at work share its first
+    /// screen (14 Nov 2026): the header and footer take 197 pt of it.
+    public static let boardHeight: CGFloat = 640
 }
 
 /// How far a control fades while it can't be used: a segment `SegmentedControl`'s or a tab `TabBar`'s `isSelectable` rejects, Settings ›

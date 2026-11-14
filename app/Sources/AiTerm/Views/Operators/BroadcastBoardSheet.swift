@@ -2,29 +2,28 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// What the board's cards and buttons do, handed in by `AppController.boardActions(for:dismiss:)`; a
+/// What the sheet's rows and buttons do, handed in by `AppController.boardActions(for:dismiss:)`; a
 /// snapshot or a test hands in none.
 struct BoardActions {
-    /// A card's or a worker tab line's click, the sheet already closed (`BroadcastBoardSheet.choose`).
+    /// A row's click, or a question's button that opens where it waits, the sheet already closed (`BroadcastBoardSheet.choose`).
     var open: @MainActor (BroadcastBoard.Opens) -> Void = { _ in }
     var pause: @MainActor () -> Void = {}
     var resume: @MainActor () -> Void = {}
     /// `confirming`: End Broadcast… asks first; End Broadcast from a complete broadcast does not.
     var end: @MainActor (_ confirming: Bool) -> Void = { _ in }
     var startFresh: @MainActor () -> Void = {}
-    /// An end picked from a running card's end line (`OperatorController.changeEnd`).
+    /// An end picked from a row's menu (`OperatorController.changeEnd`).
     var changeEnd: @MainActor (_ task: UUID, _ end: TaskEnd) -> Void = { _, _ in }
-    /// One More Round or Accept As It Is, on a card out of fix rounds (`OperatorController.answerFixRounds`).
-    var answerFixRounds: @MainActor (_ task: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) -> Void = { _, _ in }
-    /// A choice or Send in a question's block under Waiting on you (`OperatorController.answer(question:in:with:)`).
+    /// A choice or Send in a question's block under Waiting on you (`OperatorController.answer(question:in:with:)`): fix
+    /// rounds' One More Round and Accept As It Is too.
     var answer: @MainActor (_ key: String, _ text: String) -> Void = { _, _ in }
-    /// A card's Answer…: the board scrolls to that question's block (`BoardFocus`).
-    var showQuestion: @MainActor (_ key: String) -> Void = { _ in }
+    /// One of the Operator's items of a row's menu, picked (`AppController.perform(_:on:)`).
+    var perform: @MainActor (_ item: OperatorMenuItem, _ task: UUID) -> Void = { _, _ in }
 }
 
-/// A question the board is asked to show, from a notification's click, the Operator row's or a card's Answer…: the sheet
-/// goes to the Board tab and scrolls to its block, or to its top once the question has gone. Each ask is new, so the same
-/// question asked again scrolls again.
+/// A question the sheet is asked to show, from a notification's click or the Operator row's: the sheet goes to the Tasks
+/// tab, its top, and shows that question in Waiting on you, or the oldest that still waits once it has gone. Each ask is
+/// new, so the same question asked again is shown again.
 struct BoardFocus: Equatable, Sendable {
     var run: UUID
     var key: String
@@ -87,21 +86,20 @@ struct BoardFooter: Equatable {
     }
 }
 
-/// The broadcast's sheet (spec §4, §13; the Operator sheet, 21 Oct 2026), `Sheet.width` by `Sheet.height` in
-/// `SheetLayout`'s anatomy: the title; under it the broadcast's `BroadcastStatusLine` as its row says it; then a
-/// line each for Asked, the Goal and Each task, `Space.base` apart, each cut at its end with the whole of it in its
-/// tooltip; then, `Space.block` under them and standing on the header's rule, the tab bar, Settings' underline
-/// `TabBar`, Board · Activity · Summary, picked by click, ← → or ⌘1–⌘3 (the broadcast's sheet, 1A, 29 Oct 2026). It
-/// opens on `BroadcastBoard.firstTab` and stays where you put it; Summary is dimmed until the broadcast reached it.
-/// Board is the columns, each `Sheet.boardColumn` wide, and the board scrolls as one, down and sideways, between the
-/// rules and from edge to edge (2B); once every task is done they all sit in Done. A card's click closes the sheet
-/// first, then opens what resolves it (`choose`). Activity is the run's log (`BroadcastActivityView`), Summary the
-/// Operator's summary and what it left for you (`BroadcastSummaryView`); both scroll down. The footer is the same on
-/// every tab. Equatable by what it draws, its actions left out (they act on the broadcast as it is when
-/// pressed), so the host's `.equatable()` skips a body that would draw the same; the feed redraws Activity alone.
+/// The broadcast's sheet (spec §4, §13; rebuilt 14 Nov 2026), `Sheet.width` by `Sheet.boardHeight` in `SheetLayout`'s
+/// anatomy: the title; under it the broadcast's `BroadcastStatusLine` as its row says it; then one line of the brief,
+/// Asked, cut at its end with the whole brief in its tooltip; then, standing on the header's rule, the underline
+/// `TabBar`, Tasks · Activity, picked by click, ← → or ⌘1 and ⌘2. It always opens on Tasks.
 ///
-/// Above the columns, Waiting on you lists every open question for you (`WaitingOnYouList`, D1a), and the board scrolls
-/// as one. Asked to show a question (`focus`), the sheet goes to Board and scrolls to its block (`scrollTarget`).
+/// **Tasks** is one scroll, its sections `Space.block` apart and each only while it has something: Waiting on you, one
+/// question at a time (`WaitingOnYou`); the Operator's summary once the broadcast reached it (`BroadcastSummaryView`);
+/// Left for you from its first item (`LeftForYouList`); the tasks, a `BoardHeading` per stage in `BroadcastBoard.listed`'s
+/// order over a `BoardRow` each, or one muted line while nothing is planned; and Worked around in AiTerm
+/// (`WorkedAroundList`). A row's click closes the sheet first, then opens what resolves it (`choose`), except that a task
+/// with a question answered in the sheet shows that question instead (`shows`). **Activity** is the run's log
+/// (`BroadcastActivityView`), what changed until Show everything. The footer is the same on both tabs. Equatable by what
+/// it draws, its actions left out (they act on the broadcast as it is when pressed), so the host's `.equatable()` skips
+/// a body that would draw the same; the feed redraws Activity alone.
 struct BroadcastBoardSheet: View, Equatable {
     let board: BroadcastBoard
     let reopenFailed: Bool
@@ -113,7 +111,13 @@ struct BroadcastBoardSheet: View, Equatable {
     /// What Activity lists without a feed, and the row it opens with: the snapshots' (`seeded(tab:entries:open:)`).
     private(set) var entries: [ActivityEntry] = []
     private(set) var openEntry: UUID?
-    @State private var tab: BroadcastBoard.Tab
+    @State private var tab: BroadcastBoard.Tab = .tasks
+    /// The question Waiting on you shows: the pager's (`QuestionPager`).
+    @State private var shownQuestion: String?
+    /// What was typed under Waiting on you and not sent, by question: the sheet's, so a look at Activity keeps it.
+    @State private var drafts: [String: String] = [:]
+    /// Activity lists every call, the looking too, once Show everything was picked: until the sheet closes.
+    @State private var showsEverything = false
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
@@ -126,18 +130,13 @@ struct BroadcastBoardSheet: View, Equatable {
 
     init(board: BroadcastBoard, reopenFailed: Bool, actions: BoardActions, activity: ActivityFeed?, focus: BoardFocus? = nil) {
         self.board = board; self.reopenFailed = reopenFailed; self.actions = actions; self.activity = activity; self.focus = focus
-        _tab = State(initialValue: focus == nil ? board.firstTab : .board)
+        _shownQuestion = State(initialValue: focus?.key)
     }
 
-    /// The board's top, what a question no longer listed scrolls to.
+    /// The Tasks tab's top, where the sheet scrolls to show a question.
     static let topId = "board-top"
 
-    /// Where the board scrolls for `key`: its block while it is listed, else the board's top.
-    static func scrollTarget(_ key: String, on board: BroadcastBoard) -> String {
-        board.waiting.contains { $0.key == key } ? key : topId
-    }
-
-    /// A card's click: the sheet closes, then what the card opens comes forward. A Todo card has nothing to
+    /// A row's click: the sheet closes, then what the row opens comes forward. A Todo task has nothing to
     /// open and is no button, so nothing happens.
     @MainActor static func choose(_ opens: BroadcastBoard.Opens, dismiss: () -> Void, actions: BoardActions) {
         guard isButton(opens) else { return }
@@ -145,16 +144,17 @@ struct BroadcastBoardSheet: View, Equatable {
         actions.open(opens)
     }
 
-    /// Whether a card that opens this is a button.
+    /// Whether a row that opens this is a button.
     static func isButton(_ opens: BroadcastBoard.Opens) -> Bool { opens != .nothing }
 
-    /// The tab the sheet shows when it is on `tab`: the Board instead of a tab the broadcast has gone back from, as a
-    /// Summary when a new plan makes a complete run active again.
-    static func shownTab(_ tab: BroadcastBoard.Tab, on board: BroadcastBoard) -> BroadcastBoard.Tab {
-        board.isSelectable(tab) ? tab : .board
+    /// The question a click on `task`'s row shows in the sheet instead of opening a window: its oldest one that still
+    /// waits and is answered here. Nil for a task with none, whose row opens what its card says (`Card.opens`): a
+    /// permission prompt is answered in its own window, so its row goes there at once.
+    static func shows(_ task: UUID, on board: BroadcastBoard) -> String? {
+        board.waiting.first { $0.task == task && $0.answered == nil && $0.isAnsweredHere }?.key
     }
 
-    /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
+    /// ⌘1 and ⌘2 pick the tabs in the order the tab bar draws them.
     static func key(of tab: BroadcastBoard.Tab) -> KeyEquivalent {
         KeyEquivalent(Character(String(BroadcastBoard.Tab.allCases.firstIndex(of: tab)! + 1)))
     }
@@ -164,32 +164,24 @@ struct BroadcastBoardSheet: View, Equatable {
         let _ = bodyCounter?.count(board.runId)
         #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
-        let shown = Self.shownTab(tab, on: board)
         ScrollViewReader { proxy in
-        SheetLayout(title: board.title, height: .fixed(Sheet.height), headerEndsInTabs: true,
-                    scrolls: shown == .board ? [.horizontal, .vertical] : .vertical, contentVerticalPadding: Space.block) {
+        SheetLayout(title: board.title, height: .fixed(Sheet.boardHeight), headerEndsInTabs: true, contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.block) {
                 VStack(alignment: .leading, spacing: Space.base) {
                     BroadcastStatusLine(line: board.band, progress: board.progress)
-                    ForEach(board.headerLines, id: \.label) { Self.headerLine($0) }
+                    if let asked = board.headerLines.first { Self.headerLine(asked, brief: board.brief) }
                 }
                 tabBar
             }
         } content: {
-            switch shown {
-            case .board:
-                VStack(alignment: .leading, spacing: Space.block) {
-                    Color.clear.frame(width: 0, height: 0).id(Self.topId)
-                    if !board.waiting.isEmpty { WaitingOnYouList(questions: board.waiting, actions: actions, choose: choose) }
-                    columns
-                }
+            switch tab {
+            case .tasks: tasks(proxy)
             case .activity:
                 if let activity {
-                    ActivityFeedView(feed: activity, titles: titles)
+                    ActivityFeedView(feed: activity, titles: titles, showsEverything: $showsEverything)
                 } else {
-                    BroadcastActivityView(entries: entries, titles: titles, openId: openEntry)
+                    BroadcastActivityView(entries: entries, titles: titles, openId: openEntry, showsEverything: $showsEverything)
                 }
-            case .summary: BroadcastSummaryView(board: board)
             }
         } footer: {
             SheetFooter(secondary: footer.secondary, primary: footer.primary?.title, cancel: { dismiss.afterThisEvent() },
@@ -200,82 +192,104 @@ struct BroadcastBoardSheet: View, Equatable {
                 }
             }
         }
-        // ⌘1–⌘3, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's tabs are not buttons of their own.
-        .modifier(TabShortcuts(items: BroadcastBoard.Tab.allCases, title: \.title, key: Self.key(of:), select: select))
-
-        // A question asked for: Board, then its block, once the tab has drawn it.
+        // ⌘1 and ⌘2, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's tabs are not buttons of their own.
+        .modifier(TabShortcuts(items: BroadcastBoard.Tab.allCases, title: \.title, key: Self.key(of:), select: { tab = $0 }))
+        // A question asked for: Tasks, its top, and that question in the pager.
         .task(id: focus?.id) {
             guard let focus, focus.run == board.runId else { return }
-            tab = .board
+            show(focus.key, proxy)
+        }
+        }
+    }
+
+    /// `key`'s question in Waiting on you, in view.
+    private func show(_ key: String, _ proxy: ScrollViewProxy) {
+        tab = .tasks
+        shownQuestion = key
+        Task { @MainActor in
             await Task.yield()
-            proxy.scrollTo(Self.scrollTarget(focus.key, on: board), anchor: .top)
-        }
+            proxy.scrollTo(Self.topId, anchor: .top)
         }
     }
 
-    /// Settings' tab bar, the underline `TabBar`, Summary faded and disabled until there is one to read.
+    /// Settings' tab bar, the underline `TabBar`.
     private var tabBar: some View {
-        TabBar(values: BroadcastBoard.Tab.allCases, selection: Binding(get: { Self.shownTab(tab, on: board) }, set: { select($0) }),
-               isSelectable: board.isSelectable) { item in
-            Text(item.title)
-        }
+        TabBar(values: BroadcastBoard.Tab.allCases, selection: $tab) { item in Text(item.title) }
     }
 
-    private func select(_ item: BroadcastBoard.Tab) {
-        guard board.isSelectable(item) else { return }
-        tab = item
+    /// The Tasks tab, top to bottom.
+    private func tasks(_ proxy: ScrollViewProxy) -> some View {
+        VStack(alignment: .leading, spacing: Space.block) {
+            if !board.waiting.isEmpty {
+                WaitingOnYou(questions: board.waiting, shown: $shownQuestion, actions: actions, choose: choose, drafts: $drafts)
+            }
+            if board.summary != .notYet { BroadcastSummaryView(summary: board.summary, goalOutcome: board.goalOutcome) }
+            if !board.leftForYou.isEmpty { LeftForYouList(items: board.leftForYou) }
+            if board.listed.isEmpty {
+                HelpText(BroadcastBoard.nothingPlanned, fixedVerticalSize: false)
+            } else {
+                VStack(alignment: .leading, spacing: Space.base) {
+                    ForEach(board.listed) { lane in stage(lane, proxy) }
+                }
+            }
+            if !board.snags.isEmpty { WorkedAroundList(board: board) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .id(Self.topId)
     }
 
     /// The board's tasks' titles by id, for Activity's lines.
     private var titles: [UUID: String] {
-        Dictionary(board.columns.flatMap(\.cards).map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
-    }
-
-    /// The columns, `Space.gap` apart, from the content's leading margin to its trailing one: the sheet's scroll
-    /// carries them sideways and down.
-    private var columns: some View {
-        HStack(alignment: .top, spacing: Space.gap) {
-            ForEach(board.columns) { lane in column(lane).frame(width: Sheet.boardColumn) }
-        }
+        Dictionary(board.stages.flatMap(\.cards).map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
     }
 
     private func choose(_ opens: BroadcastBoard.Opens) {
         Self.choose(opens, dismiss: { dismiss.afterThisEvent() }, actions: actions)
     }
 
-    /// A heading `Space.base` over its cards, which are `Space.gap` apart.
-    private func column(_ lane: BroadcastBoard.Lane) -> some View {
-        VStack(alignment: .leading, spacing: Space.base) {
+    /// A stage: its heading over its rows, which stand `Space.base` past the content's margins, as Activity's do.
+    private func stage(_ lane: BroadcastBoard.Lane, _ proxy: ScrollViewProxy) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             BoardHeading(title: lane.title, count: lane.cards.count)
-            VStack(alignment: .leading, spacing: Space.gap) {
-                if lane.cards.isEmpty {
-                    // At the card's own inset, so it reads on the line of the cards' titles beside it.
-                    HelpText(lane.empty, fixedVerticalSize: false).padding(.vertical, Space.block)
+            ForEach(lane.cards) { card in
+                let question = Self.shows(card.id, on: board)
+                BoardRow(card: card, question: question, actions: actions) {
+                    if let question { show(question, proxy) } else { choose(card.opens) }
                 }
-                ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose, actions: actions).equatable() }
+                .equatable()
+                .padding(.horizontal, -Space.base)
             }
         }
     }
 
-    /// A header line: its label in `Palette.text` at medium weight, the rest muted, in `Typography.help`, one line cut
-    /// at its end, the whole of it in its tooltip.
-    private static func headerLine(_ clause: BroadcastBoard.Clause) -> some View {
+    /// The header's line of the brief: its label in `Palette.text` at medium weight, the rest muted, in
+    /// `Typography.help`, one line cut at its end; `brief`, the whole of it, is its tooltip and what VoiceOver reads.
+    private static func headerLine(_ clause: BroadcastBoard.Clause, brief: String) -> some View {
         HelpText(Text("\(Text(verbatim: clause.label).fontWeight(.medium).foregroundStyle(Palette.text)) \(clause.text)"),
                  fixedVerticalSize: false)
-            .lineLimit(1).truncationMode(.tail).help(clause.whole)
+            .lineLimit(1).truncationMode(.tail).help(brief)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(brief)
     }
 }
 
 #if DEBUG
 extension BroadcastBoardSheet {
-    /// The sheet already on `tab`, Activity listing `entries` with `open` open: what only clicks and a run folder
-    /// reach in the app, for the snapshots.
-    func seeded(tab: BroadcastBoard.Tab, entries: [ActivityEntry] = [], open: UUID? = nil) -> Self {
+    /// The sheet already on `tab`, Activity listing `entries` with `open` open and, with `everything`, the looking too:
+    /// what only clicks and a run folder reach in the app, for the snapshots.
+    func seeded(tab: BroadcastBoard.Tab, entries: [ActivityEntry] = [], open: UUID? = nil, everything: Bool = false) -> Self {
         var sheet = self
         sheet._tab = State(initialValue: tab)
+        sheet._showsEverything = State(initialValue: everything)
         sheet.entries = entries
         sheet.openEntry = open
+        return sheet
+    }
+
+    /// The sheet with Waiting on you on `key`'s question: what only the pager's clicks reach, for the snapshots.
+    func showing(question key: String) -> Self {
+        var sheet = self
+        sheet._shownQuestion = State(initialValue: key)
         return sheet
     }
 }
@@ -286,63 +300,91 @@ extension BroadcastBoardSheet {
 private struct ActivityFeedView: View {
     let feed: ActivityFeed
     let titles: [UUID: String]
+    @Binding var showsEverything: Bool
 
-    var body: some View { BroadcastActivityView(entries: feed.entries, titles: titles) }
+    var body: some View { BroadcastActivityView(entries: feed.entries, titles: titles, showsEverything: $showsEverything) }
 }
 
-/// A column's head: a `SidebarHeading` and its count in `Typography.chip.tabular`,
-/// `Size.menuRow` tall.
+/// A section's head on the sheet: a `SidebarHeading` and its count in `Typography.chip.tabular`, `Size.menuRow` tall.
+/// With no count, the heading alone.
 struct BoardHeading: View {
     let title: String
-    let count: Int
+    var count: Int? = nil
 
     var body: some View {
         HStack(spacing: Space.snug) {
             SidebarHeading(title)
-            Text(verbatim: "\(count)").font(Typography.chip.tabular).foregroundStyle(Palette.muted)
+            if let count { Text(verbatim: "\(count)").font(Typography.chip.tabular).foregroundStyle(Palette.muted) }
         }
         .frame(height: Size.menuRow)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title), \(count)")
+        .accessibilityLabel(count.map { "\(title), \($0)" } ?? title)
     }
 }
 
-/// A task on the board (spec §4, §13): a `groupChrome` box, `Space.block` inside, its lines `Space.base` apart (the
-/// broadcast's sheet, 3B, 29 Oct 2026). Its agent's
-/// `VendorMark` on every card, started or not (spec §15.4), and beside it, on the title's leading edge as
-/// on a task row, the title, two lines at most; then the quiet Jira and merge-request `Badge`s a task row
-/// wears, and the project when the broadcast spans several, never the branch; then its status line, one
-/// `Size.chip` line: the task's `OperatorBadge`, or `taken over` with no badge. A card
-/// that needs you has its edge in `Palette.statusChipAttentionStroke` and the needs-you badge, nothing more:
-/// the card is the action. Its tooltip is the model the Operator chose and why. A task with several worker
-/// tabs lists them under a `Hairline` (`BoardTabLine`), each its own button, the card's click above them.
+/// A task on the sheet (14 Nov 2026): the sidebar's driven-task row, from the same parts. `SidebarRowContent` lays out
+/// its `AvatarGroupView`, then the title (`RowTitle`, in the secondary ink while it is queued) over a `Size.chip` line:
+/// the task's `OperatorBadge`, or `taken over` with no badge, and trailing it the quiet Jira and merge-request `Badge`s a
+/// task row wears (`TaskBadges`); then the row's `TaskRowMarkView`, the mark its sidebar row has. `Space.base` inside,
+/// `Size.row` tall, in a `RowPill` on the sheet's ground that washes it while hovered.
 ///
-/// On a broadcast set up with the Task step (14A, 17A), the first worker's model and reasoning sit on a line of their
-/// own under the badges, in `Typography.caption` and `Palette.muted`, never cut short (a card with several tabs puts
-/// each under its tab's key instead); and while the task runs, `ends at` and its end as a `Badge` on the line under
-/// that, whose menu picks another, Merge and Local merge disabled while the Merge slice is off. The badge takes its own
-/// click. A task out of its fix rounds (16) has, under the card's rule, a `Hairline` as over the tabs, the last
-/// verdict's counts in a `HelpText` when one was recorded, then One More Round and Accept As It Is as links, `Space.gap`
-/// apart and `Space.base` under it; once you answered, what you answered in their place, until the question is
-/// resolved. A worktree the closing kept says why there, in a `HelpText`, once the closing recorded it. A question for
-/// you about the task is there too (`questionLines`): `question for you` when it doesn't hold the task, its text, and
-/// Answer…; the card is then edged in the attention stroke whatever its line. Equatable by its card alone, so a change to
-/// another card redraws this one not at all.
-struct BoardCardView: View, Equatable {
+/// Under its status line, on the title's edge, the one line a row may add (`Card.help`): why its worktree was kept, what its closing
+/// waits for, or that the Oracle refused its merge, the reason in that line's tooltip. Its own tooltip is its project
+/// when the broadcast spans several, the model the Operator chose and why, and what its worker asks the Operator
+/// (`Card.tooltip`).
+///
+/// Its click closes the sheet and brings forward what resolves it, or shows its question in Waiting on you when it has
+/// one answered there (`question`); a task not started, and every row of a shelved board, is no button. Its menu,
+/// while the Operator drives it: its end, the four ends under `Cart drawer ends at`, the current one ticked and those
+/// the Merge slice keeps out disabled; then the Operator's items of its sidebar row (Take Over or Hand Back, Stop
+/// Task…). No test opens the menu: AppKit's menu tracking blocks inside `sendEvent` until it closes. Equatable by its
+/// card and the question its click shows, so a change to another task redraws this row not at all, and answering one of
+/// its questions redraws it for the next; it reads nothing of the app's live state while it draws, its menu included,
+/// for the same reason.
+struct BoardRow: View, Equatable {
     let card: BroadcastBoard.Card
-    /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
-    let choose: (BroadcastBoard.Opens) -> Void
-    /// What its end line and its fix rounds' links do.
+    /// The question its click shows in the sheet instead of opening a window, by its key; nil when it opens what its
+    /// card says. Compared, since the click's closure holds it: a second question of the task is another row.
+    let question: String?
     let actions: BoardActions
+    let click: () -> Void
     @State private var hovered = false
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.card == rhs.card }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.card == rhs.card && lhs.question == rhs.question }
 
-    init(card: BroadcastBoard.Card, choose: @escaping (BroadcastBoard.Opens) -> Void, actions: BoardActions) {
-        self.card = card; self.choose = choose; self.actions = actions
+    init(card: BroadcastBoard.Card, question: String? = nil, actions: BoardActions, click: @escaping () -> Void) {
+        self.card = card; self.question = question; self.actions = actions; self.click = click
+    }
+
+    private var showsQuestion: Bool { question != nil }
+
+    /// Whether the row is a button: it opens something, or shows its question.
+    static func isButton(_ card: BroadcastBoard.Card, showsQuestion: Bool) -> Bool {
+        showsQuestion || BroadcastBoardSheet.isButton(card.opens)
+    }
+
+    /// What VoiceOver says the row's click does.
+    static func hint(_ card: BroadcastBoard.Card, showsQuestion: Bool) -> String {
+        showsQuestion ? "Shows its question under Waiting on you." : hint(opens: card.opens)
+    }
+
+    /// What VoiceOver says opening `opens` does: a row's click, or a question's button.
+    static func hint(opens: BroadcastBoard.Opens) -> String {
+        switch opens {
+        case .taskWindow: "Opens the task’s window."
+        case .prompt: "Brings its tab to the front."
+        case .operatorWindow: "Opens the Operator’s window."
+        case .sidebarBanner: "Shows the problem in the sidebar’s banner."
+        case .nothing: ""
+        }
+    }
+
+    /// The row's mark, as its sidebar row decides it.
+    static func mark(of card: BroadcastBoard.Card) -> TaskRowMark {
+        TaskRowMark(status: card.status, line: card.line, removing: false, queued: card.queued, paused: card.paused)
     }
 
     var body: some View {
@@ -350,215 +392,59 @@ struct BoardCardView: View, Equatable {
         let _ = bodyCounter?.count(card.id)
         #endif
         VStack(alignment: .leading, spacing: 0) {
-            if BroadcastBoardSheet.isButton(card.opens) {
-                Button { choose(card.opens) } label: { head }
+            if Self.isButton(card, showsQuestion: showsQuestion) {
+                Button(action: click) { row }
                     .buttonStyle(.plain)
-                    .onHover { hovered = $0 }
-                    .accessibilityHint(Text(Self.hint(card.opens)))
+                    .accessibilityHint(Text(Self.hint(card, showsQuestion: showsQuestion)))
             } else {
-                head
-            }
-            if !card.tabs.isEmpty { tabs }
-            if hasFoot { foot }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .groupChrome(fill: hovered ? Palette.cardHoverSolid : Palette.surfaceRaised,
-                     edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
-        .help(card.modelTooltip ?? "")
-    }
-
-    /// The card's own part, its click's: the mark and the lines, `Space.block` inside, the tabs' hairline included.
-    private var head: some View {
-        HStack(alignment: .top, spacing: Space.base) {
-            if let agent = card.agent { VendorMark(agent: agent.session, size: Size.avatar) }
-            lines
-        }
-        .padding(Space.block)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    /// The worker tabs under a `Hairline`, `Space.gap` apart.
-    private var tabs: some View {
-        VStack(alignment: .leading, spacing: Space.gap) {
-            ForEach(card.tabs) { tab in BoardTabLine(tab: tab, choose: { choose(tab.opens) }) }
-        }
-        .ruled()
-    }
-
-    private var hasFoot: Bool { card.fixRounds != nil || card.notice != nil || card.question != nil || card.workerAsks != nil }
-
-    /// What a card says under its rule: why its worktree was kept, or a task out of its fix rounds' counts and its
-    /// answers, or what you answered.
-    private var foot: some View {
-        VStack(alignment: .leading, spacing: Space.base) {
-            if let notice = card.notice { HelpText(notice) }
-            // Its worker's question, the Operator's to answer or relay: muted, no link.
-            if let asks = card.workerAsks { HelpText(asks).lineLimit(2).help(asks) }
-            if let question = card.question { questionLines(question) }
-            if let fixRounds = card.fixRounds {
-                if let counts = fixRounds.counts { HelpText(counts) }
-                if let answered = fixRounds.answered {
-                    HelpText(Self.answered(answered))
-                } else {
-                    HStack(spacing: Space.gap) {
-                        ForEach(BroadcastBoard.FixRoundsAnswer.allCases, id: \.self) { answer in
-                            Button(answer.title) { actions.answerFixRounds(card.id, answer) }.buttonStyle(.link).font(Typography.help)
-                        }
-                    }
-                }
+                row
             }
         }
-        .ruled()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(RowPill(selected: false, hovered: hovered && Self.isButton(card, showsQuestion: showsQuestion), ground: .sheet))
+        .onHover { hovered = $0 }
+        .help(card.tooltip ?? "")
+        .contextMenu { menu }
     }
 
-    /// A question for you about the task: `question for you` when it doesn't hold the task (one that holds is the card's
-    /// line already), its text in a `HelpText`, three lines at most and whole in its tooltip, and Answer… as a link to
-    /// its block under Waiting on you, above the columns.
-    private func questionLines(_ question: BroadcastBoard.CardQuestion) -> some View {
-        VStack(alignment: .leading, spacing: Space.base) {
-            if !question.holds { OperatorBadge(line: Self.questionForYou) }
-            let text = question.asker == .worker ? "From its worker: " + question.text : question.text
-            HelpText(text).lineLimit(3).help(text)
-            Button("Answer…") { actions.showQuestion(question.key) }.buttonStyle(.link).font(Typography.help)
-                .accessibilityHint(Text("Shows the question under Waiting on you."))
-        }
-    }
-
-    /// The chip a question that doesn't hold its task adds to its card.
-    static let questionForYou = OperatorLine("question for you", look: .needsYou)
-
-    /// What the card says once you answered its fix rounds: `You answered: one more round.`
-    static func answered(_ answer: BroadcastBoard.FixRoundsAnswer) -> String { "You answered: \(answer.words)." }
-
-    private var lines: some View {
-        VStack(alignment: .leading, spacing: Space.base) {
-            Text(card.title).font(Typography.body).foregroundStyle(Palette.text)
-                .lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-            if card.ticket != nil || card.mr != nil || card.project != nil {
+    private var row: some View {
+        SidebarRowContent(avatars: card.avatars) {
+            VStack(alignment: .leading, spacing: Space.tight) {
+                RowTitle(card.title, dimmed: card.queued)
                 HStack(spacing: Space.gap) {
-                    TaskBadges(ticket: card.ticket, ticketSummary: card.ticketSummary, mr: card.mr, mrHost: card.mrHost, mrTitle: card.mrTitle)
-                    if let project = card.project {
-                        Text(project).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
+                    if card.takenOver {
+                        Text("taken over").font(Typography.help).foregroundStyle(Palette.muted)
+                    } else if let line = card.line {
+                        OperatorBadge(line: line)
                     }
+                    Spacer(minLength: Space.gap)
+                    TaskBadges(ticket: card.ticket, ticketSummary: card.ticketSummary, mr: card.mr, mrHost: card.mrHost, mrTitle: card.mrTitle)
                 }
                 .frame(height: Size.chip)
+                if let help = card.help { HelpText(help).help(card.mergeRefusal ?? "") }
             }
-            if let combination = card.combination {
-                Text(verbatim: combination).font(Typography.caption).foregroundStyle(Palette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let end = card.end { BoardEndLine(title: card.title, end: end) { actions.changeEnd(card.id, $0) } }
-            if card.takenOver {
-                Text("taken over").font(Typography.help).foregroundStyle(Palette.muted).frame(height: Size.chip)
-            } else if let line = card.line {
-                OperatorBadge(line: line)
-            }
-            if let refusal = card.mergeRefusal {
-                HelpText("merge refused by the Oracle").help(refusal)
-            }
+        } mark: {
+            TaskRowMarkView(mark: Self.mark(of: card), size: Size.statusMark)
         }
+        .padding(Space.base)
+        .frame(minHeight: Size.row)
+        .contentShape(Rectangle())
     }
 
-    /// What VoiceOver says a card's click does.
-    static func hint(_ opens: BroadcastBoard.Opens) -> String {
-        switch opens {
-        case .taskWindow: "Opens the task’s window."
-        case .tab, .prompt: "Brings this tab to the front."
-        case .operatorWindow: "Opens the Operator’s window."
-        case .sidebarBanner: "Shows the problem in the sidebar’s banner."
-        case .nothing: ""
-        }
-    }
-}
-
-private extension View {
-    /// A card's part under its rule: a `Hairline`, `Space.block` clear of it, of the card's edges and of what is
-    /// above it.
-    func ruled() -> some View {
-        padding(.top, Space.block)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .top) { Hairline() }
-            .padding([.horizontal, .bottom], Space.block)
-    }
-}
-
-/// A running card's end line (17A), a `Size.chip` line: `ends at` in `Typography.caption` and `Palette.muted`, then
-/// `Space.base` on its end as a `Badge` whose menu, headed `Cart drawer ends at`, lists the four ends, the current one
-/// ticked and those the Merge slice keeps out disabled. No test clicks the badge: AppKit's menu tracking blocks inside
-/// `sendEvent` until the menu closes.
-struct BoardEndLine: View {
-    let title: String
-    let end: BroadcastBoard.EndLine
-    let pick: (TaskEnd) -> Void
-
-    var body: some View {
-        HStack(spacing: Space.base) {
-            Text("ends at").font(Typography.caption).foregroundStyle(Palette.muted)
-            Badge(end.current.displayName, accessibilityLabel: "Ends at \(end.current.displayName)") {
-                Section("\(title) ends at") {
-                    ForEach(TaskEnd.allCases, id: \.self) { item in
-                        Toggle(item.title, isOn: Binding(get: { item == end.current }, set: { if $0 { pick(item) } }))
-                            .disabled(!end.selectable.contains(item))
-                    }
+    /// The task's end, then the Operator's items its sidebar row has.
+    @ViewBuilder private var menu: some View {
+        if let end = card.end {
+            Section("\(card.title) ends at") {
+                ForEach(TaskEnd.allCases, id: \.self) { item in
+                    Toggle(item.title, isOn: Binding(get: { item == end.current }, set: { if $0 { actions.changeEnd(card.id, item) } }))
+                        .disabled(!end.selectable.contains(item))
                 }
             }
-            .fixedSize()
         }
-        .frame(height: Size.chip)
-    }
-}
-
-/// One worker tab on a card (P5 A), a `Size.chip` line: the tab's agent's `VendorMark` at `Size.inlineMark`,
-/// centred under the card's `Size.avatar` mark; its key in `Typography.chip.tabular` and `Palette.text` on the
-/// title's leading edge; its state `Space.base` after it, an `OperatorBadge` (needs you in the attention chip);
-/// its `StatusMark` at `Size.statusMarkSmall` trailing; under it, on a broadcast set up with the Agents step, the tab's
-/// model and reasoning on a `Size.chip` line of their own on the key's edge, in `Typography.caption` and `Palette.muted`.
-/// Hovered, `Palette.badgeHovered` at `Radius.chip`, `Space.tight` beyond the line. Its click closes the board and
-/// brings the tab forward; a closed tab is muted, with no mark, and is no button.
-struct BoardTabLine: View {
-    let tab: BroadcastBoard.TabLine
-    let choose: () -> Void
-    @State private var hovered: Bool = false
-
-    init(tab: BroadcastBoard.TabLine, choose: @escaping () -> Void) {
-        self.tab = tab; self.choose = choose
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if BroadcastBoardSheet.isButton(tab.opens) {
-                Button(action: choose) { line }
-                    .buttonStyle(.plain)
-                    .onHover { hovered = $0 }
-                    .accessibilityHint(Text(BoardCardView.hint(tab.opens)))
-            } else {
-                line
-            }
-            if let combination = tab.combination {
-                Text(verbatim: combination).font(Typography.caption).foregroundStyle(Palette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, Size.avatar + Space.base).frame(minHeight: Size.chip)
-            }
+        // From the card's own facts: a closure reading the app's state here would redraw every row with it.
+        if let stoppable = card.stoppable {
+            OperatorMenuButtons(items: OperatorMenus.task(takenOver: card.takenOver, stoppable: stoppable)) { actions.perform($0, card.id) }
         }
-    }
-
-    private var line: some View {
-        HStack(spacing: 0) {
-            VendorMark(agent: tab.agent.session, size: Size.inlineMark).frame(width: Size.avatar)
-            Text(verbatim: tab.key).font(Typography.chip.tabular).foregroundStyle(tab.isClosed ? Palette.muted : Palette.text)
-                .lineLimit(1).fixedSize().padding(.leading, Space.base)
-            OperatorBadge(line: tab.line).padding(.leading, Space.base)
-            Spacer(minLength: Space.tight)
-            if let status = tab.status { StatusMark(status: status, size: Size.statusMarkSmall) }
-        }
-        .frame(height: Size.chip)
-        .background {
-            if hovered { RoundedRectangle(cornerRadius: Radius.chip).fill(Palette.badgeHovered).padding(-Space.tight) }
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(tab.key), \(tab.line.tooltip)")
     }
 }
 

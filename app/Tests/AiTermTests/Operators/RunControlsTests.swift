@@ -69,9 +69,9 @@ import Testing
         #expect(world.task(accepted.id)?.operated?.state == .accepted && world.task(accepted.id)?.operated?.takenOver == false)
         // The Shelf's board keeps what was in flight, yours, In progress beside what was done.
         let shelved = BroadcastBoard.shelved(run: try #require(world.run(run.id)), state: world.state)
-        let lanes = Dictionary(uniqueKeysWithValues: shelved.columns.map { ($0.column, Set($0.cards.map(\.id))) })
+        let lanes = Dictionary(uniqueKeysWithValues: shelved.stages.map { ($0.stage, Set($0.cards.map(\.id))) })
         #expect(lanes[.inProgress] == [working.id, blocked.id] && lanes[.done] == [accepted.id])
-        #expect(shelved.columns.flatMap(\.cards).filter(\.takenOver).count == 2)
+        #expect(shelved.stages.flatMap(\.cards).filter(\.takenOver).count == 2)
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
         #expect(world.daemon.requests("session.setOwnership").map { $0.params["sessionId"] as? String } == ["w1"])
     }

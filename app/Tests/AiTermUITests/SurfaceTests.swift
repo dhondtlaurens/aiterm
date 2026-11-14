@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 struct SurfaceTests {
-    private static let every: [Surface] = [.sidebar, .hover, .washed, .washedHover, .selected, .selectedOnSheet, .accent, .sheet]
+    private static let every: [Surface] = [.sidebar, .hover, .hoverOnSheet, .washed, .washedHover, .selected, .selectedOnSheet, .accent, .sheet]
 
     @Test func accentSurfaceInksWhite() {
         // On the accent — a primary button's label — every mark and label turns
@@ -29,7 +29,7 @@ struct SurfaceTests {
     }
 
     @Test func restingSurfacesUseThePaletteInk() {
-        for surface in [Surface.sidebar, .hover, .sheet] {
+        for surface in [Surface.sidebar, .hover, .hoverOnSheet, .sheet] {
             #expect(ColorProbe.rgba(surface.ink) == ColorProbe.rgba(Palette.text))
             #expect(!surface.isOnAccent)
         }
@@ -78,6 +78,7 @@ struct SurfaceTests {
         // row sits on, the sidebar's or the sheet's.
         #expect(Icon.hexString(Surface.sidebar.occludingBackground) == Icon.hexString(Palette.sidebar))
         #expect(Icon.hexString(Surface.hover.occludingBackground) == Icon.hexString(Palette.rowHoverSolid))
+        #expect(Icon.hexString(Surface.hoverOnSheet.occludingBackground) == Icon.hexString(Palette.rowHoverOnSheetSolid))
         #expect(Icon.hexString(Surface.selected.occludingBackground) == Icon.hexString(Palette.selectedSolid))
         #expect(Icon.hexString(Surface.selectedOnSheet.occludingBackground) == Icon.hexString(Palette.selectedOnSheetSolid))
         #expect(Icon.hexString(Surface.accent.occludingBackground) == Icon.hexString(Palette.accent))

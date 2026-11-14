@@ -195,7 +195,7 @@ import Testing
         worker.model = "claude-opus-5-5"
         worker.reasoning = "high"
         controller.live.handle(.sessionOpened(worker))
-        func tooltip() -> String? { rows.board?.columns.flatMap(\.cards).first?.modelTooltip }
+        func tooltip() -> String? { rows.board?.stages.flatMap(\.cards).first?.modelTooltip }
 
         let start = rows.derivations
         worker.model = "claude-sonnet-5-5"

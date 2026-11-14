@@ -108,7 +108,7 @@ extension AppController {
         sheets.present(operatorSheet: .broadcastBoard(id))
     }
 
-    /// Open on the Shelf, for an ended broadcast: its sheet, read-only on Summary, in the Shelf's place. The live
+    /// Open on the Shelf, for an ended broadcast: its sheet, read-only, in the Shelf's place. The live
     /// broadcast's is the sidebar's (`presentBoard`).
     func presentShelved(run id: UUID) {
         guard state.run(id: id)?.hasEnded == true else { return }
@@ -248,11 +248,6 @@ extension AppController {
         attempt("Couldn’t change the task’s end") { try controller.changeEnd(of: task, to: end) }
     }
 
-    func answerFixRounds(of task: UUID, _ answer: BroadcastBoard.FixRoundsAnswer) {
-        let controller = operatorController
-        attempt("Couldn’t answer the task’s fix rounds") { try controller.answerFixRounds(of: task, answer) }
-    }
-
     func answer(question key: String, in run: UUID, with text: String) {
         let controller = operatorController
         attempt("Couldn’t answer the question") { try controller.answer(question: key, in: run, with: text) }
@@ -299,8 +294,8 @@ extension AppController {
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer
     /// the active one. End Broadcast… asks first and closes the board once it ended, and only then: a failed end keeps it up. A complete
-    /// broadcast's End Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's. A card's
-    /// end menu and its fix-rounds links act on its task, what is refused said in the banner.
+    /// broadcast's End Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's. A row's
+    /// menu acts on its task as its sidebar row's does, what is refused said in the banner.
     func boardActions(for id: UUID, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
         BoardActions(
             open: { [weak self] opens in self?.open(opens, run: id) },
@@ -314,9 +309,12 @@ extension AppController {
             },
             startFresh: { [weak self] in self?.onActiveRun(id) { self?.startFresh($0) } },
             changeEnd: { [weak self] task, end in self?.onActiveRun(id) { _ in self?.changeEnd(of: task, to: end) } },
-            answerFixRounds: { [weak self] task, answer in self?.onActiveRun(id) { _ in self?.answerFixRounds(of: task, answer) } },
             answer: { [weak self] key, text in self?.onActiveRun(id) { _ in self?.answer(question: key, in: id, with: text) } },
-            showQuestion: { [weak self] key in self?.onActiveRun(id) { _ in self?.showQuestion(key, run: id) } })
+            perform: { [weak self] item, task in
+                self?.onActiveRun(id) { _ in
+                    if let self, let task = self.state.task(id: task) { self.perform(item, on: task) }
+                }
+            })
     }
 
     /// `work` on the broadcast with this id, as it is now, while it is the active one.
@@ -325,15 +323,14 @@ extension AppController {
         work(run)
     }
 
-    /// What a card's click opens, the board already closed (spec §4, §13): the task's window, or the
+    /// What a row's click opens, the board already closed (spec §4, §13): the task's window, or the
     /// Operator's — raised when it is open, reopened in front when it is closed. A problem AiTerm hit is the
     /// sidebar banner's, which already shows it with its recovery: nothing else comes forward. Nothing at all
-    /// once the broadcast is no longer the active one: a card never acts on an ended broadcast.
+    /// once the broadcast is no longer the active one: a row never acts on an ended broadcast.
     func open(_ opens: BroadcastBoard.Opens, run id: UUID) {
         guard let run = state.activeRun, run.id == id else { return }
         switch opens {
         case .taskWindow(let task): focus.select(.task(task))
-        case .tab(let task, let session): bringTab(task: task, sessionId: session)
         case .prompt(let task, let tab): choose(task: task, tab: tab)
         case .operatorWindow: openOperatorWindow(run)
         case .sidebarBanner, .nothing: break
@@ -342,7 +339,7 @@ extension AppController {
 
     /// One of a task's worker tabs in front (P5 A): its row selected and its window raised as a row's click raises
     /// it, then that tab selected in the window and the window brought forward with it (`session.activate`), so the
-    /// tab stands in front whatever the window showed last. A board card's tab line brings its tab; a driven row's
+    /// tab stands in front whatever the window showed last. A prompt's Open Its Window brings its tab; a driven row's
     /// click brings `TaskItem.tabToBring(sessions:requests:)`'s. A tab gone meanwhile leaves the window as raised.
     @discardableResult
     func bringTab(task id: UUID, sessionId: String) -> Task<Void, Never> {

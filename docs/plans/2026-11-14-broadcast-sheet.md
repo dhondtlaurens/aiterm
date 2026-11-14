@@ -1,7 +1,8 @@
 # Rebuild the broadcast's sheet around its two jobs: answering what waits on you, and seeing where each task is
 
 Status: design picked on 2026-11-14 on the Proposals tab of `docs/design/design-system.html`
-("The broadcast's sheet", commit `51953c32`). Not built yet. This replaces part 3 of
+("The broadcast's sheet", commit `51953c32`). Built, gated and reviewed on `feat/design-polish`, not yet merged.
+The first three steps were built as one change before the package was built again. This replaces part 3 of
 `2026-11-13-design-polish.md`; part 2 of that plan (two-pane Settings) is dropped.
 
 ## Goal
@@ -146,15 +147,15 @@ Create: nothing outside tests, unless the pager's rules read better in a file of
 Each step ends with the package building and its tests green: a model member leaves in the same step
 as the last view, snapshot and test that reads it.
 
-- [ ] The Tasks tab as one list: the model's stages, listed order and row facts (shared with the
+- [x] The Tasks tab as one list: the model's stages, listed order and row facts (shared with the
       sidebar's row), tooltip and help line; the row, its click and its menu in the sheet; the kanban's
       card, tab lines and end line removed with their snapshots and tests; the sheet at 640 with one
       line of the brief. Waiting on you and the three tabs still as they are.
-- [ ] The summary on the first view: three views, Left for you from its first item, the Summary tab,
+- [x] The summary on the first view: three views, Left for you from its first item, the Summary tab,
       `firstTab` and `isSelectable` removed in this step with the tests that read them; two tabs.
-- [ ] The one question block and the pager, with the question's note; a waiting row's click shows its
+- [x] The one question block and the pager, with the question's note; a waiting row's click shows its
       question; the card's question and fix rounds removed from the model in this step.
-- [ ] Activity's filter and link; tests.
-- [ ] Snapshots and their pinned list; every image read.
-- [ ] Docs, the README inventory, the design page synced with the proposal removed and published.
+- [x] Activity's filter and link; tests.
+- [x] Snapshots and their pinned list; every image read.
+- [x] Docs, the README inventory, the design page synced with the proposal removed and published.
 - [ ] Gate, review, one commit, `scripts/test.sh all`; stop before the merge.

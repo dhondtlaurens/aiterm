@@ -44,9 +44,9 @@ final class SidebarProjection {
     /// Whether a sheet that names models without the live board is showing, the Shelf's, read on every derivation: the
     /// labels are read as it opens, and no board is derived for it.
     @ObservationIgnored var labelsWanted: @MainActor () -> Bool = { false }
-    /// Reads the agents' model labels, as Settings › Agents lists them, which the board's cards name a model by, live or
+    /// Reads the agents' model labels, as Settings › Agents lists them, which the board's rows name a model by in their tooltips, live or
     /// on the Shelf: blocking, so run off the main actor each time either sheet opens. The app points it at its model catalogue; nil reads
-    /// nothing, and a card names a model by its id.
+    /// nothing, and a row names a model by its id.
     @ObservationIgnored var modelLabelSource: (@Sendable () -> BroadcastBoard.ModelLabels)?
     /// The labels last read, or set by a snapshot; a change derives the board again, and redraws the Shelf's, which
     /// reads them.
@@ -95,7 +95,7 @@ final class SidebarProjection {
         /// What each of the board's tasks' Claude workers runs now, which `sessions` leaves out: read from every tab only
         /// while the board shows, since nothing else draws it.
         var liveModels: [UUID: BroadcastBoard.LiveModel]
-        /// What the board's cards name each model by, read only while the board shows.
+        /// What the board's rows name each model by, read only while the board shows.
         var modelLabels: BroadcastBoard.ModelLabels
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
         var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>, boardShown: Bool, labelsWanted: Bool

@@ -15,6 +15,10 @@ public extension OperatedTask {
             || (state == .accepted && (end == .commit || publication?.leftForYou == true))
     }
 
+    /// Whether Stop Task… is offered for it: while it is open, and while it is accepted with its publication not left for
+    /// you (it still awaits its `finish_task`). The one rule for its sidebar row's menu and its row's on the board.
+    public var isStoppable: Bool { state.isOpen || (state == .accepted && publication?.leftForYou != true) }
+
     /// Finished by reaching its end: published, accepted on a commit end, or ended with no change; not failed, stopped
     /// or with its publication left for you. The one rule for it: the broadcast's closing closes these tasks, and the
     /// board says which of them it kept.

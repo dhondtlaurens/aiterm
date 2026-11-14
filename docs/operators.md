@@ -2,7 +2,9 @@
 
 A broadcast gives the Operator one brief across selected projects. It plans tasks, starts their
 agents, reads their results and finishes accepted work. The sidebar's OPERATOR group contains its
-own row and the tasks it drives. Open its board from the heading to see Board, Activity and Summary.
+own row and the tasks it drives. Open its board from the heading: the Tasks tab has what waits on you, the
+Operator's summary once it is written, what it left for you and every task under its stage; the Activity
+tab is the record of what the Operator did.
 
 ## Set up a broadcast
 
@@ -92,8 +94,9 @@ with nobody at work and nothing moving for ten minutes wakes the Operator once, 
 for ten minutes`, until something moves again: never during its own turn, while paused, or once the
 broadcast is complete or ended.
 
-On the board, **ends at** changes one task's end. It clears a previous wait/refusal, retains a push
-or request already completed, and wakes the Operator. Changing to Commit after opening a request
+On the board, a task row's menu (right-click) changes that task's end under **ends at**. It clears a previous
+wait/refusal, retains a push or request already completed, and wakes the Operator. The same menu has Take Over
+or Hand Back and Stop Task…, as the task's sidebar row does. Changing to Commit after opening a request
 leaves that request for you.
 
 ## Your controls
@@ -118,25 +121,28 @@ and types nothing more. Take Over removes the Operator's authority over a task, 
 restores it. Stop Task ends that task's participation. Questions remain on the board for your
 answer; the Operator cannot answer permission prompts on your behalf.
 
-A question the Operator asks about a task (`ask_you` with a task) shows on that task's card. It
-holds the task, which then waits on you, isn't ready to accept and isn't watched for stalls, unless
-the Operator asked it with `holds: false` because the task can go on without the answer. Then the
-card keeps its own line, adds `question for you`, and the question still asks after the task
-finishes, until the Operator resolves it. Fix rounds and AiTerm's own questions always hold.
+A question the Operator asks about a task (`ask_you` with a task) holds the task, which then reads
+`waiting on you`, isn't ready to accept and isn't watched for stalls, unless the Operator asked it with
+`holds: false` because the task can go on without the answer. Then the task's row keeps its own line, and the
+question still asks after the task finishes, until the Operator resolves it. Fix rounds and AiTerm's own
+questions always hold.
 
-Every open question for you is listed under Waiting on you, above the Board tab's columns, oldest
-first: the Operator's, AiTerm's (a merge on the host, a command the Oracle stopped) and each worker
-tab's permission prompt. The Operator asks with `ask_you` and leaves one line in its chat, "Asked
-you in AiTerm: …". You answer in the question's block: a choice, or any answer and Send. AiTerm
+Every open question for you is under Waiting on you, at the top of the Tasks tab, one shown at a time,
+oldest first, with Previous and Next when more than one waits: the Operator's, AiTerm's (a merge on the
+host, a command the Oracle stopped) and each worker tab's permission prompt. Every question has the same
+block: whose task it is, who asks and how long ago; the question; its answers as buttons; and a field
+where any other answer is taken. The Operator asks with `ask_you` and leaves one line in its chat, "Asked
+you in AiTerm: …". You answer in the block: a button, or any answer and Send, and the next question that
+still waits is shown. AiTerm
 records it once on the question (`answeredHere`, in `run_status`) and wakes the Operator with a
 fixed line naming the task, never the answer; the Operator acts on it and resolves the question.
-Answering in the Operator's chat still works. A prompt's block only opens its window, since AiTerm
+Answering in the Operator's chat still works. A prompt's one button opens its window, since AiTerm
 never types a permission, and a stopped command's opens the Operator's chat, where it is allowed.
-A question's notification, the Operator row's click while it waits on a question, and a card's
-Answer… open the board at that block.
+A question's notification, the Operator row's click while it waits on a question, and the click of a
+task's row whose question is answered on the board show that question.
 
-A worker's question is the Operator's first: its card shows it muted under `asking the Operator`
-until the Operator answers it with `message_task` or relays it to you with `relay_question`. A relay
+A worker's question is the Operator's first: its task's row reads `asking the Operator`, the question
+in its tooltip, until the Operator answers it with `message_task` or relays it to you with `relay_question`. A relay
 takes no text: AiTerm reads the worker's own words from its last message, so the question in Waiting
 on you is the worker's, marked "relayed by the Operator", never a second one. The Oracle looks first,
 as the Done step's Worker questions sets it for the broadcast: Straight to you, Challenged once (the
@@ -154,10 +160,11 @@ With a goal, all tasks finishing wakes the Operator to call `check_goal`. A met 
 broadcast. A missing goal with rounds left permits planning only the missing work; finishing that
 round triggers another check. Exhausting the allowance, or finding nothing to plan and checking
 again with the goal still unmet, stops the loop and records what remains under Left for you.
-Summary distinguishes met, unmet and not checked by the Oracle.
+The summary, on the Tasks tab once the broadcast reached it, says met, unmet or not checked by the Oracle.
+What the Operator left for you is listed there from the first item, while the broadcast still runs.
 
 With closing enabled, completed tasks close after the summary is written or its wait expires, or
-when you End the broadcast. Their cards and recorded diffs remain readable. Stopped tasks and
+when you End the broadcast. Their rows on the board and recorded diffs remain readable. Stopped tasks and
 requests left for you stay open. Closing waits for active turns and a connected helper. It retains a
 task and says why if there are uncommitted/untracked changes, a different checked-out branch, tabs
 outside its window or a removal failure. Ignored files go with the worktree. Optional branch deletion
@@ -167,19 +174,19 @@ requires a merged end, the branch still at its accepted commit, merge evidence a
 is `awaitingSummary` until the summary is written or its wait expires, `pending` while AiTerm's cleanup
 is due, and `settled` once that completion's cleanup pass finishes. Settled can include retained
 worktrees: task lines expose `keptReason`, or `closingWait` while the pass waits for a turn or helper.
-The same reasons appear on their board cards. Closed tasks appear in `finished`; each record's
+The same reasons appear under their rows on the board. Closed tasks appear in `finished`; each record's
 `branchDeleted` says whether its local branch was deleted. Cleanup settling wakes the Operator to
 read the outcome; expiry of the summary wait also wakes it when cleanup becomes pending. AiTerm handles automatic cleanup; an untracked plan
 file is unsaved work and remains for you to preserve before removing its worktree. Ended broadcasts
 keep their board records, and their Operator tools remain disabled.
 
-`run_status` and the cards say what is true now. A task's `peopleReview` thread counts are read from
+`run_status` and the board's rows say what is true now. A task's `peopleReview` thread counts are read from
 the host on every call, in any state, and `reviewQuiet` follows that read; a host that can't be read
 leaves the last counts with `threadsNote`. `publicationProblem` is what keeps an accepted task's
-publication from going on, the sentence its card says `blocked` for. A problem left from a failed push
+publication from going on, the sentence its row says `blocked` for. A problem left from a failed push
 or host read goes once a later run gets past it, and a task back in review shows none. What waits for
 the Operator's next `finish_task` (a merge whose Oracle yes no longer covers refreshed evidence, an
-end changed to Merge) is a hold: its card says `accepted · waiting on the Operator` and asks you nothing.
+end changed to Merge) is a hold: its row says `accepted · waiting on the Operator` and asks you nothing.
 
 ## Tools
 
