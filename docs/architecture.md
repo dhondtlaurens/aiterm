@@ -22,7 +22,7 @@ a repository's lane. Jobs that block for seconds run on a `SerialThread`; one su
 separately owns long-running cancellable process groups.
 
 Commit ids, remote URLs, real paths and file stamps each have one Core home: `CommitId` (one rule
-for the push, the local merge and `record_review`), `RemoteURL` (the provider's reading and the
+for Git publication and guarded merge heads), `RemoteURL` (the provider's reading and the
 push's same-location key, which compares percent-decoded paths), `CanonicalPath` and
 `FileStamps.Stamp`. Process and git output take an optional limit and report truncation.
 
@@ -32,17 +32,17 @@ push's same-location key, which compares percent-decoded paths), `CanonicalPath`
 them, and exposes `flush()` for boundaries that must be durable before proceeding. `StateStore`
 atomically writes the file and maintains recovery copies. Invalid records fail at this boundary;
 they are never silently discarded and then overwritten with a partial workspace. Recovery keeps
-the unreadable bytes available. A backup must itself decode to be usable; historical unstructured
-broadcasts require cleanup in the installed build before switching, as described in
+the unreadable bytes available. A backup must itself decode to be usable. End running broadcasts in the installed build before
+switching to Signals, as described in
 [releasing](workflow/release.md).
 
-`AppState` stores projects, tasks, terminals, the shelf and structured Operator runs. Runtime jobs,
-current sessions and derived attention/readiness are separate. `LiveSessions`, `PerRow` and
-`SidebarProjection` keep observation scoped to what a row draws. One `SidebarPass` per derivation
-matches the live runs' requests and their tasks' worker tabs once, as of one time, for the headers,
-the rows and the board; the headings read only their own values. `CheckoutMonitor` samples Git off
-the main actor, reuses unchanged facts and coalesces title updates. Avoid whole-workspace reads in a
-leaf view or I/O in `body`.
+`AppState` stores projects, tasks, terminals, the archive, signals, seen items and one Operator
+session. `runs`, `foldedRuns` and task `operated` are retired, including in archived tasks; unknown
+non-retired keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
+and `SidebarProjection` scope observation to drawn facts. Signal headings compare `SignalHeadingValue`;
+menus resolve saved tasks at action time. Journals, reply markers and launch history do not redraw
+rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No leaf `body`
+performs I/O or reads the whole workspace.
 
 `AppController` composes owners. It takes its outside dependencies as `AppPorts` (live or scratch,
 the Fix pipeline among them) and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
@@ -64,59 +64,57 @@ head or an unsaved-work question runs on the shared pool. `TaskCreator` owns bra
 creation; worker retry reuses the existing worktree and its original baseline. Scheduling, focus,
 claim validation and uncertainty belong to their callers.
 
-`TaskLauncher` starts manual tasks and restores conversations. `WorkerStarter` claims ready tasks,
-prepares the same lower-level checkout operation, and launches workers in the background.
-`TabOpener` tags additional workers/reviewers in the task's window. A lost launch reply is resolved
-through tags, never a blind duplicate launch. Closing AiTerm prevents unstarted launches while
-allowing an already-requested window to be recorded.
+`TaskLauncher` starts manual tasks and restores conversations. `SignalWorkerIO` reuses `TaskWorkflow`
+for signal checkout/restore, guarded CLI launch, extra tabs, delivery and conversation recovery.
+Launch scope plus task/stage/ownership identifies an interrupted worker; adoption never repeats its
+prompt. Durable reply fingerprints distinguish a newly sent turn from the previous transcript.
+An accepted launch with no worker eventually blocks for inspection. Checkout work uses repository
+lanes while separate windows can open concurrently.
 
 `WindowReconciler` compares desired rows with tagged sessions. It adopts, restores, asks about a
 single user close or removes a terminal row. A pass runs when the tabs as a pass reads them move, a
 checkout reads missing or back, the workspace can change again, or a workspace change leaves a row
 owed a window; each checkout poll checks in memory whether a pass would act. `ClosedWindowTriage`
 distinguishes a lone close from iTerm2 shutting down. `TaskRemover`, `TaskArchiver` and
-`WorktreeTeardown` coordinate saved state, window closure and Git safety: Remove and Shelve share its
+`WorktreeTeardown` coordinate saved state, window closure and Git safety: Remove and Archive share its
 prepare (one `TaskWorkflow.preflight` listing, the unlisted-folder and unsaved-work questions) and
 its run (git's removal, asking again about work written while the window closed). A failed removal
 retains a recoverable task. See [windows](windows.md).
 
 ## Operator ownership
 
-The supported broadcast format has structured Agents, Task and Done settings. There is one
-execution path, generated brief and current model-selection policy. Sparse fields deliberately
-omitted by the current encoder still decode; historical broadcast format readers and unknown-field
-round-trip machinery are absent.
+Signals have one runtime and one Operator chat. A saved `SignalTask` owns one stage and an ordered
+pending-stage list. Item identity joins tickets, requests and branches to existing tasks. Associated
+enum kinds use inert unknown fallbacks rather than losing the workspace.
 
 | Owner | Decisions/effects |
 | --- | --- |
-| `RunScheduler`, `OperatedTransitions`, plan rules | Pure readiness, ownership and task/plan transitions; every edge is an `OperatedEdge` recorded through `OperatedTransitions.record`. |
-| `TaskLiveFacts`, `TaskItem.workerTabs(in:now:)` | One live projection per pass, with the launch window: the one readiness input for `run_status`, the reconciler, the row line and the board. |
-| `BroadcastCompletion` | Shared completion and goal-loop decisions used by runtime and tool adapters. |
-| `OperatorController` | Build owners in dependency order and hand them references (callbacks only carry events up), schedule work, reconcile runs and summaries. |
-| `OperatorWork` | The finite work owners start, which tests await as one `settled()`; the reconcile loop and a wake retry stay out of it. |
-| `RunStatusSource` | The one status builder every reader uses; a tick builds one snapshot per open run. |
-| `OperatorToolHandler` | Parse/validate MCP calls through the `OperatorTool` traits, invoke rules/effects and produce current tool replies; its tables change only through its own methods. |
-| `OracleJobs` | Challenge, relay, critique and gate jobs: Stop and quit cancel all, End its run's, a Settings save the unacted challenges; a late completion cannot settle its replacement. |
-| `WorkerPrompts` | Per-session prompt probes, post-delivery probes and generation-based cancellation. |
-| `WorkerTurnReader`, `WorkerQuietWatch` | Ended-turn facts and quiet/stall evidence; consume an immutable `WorkerSessions` index per pass. One record per worker. |
-| `TranscriptLocator` | Transcript tails read again only when the file's stamp changed, shared by the turn reader and `BranchWatch`; only a conversation's newest read keeps what it found. |
-| `OperatorWaker` | Coalesced notifications and safe wake delivery over the closed set of `WakeReason`s, invalidated on stop/takeover. |
-| `OperatorWindows`, `PauseSignaller` | Reopening the Operator's window and the closing sweep; the pause and carry-on notes. |
-| `BranchWatch`, `ReviewWatcher` | Bounded asynchronous reads, dropping late replies after cancellation; a host and its user found once per pass. |
-| `TaskFinisher` / `TaskPublisher` | One publication per task, one work record per task in the finisher; durable step recording, current authority checks and merge watches. `TaskPublication.problemKind` is saved beside a problem and read instead of its wording. |
-| `TaskAutoCloser` | Close eligible completed tasks while preserving unsaved work and recorded evidence. |
+| `MatchDecision`, `SignalTransitions`, `DoneCheck`, `FreshStartPolicy` | Pure identity/routing, stage edges, source-specific completion and idle fresh-start decisions. Pending stages outrank Then. |
+| `SignalPoller`, source readers | Shared complete reads, minute polling, ten-minute Jira sweeps and failure backoff. Partial reads cannot start tasks. |
+| `ItemRouter` | Map matches to existing tasks/projects, persist skipped reasons, choose the oldest signal in a shared pass. No clone or pick-up writes. |
+| `StageRunner` | Persist launch intent, prepare/restore the same task, launch one worker, advance or block its stage. |
+| `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
+| `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
+| `ThenRunner`, `TaskArchiver`, `TaskRemover` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
+| `OperatorSessionKeeper` | Persist one session, generation/token handover, adoption and idle fresh starts. Close the old window before revoking its token. |
+| `QuestionRounds`, `SignalJournal` | Bind three-round answer discussions to the full worker question/conversation/stage/ownership; persist quoted answers/instructions and bounded state tails over append-only journals. |
+| `SignalOperatorToolHandler`, `SignalShellGate` | Validate thirteen tools, idempotency and current authority; handle the private gated shell route separately. Missing/stale tokens deny. |
+| `SignalOperatorController`, `OperatorWork` | Compose owners, schedule finite jobs, reconcile sources/workers, coalesce fixed event/task wake lines, cancel owned work on stop. |
+| `SignalPauseSignaller`, `SignalQuestionNotification` | Save pause/carry-on obligations and route counted human questions to the one chat. Worker permission prompts keep normal task notifications. |
 
-Host reads share only when repository, request and accepted commit match. An in-flight identity
-prevents an old response from replacing a newer owner's cache. Stop cancels owned reads, probes,
-ticks, watches, summary waits, pause notes, the closing sweep, replaced registrations and Oracle
-jobs; End cancels its own run's Oracle jobs. After every suspension, an effect owner checks cancellation and
-current identity/authority before starting consequential work. A completed external write is still
-recorded; shutdown prevents the next step, rather than pretending the completed step never happened.
+Every consequential effect rechecks task/stage/ownership, pause and cancellation after suspension.
+Host binding checks repository origin, request identity and branch. Merging additionally requires an
+explicit per-stage opt-in, approvals, green checks, resolved threads, Oracle yes, unchanged local
+and host heads and host confirmation. A done condition of Merged only watches. Skills publish;
+AiTerm guards worker pushes and owns automatic merges. The Oracle is read-only and never writes
+workspace state. Current saved settings/instructions govern each new check; a changed in-flight
+Oracle setting or instruction invalidates its answer.
 
-Publication checks the pushed repository's protection and the accepted commit. Review/merge policy
-uses complete reads; a truncated protection/thread listing is not evidence of permission. Human
-review and agent review tabs remain separate. The Oracle is a second-opinion process, not a second
-workspace writer. [Operator guide](operators.md); [contract protection](testing.md).
+State tails are bounded: twenty journal entries per task, one hundred edges/snags, fifty closed
+questions and five hundred/seven days of idempotency. Unresolved questions and current undelivered
+answers survive. Default status gives one journal entry per task; task-specific status gives the
+full state tail and prompt. Descriptions arrive only as quoted data on demand. There is no task
+concurrency cap. [Operator guide](operators.md); [contract protection](testing.md).
 
 ## Integration and platform owners
 
@@ -131,7 +129,7 @@ configuration in tests.
 `HarnessDriver` describes agent installation/checks. `UserConfigFile` protects symlinks and foreign
 configuration, writes backups and limits repairs to owned integration entries. Installation and
 credential changes are explicit user actions.
-Operator startup also records trust for its own generated run folder in the resolved Claude
+Operator startup also records trust for its own private Operator folder in the resolved Claude
 profile's global JSON. It preserves unrelated state and a backup, uses Claude's config lock and
 an atomic private write, and skips the write when that exact folder is already trusted.
 `FixSession` owns an isolated clone through proposal, apply, landing and cleanup; quit cannot begin
@@ -176,9 +174,9 @@ as though it belonged to the current app. [Protocol reference](daemon-protocol.m
 | review threads | GitLab REST (`/merge_requests/:iid/discussions`, a discussion with a resolvable note, resolved when all of them are) on the configured GitLab host and port only, and GitHub GraphQL (`reviewThreads { isResolved }`), with the tokens Settings saved; read-only, 100 a page, at most 10 pages |
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
 | conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process as the model does. Codex's proven thread and process ID are also kept on its iTerm tab; a fresh helper recovers them only for that same Codex process, then reads the CLI version from its rollout before allowing delivery |
-| a worker's live model and effort | Claude's own word on its session: `SessionStart`'s model, `PostModelSwitch`'s `to_model`, the status line's `model.id` and `effort.level`; only from a post placed by evidence and not from inside a subagent (`agent_id`), and never a hook's own `effort`, which is its turn's. `run_status` shows them beside the planned model, for Claude workers only, and in the tooltip of the task's row on the board; they never wake the Operator |
+| a worker's live model and effort | Claude's own word on its session: `SessionStart`'s model, `PostModelSwitch`'s `to_model`, the status line's `model.id` and `effort.level`; only from a post placed by evidence and not from inside a subagent (`agent_id`), and never a hook's own `effort`, which is its turn's. `run_status` shows them beside the planned model, for Claude workers only, and in the tooltip of the task's status; they never wake the Operator |
 | what became of a slash command | the Claude tab's transcript, named by its own hooks and status line (`transcript_path`) and read on every tick, off the loop, from where it ended when `message_task` typed the command: its command record, or a `queue-operation` enqueue holding it (`slash_commands.py`, docs/status-model.md) |
-| a worker stopped on an API error | Claude Code's `StopFailure` hook, in place of `Stop`: its `error` (`rate_limit`, `billing_error`, `authentication_failed`...), and for a limit when it resets, read only from the transcript's own record of it (`apiErrorParams.rate_limit_info.resetsAt`) within 30 s of the hook. Cleared on a new prompt, a clean Stop, or parent transcript activity newer than the failure and last hook. While children run, a busy session file alone proves no parent recovery; the stopped marker stays until its parent carries on. A stopped worker's transcript tail is parsed again only once the file changes. `run_status` lists the task under no obligation and says why under `stoppedOn`; its row on the board reads `blocked · usage limit, resets 13:20` |
+| a worker stopped on an API error | Claude Code's `StopFailure` hook, in place of `Stop`: its `error` (`rate_limit`, `billing_error`, `authentication_failed`...), and for a limit when it resets, read only from the transcript's own record of it (`apiErrorParams.rate_limit_info.resetsAt`) within 30 s of the hook. Cleared on a new prompt, a clean Stop, or parent transcript activity newer than the failure and last hook. While children run, a busy session file alone proves no parent recovery; the stopped marker stays until its parent carries on. A stopped worker's transcript tail is parsed again only once the file changes. the worker status reports the stopped reason; its task blocks with the usage-limit reason |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
 ## What AiTerm writes, and where
@@ -187,15 +185,15 @@ as though it belonged to the current app. [Protocol reference](daemon-protocol.m
 | --- | --- |
 | Workspace, recovery and logs | `~/Library/Application Support/AiTerm/`; `StateStore`, `WorkspaceStore`, logging and daemon supervisor. |
 | Credentials | Keychain service `com.laurensdhondt.aiterm`, account `secrets`: service tokens and hotspot password. Settings validates before writing and rolls back failed changes. |
-| Task worktrees | `<repo>/.worktrees/<slug>`; task operations reserve shelved paths and check branch/worktree ownership before deletion. A folder git still lists counts as taken, and cleanup prunes git's record of a worktree deleted outside AiTerm. `.worktreeinclude` copies selected ignored files. |
+| Task worktrees | `<repo>/.worktrees/<slug>`; task operations reserve archived paths and check branch/worktree ownership before deletion. A folder git still lists counts as taken, and cleanup prunes git's record of a worktree deleted outside AiTerm. `.worktreeinclude` copies selected ignored files. |
 | Agent drivers | Claude's resolved config directory, `~/.codex/` and `~/.pi/agent/extensions/`; explicit Install/Repair keeps backups and foreign entries. Hook resources ship in the app bundle. |
 | Codex tab identity | iTerm user variable `aiterm_codex_thread`, containing the proven thread and foreground process ID. Written after corroboration and reused only for that process; subagent hooks and inferred directory matches cannot supply it. |
-| Operator artifacts | Per-run brief/configuration and local token-managed access under application support; large worker messages under the task's `.aiterm/messages/`. |
+| Operator artifacts | One private `operators/operator` folder with generation-bound token/manifest, brief/configuration and journals under application support; large worker messages under the task's `.aiterm/messages/`. |
 | Preferences | Interface and integration choices, hotspot name and engagement marker. Tests use scratch defaults. |
 | Lid sleep permission | `/etc/sudoers.d/aiterm`, installed/removed only through the Mac permission action. |
 | Local transports | Application-support Unix socket; hook HTTP on `127.0.0.1:47821`. |
 
-Shelving saves the record before removing the worktree and keeps its branch/conversations. Restoring
+Archiving saves the record before removing the worktree and keeps its branch/conversations. Restoring
 uses its reserved path and checks that the folder/branch can be used. Removing a project forgets
 its rows; it does not recursively delete its repository. Current workspace/credential recovery
 remains necessary even though historical broadcast compatibility is removed.

@@ -303,6 +303,8 @@ class SessionInfo:
     # The provider's last-known context fill within this task, 0-100. The status engine shares it
     # across sibling tabs running the same provider; an unassociated session retains its own value.
     context_percent: int | None = field(default=None, metadata={"process": True})
+    # Current input context belongs to this conversation, never a sibling tab's.
+    context_tokens: int | None = field(default=None, metadata={"process": True})
     # The conversation the tab's agent runs, as the agent's own hooks name it (HookEvent.conversation_id),
     # and what the app resumes when it reopens the task's window. Another process in the tab is another
     # conversation, so it goes with the agent's process, as the model does (SessionRegistry).
@@ -346,6 +348,7 @@ class SessionInfo:
             "taskId": self.task_id, "projectId": self.project_id, "agent": self.agent, "model": self.model,
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
+            "contextTokens": self.context_tokens,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
             "subagentsWrittenAt": self.subagents_written_at,
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,

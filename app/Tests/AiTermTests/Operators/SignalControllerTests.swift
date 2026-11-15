@@ -1,0 +1,170 @@
+import Foundation
+import Testing
+@testable import AiTerm
+@testable import AiTermCore
+@testable import AiTermTestSupport
+
+@Suite @MainActor struct SignalControllerTests {
+    @Test(arguments: [TaskPhase.done, .archived, .watching(.operatorJudges)])
+    func aQueuedStageStartsAfterACompanionsTurnEndsWithoutAnotherMatch(phase: TaskPhase) async throws {
+        var world = SignalWorld(); let original = world.signal(), id = world.workingTask(signal: original)
+        let next = world.signal()
+        world.state.updateSignalTask(id) { $0.phase = phase; $0.thenApplied = true }
+        if phase == .archived { world.state.moveToArchive(taskId: id, branch: "feat/pay-1", at: world.now) }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        var companion = OperatorServiceFixtures.session("companion", tag: id, state: .working, conversation: "companion")
+        companion.agent = .codex; companion.tabIndex = 1
+        live.sessions = [OperatorServiceFixtures.session("primary", tag: id, state: .done, conversation: "primary"), companion]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        var launches = 0
+        root.stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: root.native.busy, prepare: { task, _ in task },
+            launch: { _, _ in launches += 1; return "worker" }, restore: { $0 }))
+        root.tabsKnown = true; root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
+        _ = root.router.apply(signals: [next], read: SignalRead(items: [world.ticket()], complete: true))
+        await root.reconcile(); await ports.work.settled()
+        #expect(launches == 0 && h.workspace.state.signalItem(id: id)?.signalTask?.pendingStages.count == 1)
+        live.sessions[1].state = .done
+        await root.reconcile(); await ports.work.settled()
+        #expect(launches == 1)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.signal == next)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.pendingStages.isEmpty == true)
+        await root.reconcile(); await ports.work.settled()
+        #expect(launches == 1)
+        root.stop()
+    }
+    @Test func unsupportedPersistedSettingsCannotBeCreatedThroughTheSignalSaveBoundary() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        var invalid = world.state.signals[0]
+        invalid.source = .gitHub(RequestConditions(event: .reviewRequested))
+        invalid.finish = SignalFinish(doneWhen: .approved, mergesWhenReady: true)
+        await #expect(throws: ActionUnavailable.self) { try await root.save(invalid) }
+        #expect(h.workspace.state.signals == world.state.signals)
+    }
+    @Test func aPausedWorkerThatFailedIsNotSentCarryOnOrLeftBusyForever() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.operatorSession?.pausedWorkers = [PausedWorker(task: id, tab: "main", ownership: 0)]
+        world.state.updateSignalTask(id) { $0.phase = .blocked }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("worker", tag: id, state: .done, conversation: "failed")]
+        let native = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let signaller = SignalPauseSignaller(workspace: h.workspace, live: live, native: native, enabled: { true }, now: { world.now })
+        await signaller.reconcile()
+        #expect(h.workspace.state.operatorSession?.pausedWorkers?.isEmpty == true)
+        #expect(daemon.requests("session.deliver").isEmpty)
+        #expect(!native.busy(id))
+    }
+    @Test func takeOverRevokesTheStageAndWithdrawsItsQuestions() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let task = world.workingTask(signal: signal)
+        world.state.operatorSession = OperatorSession(createdAt: world.now)
+        let askedAt = world.now
+        world.state.operatorSession?.questions = [.init(id: "q", task: task, text: "Which?", openedAt: askedAt)]
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        await root.takeOver(task)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.takenOver == true)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.ownership == 1)
+        #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
+    }
+    @Test func aPausePersistsItsWorkerAndResumeCarriesOnBeforeAdvancing() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("worker", tag: id, state: .working, conversation: "saved")]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.start(); await ports.work.settled()
+        await root.setPaused(true)
+        #expect(h.workspace.state.operatorSession?.paused == true)
+        #expect(h.workspace.state.operatorSession?.pausedWorkers?.count == 1)
+        #expect(daemon.requests("session.deliver").last?.params["text"] as? String == SignalPauseSignaller.pauseNote)
+        await root.setPaused(false)
+        #expect(h.workspace.state.operatorSession?.pausedWorkers?.isEmpty == true)
+        #expect(daemon.requests("session.deliver").last?.params["text"] as? String == SignalPauseSignaller.carryOnNote)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.pendingReplies?["main"] != nil)
+        root.stop()
+    }
+    @Test func questionNotificationsOpenTheOneChatAndAreWithdrawnWhenResolved() throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        world.state.tasks[0].jira = JiraRef(key: "PAY-1", summary: "Retries", url: "https://jira.example/browse/PAY-1")
+        let askedAt = world.now
+        world.state.operatorSession?.questions = [.init(id: "one", task: id, text: "Which cap?", openedAt: askedAt)]
+        let note = try #require(SignalQuestionNotification.make(state: world.state))
+        #expect(note.title == "The Operator has a question")
+        #expect(note.body.contains("PAY-1") && note.body.contains("Which cap?"))
+        #expect(OperatorNote.Target(userInfo: note.target.userInfo) == .operatorWindow)
+        world.state.operatorSession?.questions[0].resolvedAt = askedAt
+        #expect(SignalQuestionNotification.make(state: world.state) == nil)
+    }
+    @Test func oneControllerStartsOnePersistentOperatorAndServesSignalStatus() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        let controller = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        controller.tabsKnown = true
+        controller.start()
+        await ports.work.settled()
+        await controller.reconcile()
+        await controller.reconcile()
+        let session = try #require(h.workspace.state.operatorSession)
+        #expect(daemon.requests("operator.register").contains { $0.params["generation"] as? Int == session.generation })
+        #expect(daemon.requests("window.createTask").count == 1)
+        controller.handle(.operatorRequest(OperatorRequest(requestId: "status", runId: session.id.uuidString,
+            tool: "run_status", arguments: [:], generation: session.generation)))
+        await ports.work.settled()
+        let reply = try #require(daemon.requests("operator.reply").last)
+        #expect(reply.params["error"] == nil)
+        #expect((reply.params["result"] as? JSONValue)?["signals"]?.arrayValue?.count == 1)
+        controller.stop()
+        try? FileManager.default.removeItem(at: ports.home)
+    }
+    @Test func aStaleShellRequestGetsARealGateDenialAndNeverAGenericToolError() async throws {
+        var world = SignalWorld(); world.state.operatorSession = OperatorSession(createdAt: world.now)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        let controller = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        controller.start(); await ports.work.settled()
+        controller.handle(.operatorRequest(OperatorRequest(requestId: "gate", runId: world.state.operatorSession!.id.uuidString,
+            tool: "gate_command", arguments: ["command": "cat README.md", "directory": .string(h.folder.path)], generation: 0)))
+        await ports.work.settled()
+        let reply = try #require(daemon.requests("operator.reply").last)
+        #expect((reply.params["result"] as? JSONValue)?["decision"] == "deny")
+        #expect(reply.params["error"] == nil)
+        controller.stop()
+    }
+    @Test func toolsAndSkippedItemsKeepTheirOnDiskActivityWithoutABoard() async throws {
+        var world = SignalWorld(); let signal = world.signal()
+        world.state.operatorSession = OperatorSession(createdAt: world.now)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let controller = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace),
+            work: WorkInFlight(), ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let session = try #require(h.workspace.state.operatorSession)
+        _ = await controller.tools.respond(OperatorRequest(requestId: "status", runId: session.id.uuidString,
+            tool: "run_status", arguments: [:], generation: session.generation))
+        _ = controller.router.apply(signals: [signal], read: SignalRead(items: [world.ticket("NOPE-1")], complete: true, full: true))
+        await ports.work.settled()
+        let entries = ActivityLog.read(runFolder: SignalOperatorCommand.folder(home: ports.home)).entries
+        #expect(Set(entries.map(\.tool)) == ["run_status", "signal_match"])
+        #expect(entries.contains { $0.line.contains("NOPE-1") && $0.line.contains("No project") })
+        #expect(h.workspace.state.tasks.isEmpty)
+    }
+
+}

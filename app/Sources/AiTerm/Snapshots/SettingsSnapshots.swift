@@ -10,13 +10,11 @@ enum SettingsSnapshots {
         [
             // Two projects linked and the picker's list down, leaving them out. Seeded rather than
             // loaded: `loadProjects` runs from `.task`, which the renderer never waits for.
-            Snapshot("jira-project.png") {
-                let project = Fixture().project
-                return JiraProjectSheet(projectName: project.name, linked: project.jiraProjects, canSubmit: true,
-                                        loadProjects: { jiraProjects }, submit: { _ in })
-                    .seeded(projects: jiraProjects, open: true)
+            Snapshot("edit-project.png") {
+                projectSheet(editing: true, open: true)
             },
-        // Settings › Operator came after these images; it is drawn with the Operator's (`OperatorSnapshots`).
+            Snapshot("add-project.png") { projectSheet(editing: false, open: false) },
+        // Operator’s full role groups are drawn by SignalSettingsSnapshots.
         ] + SettingsTab.allCases.filter { $0 != .operator }.map { tab in
             // A Jira site and email typed in, no token yet.
             Snapshot("settings-\(tab.rawValue.lowercased()).png") {
@@ -42,6 +40,17 @@ enum SettingsSnapshots {
             },
             // “Help with problems” is drawn with the Operator's images (`OperatorSnapshots`).
         ]
+    }
+
+    private static func projectSheet(editing: Bool, open: Bool) -> ProjectSheet {
+        var project = Fixture().project
+        project.path = "/Users/sam/Sites/acme-storefront"
+        let preparation = ProjectPreparation(project: project,
+            worktrees: [Worktree(path: project.path + "/.worktrees/topic", branch: "feat/topic", lockReason: Worktree.taskLockReason)], defaultBranch: "main")
+        let model = ProjectSheetModel(preparation: preparation, editing: editing, canChange: { true }, inspect: { _ in preparation },
+                                     chooseFolder: { nil }, loadProjects: { jiraProjects }, commit: { _, _, _ in })
+        model.seedProjects(jiraProjects)
+        return ProjectSheet(model: model).seeded(open: open)
     }
 
     private static let site = URL(string: "https://example.atlassian.net")!

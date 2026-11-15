@@ -21,7 +21,8 @@ from .hooks_server import HookServer
 from .iterm_port import ItermPort
 from .keystrokes import YOUR_PROMPT_SECONDS, TypingGuard
 from .offload import run_detached
-from .operator_mcp import OperatorRoute, OperatorTokens
+from .operator_mcp import OperatorRoute
+from .operator_session import OperatorSessionTokens
 from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
@@ -55,7 +56,7 @@ class Service:
                  clock: Callable[[], float], codex_files: CodexSessionFiles,
                  supervisor: ItermSupervisor | None = None, monotonic: Callable[[], float] = time.monotonic,
                  delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
-                 operator_runs: Path | None = None, test_activity: TestActivityReader | None = None):
+                 operator_folder: Path | None = None, test_activity: TestActivityReader | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
@@ -88,7 +89,7 @@ class Service:
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
         # (spec §11); None keeps tokens in memory only.
-        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs))
+        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorSessionTokens(operator_folder))
         self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame, window.activate and session.activate each leave a state the next one replaces, and the app
@@ -159,6 +160,7 @@ class Service:
         r("sessions.setTitles", self.windows.set_titles)
         r("sessions.markSeen", self._h_mark_seen)
         r("session.deliver", self._h_deliver)
+        r("session.closeIdle", self._h_close_idle)
         r("session.prompt", self._h_prompt)
         r("session.dismissStartup", self._h_dismiss_startup)
         r("session.setOwnership", self._h_set_ownership)
@@ -224,6 +226,11 @@ class Service:
         result = await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)
         if command is not None and result.result == "delivered":
             await self.publisher.session_changed(self.slash_commands.delivered(session_id, command))
+        return result.to_json()
+
+    async def _h_close_idle(self, p: Any) -> dict[str, Any]:
+        result = await self.deliverer.close_idle(param(p, "sessionId", str), param(p, "ownership", int),
+                                                 param(p, "conversation", str))
         return result.to_json()
 
     async def _h_prompt(self, p: Any) -> dict[str, Any]:

@@ -1,0 +1,51 @@
+# Signal Operator contract
+
+Captured deliberately on 15 November 2026 while implementing the tool-set to-do of
+`docs/plans/2026-11-14-operator-signals.md`, after engine revision `2b22846c`.
+
+`brief.md` is the complete stable role prompt from `SignalOperatorCommand.brief`, without
+house instructions. `tools.json` is a byte copy of the new, not yet served
+`daemon/aitermd/signal_tools.json`. It has thirteen tools and no host or Jira writes.
+The old operator-current fixtures remain unchanged. No private workspace or host data is used.
+
+Behavior is covered separately by SignalToolHandlerTests and the engine tests. This capture
+does not claim live model evaluation; capped before/after model runs are recorded separately.
+
+## Capped model proof
+
+The configured Fable 5.2 model reported its quota limit before making any calls, so those
+attempts are not behavioral evidence. Both contracts were then run on Claude Sonnet 5.5 at
+explicit high effort: three repetitions each of unavailable app, a product question with the
+Oracle off, and hostile item instructions, with 12 turns and 600 seconds as each run's limits.
+All nine runs per contract passed. The old question contract relays; the new one writes the
+question in chat and records its count. No app, live daemon or host integration was contacted.
+
+An earlier new-brief run recorded a question without asking it in chat. The brief, tool
+description and recorded-question reply now explicitly distinguish chat text from bookkeeping.
+The harness captures assistant text before tool calls as well as the final reply, rejects model
+errors, and runs each CLI in an isolated scratch directory. Its graders separately cover safe
+steering that rejects hostile instructions. Detailed local proof is in
+`build/operator-signals-eval-proven/`; all runs resolved the same `claude-sonnet-5-5` model.
+
+The current `state.json` was captured on 15 Nov 2026 by
+`AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`.
+`SignalSavedFormatTests` builds fixed synthetic identities through the current models and saves
+through `StateStore`. Its normal run compares the complete bytes and reloads them. It includes a
+pending stage, an archived item, a worker reply intent, an extra tab, our journal entry, generation
+2, an open question, an open Oracle round and an idempotency result. It contains no account tokens.
+The old broadcast input is retained only for retirement coverage and the before/after eval data.
+
+On 15 Nov 2026 the current brief gained the `standingInstructions` status rule. Saving Settings
+wakes the existing chat and its next `run_status` supplies the current instructions, replacing the
+copy from its initial prompt. Only `operator-signals/brief.md` was updated deliberately for this
+current contract; the historical broadcast baseline and eval recordings were left intact.
+
+## Final current-brief comparison
+
+Repeated on 15 Nov 2026 after `d7245128`, including the standing-instructions rule. Both the frozen
+historical contract and current Signal contract passed all nine runs on `claude-sonnet-5-5` at
+explicit high effort: three repetitions of unavailable app, product question and hostile source
+text. Limits stayed twelve turns and six hundred seconds. Full streams, calls, replies and grades
+are local at `app/build/operator-signals-eval-final/`; its `table.txt` records eighteen passes.
+The isolated stub never contacted the running app, live daemon or a host. No historical fixture or
+current brief/schema bytes were regenerated for this rerun.

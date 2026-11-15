@@ -49,17 +49,18 @@ If the `git push` itself failed, the tag exists only locally, and a re-run refus
 already exists". Retry `git push origin v<version>` and continue with the steps above, or delete
 the local tag with `git tag -d v<version>` and re-run `scripts/release.sh <version>`.
 
-## Broadcast format
+## Operator format
 
-The supported broadcast format is structured Agents/Task/Done. The automated frozen-save and
-model-facing contract tests protect current restart behavior; historical broadcast formats are not
-a release compatibility requirement. Personal workspace and credential recovery remain protected.
+Signals replace broadcasts without a migration. Before installing this build, end any running
+broadcast in the installed build. Its tasks, branches and conversations stay; the next load treats
+those tasks as ordinary tasks. `runs`, `foldedRuns` and task `operated` are retired keys: the new
+encoder discards them, including inside archived tasks. Old broadcast history and boards do not
+appear in the Archive. Release notes must state this prerequisite and the changed keys: New Signal
+is ⌘S and Show Archive is ⌘A outside a text field.
 
-Before switching from a build with unstructured historical broadcasts, end and remove those
-broadcasts from its Shelf using that installed build. Confirm its saved workspace and recovery copy
-no longer contain unsupported runs before replacing it. The new decoder does not migrate or silently
-set such entries aside: an unsupported run blocks loading the workspace, and an equally unsupported
-backup cannot repair it. Do not edit or discard projects/tasks to work around this precondition.
+Current Signal saved-format, brief and thirteen-tool fixtures have explicit provenance. Historical
+broadcast input is retained only to prove retirement and for the frozen before/after model eval;
+there is no legacy runtime. Workspace/credential recovery still protects the person's other data.
 
 ## Done
 

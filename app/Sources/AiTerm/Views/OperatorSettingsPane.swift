@@ -2,56 +2,35 @@ import SwiftUI
 import AiTermCore
 import AiTermUI
 
-/// Settings › Operator (spec §8): four `SettingsGroup`s. Agent names Claude Code, the one agent that
-/// can lead, with no control to pick it, then its Model and Reasoning. Autonomy lists the base, then
-/// each slice with its switch, then the fixed Never lines. Oracle is one switch in its heading over
-/// Agent, Model and Reasoning, dimmed and kept while it is off. Instructions is a `PromptEditor`
-/// whose `/` lists both agents' skills. Everything is staged in `OperatorSettingsModel` until Save.
+/// The roles and standing instructions, staged until Settings' Save.
 struct OperatorSettingsPane: View {
     let model: OperatorSettingsModel
-
-    /// One slice of trust (spec §5): its name, what it allows, and its switch in `Slices`.
-    struct Slice: Identifiable, Sendable {
-        let title: String
-        let help: String
-        let keyPath: WritableKeyPath<Slices, Bool> & Sendable
-        var id: String { title }
-    }
-
-    static let agentHelp = "It plans the work and steers the agents in your tasks. It reads code but never writes it."
-    static let autonomyHelp = "What it does without asking you. Each switch is one slice of trust on top of the base. Changes apply to the next broadcast."
-    static let baseHelp = "Plans, starts tasks, steers its agents and answers them from the brief and the code. Adds backlog tasks, the Oracle checking them. Commits, pushes the task’s branch, opens a draft MR, runs agent reviews."
-    static let alwaysOn = "Always on"
-    static let slices = [
-        Slice(title: "Jira",
-              help: "Creates and updates tickets in the broadcast’s Jira projects: tickets for planned work and off-brief finds, status moves, links.",
-              keyPath: \.jira),
-        Slice(title: "Review",
-              help: "Involves people on the MR: marks it ready, assigns reviewers, has the agent fix their feedback and replies in the threads.",
-              keyPath: \.review),
-        Slice(title: "Merge",
-              help: "Merges when what you wrote in Review and Done holds: through the MR, or locally without pushing. Only a commit it checked, with the pipeline green and every thread resolved.",
-              keyPath: \.merge),
+    static let operatorHelp = "One Claude Code session, always on, that runs your signals. Its window is a chat: click its row in the sidebar."
+    static let operatorDoes = [
+        "Starts a task for each ticket or merge request a signal picks up, in its own worktree and window.",
+        "Reads every turn a worker ends and tells it what’s next: the next step, a check, done.",
+        "Answers workers’ questions with the Oracle. What they can’t settle it asks you, in its chat.",
     ]
-    /// What it never does, whatever the slices (spec §2): facts, not failures, so muted rather than amber.
-    static let never = [
-        "Never writes code itself. Its agents do.",
-        "Never deploys, force-pushes, or pushes to a default or protected branch.",
-        "Never answers an agent’s permission prompt. That’s always yours.",
+    static let operatorNever = "It never writes code, force-pushes, pushes to a default branch or answers a permission prompt. When its conversation grows long it starts a fresh one; nothing is lost."
+    static let oracleHelp = "A second model, from another family, that the Operator checks with."
+    static let oracleAsks = [
+        "When a worker asks a question: they agree on the answer, in up to three rounds.",
+        "When it isn’t sure about a step or a verdict.",
+        "Before a risky shell command, a merge or a reply on a review thread.",
     ]
-    static let oracleHelp = "A second agent that checks the Operator’s plan, its backlog additions and its verdicts. Each check adds tens of seconds. PI checks with read-only tools, not a sandbox. Changes apply to running broadcasts; checks already running are discarded when these settings change."
-    static let instructionsHelp = "House rules for every broadcast. Type / for the agents’ skills."
-
-    /// The Oracle's fields are dimmed, and disabled, while it is off; their values are kept.
+    static let oracleNever = "It never talks to a worker or to you. Turned off, every worker question comes to you in the Operator’s chat."
+    static let instructionsHelp = "Standing instructions, in plain sentences. They hold in every signal; a signal’s own prompt comes on top."
+    static let instructionsExample = "Answer plan questions about naming yourself; ask me about scope.\nPrefer Codex for reviews.\nNever move a ticket to Done."
     static func oracleFieldsDimmed(_ oracle: OracleSetting) -> Bool { !oracle.isOn }
-
     var body: some View {
-        // Drawn once the profile is read, which Settings starts as it opens: before that there is
-        // nothing true to show.
         if model.isLoaded {
             VStack(alignment: .leading, spacing: Space.block) {
-                OperatorAgentGroup(model: model)
-                OperatorAutonomyGroup(model: model)
+                SettingsGroup(title: "Operator", help: Self.operatorHelp) {
+                    SettingsRoleLines(lines: Self.operatorDoes)
+                    HelpText(Self.operatorNever)
+                    ModelFields(agent: .claude, models: model.models[.claude] ?? [], model: model.model, reasoning: model.reasoning,
+                        selectModel: { model.select(model: $0) }, selectReasoning: { model.select(reasoning: $0) })
+                }
                 OracleGroup(model: model)
                 OperatorInstructionsGroup(model: model)
             }
@@ -59,68 +38,20 @@ struct OperatorSettingsPane: View {
     }
 }
 
-/// Claude Code by its mark and name, then the Operator's model and reasoning.
-private struct OperatorAgentGroup: View {
-    let model: OperatorSettingsModel
-
+private struct SettingsRoleLines: View {
+    let lines: [String]
     var body: some View {
-        SettingsGroup(title: "Agent", help: OperatorSettingsPane.agentHelp) {
-            HStack(spacing: Space.base) {
-                VendorMark(agent: AgentKind.claude.session, size: Size.vendorMark)
-                Text(AgentKind.claude.displayName).font(Typography.bodyEmphasis).foregroundStyle(Palette.text)
-            }
-            .accessibilityElement(children: .combine)
-            ModelFields(agent: .claude, models: model.models[.claude] ?? [], model: model.model, reasoning: model.reasoning,
-                        selectModel: { model.select(model: $0) }, selectReasoning: { model.select(reasoning: $0) })
-        }
-    }
-}
-
-/// The base, always on, then each slice with its switch, rows split by a `Hairline`, then the Never lines.
-private struct OperatorAutonomyGroup: View {
-    let model: OperatorSettingsModel
-
-    var body: some View {
-        SettingsGroup(title: "Autonomy", help: OperatorSettingsPane.autonomyHelp) {
-            row(title: "Base", help: OperatorSettingsPane.baseHelp) {
-                HelpText(OperatorSettingsPane.alwaysOn, fixedVerticalSize: false)
-            }
-            ForEach(OperatorSettingsPane.slices) { slice in
-                Hairline()
-                row(title: slice.title, help: slice.help) {
-                    SettingsSwitch(title: slice.title,
-                                   isOn: Binding(get: { model.slices[keyPath: slice.keyPath] },
-                                                 set: { model.slices[keyPath: slice.keyPath] = $0 }))
-                }
-            }
-            Hairline()
-            VStack(alignment: .leading, spacing: Space.tight) {
-                ForEach(OperatorSettingsPane.never, id: \.self) { line in
-                    HStack(alignment: .firstTextBaseline, spacing: Space.snug) {
-                        Image(systemName: "nosign").accessibilityHidden(true)
-                        Text(line).fixedSize(horizontal: false, vertical: true)
-                    }
-                    .font(Typography.help)
-                    .foregroundStyle(Palette.muted)
+        VStack(alignment: .leading, spacing: Space.tight) {
+            ForEach(lines, id: \.self) { line in
+                HStack(alignment: .firstTextBaseline, spacing: Space.gap) {
+                    Text("•").font(Typography.help).foregroundStyle(Palette.muted).accessibilityHidden(true)
+                    HelpText(line)
                 }
             }
         }
     }
-
-    private func row(title: String, help: String, @ViewBuilder trailing: () -> some View) -> some View {
-        HStack(alignment: .top, spacing: Space.gap) {
-            VStack(alignment: .leading, spacing: Space.tight) {
-                Text(title).font(Typography.bodyEmphasis).foregroundStyle(Palette.text)
-                HelpText(help)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            trailing()
-        }
-    }
 }
 
-/// The Oracle's switch in the heading, over its Agent, Model and Reasoning. Not private: the snapshots
-/// draw it alone, off.
 struct OracleGroup: View {
     let model: OperatorSettingsModel
     var body: some View {
@@ -129,47 +60,57 @@ struct OracleGroup: View {
         SettingsGroup(title: "Oracle", help: OperatorSettingsPane.oracleHelp) {
             SettingsSwitch(title: "Oracle", isOn: Binding(get: { model.oracle.isOn }, set: { model.oracle.isOn = $0 }))
         } rows: {
-            VStack(alignment: .leading, spacing: Space.gap) {
+            HelpText("The Operator asks it")
+            SettingsRoleLines(lines: OperatorSettingsPane.oracleAsks)
+            HelpText(OperatorSettingsPane.oracleNever)
+            HStack(alignment: .top, spacing: Space.gap) {
                 FormField("Agent") {
-                    Select(values: model.oracleAgentChoices,
-                           selection: Binding(get: { oracle.agent }, set: { model.select(oracleAgent: $0) }),
-                           label: { $0.displayName })
-                }
-                ModelFields(agent: oracle.agent, models: model.models[oracle.agent] ?? [], model: oracle.model, reasoning: oracle.reasoning,
-                            selectModel: { model.select(oracleModel: $0) }, selectReasoning: { model.select(oracleReasoning: $0) })
+                    Select(values: model.oracleAgentChoices, selection: Binding(get: { oracle.agent }, set: { model.select(oracleAgent: $0) }),
+                        label: { $0.displayName })
+                }.frame(maxWidth: .infinity)
+                let options = OperatorSettingsModel.options(model.models[oracle.agent] ?? [], keeping: oracle.model, reasoning: oracle.reasoning)
+                if let selected = options.first(where: { $0.id == oracle.model }) ?? options.first {
+                    let fields = ModelReasoningFields(models: options, model: selected.id,
+                        reasoning: Binding(get: { oracle.reasoning }, set: { if let value = $0 { model.select(oracleReasoning: value) } }),
+                        reasoningOptions: OperatorSettingsModel.efforts(of: selected, keeping: oracle.reasoning),
+                        selectModel: { model.select(oracleModel: $0) })
+                    fields.modelField
+                    fields.reasoningField
+                } else { FormField("Model") { HelpText(oracle.agent.harness.noModelsExplanation) }.frame(maxWidth: .infinity) }
             }
-            .disabled(dimmed)
-            .opacity(dimmed ? Opacity.disabled : 1)
+            .disabled(dimmed).opacity(dimmed ? Opacity.disabled : 1)
         }
     }
 }
 
-/// House rules for every broadcast, in the prompt editor the creation sheets use.
 private struct OperatorInstructionsGroup: View {
     let model: OperatorSettingsModel
-
-    init(model: OperatorSettingsModel) { self.model = model }
-    /// The editor's height: the drawing's, a few lines of rules. Shorter than `PromptStep`'s,
-    /// which is a sheet's one field; one view reads it.
+    @State private var focused = false
+    /// A few standing sentences, shorter than a creation sheet's prompt step.
     private static let editorHeight: CGFloat = 96
-    @State private var editorFocused: Bool = false
-
     var body: some View {
-        SettingsGroup(title: "Instructions", help: OperatorSettingsPane.instructionsHelp) {
-            PromptEditor(text: Binding(get: { model.instructions }, set: { model.instructions = $0 }), agent: .claude,
-                         completions: model.completions,
-                         onFocusChange: { if editorFocused != $0 { editorFocused = $0 } })
-                .frame(height: Self.editorHeight)
-                .fieldBox(focused: editorFocused)
-                .overlay(alignment: .topLeading) {
-                    CompletionPopup(completions: model.completions,
-                                    width: Sheet.width - 2 * Space.margin - 2 * Space.block)
-                }
-                .accessibilityLabel("Instructions")
+        SettingsGroup(title: "Steer the Operator", help: OperatorSettingsPane.instructionsHelp) {
+            FormField("Instructions") {
+                PromptEditor(text: Binding(get: { model.instructions }, set: { model.instructions = $0 }), agent: .claude,
+                    completions: model.completions, onFocusChange: { focused = $0 })
+                    .frame(height: Self.editorHeight)
+                    .overlay(alignment: .topLeading) {
+                        if model.instructions.isEmpty {
+                            Text(OperatorSettingsPane.instructionsExample).font(Typography.promptMono).foregroundStyle(Palette.placeholder)
+                                .padding(.leading, PromptEditor.textInset.width + PromptEditor.lineFragmentPadding)
+                                .padding(.top, PromptEditor.textInset.height).allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+                    .fieldBox(focused: focused)
+                    .overlay(alignment: .topLeading) {
+                        CompletionPopup(completions: model.completions, width: Sheet.width - 2 * Space.margin - 2 * Space.block)
+                    }
+                    .accessibilityLabel("Instructions")
+            }
+            HelpText("Type / for skills. You can also say it in the Operator’s chat: “From now on, ask me before any merge.”")
         }
     }
 }
-
 /// Model, and Reasoning beside it while the model takes one, from `agent`'s catalogue; the saved
 /// model is offered by its id when the catalogue no longer lists it.
 private struct ModelFields: View {

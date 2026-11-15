@@ -1,0 +1,44 @@
+#if DEBUG
+import SwiftUI
+import AiTermCore
+
+@MainActor enum SignalSidebarSnapshots {
+    static var all: [Snapshot] {
+        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "blocked", "done", "window-closed", "off", "removed"].map { state in
+            Snapshot("signals-" + state + ".png", hostedOnly: true) { make(state) }
+        }
+    }
+    private static func make(_ pose: String) -> some View {
+        let fixture = Fixture(), controller = fixture.controller()
+        var signal = Signal(name: "Plan labelled tickets", createdAt: Snapshots.clock.now,
+            source: .jira(JiraConditions(labels: ["operator"])), work: SignalWork(prompt: "/psg:plan"),
+            agents: [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")],
+            finish: SignalFinish(doneWhen: .hasReviewer, then: .keep))
+        signal.collapsed = pose == "folded"
+        signal.enabled = pose != "off"
+        controller.workspace.mutate { state in
+            state.signals = [signal]
+            var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-142"), startedAt: Snapshots.clock.now)
+            record.phase = pose == "watching" ? .watching(.hasReviewer) : .working; record.configuration = signal
+            if pose == "acting" { record.currentAct = "answering its worker" }
+            if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Choose which linked project should hold this ticket." }
+            if pose == "done" { record.phase = .done }
+            if pose == "taken-over" { record.takenOver = true; record.ownership = 1 }
+            if let index = state.tasks.firstIndex(where: { $0.id == fixture.working.id }) { state.tasks[index].signalTask = record
+                if pose == "window-closed" {
+                    state.tasks[index].windowId = nil
+                    state.tasks[index].conversations = [.init(agent: .claude, id: "saved-conversation")]
+                }
+            }
+            if pose == "removed" { state.signals = [] }
+            state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now)
+            if pose == "paused" { state.operatorSession?.paused = true }
+            if pose == "fresh" { state.operatorSession?.startingFresh = true }
+            if pose == "questions" { state.operatorSession?.questions = [.init(id: "vat", task: fixture.working.id,
+                text: "Block orders without a VAT number, or export them with the field empty?", openedAt: Snapshots.clock.now)] }
+        }
+        if ["watching", "questions", "paused", "off", "blocked", "done", "window-closed"].contains(pose) { controller.live.sessions.removeAll { $0.taskUUID == fixture.working.id } }
+        return SidebarView(controller: controller).frame(width: 420, height: 900)
+    }
+}
+#endif

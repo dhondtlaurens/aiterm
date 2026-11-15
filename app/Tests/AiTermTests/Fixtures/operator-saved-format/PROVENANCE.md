@@ -17,3 +17,7 @@ There is no update mode. The test builds the same state again and compares the b
 file and saves it back to its own bytes; `aSaveWithoutTheKindReadsEachProblemByItsWording` takes the
 kinds out of it to stand for a save from before the change. The frozen broadcast stays untouched as the
 migration input.
+
+Since Operator signals (15 Nov 2026), this historical input is used by
+`SignalRetiredKeysTests`: loading it keeps ordinary tasks and archived tasks, while saving drops
+`runs`, `foldedRuns` and each nested `operated`. It is no longer the current saved contract.

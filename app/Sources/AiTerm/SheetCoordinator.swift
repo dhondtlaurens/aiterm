@@ -28,6 +28,7 @@ final class SheetCoordinator {
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
+    private let projects: ProjectActions
     private let workspace: WorkspaceStore
     private let checkouts: CheckoutMonitor
     private let agents: AgentIntegrations
@@ -48,12 +49,13 @@ final class SheetCoordinator {
     /// The queue a New Review Fix lands on, with creation, removal and pull.
     private let workflow: TaskWorkflow
 
-    init(workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
+    init(projects: ProjectActions, workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
          launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults,
          fixPipeline: @escaping @MainActor (Project) -> FixPipeline) {
+        self.projects = projects
         self.defaults = defaults
         self.workspace = workspace
         self.checkouts = checkouts
@@ -85,11 +87,34 @@ final class SheetCoordinator {
         sheet = kind
     }
 
+    func present(signal: SignalModel) {
+        guard canChangeWorkspace, sheet == nil else { return }; present(.signal(signal))
+    }
+
     // -- sheets that open at once -------------------------------------------------------
     /// The sheet that edits the project's linked Jira projects, opened on the list as it is now.
     func presentJiraProjects(for project: Project) {
         guard canChangeWorkspace, let current = state.project(id: project.id) else { return }
-        present(.jiraProjects(current))
+        present(.project(projects.makeProjectSheet(ProjectPreparation(project: current, defaultBranch: checkouts.defaultBranch[current.id]), editing: true)))
+    }
+
+    func presentAddProject(path: String? = nil) {
+        guard sheet == nil, canChangeWorkspace else { return }
+        cancelPreparation()
+        preparingSheet = Task {
+            let picked: String
+            if let path { picked = path }
+            else { guard let folder = await projects.chooseProjectFolder() else { return }; picked = folder.path }
+            guard !Task.isCancelled, sheet == nil, canChangeWorkspace else { return }
+            do {
+                let prepared = try await projects.prepareProject(path: picked)
+                guard !Task.isCancelled, sheet == nil, canChangeWorkspace else { return }
+                sheet = .project(projects.makeProjectSheet(prepared, editing: false))
+            } catch {
+                guard !Task.isCancelled, sheet == nil, canChangeWorkspace else { return }
+                await projects.reportAddFailure(error)
+            }
+        }
     }
 
     func presentNewDivider() {
@@ -112,10 +137,7 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
-    func presentRename(run: OperatorRun) {
-        guard canChangeWorkspace, let current = state.runs.first(where: { $0.id == run.id }) else { return }
-        present(.rename(.broadcast(current)))
-    }
+
 
     /// Unplugged's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘U and the footer's Mac rows reach it while one may be up, and it refuses rather than
@@ -156,33 +178,8 @@ final class SheetCoordinator {
         }
     }
 
-    /// New Broadcast…, on the sidebar's projects, with what `context` read as it opened: Settings › Operator's slices
-    /// and Oracle, the profile the operator controller freezes as it starts the broadcast (`startBroadcast`), and what
-    /// its Agents step offers. `/` lists both agents' skills from the person's home; `@` the files
-    /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
-    /// the Jira projects sheet fetches them; Start waits for `readiness`, which `checkReadiness` reads
-    /// while the sheet is open; the Task step dims the ends a chosen project's code host can't take (`hasCodeHost`). Not
-    /// over another sheet.
-    func presentNewBroadcast(context: NewBroadcastContext, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
-                             readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
-                             checkReadiness: @escaping @MainActor () async -> Void = {},
-                             hasCodeHost: (@Sendable (Project) async -> Bool)? = nil,
-                             start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
-        guard canChangeWorkspace, sheet == nil else { return }
-        preparingSheet?.cancel()
-        let home = harnessHome, claudeConfig = agents.claudeConfig, git = self.git, workspace = workspace
-        sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, context: context,
-                                                skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: claudeConfig) },
-                                                files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
-                                                canChangeWorkspace: { workspace.canChangeWorkspace },
-                                                readiness: readiness, checkReadiness: checkReadiness, hasCodeHost: hasCodeHost,
-                                                start: start))
-    }
-
     /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
-    func present(operatorSheet kind: SheetKind) {
-        present(kind)
-    }
+
 
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
     /// terminal opens in the project folder and starts no agent. The branch the destination line

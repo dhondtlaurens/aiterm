@@ -5,12 +5,12 @@ import Foundation
 public enum MergedBranchCheck {
     /// Deletes the local branch when the rule holds and `saveDeletion` has saved the task's record as
     /// saying so, so a record on disk never says a deleted branch was kept. False when anything fails.
-    public static func delete(branch: String, acceptedSHA: String?, end: TaskEnd, publication: TaskPublication?,
+    public static func delete(branch: String, acceptedSHA: String?, mergedHead: String?,
                               kind: TaskKind, path: String, git: any GitRunning,
                               saveDeletion: @MainActor () -> Bool) async -> Bool {
         guard kind != .review, let acceptedSHA, !acceptedSHA.isEmpty else { return false }
         let merged = (try? await BackgroundWork.run(on: GitLanes.shared.lane(for: path)) {
-            try isMerged(branch: branch, acceptedSHA: acceptedSHA, end: end, publication: publication, path: path, git: git)
+            try isMerged(branch: branch, acceptedSHA: acceptedSHA, mergedHead: mergedHead, path: path, git: git)
         }) ?? false
         guard merged, await saveDeletion() else { return false }
         return (try? await BackgroundWork.run(on: GitLanes.shared.lane(for: path)) { () throws -> Bool in
@@ -33,23 +33,12 @@ public enum MergedBranchCheck {
         }) ?? false
     }
 
-    private static func isMerged(branch: String, acceptedSHA: String, end: TaskEnd, publication: TaskPublication?,
+    private static func isMerged(branch: String, acceptedSHA: String, mergedHead: String?,
                                  path: String, git: any GitRunning) throws -> Bool {
-        guard [.merge, .mergeLocal].contains(end) else { return false }
+        guard mergedHead == acceptedSHA else { return false }
         let repository = Repository(path, git: git), ref = "refs/heads/" + branch
-        guard try git.ask(["rev-parse", "--verify", ref], in: path, none: [128])?
-            .trimmingCharacters(in: .whitespacesAndNewlines) == acceptedSHA else { return false }
-        let target = repository.defaultBranch()
-        guard branch != target else { return false }
-        if publication?.mergeOutcome == .merged && publication?.mergedHead == acceptedSHA { return true }
-        if try git.ask(["merge-base", "--is-ancestor", acceptedSHA, "refs/heads/" + target], in: path, none: [1, 128]) != nil {
-            return true
-        }
-        guard try repository.hasOrigin else { return false }
-        // A stale remote-tracking ref cannot prove today's merge. A failed fetch keeps the branch.
-        do { try repository.fetchFromOrigin(target, timeout: OperatorTiming.diffBaseFetchTimeout) }
-        catch { return false }
-        return try git.ask(["merge-base", "--is-ancestor", acceptedSHA, "refs/remotes/origin/" + target],
-                           in: path, none: [1, 128]) != nil
+        guard branch != repository.defaultBranch() else { return false }
+        return try git.ask(["rev-parse", "--verify", ref], in: path, none: [128])?
+            .trimmingCharacters(in: .whitespacesAndNewlines) == acceptedSHA
     }
 }

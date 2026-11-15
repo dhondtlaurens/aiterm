@@ -12,14 +12,16 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     /// creates, so one made after the sheet opened still comes.
     public var copiesWorktreeInclude = true
     private var titleEdited = false, branchEdited = false, typeEdited = false
+    private var fullBranch: String?
 
-    public var branch: String { "\(branchType.rawValue)/\(branchName)" }
+    public var branch: String { fullBranch ?? "\(branchType.rawValue)/\(branchName)" }
 
     /// The branch's worktree directory before a taken one is skipped (`BranchNaming.unused`, which
     /// the sheet applies): nothing while the name field is empty, rather than the type alone that
     /// `BranchNaming.worktreeSlug` falls back to for a bare `feat/`.
     public var worktreeSlug: String {
-        branchName.trimmingCharacters(in: .whitespaces).isEmpty ? "" : BranchNaming.worktreeSlug(branch: branch)
+        if let fullBranch { return fullBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : BranchNaming.worktreeSlug(branch: fullBranch) }
+        return branchName.trimmingCharacters(in: .whitespaces).isEmpty ? "" : BranchNaming.worktreeSlug(branch: branch)
     }
 
     /// A draft with no ticket and no title yet. `initial(project:state:git:agent:catalog:)` is the one a sheet
@@ -59,6 +61,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     /// The branch field's text: a name, or a whole branch whose known type prefix moves into the
     /// select — typing `fix/` is picking the type.
     public mutating func setBranch(_ b: String) {
+        fullBranch = nil
         let split = BranchType.split(b)
         if let split { branchType = split.type; typeEdited = true }
         guard (split?.name ?? b) != branchName else { return }
@@ -68,6 +71,14 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public mutating func setBranchType(_ type: BranchType) {
         guard type != branchType else { return }
         branchType = type; typeEdited = true
+    }
+
+    /// A whole branch entered in the shared Branch input. Automatic naming stops after an edit.
+    public mutating func setFullBranch(_ branch: String) {
+        guard branch != self.branch else { return }
+        fullBranch = branch; branchEdited = true; typeEdited = true
+        if let split = BranchType.split(branch) { branchType = split.type; branchName = split.name }
+        else { branchName = branch }
     }
 }
 

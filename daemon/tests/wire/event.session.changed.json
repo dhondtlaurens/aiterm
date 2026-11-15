@@ -6,6 +6,7 @@
     "agentCwd": "/repo/.worktrees/feat-wire/app",
     "background": [],
     "contextPercent": 42,
+    "contextTokens": null,
     "conversationId": "pi-wire",
     "cwd": "/repo/.worktrees/feat-wire",
     "displayWork": {

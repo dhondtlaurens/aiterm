@@ -15,14 +15,14 @@ struct WorktreeTeardown {
         var deleteDetail: String {
             switch self {
             case .remove: "Removing this worktree permanently deletes its uncommitted changes and untracked files."
-            case .archive: "Shelving deletes its uncommitted changes and untracked files. The branch is kept."
+            case .archive: "Archiving deletes its uncommitted changes and untracked files. The branch is kept."
             }
         }
 
         var deleteButton: String {
             switch self {
             case .remove: "Delete Changes and Remove"
-            case .archive: "Delete Changes and Shelve"
+            case .archive: "Delete Changes and Archive"
             }
         }
     }
@@ -47,7 +47,7 @@ struct WorktreeTeardown {
     /// lists asks first, then uncommitted work. `refusing` sees the preflight before any question is asked, and throws
     /// to stop there. Nil when a question was answered Keep, the row went or changed folder, or the workspace locked.
     ///
-    /// After the uncommitted-work question Remove goes on with the row as it is then; Shelve with the row it had, as
+    /// After the uncommitted-work question Remove goes on with the row as it is then; Archive with the row it had, as
     /// each did before they shared this.
     func prepare(_ task: TaskItem, in project: Project, verb: Verb,
                  refusing: (TaskWorkflow.Preflight) throws -> Void = { _ in }) async throws -> Prepared? {

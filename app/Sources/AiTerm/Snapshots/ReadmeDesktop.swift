@@ -57,11 +57,18 @@ struct ReadmeDesktop: View {
                            review: MergeRequestRef(iid: 87, title: "Release new marketing website", url: "https://example/!87"))
         // The Operator busy on two tasks of its own, built as the Operator's images build theirs: the
         // weights at work, `Operator watching`, and the flag's Codex asking to run npm install, waiting on you.
-        let scene = OperatorScene(projects: [acme])
-        let weights = scene.task(UUID(), "Tune the ranking weights", jira: "ML-415", .working)
-        let flag = scene.task(UUID(), "Flag the new ranking", jira: "ML-416", agent: .codex, .working)
-        let broadcast = scene.run(.active, name: "Ranking v2", prompt: "ship ML-415 and ML-416, the new ranking", review: nil,
-                                  done: nil, planned: 2, questions: [scene.prompt("Codex asks to run npm install", on: flag.id)])
+        var weights = task(acme, "Tune the ranking weights", "feat/ml-415-weights", .claude, "a5", jira: "ML-415")
+        var flag = task(acme, "Flag the new ranking", "feat/ml-416-flag", .codex, "a6", jira: "ML-416")
+        let signal = Signal(name: "Ranking v2", createdAt: clock.now, source: .jira(JiraConditions(labels: ["operator"])),
+                            work: SignalWork(prompt: "/psg:plan, then /psg:implement and /psg:review"),
+                            agents: [AgentChoice(agent: .claude, model: "opus", reasoning: "high")],
+                            finish: SignalFinish(doneWhen: .approved, then: .keep))
+        for pair in [(weights.id, "ML-415"), (flag.id, "ML-416")] {
+            var record = SignalTask(signal: signal.id, item: .ticket(site: site.absoluteString, key: pair.1), startedAt: clock.now)
+            record.phase = .working; record.configuration = signal
+            if pair.0 == weights.id { weights.signalTask = record } else { flag.signalTask = record }
+        }
+        let operatorSession = OperatorSession(createdAt: clock.now)
         let tasks = [refactor, orphan, quantize, release, weights, flag]
 
         let onDisk = WorkspaceScan(
@@ -80,10 +87,11 @@ struct ReadmeDesktop: View {
             state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
             state.append(project: acme)
             state.tasks = tasks
-            state.runs = [broadcast]
+            state.signals = [signal]
+            state.operatorSession = operatorSession
+
             // The selected task is a project's, so the projects are open and the broadcast folds into OPERATOR, its
             // progress and its amber chip for the flag's question.
-            state.setFolded(run: broadcast.id, true)
         }
         controller.live.sessions = [
             // The selected task: Claude Code in front, its context the footer's `ctx` row.
@@ -95,7 +103,7 @@ struct ReadmeDesktop: View {
             Fixture.session("r6", "m2", release.id, "claude", "idle", 1, cwd: release.worktreePath),
             Fixture.session("r7", weights.windowId ?? "", weights.id, "claude", "working", 0, cwd: weights.worktreePath, active: true),
             Fixture.session("r8", flag.windowId ?? "", flag.id, "codex", "needsInput", 0, cwd: flag.worktreePath, active: true),
-            Fixture.session("r9", "operator-window", broadcast.id, "claude", "working", 0, cwd: here, active: true),
+            Fixture.session("r9", "operator-window", operatorSession.id, "claude", "working", 0, cwd: here, active: true),
         ].compactMap { $0 }
         controller.checkouts.seedSnapshotFixture(onDisk)
         controller.live.usage = Fixture.usage("""

@@ -30,6 +30,7 @@ public protocol DaemonCommands: Sendable {
     /// Types `text` into the session by the daemon's delivery rules; `ownership` must be the session's
     /// current generation, `wake` holds it while the person types there.
     func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery
+    func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery
     func prompt(sessionId: String) async throws -> PromptKind?
     func promptDetails(sessionId: String) async throws -> PromptDetails
     /// Declines Codex's update offer with Esc, and nothing else: true when it did.
@@ -37,8 +38,8 @@ public protocol DaemonCommands: Sendable {
     func setOwnership(sessionId: String, ownership: Int) async throws
     /// What the delivery check vouches for, per agent: whether, and at which version, its workers can be messaged.
     func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict]
-    func registerOperator(runId: String, token: String) async throws
-    func revokeOperator(runId: String) async throws
+    func registerOperator(runId: String, token: String, generation: Int) async throws
+    func revokeOperator(runId: String, generation: Int) async throws
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws
 }
 

@@ -12,7 +12,7 @@ final class TickPass {
     init(work: OperatorWork) { self.work = work }
 
     /// Reads `ids`, unless the last pass is still reading or there is nothing to read; `ids` is only asked for then.
-    func run(_ ids: @autoclosure () -> [UUID], _ check: @escaping @MainActor (UUID) async -> Void) {
+    func run(_ ids: @autoclosure () -> [UUID], finished: @escaping @MainActor () -> Void = {}, _ check: @escaping @MainActor (UUID) async -> Void) {
         guard running == nil else { return }
         let ids = ids()
         guard !ids.isEmpty else { return }
@@ -22,7 +22,7 @@ final class TickPass {
                 guard !Task.isCancelled else { return }
                 await check(id)
             }
-            if self?.generation == generation { self?.running = nil }
+            if self?.generation == generation { self?.running = nil; finished() }
         }
     }
 

@@ -13,7 +13,7 @@ import Testing
         let roots = invalidates({ _ = sheet.body }, by: { model.branches = ["main", "topic"] }) ? 1 : 0
         print("New Task root invalidations for branch choices: \(roots)")
         #expect(roots == 0, "baseline 1; final 0")
-        let leaf = NewTaskFirstStep(model: model, ticketsOpen: .constant(false))
+        let leaf = NewTaskNamingStep(model: model)
         #expect(invalidates({ _ = leaf.body }, by: { model.branches = ["main", "other"] }), "the leaf still reads the choices")
     }
 
@@ -26,7 +26,7 @@ import Testing
         let roots = invalidates({ _ = sheet.body }, by: { model.branchQuery = "feat" }) ? 1 : 0
         print("New Review root invalidations for branch matches: \(roots)")
         #expect(roots == 0, "baseline 1; final 0")
-        let leaf = NewReviewFirstStep(model: model, mrOpen: .constant(false), branchOpen: .constant(false), ticketsOpen: .constant(false))
-        #expect(invalidates({ _ = leaf.body }, by: { model.branchQuery = "cart" }), "the leaf still reads the matches")
+        let leaf = NewReviewNamingStep(model: model, branchOpen: .constant(false))
+        #expect(invalidates({ _ = leaf.body }, by: { model.branchQuery = "main" }), "the leaf still reads the matches")
     }
 }

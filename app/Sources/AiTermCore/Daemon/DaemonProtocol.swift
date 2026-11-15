@@ -36,6 +36,7 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     case interfaceSetMatchItermBackground = "interface.setMatchItermBackground"
     /// Types text into a session by the daemon's delivery rules (bracketed paste, re-check, Enter).
     case sessionDeliver = "session.deliver"
+    case sessionCloseIdle = "session.closeIdle"
     /// The prompt a session has open, if any: what an operator's `read_task(prompt)` reads.
     case sessionPrompt = "session.prompt"
     /// The ownership generation a delivery must carry to land: a takeover moves it on.

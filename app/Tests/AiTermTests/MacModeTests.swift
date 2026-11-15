@@ -59,7 +59,7 @@ struct MacModeTests {
         #expect(help(.turningOn) == "Unplugging · joining Laurens’s iPhone")
         #expect(help(.on) == "Unplugged · Laurens’s iPhone · stays on until you turn it off, or at 10 %")
         #expect(MacModePresentation.line(mode: .on, hotspot: "Laurens’s iPhone", wifi: nil, until: .agentsStop).help
-                == "Unplugged · Laurens’s iPhone · ends when your agents are done and no broadcast is active, or at 10 %")
+                == "Unplugged · Laurens’s iPhone · ends when your agents are done and the Operator has no work left, or at 10 %")
         #expect(help(.needsYou(.lostHotspot)) == "Unplugged needs you · lost Laurens’s iPhone, open Personal Hotspot on the iPhone")
         #expect(help(.needsYou(.lowBattery(level: 13))) == "Unplugged needs you · battery at 13 %, turns off at 10 %")
         #expect(help(.turningOff) == "Plugging back in · rejoining Wi-Fi")

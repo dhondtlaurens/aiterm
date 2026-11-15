@@ -63,3 +63,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["aitermd*"]
+
+[tool.setuptools.package-data]
+aitermd = ["signal_tools.json"]

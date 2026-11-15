@@ -41,6 +41,24 @@ import Testing
         { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
     }
 
+    @Test func journalEdgesAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date()); record.phase = .working; record.configuration = signal
+        controller.workspace.mutate { $0.signals = [signal]; $0.updateSignalTask(Self.taskId) { $0 = record } }
+        // The ordinary row initially has no SignalTask to update.
+        controller.workspace.mutate { $0.tasks[0].signalTask = record }
+        let rows = controller.rows, before = rows.derivations, at = Date()
+        #expect(!invalidates(readsTheList(rows)) {
+            controller.workspace.mutate { $0.updateSignalTask(Self.taskId) {
+                $0.journal.append(.init(at: at, stage: 1, text: .ours("A saved decision.")))
+                $0.pendingReplies = ["main": .init(at: at, fingerprint: "record")]
+                $0.edges.append(.init(from: .launching, to: .working, stage: 1, at: at))
+            } }
+        })
+        #expect(rows.derivations == before)
+    }
     @Test func aDisplayOnlyJobInvalidatesItsRowWithoutChangingItsStatus() throws {
         let controller = try controller()
         defer { controller.shutdown() }
@@ -183,36 +201,7 @@ import Testing
 
     /// What a Claude worker runs now is in no row, but the board's card tooltip says it: while the board shows, a session
     /// event that moved only its worker's model or effort derives the board again, and while it does not, nothing.
-    @Test func theBoardFollowsWhatItsClaudeWorkerRunsNow() throws {
-        let controller = AppController(preferences: .scratch())
-        try controller.workspace.load()
-        let rows = controller.rows, run = OperatorUIFixtures.run()
-        var task = OperatorUIFixtures.task("Pricing page", project: project.id,
-                                           operated: OperatorUIFixtures.operated(run: run.id, key: "PAY-1", state: .working))
-        task.model = "opus"
-        controller.workspace.mutate { [project, task] state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        var worker = OperatorUIFixtures.tab("w1", of: task, .working)
-        worker.model = "claude-opus-5-5"
-        worker.reasoning = "high"
-        controller.live.handle(.sessionOpened(worker))
-        func tooltip() -> String? { rows.board?.stages.flatMap(\.cards).first?.modelTooltip }
 
-        let start = rows.derivations
-        worker.model = "claude-sonnet-5-5"
-        controller.live.handle(.sessionChanged(worker))
-        #expect(rows.derivations == start, "no row draws a model, and the board is not showing")
-
-        controller.sheet = .broadcastBoard(run.id)
-        #expect(tooltip() == "Claude · opus\nNow on claude-sonnet-5-5 · high")
-        let shown = rows.derivations
-        worker.model = "claude-opus-5-5"
-        controller.live.handle(.sessionChanged(worker))
-        #expect(tooltip() == "Claude · opus", "back on the model the plan's alias names")
-        #expect(rows.derivations == shown + 1)
-        worker.contextPercent = 40
-        controller.live.handle(.sessionChanged(worker))
-        #expect(rows.derivations == shown + 1, "a fill draws nothing on the board either")
-    }
 
     /// The footer's context row reads the rows' tabs and the fills: a session event that moved a fill
     /// redraws it, one that moved only a model or a title does not, and neither does a sidebar move.

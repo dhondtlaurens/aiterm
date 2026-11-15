@@ -13,7 +13,7 @@ public struct SessionContexts: Equatable, Sendable {
 
     /// Drops the values of rows `state` no longer has.
     public mutating func prune(keeping state: AppState) {
-        let live = Set(state.tasks.map(\.id) + state.terminals.map(\.id) + state.runs.map { OperatorRow.id(of: $0.id) })
+        let live = Set(state.tasks.map(\.id) + state.terminals.map(\.id) + (state.operatorSession == nil ? [] : [OperatorRow.id(of: OperatorSession.rowID)]))
         guard byRow.keys.contains(where: { !live.contains($0) }) else { return }
         byRow = byRow.filter { live.contains($0.key) }
     }
@@ -56,7 +56,7 @@ public struct SessionContexts: Equatable, Sendable {
     /// an agent started in one back to its row — as it does for the row's avatars.
     static func row(for session: SessionInfo, in state: AppState) -> UUID? {
         if session.taskId != nil {
-            if let run = session.taskUUID.flatMap(state.run(id:)) { return OperatorRow.id(of: run.id) }
+            if session.taskUUID == state.operatorSession?.id { return OperatorRow.id(of: OperatorSession.rowID) }
             return session.taskUUID.flatMap(state.task(id:))?.id
         }
         return state.terminals.first { $0.windowId != nil && $0.windowId == session.windowId }?.id

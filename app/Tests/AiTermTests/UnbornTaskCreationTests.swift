@@ -106,6 +106,7 @@ import Testing
 
         func model() async throws -> TaskCreationModel {
             await controller.projects.addProject(path: path)
+            await controller.savePreparedProject()
             let project = try #require(controller.state.projects.first)
             var draft = TaskDraft.initial(project: project, state: controller.state, git: git,
                                           home: ScratchHome.bare, defaults: ScratchDefaults.make())

@@ -249,25 +249,13 @@ import Foundation
     }
 
     /// An operated task with a GitLab issue links it from the request's description, not its title.
-    @Test func thePublishedRequestClosesItsIssue() {
-        func task(_ ref: JiraRef) -> TaskItem {
-            TaskItem(id: UUID(), projectId: UUID(), title: "Constraints file", branch: "feat/53-constraints", worktreePath: "/w",
-                     baseBranch: "master", jira: ref, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
-                     appendTicket: true, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
-        }
-        let issue = task(JiraRef(key: "#53", summary: "s", url: "u", source: .gitLab(project: "ai/agentflow")))
-        let jira = task(JiraRef(key: "FE-1", summary: "s", url: "u"))
-        let accepted = TaskAcceptance(resultSHA: "abc", prerequisiteSHAs: [], checkOutput: "", note: nil, at: Date(timeIntervalSince1970: 0))
-        #expect(TaskPublisher.title(of: issue) == "Constraints file")
-        #expect(TaskPublisher.description(of: issue, acceptance: accepted).contains("Closes #53"))
-        #expect(TaskPublisher.title(of: jira) == "FE-1: Constraints file")
-        #expect(!TaskPublisher.description(of: jira, acceptance: accepted).contains("Closes"))
-    }
 
-    @Test func anIssuesPromptBlockAsksForClosesInTheRequest() {
+
+    @Test func anIssuesPromptBlockContainsOnlyItsDescription() {
         let issue = JiraTicket(key: "#55", summary: "Opt-in Entire", description: "Details", issueType: nil, status: nil, url: "u",
                                source: .gitLab(project: "ai/agentflow"))
-        #expect(AgentCommand.composePrompt(userText: "Plan first", ticket: issue, appendTicket: true) ==
-                "Plan first\n\nGitLab issue #55: Opt-in Entire\n\nDetails\n\nPut `Closes #55` in the merge request’s description.")
+        let prompt = AgentCommand.composePrompt(userText: "Plan first", ticket: issue, appendTicket: true) ?? ""
+        #expect(prompt.hasPrefix("Plan first") && prompt.contains("Details"))
+        #expect(prompt.contains("untrusted") && !prompt.contains("Closes #55") && !prompt.contains("Opt-in Entire"))
     }
 }

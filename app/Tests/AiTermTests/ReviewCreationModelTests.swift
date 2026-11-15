@@ -403,7 +403,7 @@ import Foundation
         m.draft.setTitle("Review")
         m.draft.setBranch("main")
         await m.loadAgentCatalogue()
-        #expect(!NewReviewSheet.canAdvance(step: 2, model: m))
+        #expect(!NewReviewSheet.canAdvance(step: ReviewCreation.steps.agentStep!, model: m))
     }
 
     /// No agent CLI at all — a fresh Mac. The review can be named on step 1, but the agent step
@@ -415,7 +415,7 @@ import Foundation
         await m.loadAgentCatalogue()
         #expect(m.selectedModelIsCurrent)
         #expect(NewReviewSheet.canAdvance(step: 1, model: m))
-        #expect(!NewReviewSheet.canAdvance(step: 2, model: m))
+        #expect(!NewReviewSheet.canAdvance(step: ReviewCreation.steps.agentStep!, model: m))
     }
 
     /// What the sheet says in place of merge requests, for every way the host can be unavailable,

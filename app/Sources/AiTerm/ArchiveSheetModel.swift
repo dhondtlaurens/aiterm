@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-/// The Shelf's state, apart from its view so it is tested without one: the query, the rows it ranks —
+/// The Archive's state, apart from its view so it is tested without one: the query, the rows it ranks —
 /// read from the workspace as it is now, so a restore or removal drops its row at once — and the
 /// highlighted row, which ↑ ↓ move, wrapping, and ⌘↩ restores, or opens when it is an ended broadcast.
 @MainActor @Observable
@@ -12,18 +12,17 @@ final class ArchiveSheetModel: Identifiable {
     private var highlightedId: UUID?
     @ObservationIgnored private let entries: @MainActor () -> [ShelfRow]
     @ObservationIgnored private let restore: @MainActor (UUID) -> Void
-    @ObservationIgnored private let open: @MainActor (UUID) -> Void
     @ObservationIgnored private let remove: @MainActor (UUID) -> Void
     /// The clock the rows' dates are read against; the snapshots fix it.
     @ObservationIgnored var now: @MainActor () -> Date = { Date() }
 
     /// `restore` takes a task's or review's id, `open` an ended broadcast's; `remove` either.
     init(entries: @escaping @MainActor () -> [ShelfRow], restore: @escaping @MainActor (UUID) -> Void,
-         open: @escaping @MainActor (UUID) -> Void, remove: @escaping @MainActor (UUID) -> Void) {
-        self.entries = entries; self.restore = restore; self.open = open; self.remove = remove
+         remove: @escaping @MainActor (UUID) -> Void) {
+        self.entries = entries; self.restore = restore; self.remove = remove
     }
 
-    /// One render or command's consistent view of the Shelf. Ranking is reused only while
+    /// One render or command's consistent view of the Archive. Ranking is reused only while
     /// the source's current rows and the query are equal.
     struct Projection {
         let rows: [ShelfRow]
@@ -39,7 +38,6 @@ final class ArchiveSheetModel: Identifiable {
     nonisolated static func primaryTitle(of row: ShelfRow) -> String {
         switch row {
         case .task: "Restore"
-        case .broadcast: "Open"
         }
     }
 
@@ -58,7 +56,7 @@ final class ArchiveSheetModel: Identifiable {
         }
         let rows = rankedRows
         let highlighted = rows.first { $0.id == highlightedId } ?? rows.first
-        let status = query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(entries.count) shelved" : "\(rows.count) of \(entries.count)"
+        let status = query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(entries.count) archived" : "\(rows.count) of \(entries.count)"
         return Projection(rows: rows, total: entries.count, highlighted: highlighted, status: status)
     }
 
@@ -84,7 +82,6 @@ final class ArchiveSheetModel: Identifiable {
     func performHighlighted() -> Bool {
         switch projection.highlighted {
         case .task(let entry): restore(entry.archived.id)
-        case .broadcast(let broadcast): open(broadcast.runId)
         case nil: return false
         }
         return true

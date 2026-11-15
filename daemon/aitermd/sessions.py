@@ -166,6 +166,9 @@ class SessionRegistry:
     def set_context(self, session_id: str, percent: int | None) -> bool:
         return self._set(session_id, "context_percent", percent)
 
+    def set_context_tokens(self, session_id: str, tokens: int | None) -> bool:
+        return self._set(session_id, "context_tokens", tokens)
+
     def set_cli_version(self, session_id: str, version: str | None) -> bool:
         """The version the tab's agent CLI reports (SessionInfo.cli_version). None or empty is no
         reading, which leaves the last one standing: a process's version does not change."""

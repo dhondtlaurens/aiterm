@@ -33,8 +33,8 @@ signed-in providers; run `/login` in PI if none are available.
 
 **Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet previews
 the command before launch. An ordinary **New Review…** uses the normal agent launch command;
-the Operator's review tabs use separate read-only launch restrictions. See the
-[Operator guide](operators.md#workers-review-and-acceptance) for those restrictions.
+signal workers also use the task-branch publishing guard. See the
+[Operator guide](operators.md#publishing-done-conditions-and-merging) for publishing and merge boundaries.
 
 ### Help with problems
 
@@ -47,16 +47,17 @@ before retrying the failed action. Nothing in the project changes until you pres
 
 ## Operator
 
-Choose the Operator's Claude Code model and reasoning, its house instructions and the Oracle's
-agent, model and reasoning. Optional Jira, Review and Merge capabilities, called slices, determine
-which service actions it may take.
+Choose the Operator's Claude Code model and reasoning, the Oracle's agent/model/reasoning, and
+standing instructions under **Steer the Operator**. The page explains what each role does and
+when it asks you. Saved instructions reach the current chat and subsequent Oracle checks.
 
-A **broadcast** is one brief across selected projects. Its setup chooses permitted workers and
-review agents, review instructions, where tasks end and an optional goal. Only one broadcast runs
-at a time. The Oracle can critique decisions and judge whether a goal has been met.
+A **signal** watches Jira, GitLab or GitHub, starts a task per matching item and follows your
+prompt and done condition. Permitted workers and automatic merging are chosen per signal.
+The Operator and Oracle answer worker questions together; questions needing you arrive in the
+Operator's own chat. With the Oracle off, those answers reach you and automatic merging waits.
 
-See [the Operator guide](operators.md) for setup, prerequisites, authority, review, pause/resume,
-takeover and completion behaviour.
+See [the Operator guide](operators.md) for setup, publishing guards, pause/resume, Take Over and
+completion behaviour.
 
 ## Integrations
 
@@ -113,9 +114,9 @@ root. It uses `.gitignore` patterns to select files that already exist in the pr
 and that Git ignores, such as `.env` or local certificates. It does not make them tracked.
 The Task step lets you turn off copying for that task. Existing destination files are kept.
 
-Shelving keeps the task's branch and conversations while removing its worktree. Restoring brings
-it back at its reserved path. Ended broadcasts remain readable on the Shelf. See
-[rows and windows](windows.md) for close, shelve, restore and reconnect behaviour.
+Archiving keeps the task's branch and conversations while removing its worktree. Restoring brings
+it back at its reserved path. See
+[rows and windows](windows.md) for close, archive, restore and reconnect behaviour.
 
 ## Show your project's test runs
 
@@ -168,3 +169,7 @@ Keychain.
 The helper listens on `127.0.0.1:47821` for hook telemetry. The
 [data ownership reference](architecture.md#what-aiterm-writes-and-where) lists the files and local
 transports AiTerm uses. Agent requests use the selected provider's services and configuration.
+
+While signals can start work, Unplugged cannot stop merely because agent turns ended. Pause the
+Operator before choosing “until agents are done”; pending workers still
+finish their current turn. This keeps source polling from starting new work after automatic sleep.

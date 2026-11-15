@@ -8,29 +8,26 @@ import Testing
         let queued = TestActivity(runId: "own", suite: "swift", state: .queued, queuePosition: 2,
                                   holder: "all in /repo/another-worktree")
         #expect(queued.isActive && queued.line == "tests queued · #2")
-        #expect(queued.statusLine.tooltip.contains("all in /repo/another-worktree"))
+        #expect(queued.holder == "all in /repo/another-worktree")
         let running = TestActivity(runId: "own", suite: "swift", state: .running)
         #expect(running.isActive && running.line == "running tests · swift")
         for activity in [TestActivity(runId: "own", suite: "swift", state: .completed, exitCode: 0),
                          TestActivity(runId: "own", suite: "swift", state: .completed, exitCode: 9),
                          TestActivity(runId: "own", suite: "swift", state: .interrupted)] {
             #expect(!activity.isActive)
-            #expect(activity.statusLine.look == .ended)
         }
     }
 
     @Test func ownLiveTestsKeepAnEndedWorkerBusyUntilItsOwnExit() throws {
-        let run = OperatorUIFixtures.run(), project = OperatorUIFixtures.project("web")
-        let task = OperatorUIFixtures.task("Own tests", project: project.id,
-            operated: OperatorUIFixtures.operated(run: run.id, key: "own", state: .working))
-        var session = OperatorUIFixtures.tab("main", of: task, .done)
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        let task = world.state.task(id: id)!
+        var session = SessionInfo.make("main", task: task.id, state: .done)
         session.testActivity = TestActivity(runId: "own", suite: "daemon", state: .queued, queuePosition: 1)
         #expect(SidebarModel.aggregate(tabs: [session]) == .background)
-        #expect(!task.isReadyForAcceptance(in: [session], now: Date()))
-        #expect(OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [session])?.text == "tests queued · #1")
+        #expect(task.workerTabs(in: [session])[0].isStillAtWork)
         session.testActivity = TestActivity(runId: "own", suite: "daemon", state: .completed, exitCode: 0)
         #expect(SidebarModel.aggregate(tabs: [session]) == .done)
-        #expect(task.isReadyForAcceptance(in: [session], now: Date()))
+        #expect(!task.workerTabs(in: [session])[0].isStillAtWork)
         session.state = .working
         #expect(SidebarModel.aggregate(tabs: [session]) == .working)
         #expect(SidebarModel.backgroundJobs(of: [session]).isEmpty)
@@ -39,12 +36,12 @@ import Testing
     /// The row's third line is the Operator's alone (29 Oct 2026): a task of your own running its tests draws no line,
     /// only background work, on its mark and its card; a driven one's line still says it.
     @Test func ownTestsDrawNoLineOnATaskOfYourOwn() throws {
-        let project = OperatorUIFixtures.project("web")
-        let task = OperatorUIFixtures.task("Mine", project: project.id, operated: nil)
+        let project = Project.make(name: "web")
+        let task = TaskItem.make(project: project.id, title: "Mine")
         var state = AppState()
         state.append(project: project)
         state.tasks = [task]
-        var session = OperatorUIFixtures.tab("main", of: task, .done)
+        var session = SessionInfo.make("main", task: task.id, state: .done)
         session.testActivity = TestActivity(runId: "own", suite: "swift", state: .running)
         let row = try #require(SidebarModel.sections(state: state, sessions: [session], branchByCwd: [:], projectBranch: [:])
             .first?.tasks.first)

@@ -92,6 +92,13 @@ public enum WorkerTurn {
         return text.count > questionLimit ? String(text.prefix(questionLimit - 1)) + "…" : text
     }
 
+    private static func sameCommit(_ a: String, _ b: String) -> Bool {
+        let a = a.lowercased(), b = b.lowercased()
+        if a == b { return !a.isEmpty }
+        let (short, long) = a.count < b.count ? (a, b) : (b, a)
+        return short.count >= 7 && long.hasPrefix(short)
+    }
+
     /// Dirt proves a change only against the content recorded at acceptance. Older acceptances have no such
     /// baseline: only a different HEAD proves they moved. Failed reads supply no evidence of a change.
     public static func changedAfterAcceptance(head: String?, accepted: String?, fingerprint: String? = nil,
@@ -99,7 +106,7 @@ public enum WorkerTurn {
         guard let accepted, !accepted.isEmpty else { return false }
         if let fingerprint, let acceptedFingerprint, fingerprint != acceptedFingerprint { return true }
         guard let head, !head.isEmpty else { return false }
-        return !OperatedTransitions.sameCommit(head, accepted)
+        return !sameCommit(head, accepted)
     }
 }
 

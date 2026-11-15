@@ -30,23 +30,24 @@ Status marks show working agents, requests for input, background work and unread
 **Focus View** (⌘F) opens projects with rows waiting on you; **List View** (⌘L) opens them all.
 The footer shows the selected tab's context, Mac readings and supported agents' account usage.
 
-### Coordinate work across projects
+### Start and steer work from signals
 
-Give the **Operator** one brief across selected projects. This is a **broadcast**: the Operator
-plans tasks, starts workers, reviews their results and carries accepted work to the end you choose,
-such as a commit, draft request or merge. You choose the permitted agents and capabilities.
-One broadcast runs at a time. See [the Operator guide](docs/operators.md).
+Create a **Signal** (⌘S) for matching Jira tickets, reviews asked of you, or your merge requests
+that need a reply. The **Operator** starts a task for each item in its existing project, gives the
+worker your prompt and follows its done condition. The Oracle helps answer worker questions;
+questions for you arrive in the Operator's chat. Choose the permitted agents and what happens
+when work finishes. See [the Operator guide](docs/operators.md).
 
 ### Bring reviews into your workspace
 
 Open a branch or merge/pull request with **New Review…** (⌘R). It gets a review worktree, or opens
 in the existing task when that branch is already checked out there. Review badges count resolved
-threads. The Operator can also start read-only review tabs as part of its workflow.
+threads. Signals can also start reviews when a host asks you to review.
 
 ### Put work aside and pick it up later
 
-**Shelve** a task to keep its branch and conversations while removing its worktree. Open the
-**Shelf** (⌘S) to restore it later. Ended broadcasts stay there to read. See
+**Archive** a task to keep its branch and conversations while removing its worktree. Open the
+**Archive** (⌘A outside a text field) to restore it later. See
 [rows and windows](docs/windows.md) for closing, restoration and reconnect behaviour.
 
 ## Install
@@ -65,8 +66,8 @@ Requires **macOS 26+**, **iTerm2** and **Python 3.11+**. Enable
    account or API access.
 
 **Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The task sheet previews the
-command before launch. Ordinary **New Review…** uses the normal agent command; the Operator's
-review tabs use separate read-only restrictions. [Agent configuration](docs/configuration.md#agents).
+command before launch. Ordinary **New Review…** uses the normal agent command. Signal workers also run with publishing
+guards on their own task branch. [Agent configuration](docs/configuration.md#agents).
 
 Use **AiTerm › Check for Updates…** for subsequent versions. To have a coding agent install it,
 give it [the installation guide](docs/ai-install.md):
@@ -81,15 +82,15 @@ Jira, GitHub and GitLab service connections are optional for this task.
 
 1. Choose **File › Add Project…** (⌘P) and select your repository folder.
 2. Select its project in the sidebar, then choose **File › New Task…** (⌘N).
-3. In **Task**, enter a name, such as “Explain the test setup”. Check the new branch name and choose
-   a base branch that exists. Continue without a Jira ticket.
-4. In **Agent**, choose an installed agent, an available model and its reasoning level, then continue.
-5. In **Prompt**, describe the work. For example: “Find the test commands for this project and
-   explain how to run them.” Check the command preview and press **Create Task**.
+3. In **Ticket**, pick a ticket or continue without one.
+4. In **Name and branch**, enter “Explain the test setup”, check the branch and choose a base branch.
+5. In **Prompt**, write: “Find the test commands for this project and explain how to run them.”
+6. In **Agent**, choose the agent, model and reasoning. Check the command and closing box, then
+   press **Create Task**.
 
 Your task appears in the sidebar with its own branch, worktree and iTerm2 agent window. Select it
 to return to that window, and answer any agent sign-in or folder-trust prompt there.
-For one brief across several projects, try [a broadcast](docs/operators.md#set-up-a-broadcast) (⌘B).
+To start work automatically from Jira or a code host, [create a signal](docs/operators.md#create-a-signal) (⌘S).
 
 ## More ways to work
 

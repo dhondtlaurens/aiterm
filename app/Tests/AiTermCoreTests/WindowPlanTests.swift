@@ -31,16 +31,17 @@ import Testing
         return state
     }
 
-    func operated(_ task: TaskItem, state: OperatedState) -> TaskItem {
+    func operated(_ task: TaskItem, state: TaskPhase) -> TaskItem {
         var task = task
-        task.operated = OperatedTask(runId: UUID(), key: "k", state: state, brief: "b", revision: 1)
+        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        task.signalTask?.phase = state
         return task
     }
 
     /// An operator's task before AiTerm starts it has no worktree: nothing to restore it into, and no
     /// window the person can have closed.
     @Test func aTaskWithNoWorktreeYetIsNeitherRestoredNorAskedAbout() {
-        var planned = operated(task(window: nil), state: .planned)
+        var planned = operated(task(window: nil), state: .launching)
         planned.worktreePath = ""
         #expect(state(tasks: [planned]).windowPlan(sessions: [], settled: true, due: [planned.id], waiting: [], lettingGo: []).isEmpty)
     }

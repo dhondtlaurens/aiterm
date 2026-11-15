@@ -227,8 +227,8 @@ public enum Typography {
     /// icon buttons (clear, toggle).
     public static let micro = TypeStyle(size: 10, weight: .semibold)
     /// `.footnote` at medium weight — the words on a chip: a `Badge`'s ticket key, `+n` and diff, a
-    /// status count, the Operator's status words and progress, a board tab's key and a question's
-    /// age. Words, so the system face; a count among them takes `.tabular`.
+    /// status count, or the Operator's status words. Words, so the system face; a count among them
+    /// takes `.tabular`.
     public static let chip = TypeStyle(size: 10, weight: .medium)
 
     // The monospaced face is for code alone: what is typed into a terminal or read back from one.
@@ -261,8 +261,8 @@ public enum Sheet {
     /// the Dock.
     private static let screenMargin: CGFloat = 100
     public static let width: CGFloat = 560
-    /// The sheets whose content runs past any one height and scrolls: New Broadcast, the board, the
-    /// Shelf and Jira projects; and the most a sheet that fits its content (`NameSheet`, Unplugged) grows to.
+    /// The sheets whose content runs past any one height and scrolls: New Signal and the
+    /// Archive; and the most a sheet that fits its content (`NameSheet`, Unplugged) grows to.
     public static let height: CGFloat = 560
     /// New Task's and New Review's every step, so the sheet does not jump from one to the next: their
     /// tallest ordinary step — the prompt, New Task's ticket checkbox, the command and where it opens,
@@ -272,13 +272,10 @@ public enum Sheet {
     public static let creationHeight: CGFloat = 500
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
-    /// The broadcast's sheet, taller than the rest so a question and the tasks at work share its first
-    /// screen (14 Nov 2026): the header and footer take 197 pt of it.
-    public static let boardHeight: CGFloat = 640
 }
 
 /// How far a control fades while it can't be used: a segment `SegmentedControl`'s or a tab `TabBar`'s `isSelectable` rejects, Settings ›
-/// Operator's Oracle fields while it is off, and New Broadcast's goal editor, Goal rounds and Worker questions while the Oracle is.
+/// Operator's Oracle fields while it is off.
 public enum Opacity {
     public static let disabled: Double = 0.4
 }

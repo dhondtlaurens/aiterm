@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Step 2 of both sheets. Spec 8: an agent whose CLI is not on the login shell's `PATH` cannot be
+/// The last step of New Task and New Review. Spec 8: an agent whose CLI is not on the login shell's `PATH` cannot be
 /// picked, and the sheet says which one and where to install it instead of letting the task open a
 /// window that prints "command not found". With none installed, Continue stays disabled.
 struct AgentStep: View {
@@ -63,22 +63,19 @@ struct AgentStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
-            FormField("Agent") {
-                AgentSegmented(agents: AgentKind.allCases, available: availableAgents,
-                               selection: Binding(get: { agent }, set: { selectAgent($0) }))
-                if let note = Self.missingAgentNote(available: availableAgents) {
-                    HelpText(note, tone: .warning)
+            HStack(alignment: .top, spacing: Space.gap) {
+                if !availableAgents.isEmpty {
+                    FormField("Agent") {
+                        Select(values: AgentKind.allCases.filter { availableAgents.contains($0) },
+                               selection: Binding(get: { agent }, set: { selectAgent($0) }), label: { $0.displayName })
+                    }.frame(maxWidth: .infinity)
                 }
+                if models.isEmpty {
+                    FormField("Model") { HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded, failure: catalogueFailure)).fieldChrome() }
+                        .frame(maxWidth: .infinity)
+                } else { fields.modelField; fields.reasoningField }
             }
-
-            if models.isEmpty {
-                FormField("Model") {
-                    HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded, failure: catalogueFailure)).fieldChrome()
-                }.frame(maxWidth: .infinity)
-            } else {
-                fields
-            }
-
+            if let note = Self.missingAgentNote(available: availableAgents) { HelpText(note, tone: .warning) }
             if let detail = selectedModel?.detail, !detail.isEmpty { HelpText(detail) }
         }
     }

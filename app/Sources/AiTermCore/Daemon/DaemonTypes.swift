@@ -17,6 +17,8 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// sibling tabs running the same provider so tab changes cannot erase it. An unassociated
     /// session may carry its own value, but the app only displays task context.
     public var contextPercent: Int? = nil
+    /// Current input context for this conversation, never shared with sibling tabs. Unknown is nil.
+    public var contextTokens: Int? = nil
     /// The conversation this tab's agent runs, as the agent's own hooks name it: what reopening its
     /// task's window resumes (`TaskItem.conversations`). Nil for a shell, before the agent's first
     /// hook placed on this tab, and from a daemon too old to send it.
@@ -87,6 +89,7 @@ extension SessionInfo {
         agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
         active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
         contextPercent = try c.decodeIfPresent(Int.self, forKey: .contextPercent)
+        contextTokens = try c.decodeIfPresent(Int.self, forKey: .contextTokens)
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
@@ -341,18 +344,20 @@ public enum PromptKind: String, Codable, LenientRawDecodable, CaseIterable, Send
 /// One tool call from an operator: answered with `operator.reply` and the same `requestId`.
 public struct OperatorRequest: Decodable, Equatable, Sendable {
     public var requestId: String, runId: String, tool: String
+    public var generation: Int
     /// An object; a call with none reads as an empty one.
     public var arguments: JSONValue
-    public init(requestId: String, runId: String, tool: String, arguments: JSONValue) {
-        self.requestId = requestId; self.runId = runId; self.tool = tool; self.arguments = arguments
+    public init(requestId: String, runId: String, tool: String, arguments: JSONValue, generation: Int) {
+        self.requestId = requestId; self.runId = runId; self.tool = tool; self.arguments = arguments; self.generation = generation
     }
-    private enum CodingKeys: String, CodingKey { case requestId, runId, tool, arguments }
+    private enum CodingKeys: String, CodingKey { case requestId, runId, tool, arguments, generation }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         requestId = try c.decode(String.self, forKey: .requestId)
         runId = try c.decode(String.self, forKey: .runId)
         tool = try c.decode(String.self, forKey: .tool)
         arguments = try c.decodeIfPresent(JSONValue.self, forKey: .arguments) ?? .object([:])
+        generation = try c.decode(Int.self, forKey: .generation)
     }
 }
 

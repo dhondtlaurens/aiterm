@@ -291,13 +291,12 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// raw value a newer build saved, which this build reads as `.task`.
     private var savedKind: String?
     /// What an operator adds to the task (spec §5.1); nil for every task you made yourself.
-    public var operated: OperatedTask?
+    public var signalTask: SignalTask?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
-    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = [], operated: OperatedTask? = nil) {
+    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
         self.jira = jira; self.kind = kind; self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning; self.firstPrompt = firstPrompt; self.appendTicket = appendTicket
         self.createdAt = createdAt; self.windowId = windowId; self.conversations = conversations
-        self.operated = operated
         savedKind = kind == .task ? nil : kind.rawValue
     }
 
@@ -306,7 +305,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
-        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, operated
+        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, signalTask
     }
 
     /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
@@ -314,7 +313,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         // `lastSelectedAt` was written on every click and never read; a workspace saved with it loses it.
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["lastSelectedAt"])
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["lastSelectedAt", "operated"])
         id = try c.decode(UUID.self, forKey: .id)
         projectId = try c.decode(UUID.self, forKey: .projectId)
         title = try c.decode(String.self, forKey: .title)
@@ -338,7 +337,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         // list it cannot read at all is none, rather than failing the whole workspace load.
         conversations = (try? c.decodeIfPresent([SavedConversation].self, forKey: .conversations))?
             .compactMap(\.conversation) ?? []
-        operated = try c.decodeIfPresent(OperatedTask.self, forKey: .operated)
+        signalTask = try c.decodeIfPresent(SignalTask.self, forKey: .signalTask)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -363,7 +362,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         // Left out while empty, so a workspace with none is written as it always was.
         if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
         // Left out for a task you made yourself, so it is written as it always was.
-        try c.encodeIfPresent(operated, forKey: .operated)
+        try c.encodeIfPresent(signalTask, forKey: .signalTask)
     }
 
     /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;
@@ -431,10 +430,11 @@ public struct AppState: Codable, Equatable, Sendable {
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
     /// The operations, in the order they were started (spec §5.1). The app is their only writer.
-    public var runs: [OperatorRun] = []
     /// The broadcasts whose group in the sidebar is folded to its header (`setFolded(run:_:)`): where a
     /// project's fold is kept, its `collapsed`, the sidebar's and not the run's.
-    public var foldedRuns: Set<UUID> = []
+    public var signals: [Signal] = []
+    public var signalSeen: [SignalSeen] = []
+    public var operatorSession: OperatorSession?
     public static let empty = AppState()
     public init() {}
 
@@ -495,14 +495,15 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent, runs, foldedRuns
+        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
+        case signals, signalSeen, operatorSession
     }
 
     /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
     /// their projects become the list, in order. Same mechanism as `TerminalItem.init(from:)`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["runs", "foldedRuns"])
         if let stored = try c.decodeIfPresent([SidebarItem].self, forKey: .items) { items = stored }
         else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
@@ -513,8 +514,9 @@ public struct AppState: Codable, Equatable, Sendable {
         lastAgentByProject = (try c.decodeIfPresent([UUID: SavedAgent].self, forKey: .lastAgentByProject) ?? [:]).compactMapValues(\.agent)
         lastModelByAgent = Dictionary(uniqueKeysWithValues: (try c.decodeIfPresent([SavedAgent: String].self, forKey: .lastModelByAgent) ?? [:])
             .compactMap { saved, model in saved.agent.map { ($0, model) } })
-        runs = try c.decodeIfPresent([OperatorRun].self, forKey: .runs) ?? []
-        foldedRuns = try c.decodeIfPresent(Set<UUID>.self, forKey: .foldedRuns) ?? []
+        signals = try c.decodeIfPresent([Signal].self, forKey: .signals) ?? []
+        signalSeen = try c.decodeIfPresent([SignalSeen].self, forKey: .signalSeen) ?? []
+        operatorSession = try c.decodeIfPresent(OperatorSession.self, forKey: .operatorSession)
     }
 
     /// An agent as it was saved, known to this build or not. Neither a `String` nor
@@ -537,9 +539,10 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(lastAgentByProject, forKey: .lastAgentByProject)
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
         // Left out while there are none, so a workspace without operations is written as it always was.
-        if !runs.isEmpty { try c.encode(runs, forKey: .runs) }
         // Left out while nothing is folded, so a workspace without one is written as it always was.
-        if !foldedRuns.isEmpty { try c.encode(foldedRuns.sorted { $0.uuidString < $1.uuidString }, forKey: .foldedRuns) }
+        if !signals.isEmpty { try c.encode(signals, forKey: .signals) }
+        if !signalSeen.isEmpty { try c.encode(signalSeen, forKey: .signalSeen) }
+        try c.encodeIfPresent(operatorSession, forKey: .operatorSession)
     }
 
     /// A window iTerm2 no longer has: its row is owed it — a task's and a terminal's alike — and

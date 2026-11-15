@@ -123,7 +123,9 @@ import Synchronization
         let m = model()
         m.pickTicket(ticket)
         m.promptText = "Review this"
-        #expect(m.composedPrompt == "Review this\n\nJVS-5793: invoice_to_exact flags unchanged invoices\n\n## Acceptance\n- unchanged")
+        #expect(m.composedPrompt?.hasPrefix("Review this") == true)
+        #expect(m.composedPrompt?.contains("## Acceptance") == true)
+        #expect(m.composedPrompt?.contains("JVS-5793") == false)
         m.draft.appendTicket = false
         #expect(m.composedPrompt == "Review this")
     }

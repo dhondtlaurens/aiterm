@@ -103,7 +103,7 @@ import AiTermCore
         ])
     }
 
-    @Test func escapeSkipsTheWorktreeImport() async throws {
+    @Test func untickingWorktreeImportAddsOnlyTheProject() async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "⎋"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
@@ -113,8 +113,9 @@ import AiTermCore
 
         await controller.projects.addProject(path: fixture.repo.path)
 
-        #expect(fixture.prompter.asked.map(\.message) == ["Import 1 worktree?"])
+        await controller.savePreparedProject(importWorktrees: false)
+        #expect(fixture.prompter.asked.isEmpty)
         #expect(controller.state.projects.map(\.path) == [fixture.repo.path])
-        #expect(controller.state.tasks.isEmpty, "⎋ is Skip")
+        #expect(controller.state.tasks.isEmpty, "the import checkbox was cleared")
     }
 }

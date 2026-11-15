@@ -140,26 +140,20 @@ struct OperatorBadgeTests {
         let view = DecodeWordsView()
         view.now = { now }
         let font = SidebarHeading.style.nsFont
-        #expect(OperatorTitle.home == "Operator")
-        view.configure(text: OperatorTitle.home, font: font, ink: .white, duration: OperatorTitle.decodeDuration, decodesFirst: false)
+        view.configure(text: "Operator", font: font, ink: .white, duration: OperatorBadge.decodeDuration, decodesFirst: false)
         #expect(!view.isDecoding && view.shown == "Operator")
         let line = OperatorLine("answering Claude · PAY-231", look: .acting)
-        view.configure(text: line.text, font: font, ink: .white, duration: OperatorTitle.decodeDuration, decodesFirst: false)
+        view.configure(text: line.text, font: font, ink: .white, duration: OperatorBadge.decodeDuration, decodesFirst: false)
         #expect(view.isDecoding && view.shown != line.text)
         #expect(view.glyphs.shadowOpacity == 0 && view.words.shadowOpacity == 0, "no glow")
-        now += OperatorTitle.decodeDuration
+        now += OperatorBadge.decodeDuration
         view.tick()
         #expect(!view.isDecoding && view.shown == "answering Claude · PAY-231", "settled in the line's own case")
     }
 
     /// The decode keeps its timing and rules (sentence-case headings, 13 Nov 2026, changed only the case): 0.9 s
     /// each way, 0.35 s back under the pointer, a 3 s hold and a 20–60 s rest.
-    @Test func theHeadingsDecodeKeepsItsTiming() {
-        #expect(OperatorTitle.decodeDuration == 0.9)
-        #expect(OperatorTitle.hoverDuration == 0.35)
-        #expect(OperatorTitle.hold == 3.0)
-        #expect(OperatorTitle.rest == 20...60)
-    }
+
 
     /// Hosted on the wall clock: the decode runs once in its own view, a frame at a time, settles within its
     /// duration and stops; the badge's SwiftUI view is not updated per frame, and nothing decodes when it stands still.

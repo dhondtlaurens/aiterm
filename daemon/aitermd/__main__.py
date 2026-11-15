@@ -91,7 +91,7 @@ async def run_daemon(ns: argparse.Namespace, *, test_records: Path | None = None
     from .connection import ItermSupervisor
     from .hooks_server import HookServer
     from .iterm_bridge import ItermBridge
-    from .operator_mcp import RUNS_ROOT
+    from .operator_mcp import SINGLE_ROOT
     from .rpc_server import RpcServer
     from .service import Service
     from .test_activity import TestActivityReader
@@ -103,7 +103,7 @@ async def run_daemon(ns: argparse.Namespace, *, test_records: Path | None = None
     supervisor = ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count, cookies_from_app=ns.cookies_from_app)
     svc = Service(iterm=iterm, rpc=rpc, hooks=HookServer(port=ns.hook_port),
                   claude_files=ClaudeSessionFiles(), codex_files=CodexSessionFiles(),
-                  clock=time.time, supervisor=supervisor, operator_runs=RUNS_ROOT,
+                  clock=time.time, supervisor=supervisor, operator_folder=SINGLE_ROOT,
                   test_activity=TestActivityReader(test_records) if test_records is not None else None)
     await svc.start()
     watchdog = asyncio.get_running_loop().create_task(

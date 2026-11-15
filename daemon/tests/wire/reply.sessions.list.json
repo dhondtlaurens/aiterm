@@ -7,6 +7,7 @@
       "agentCwd": "/repo/.worktrees/feat-wire/app",
       "background": [],
       "contextPercent": 42,
+      "contextTokens": null,
       "conversationId": "pi-wire",
       "cwd": "/repo/.worktrees/feat-wire",
       "displayWork": {
@@ -36,6 +37,7 @@
       "agentCwd": "/repo/.worktrees/feat-wire",
       "background": [],
       "contextPercent": null,
+      "contextTokens": 39239,
       "conversationId": null,
       "cwd": "/repo/.worktrees/feat-wire",
       "displayWork": {
@@ -76,6 +78,7 @@
       "agentCwd": null,
       "background": [],
       "contextPercent": null,
+      "contextTokens": null,
       "conversationId": null,
       "cwd": "/repo",
       "displayWork": null,

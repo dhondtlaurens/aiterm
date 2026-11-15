@@ -23,8 +23,8 @@ struct Fixture {
     /// The bare home's models, with no CLI to launch: PI offers none.
     nonisolated static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { models.read($0).models }
     nonisolated private static let models = ModelCatalogue(home: home, runner: .nothingInstalled)
-    /// Asked for branches and checkouts of a project that is not on disk: it answers none.
-    nonisolated static let git = GitRunner()
+    /// The creation sheets’ repository reads are fixed and never reach the developer’s checkout.
+    nonisolated static let git = SheetSnapshotGit()
     /// The preferences every image draws with: the defaults, read from `defaults`.
     static var preferences: InterfacePreferences { InterfacePreferences(defaults: defaults) }
 

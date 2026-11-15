@@ -511,3 +511,19 @@ async def test_a_conversations_own_posts_still_place_by_directory_on_its_tab(hoo
     assert hooks.state(sid) == "working", "the subagent placed by directory keeps the turn going"
     await hooks.post("/hook/claude", {**child, "hook_event_name": "SubagentStop"})
     assert hooks.state(sid) == "done"
+
+
+async def test_current_input_context_belongs_only_to_its_proven_conversation(hooks, monkeypatch):
+    first, second = hooks.tabs(("s1", "claude", 101), ("s2", "claude", 102))
+    monkeypatch.setattr(hooks.resolver.claude_files, "pid_for_session", lambda _: 101)
+    body = {"session_id": "operator", "cwd": "/wt", "_aiterm_iterm_session_id": first,
+            "context_window": {"current_usage": {"input_tokens": 2, "cache_creation_input_tokens": 9227,
+                                                   "cache_read_input_tokens": 30010, "output_tokens": 9000}}}
+    await hooks.post("/statusline", body)
+    assert hooks.registry.get(first).context_tokens == 39239
+    assert hooks.registry.get(second).context_tokens is None
+    assert hooks.events[-1][1]["contextTokens"] == 39239
+    await hooks.post("/statusline", {**body, "context_window": {"current_usage": None}})
+    assert hooks.registry.get(first).context_tokens is None
+    hooks.tabs(("s1", "claude", 201), ("s2", "claude", 102))
+    assert hooks.registry.get(first).context_tokens is None

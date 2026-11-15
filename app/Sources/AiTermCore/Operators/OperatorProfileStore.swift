@@ -1,7 +1,7 @@
 import Foundation
 
-/// Settings › Operator's profile, kept as JSON in UserDefaults under `operator.profile`. A broadcast
-/// copies it when it starts. Oracle changes also apply to running broadcasts.
+/// Settings › Operator's profile, kept as JSON in UserDefaults under `operator.profile`. The Operator reads it for
+/// its next session. Oracle changes also invalidate checks already running.
 public enum OperatorProfileStore {
     static let key = "operator.profile"
     private static let oracleRevisionKey = "operator.oracleRevision"
@@ -30,20 +30,6 @@ public enum OperatorProfileStore {
         }
         defaults.set(data, forKey: key)
         NotificationCenter.default.post(name: didSave, object: defaults)
-    }
-
-    static let lastAgentsKey = "operator.lastBroadcastAgents"
-
-    /// The last broadcast's Agents rows, which New Broadcast's Agents step starts from: none before a broadcast saved
-    /// some, or when what is saved cannot be read.
-    public static func lastAgents(_ defaults: UserDefaults = .standard) -> [AgentChoice] {
-        guard let data = defaults.data(forKey: lastAgentsKey) else { return [] }
-        return (try? JSONDecoder().decode([AgentChoice].self, from: data)) ?? []
-    }
-
-    /// Writes `rows` as the last broadcast's; an encoding failure throws and leaves what was saved before.
-    public static func saveLastAgents(_ rows: [AgentChoice], _ defaults: UserDefaults = .standard) throws {
-        defaults.set(try JSONEncoder().encode(rows), forKey: lastAgentsKey)
     }
 
     /// Claude's default as `load` takes it: the model Settings › Agents makes Claude's default, or

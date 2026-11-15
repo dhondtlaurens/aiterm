@@ -551,7 +551,7 @@ import Testing
 @MainActor @Suite(.blocking) struct BackpackAppControllerTests {
     /// The sheet's actual popup follows workspace broadcasts, including one starting after the
     /// sheet opens. Ending a broadcast enables the option again and Connect carries that choice.
-    @Test func unpluggedChoicesFollowTheLiveBroadcast() async throws {
+    @Test func unpluggedChoicesFollowEnabledSignals() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let fake = FakeBackpack()
@@ -572,11 +572,11 @@ import Testing
         let agentsDone = try #require(button.itemArray.first { $0.title == "When agents are done" })
         #expect(agentsDone.isEnabled)
 
-        let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run] }
+        var world = SignalWorld(); let signal = world.signal()
+        controller.workspace.mutate { $0.signals = world.state.signals }
         settle(host)
         #expect(!agentsDone.isEnabled)
-        #expect(model.until == .turnedOff, "a broadcast starting under the sheet falls back to Never")
+        #expect(model.until == .turnedOff, "a signal switching on under the sheet falls back to Never")
         #expect(button.titleOfSelectedItem == "Never")
         model.until = .agentsStop
         #expect(model.canConnect)
@@ -585,7 +585,9 @@ import Testing
         #expect(model.backpack.state.until == .turnedOff)
         await model.backpack.turnOff()
 
-        controller.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        controller.workspace.mutate { state in
+            if let index = state.signals.firstIndex(where: { $0.id == signal }) { state.signals[index].enabled = false }
+        }
         settle(host)
         let refreshedButton = try #require(host.descendants(NSPopUpButton.self).last)
         #expect(refreshedButton.itemArray.first { $0.title == "When agents are done" }?.isEnabled == true)
@@ -596,25 +598,25 @@ import Testing
         #expect(model.backpack.state.until == .agentsStop)
     }
 
-    /// A broadcast starting after Unplugged was enabled must also bridge quiet turns. The cutoff
-    /// still wins, and after the broadcast ends the normal idle grace resumes.
+    /// Signals enabled after Unplugged started must also bridge quiet turns. The cutoff
+    /// still wins, and after the Operator pauses the normal idle grace resumes.
     @Test(arguments: [false, true])
-    func aBroadcastHoldsUnpluggedAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
+    func signalsHoldUnpluggedAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
         let fake = FakeBackpack(), clock = TestClock()
         fake.lidSensor.closed = true
-        let broadcasting = Mutex(false)
+        let operating = Mutex(false)
         let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
                                           now: { clock.now }, agentsWorking: { false },
-                                          broadcastRunning: { broadcasting.withLock { $0 } }, toast: { _ in })
+                                          operatorCanStartWork: { operating.withLock { $0 } }, toast: { _ in })
         await backpack.connect(network: "Phone", password: nil, until: .agentsStop)
-        broadcasting.withLock { $0 = true }
+        operating.withLock { $0 = true }
         clock.advance(by: 3600)
         await backpack.tick()
         #expect(backpack.isOn)
         if cutoff {
             fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
         } else {
-            broadcasting.withLock { $0 = false }
+            operating.withLock { $0 = false }
             clock.advance(by: BackpackMode.idleGrace)
         }
         await backpack.tick()

@@ -174,12 +174,12 @@ final class TaskRemover: CheckoutRemovals {
         // Archive never deletes a branch, so beside it a review's branch sentence is Remove's alone.
         let detail = switch (shown.kind == .review, archiveInstead != nil) {
         case (true, true):
-            "Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore later. "
+            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later. "
                 + "Remove also deletes its local branch, unless it has unpushed commits."
         case (true, false):
             "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
         case (false, true):
-            "Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore later."
+            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later."
         case (false, false):
             "Deletes its worktree and closes its iTerm2 window."
         }
@@ -201,7 +201,8 @@ final class TaskRemover: CheckoutRemovals {
     /// task's finished record once nothing is left to keep the task, just before its window closes; false stops it.
     /// Why it stopped is saved on the task for its card (`OperatedTask.keptReason`), or what it waits for when it is to be
     /// tried again (`closingWait`). The caller deletes a merged branch once the row is gone.
-    func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
+    func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool,
+                             stillAllowed: @MainActor () -> Bool = { true }) async throws {
         guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
               let project = workspace.state.project(id: task.projectId),
               let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else {
@@ -211,23 +212,24 @@ final class TaskRemover: CheckoutRemovals {
         outcomes[task.id] = nil
         // A turn under way is waited for: checked first, so a task you are driving with edits waits rather than reads as
         // unsaved work, and again after the worktree checks, since a turn can start while they run.
-        func waitForTurns() throws(ClosingWait) {
-            guard !TaskAutoCloser.isDriving(task, in: live) else { throw .turn }
-            guard !Self.turnInFlight(task.id, in: live) else { throw .agentTurn }
-        }
+        func waitForTurns() throws(ClosingWait) { try requireIdleForAutomaticCleanup(task) }
         do {
             try waitForTurns()
             // Unsaved work is what git status lists, uncommitted or untracked changes. Git-ignored files such as .env
             // are not: they go with the worktree, as with the person's Remove (plain git worktree remove, never forced).
             if try await workflow.hasUnsavedWork(task: task, project: project) {
-                throw ActionUnavailable(TaskAutoCloser.unsavedWork)
+                throw ActionUnavailable(AutomaticCleanup.unsavedWork)
             }
             if await hasWorktreeFolder(task) {
                 guard try await workflow.head(of: task, in: project) == .branch(task.branch) else {
                     throw ActionUnavailable("Its worktree is no longer on its task branch.")
                 }
             }
-            guard workspace.state.task(id: task.id) == task else {
+            guard let current = workspace.state.task(id: task.id), current.projectId == task.projectId,
+                  current.worktreePath == task.worktreePath, current.branch == task.branch, current.baseBranch == task.baseBranch,
+                  current.windowId == task.windowId, current.kind == task.kind,
+                  current.signalTask?.stage == task.signalTask?.stage, current.signalTask?.ownership == task.signalTask?.ownership,
+                  current.signalTask?.takenOver == task.signalTask?.takenOver else {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
             try waitForTurns()
@@ -245,26 +247,26 @@ final class TaskRemover: CheckoutRemovals {
             }
             // Never forced, so changes made while the window closed are git's to refuse.
             let removed: TaskWorkflow.Removed
-            do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false) }
-            catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
+            do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false,
+                                                     preserveBranch: task.signalTask != nil) }
+            catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(AutomaticCleanup.unsavedWork) }
+            // A signal may have queued another stage while git removed the checkout. Keep the
+            // row and put its branch back in a worktree before the new stage can continue.
+            guard stillAllowed() else {
+                _ = try await workflow.restore(task, project: project)
+                throw ActionUnavailable("A new stage waits, so its checkout was restored and the task was kept.")
+            }
             await finishRemoval(of: task, after: removed)
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
-        } catch let waiting as ClosingWait {
-            workspace.mutate { $0.updateOperated(task.id) { $0.closingWait = waiting } }
-            throw waiting
-        } catch {
-            // A removal that stopped after its worktree went has left the row its own note, with the retry the person's
-            // Remove offers there; its card says the same.
-            let reason = if case .stopped(let note, _)? = outcomes[task.id] {
-                TaskAutoCloser.failureReason(ActionUnavailable(note))
-            } else {
-                TaskAutoCloser.failureReason(error)
-            }
-            workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason; $0.closingWait = nil } }
-            throw error
-        }
+        } catch let waiting as ClosingWait { throw waiting }
+        catch { throw error }
+    }
+
+    func requireIdleForAutomaticCleanup(_ task: TaskItem) throws(ClosingWait) {
+        guard !AutomaticCleanup.isDriving(task, in: live) else { throw .turn }
+        guard !Self.turnInFlight(task.id, in: live) else { throw .agentTurn }
     }
 
     /// Whether the task's worktree folder is there (`FolderCheck`).
@@ -306,7 +308,7 @@ final class TaskRemover: CheckoutRemovals {
     }
 
     /// The question before a folder git no longer lists is deleted: it may hold files AiTerm did not
-    /// make. Keep is the default and ⎋. One wording for Remove and Shelve.
+    /// make. Keep is the default and ⎋. One wording for Remove and Archive.
     static func unlistedFolderQuestion(for task: TaskItem) -> AlertPrompt {
         AlertPrompt(message: "Delete the unlisted folder for “\(task.title)”?",
                     detail: "Git no longer lists this folder as a worktree. It may contain files AiTerm did not create.\n\(task.worktreePath)",
@@ -349,7 +351,7 @@ final class TaskRemover: CheckoutRemovals {
         return removal
     }
 
-    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Shelve
+    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Archive
     /// shares (`WorktreeTeardown`). A worktree with uncommitted changes asks first, while the window is still open; nil
     /// means it was kept. Unsaved work written after that check is only found once the window has closed: kept then, the
     /// task is a task again, and its window, if this removal closed it, is owed and comes back (`WindowReconciler`).

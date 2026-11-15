@@ -7,6 +7,7 @@ import AiTermCore
 @MainActor
 final class AiTermApp: NSObject, NSApplicationDelegate {
     static func main() {
+        if WorkerGuardEntry.runIfRequested() { return }
         let app = NSApplication.shared
         Appearance.apply()
         #if DEBUG
@@ -41,6 +42,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         super.init()
     }
     var window: NSWindow!
+    private lazy var archiveShortcut = ArchiveShortcut { [weak self] in self?.showArchive() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DevBuildIcon.apply()
@@ -70,6 +72,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sheetDidEnd() } }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sidebarMoved() } }
         buildMenu()
+        archiveShortcut.start()
         controller.start()
     }
 
@@ -90,6 +93,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        archiveShortcut.stop()
         controller.shutdown()
     }
 
@@ -146,7 +150,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "New Task…", action: #selector(newTask), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Review…", action: #selector(newReview), keyEquivalent: "r")
         fileMenu.addItem(withTitle: "New Terminal…", action: #selector(newTerminal), keyEquivalent: "t")
-        fileMenu.addItem(withTitle: "New Broadcast…", action: #selector(newBroadcast), keyEquivalent: "b")
+        fileMenu.addItem(withTitle: "New Signal…", action: #selector(newSignal), keyEquivalent: "s")
         fileItem.submenu = fileMenu
         // The standard Edit menu: without it the app has no Cut/Copy/Paste/Undo key equivalents,
         // so the text fields in the New Task and Settings sheets could not be edited normally.
@@ -179,8 +183,9 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Focus View", action: #selector(showFocusView), keyEquivalent: "f")
         viewMenu.addItem(withTitle: "List View", action: #selector(showListView), keyEquivalent: "l")
         viewMenu.addItem(.separator())
-        // ⌘S: Edit › Select All comes first and, disabled on the sidebar list, still claims ⌘A.
-        viewMenu.addItem(withTitle: "Show Shelf", action: #selector(showArchive), keyEquivalent: "s")
+        // The local monitor gives this key to Select All while text is being edited.
+        let archiveItem = viewMenu.addItem(withTitle: "Show Archive", action: #selector(archiveFromMenu(_:)), keyEquivalent: "a")
+        archiveItem.target = self
         // The same action as AiTerm › Settings…, which comes first and so owns ⌘, ; this one shares its key
         // only to show it, and is enabled by the same rule (`validateMenuItem` keys on the action).
         viewMenu.addItem(withTitle: "Show Settings", action: #selector(openSettings), keyEquivalent: ",")
@@ -197,7 +202,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func newTask() { if let project = controller.targetProject { controller.sheets.presentNewTask(project: project) } }
     @objc func newReview() { if let project = controller.targetProject { controller.sheets.presentNewReview(project: project) } }
     @objc func newTerminal() { if let project = controller.targetProject { controller.sheets.presentNewTerminal(project: project) } }
-    @objc func newBroadcast() { controller.presentNewBroadcast() }
+    @objc func newSignal() { controller.presentNewSignal() }
     @objc func addProject() { Task { await controller.projects.addProject() } }
     @objc func addDivider() { controller.sheets.presentNewDivider() }
     @objc func zoomIn() { changeInterfaceSize(to: controller.preferences.interfaceSize.bigger) }
@@ -205,7 +210,10 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func actualSize() { changeInterfaceSize(to: .standard) }
     @objc func showFocusView() { controller.showFocusView() }
     @objc func showListView() { controller.showListView() }
-    @objc func showArchive() { controller.presentArchive() }
+    func showArchive() { controller.presentArchive() }
+    // AppKit keeps a shared key equivalent only when both items use the same selector. Edit’s
+    // item still targets the text responder; this item targets us, and the local monitor routes keys.
+    @objc(selectAll:) func archiveFromMenu(_ sender: Any?) { showArchive() }
     @objc func toggleBackpack() { controller.toggleBackpack() }
 
     private func changeInterfaceSize(to size: InterfaceSize?) {
@@ -224,14 +232,14 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(openSettings): return controller.canPresentSettings
         case #selector(newTask), #selector(newReview): return controller.canCreateTask
         case #selector(newTerminal): return controller.canCreateTerminal
-        case #selector(newBroadcast): return controller.canPresentNewBroadcast
+        case #selector(newSignal): return controller.canPresentNewSignal
         case #selector(addProject), #selector(addDivider): return controller.canUseFileMenu
         case #selector(zoomIn): return zoomable && controller.preferences.interfaceSize.bigger != nil
         case #selector(zoomOut): return zoomable && controller.preferences.interfaceSize.smaller != nil
         case #selector(actualSize): return zoomable && controller.preferences.interfaceSize != .standard
         case #selector(showFocusView): return controller.canShowFocusView
         case #selector(showListView): return controller.canShowListView
-        case #selector(showArchive): return controller.canPresentArchive
+        case #selector(archiveFromMenu(_:)): return controller.canPresentArchive
         case #selector(toggleBackpack):
             item.state = controller.backpack.isOn ? .on : .off
             return true

@@ -18,9 +18,9 @@ import Testing
     }
 
     @Test func takenCountsTheProjectsTasksAndItsRepository() {
-        var world = OperatedWorld()
-        let run = world.addRun()
-        world.addTask("PLUTO-231/api", run: run, branch: "feat/pluto-231-gift-card")
+        var world = SignalWorld()
+        let signal = world.signal(); _ = world.workingTask(signal: signal)
+        world.state.tasks[0].branch = "feat/pluto-231-gift-card"
         let taken = OperatedBranch.taken(in: world.state, project: world.project.id, repositoryBranches: ["main", "feat/old-work"])
         #expect(taken == ["feat/pluto-231-gift-card", "main", "feat/old-work"])
         #expect(OperatedBranch.name(ticket: "PLUTO-231", title: "Gift card", taken: taken) == "feat/pluto-231-gift-card-2")

@@ -138,8 +138,8 @@ import Synchronization
     /// next session event of any kind.
     @Test func importedWorktreesGetTheirWindowsAtTheImport() async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
-        let server = RecordingDaemon()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let server = RecordingDaemon(holding: "window.createTask")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         controller.workspace.mutate { $0.items = [] }
@@ -149,8 +149,12 @@ import Synchronization
         await controller.windows.lastRestore?.value
 
         await controller.projects.addProject(path: fixture.repo.path)
+
+        await controller.savePreparedProject()
+        try await server.received("window.createTask")
         let imported = try #require(controller.state.tasks.first)
-        #expect(imported.windowId == nil, "imported without a window")
+        #expect(imported.windowId == nil, "the opening reply has not arrived")
+        server.release()
 
         await eventually(describing: "the imported row's window") { controller.state.task(id: imported.id)?.windowId == "reopened" }
         await controller.windows.lastRestore?.value

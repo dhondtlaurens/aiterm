@@ -9,7 +9,7 @@ scripts/test.sh                                      # affected checks before a 
 scripts/test.sh all                                  # full gate before merging to main
 scripts/test.sh daemon                               # pytest, mypy and ruff
 scripts/test.sh swift -- --filter TaskWorkflowTests   # one Swift suite
-scripts/test.sh swift -- --filter OperatorCurrentContractTests -j 2
+scripts/test.sh swift -- --filter SignalSavedFormatTests -j 2
 ```
 
 Arguments after `--` go to Swift Package Manager; `-j 2` limits compiler jobs on a busy machine.
@@ -63,7 +63,7 @@ local and UTC dates. A change lowers a number with the work that earned it and n
 latency claims.
 
 `AiTermTestSupport/Builders.swift` holds the shared builders for `Project`, `TaskItem`,
-`SessionInfo`, `OperatedTask` and `OperatorRun`; new tests use them, and older tests still call the
+`SessionInfo` and Signal values; new tests use them, and older tests still call the
 initialisers directly. `ScratchFolder` hands out folders under
 one root per test process, removed at exit, and sweeps dead processes' roots at the next start.
 `GitFixture` copies one hermetic seed repository per process; each copy owns its refs and objects,
@@ -74,32 +74,38 @@ suites only `ControllerApplicationTests` is serialized.
 
 ## Current Operator contract
 
-The operator-current fixtures were captured once from unmodified product revision `f152f6e9`, before
-structural changes. The saved-format fixtures have their own provenance files. Each provenance file
-describes the synthetic data. None contains a private broadcast.
+Signals deliberately replace the broadcast contract. Current fixtures live under
+`AiTermCoreTests/Operators/Fixtures/operator-signals/`; their `PROVENANCE.md` records the decision,
+synthetic inputs and model proof. They are not regenerated to accommodate incidental refactors.
 
 | Fixture | Always-on reader |
 | --- | --- |
-| `AiTermTests/Fixtures/operator-current/state.json` | `OperatorCurrentContractTests`: StateStore load and a byte-for-byte save back, restart/reconnect, task/worker ownership. |
-| `AiTermTests/Fixtures/operator-records/sparse.json`, `full.json` | The same suite: an Operator run and task with only required fields, and with every field set, save to these bytes and load back equal. A new stored field goes into `full` by decision. |
-| `AiTermTests/Fixtures/operator-saved-format/state.json` | The same suite: the saved format with `problemKind` saves to its own bytes; without the key, each problem's kind is read from its wording. |
-| Same directory's `contract.json` | The same suite's current journey: tool/status replies across tabs, pause, acceptance/publication, goal rounds and summary. |
-| `AiTermCoreTests/Operators/Fixtures/operator-current/brief-*.md` | `OperatorCommandTests`: complete current brief variants, including resume. |
-| `daemon/tests/fixtures/operator-current-tools.json` | `test_operator_mcp.py`: all 37 served schemas, preserving order and descriptions. |
-| `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, event/reply decoding and protocol names. |
-| `daemon/tests/codex_reference.py` | `test_codex_sessions.py`: the rollout parser from before the tail-window reader, which large-rollout answers are compared with. |
+| `operator-signals/state.json` | `SignalSavedFormatTests`: save through `StateStore`, exact bytes and reload, pending stages, archive, reply intent, generation, questions and idempotency. |
+| `operator-signals/brief.md`, `tools.json` | `SignalOperatorContractTests`: the stable role prompt and thirteen-tool schema contract. |
+| `AiTermTests/Fixtures/operator-saved-format/state.json` | `SignalRetiredKeysTests`: old broadcast/task keys load as ordinary tasks and disappear on the next save, including archived tasks. |
+| `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, generation, context size and field parity. |
+| `daemon/tests/codex_reference.py` | `test_codex_sessions.py`: reference rollout parser used to compare bounded-tail answers. |
 
-Swift fixture paths above are relative to `app/Tests/`. They are checkout-read fixtures, excluded
-from source discovery and registered in routing. Do not regenerate them to make a refactor green.
-A deliberate change to the model-facing contract requires a separate behavior decision and evidence.
-Captured brief whitespace is part of those bytes; the fixture directory’s `.gitattributes` allows
-its original end-of-line spaces without relaxing whitespace checks elsewhere.
-Focused rules and fake-host journeys still own policy; the golden is not a substitute for them.
+Swift paths are relative to `app/Tests/`; verify exact fixture paths from the owning test when
+adding coverage. Unknown associated enum kinds and sparse new optional fields have focused tests.
+Pure rules and native/fake-host journeys own behavior; byte fixtures do not substitute for them.
 
-`OperatorEvalTests` uses current structured setup and deterministic grading preparation. Real-agent
-runs are opt-in (`AITERM_LIVE_OPERATOR=1`), require the local stub and incur agent use. Preserve the
-working brief/status wording unless capped before/after runs on the same model and effort prove an
-intended change. Neither refactor round rewrote that wording.
+Historical `operator-current/eval-brief.md`, `eval-status.json` and the old thirty-seven-tool file
+remain immutable evaluation input. They are not served or decoded as a legacy runtime.
+`SignalOperatorEvalRunner` compares each contract's representation of unavailable app, product
+question and hostile source text: three repetitions, same model/effort, twelve turns and six hundred
+seconds maximum. These isolated stub runs are opt-in with `AITERM_LIVE_OPERATOR=1` and spend quota.
+Keep full streams: a question written before a tool call still counts as chat, and a quota error
+never counts as behavior. Change the current brief deliberately with provenance and rerun capped
+comparisons; preserve the historical baseline.
+
+`SignalWorld`/`SignalHarness` cover routing and stage/claim races. Native adapter tests use scratch
+homes/defaults, recorded daemon commands, hermetic Git repositories and synthetic HTTP responses.
+They prove guard installation, conversation adoption, pause, actual command construction and
+cleanup ownership. Watching/cache/row redraw tests assert work budgets rather than elapsed-time
+speed claims. `SignalSnapshotTests` renders every source/event step; native hosted captures are
+inspected for final AppKit controls. A live Jira-to-MR flow still requires the maintainer's go
+through `scripts/run-dev.sh`; tests and snapshots do not claim that flow ran.
 
 ## Agent compatibility
 
@@ -153,7 +159,7 @@ Bundle checks do not launch the app. Debug snapshots enter before live app setup
 The README check requires a Retina main display. It compares a fresh drawing with `docs/desktop.png`
 and fails when they differ, which it does on `main` today: the committed picture is out of date and
 the next `scripts/release.sh` redraws it. A visual change is proven by comparing `scripts/snapshots.sh`
-captures before and after. The GitLab artwork in `marks.png` and `new-broadcast-1.png` has come out in
+captures before and after. The GitLab artwork in `marks.png` and `signal-jira-reviewRequested-1.png` has come out in
 two exact variants across captures of the same commit; capture again before calling such a
 difference a regression. Native WindowServer captures require screen
 recording permission; a fallback capture does not establish VoiceOver behavior or multi-display

@@ -51,6 +51,14 @@ public struct GitHubClient: HostRepository {
         "/repos/" + repo.components(separatedBy: "/").map(HTTPJSON.pathSegment).joined(separator: "/")
     }
 
+    /// Read before a worker pushes, so a renamed default is never inferred from a stale local ref.
+    public func defaultBranch() async throws -> String {
+        struct Metadata: Decodable { var defaultBranch: String }
+        let branch = try await get(Metadata.self, path: boundPath, notFound: .repoNotFound(repo)).defaultBranch
+        guard !branch.isEmpty else { throw GitHubError.decoding }
+        return branch
+    }
+
     public func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitHub, host: Self.api, token: config.token) {
             try await Self.testConnection(config: config, session: session)
@@ -163,6 +171,24 @@ public struct GitHubClient: HostRepository {
             Self.error(for: $0, notFound: .repoNotFound(repo))
         }.value
             .map(\.mergeRequest).first { $0.sourceBranch == source && $0.forkHead == nil }
+    }
+
+    /// Observation includes closed requests; the list's merged_at is not a merge proof, so a
+    /// candidate from history is fetched by number for the authoritative merged flag.
+    public func signalRequest(from source: String) async throws -> MergeRequest? {
+        if let open = try await existingRequest(from: source) { return open }
+        guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        for page in 1...100 {
+            let query = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
+                         URLQueryItem(name: "sort", value: "created"), URLQueryItem(name: "direction", value: "desc"),
+                         URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let values = try await get([PullPayload].self, path: boundPath + "/pulls", query: query, notFound: .repoNotFound(repo))
+            if let own = values.map(\.mergeRequest).first(where: { $0.sourceBranch == source && $0.forkHead == nil }) {
+                return try await mergeRequests(search: String(own.iid)).first
+            }
+            if values.count < 100 { return nil }
+        }
+        throw IncompleteRead("branch requests")
     }
 
     /// A pull request from `source` into `target`, a draft or not. The branch is never deleted
@@ -723,7 +749,7 @@ public struct GitHubClient: HostRepository {
     /// `notFound` is what a 404 means for the path asked.
     private func api(_ notFound: GitHubError) -> HostAPI { Self.api(config, session: session, notFound: notFound) }
 
-    private static func api(_ config: GitHubConfig, session: URLSession, notFound: GitHubError) -> HostAPI {
+    static func api(_ config: GitHubConfig, session: URLSession, notFound: GitHubError) -> HostAPI {
         HostAPI(base: Self.api, headers: headers(config), session: session, malformed: GitHubError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }

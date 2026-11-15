@@ -483,8 +483,8 @@ public final class DaemonClient: Sendable {
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
     struct SessionParams: Encodable { var sessionId: String }
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
-    struct RegisterParams: Encodable { var runId, token: String }
-    struct RunParams: Encodable { var runId: String }
+    struct RegisterParams: Encodable { var runId, token: String; var generation: Int }
+    struct RunParams: Encodable { var runId: String; var generation: Int }
     typealias PromptResult = PromptDetails
     struct DismissResult: Decodable { var dismissed: Bool }
     struct DeliveryPolicyResult: Decodable { var agents: [String: DeliveryVerdict] }
@@ -586,6 +586,10 @@ public final class DaemonClient: Sendable {
         try await request(.sessionDeliver, params: DeliverParams(sessionId: sessionId, text: text, ownership: ownership, wake: wake,
                                                                  worktree: worktree), as: Delivery.self)
     }
+    public func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
+        struct Params: Encodable { var sessionId: String; var ownership: Int; var conversation: String }
+        return try await request(.sessionCloseIdle, params: Params(sessionId: sessionId, ownership: ownership, conversation: conversation), as: Delivery.self)
+    }
     public func prompt(sessionId: String) async throws -> PromptKind? {
         try await promptDetails(sessionId: sessionId).kind
     }
@@ -605,12 +609,14 @@ public final class DaemonClient: Sendable {
     public func setOwnership(sessionId: String, ownership: Int) async throws {
         _ = try await request(.sessionSetOwnership, params: OwnershipParams(sessionId: sessionId, ownership: ownership), as: Empty.self)
     }
-    public func registerOperator(runId: String, token: String) async throws {
-        _ = try await request(.operatorRegister, params: RegisterParams(runId: runId, token: token), as: Empty.self)
+
+    public func registerOperator(runId: String, token: String, generation: Int) async throws {
+        _ = try await request(.operatorRegister, params: RegisterParams(runId: runId, token: token, generation: generation), as: Empty.self)
     }
-    public func revokeOperator(runId: String) async throws {
-        _ = try await request(.operatorRevoke, params: RunParams(runId: runId), as: Empty.self)
+    public func revokeOperator(runId: String, generation: Int) async throws {
+        _ = try await request(.operatorRevoke, params: RunParams(runId: runId, generation: generation), as: Empty.self)
     }
+
     public func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {
         _ = try await request(.operatorReply, params: OperatorReplyParams(requestId: requestId, result: result, error: error), as: Empty.self)
     }

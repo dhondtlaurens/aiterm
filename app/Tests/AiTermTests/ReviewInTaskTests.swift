@@ -41,13 +41,13 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         var draft = fixture.draft
-        draft.apply(ticket: JiraTicket(key: "#53", summary: "Constraints file", description: nil, issueType: nil, status: nil,
+        draft.apply(ticket: JiraTicket(key: "#53", summary: "Constraints file", description: "Use frozen constraints", issueType: nil, status: nil,
                                        url: "https://gitlab/x/-/issues/53", source: .gitLab(project: "x")))
 
         try await fixture.controller.launcher.createReview(draft: draft, project: fixture.project)
 
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
-        #expect((tab.params["agentCommand"] as? String)?.contains("GitLab issue #53: Constraints file") == true)
+        #expect((tab.params["agentCommand"] as? String)?.contains("Use frozen constraints") == true)
         let saved = try #require(try fixture.controller.savedWorkspace().tasks.first)
         #expect(saved.jira == JiraRef(key: "#53", summary: "Constraints file", url: "https://gitlab/x/-/issues/53",
                                       source: .gitLab(project: "x")))

@@ -28,7 +28,7 @@ for vendor artwork, and `Icon` for marks. GitHub is white on dark ground and tin
 its `markPaper` integration disc. Vendor colours identify vendors, not general status or controls. The sidebar's badge line inks its
 marks with its words (`Badge(markInk: .label)`), so a row's colour is its status, unless Settings ›
 Interface › Sidebar badges turns Brand colours on (`BadgeDetails.markInk`); avatars, the provider
-tile, pickers and the board keep the brand's.
+tile and pickers keep the brand's.
 
 Distinctly written Palette tokens must resolve differently, in the dark appearance or under Increase
 Contrast. When roles deliberately share a value, declare an alias (`codeBackground = well`).
@@ -66,9 +66,7 @@ Words, counts, times, keys and keycaps are the system face; where digits change 
 style `.tabular` (`Typography.chip.tabular`), which sets tabular figures.
 
 `Opacity.disabled` is the shared disabled fade. Apply it to the part actually disabled: a rejected
-segment or tab, the Oracle-off goal editor, Goal rounds field and Worker questions menu (not their
-labels/help), or the entire switched-off
-Oracle group as its pattern specifies.
+segment or tab, or the Oracle's Agent/Model/Reasoning fields while it is off (not its labels/help).
 
 If no token fits, add a documented member explaining its role and mention it in the change summary.
 Do not choose an arbitrary nearby number. Truly local geometry may be a documented private static
@@ -127,7 +125,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `FormField` | Label/control stack with dropdown overhang above following content. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
 | `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
-| `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus`, monospaced option. |
+| `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus` and command-key delegation, monospaced option. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
 | `Select` | `fieldBox` chrome over a borderless native pop-up: AppKit keeps the menu, click and keyboard, the house draws the title and chevrons. Fills its column, or fits its widest title when left to itself. Optional per-value tooltip and selectable predicate, with disabled items retained in the menu; monospaced option. It does not dim itself: whoever disables it fades it. |
 | `SegmentedControl` | A choice among a few values: neutral selected fill, house focus ring, selectable predicate, per-segment tooltip, labels inked for their ground. Not for tabs. |
@@ -143,6 +141,23 @@ Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fol
 stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`,
 `menuChrome`, `menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,
 `LogoGlyph` and text-editing coordinators remain implementation details.
+
+## App composition inventory
+
+These types live in `AiTerm/Views`, not this primitive target. The [pattern guide](../../../docs/design/ui-patterns.md)
+explains ownership and the full reusable vocabulary.
+
+| Types | Responsibility |
+| --- | --- |
+| `SignalOperatorHeading`, `SignalOperatorRow`, `SignalHeader` | Add signals, open/pause the permanent chat, fold/source/count/menu headings on the project grid. |
+| `TaskRowView`, `SignalBadgeLine`, `DecodeWordsView` | The same task row under projects/signals; whole badge-line act decode, minimum hold, hover return and Reduce Motion swap. |
+| `SteppedSheetFrame`, `SheetLayout`, `SheetStepper`, `CreationFooter`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
+| `NewTaskSheet`, `NewReviewSheet`, `SignalSheet` | Source/name/prompt/agent/finish in one order, omitting inapplicable steps. |
+| `ProjectSheet`, `NameSheet` | Add/Edit Project including Jira links/import; one-step terminal/divider/name forms. |
+| `SignalStartsStep`, `SignalConditionPicker`, `SignalDoneStep`, `AgentsStep` | Conditions/JQL, source-valid completion, explicit merge and permitted agent rows. |
+| `DescriptionToggle`, `AgentStep`, `ModelReasoningFields` | Description-only context and the shared select row. |
+| `OperatorSettingsPane`, `OracleGroup` | Operator/Oracle role copy, model choices, Oracle switch and standing instructions. |
+| `ArchiveSheet`, `ArchiveRow` | Search, restore and removal of archived tasks. |
 
 ## Human reference and proposals
 

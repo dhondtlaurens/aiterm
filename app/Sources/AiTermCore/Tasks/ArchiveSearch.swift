@@ -1,25 +1,16 @@
 import Foundation
 
 /// An ended broadcast as the Shelf lists it: its name, what it was asked, and when it ended.
-public struct ShelvedBroadcast: Equatable, Sendable {
-    public let runId: UUID
-    public let name: String
-    public let asked: String
-    public let endedAt: Date
-    public init(runId: UUID, name: String, asked: String, endedAt: Date) {
-        self.runId = runId; self.name = name; self.asked = asked; self.endedAt = endedAt
-    }
-}
+
 
 /// One row of the Shelf: a shelved task or review, or an ended broadcast.
 public enum ShelfRow: Equatable, Sendable, Identifiable {
-    case task(ArchiveSearch.Entry), broadcast(ShelvedBroadcast)
+    case task(ArchiveSearch.Entry)
 
     /// The archived task's id, or the run's.
     public var id: UUID {
         switch self {
         case .task(let entry): entry.archived.id
-        case .broadcast(let broadcast): broadcast.runId
         }
     }
 
@@ -27,7 +18,6 @@ public enum ShelfRow: Equatable, Sendable, Identifiable {
     public var shelvedAt: Date {
         switch self {
         case .task(let entry): entry.archived.archivedAt
-        case .broadcast(let broadcast): broadcast.endedAt
         }
     }
 }
@@ -76,7 +66,6 @@ public enum ArchiveSearch {
     static func tier(of row: ShelfRow, query: String) -> Int? {
         switch row {
         case .task(let entry): tier(of: entry, query: query)
-        case .broadcast(let broadcast): tier(of: [broadcast.name, broadcast.asked].map(normalized), query: query)
         }
     }
 

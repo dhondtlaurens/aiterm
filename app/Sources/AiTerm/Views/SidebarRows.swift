@@ -56,25 +56,9 @@ struct SidebarHeader: View {
         #if DEBUG
         let _ = bodyCounter?.countHeading("projects")
         #endif
-        let heading = controller.rows.projectsHeading, folds = heading.runID != nil && controller.canChangeWorkspace
         HStack(spacing: scale(Space.base)) {
-            HStack(spacing: scale(Space.base)) {
-                SidebarHeading("Projects")
-                Spacer(minLength: scale(Space.tight))
-                if heading.runID != nil {
-                    let attention = heading.attention
-                    if heading.folded, attention > 0 {
-                        Button { controller.openProjectsAttention() } label: {
-                            StatusCountChips(counts: [StatusCount(status: .needsInput, count: attention)])
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    SectionFoldChevron(folded: heading.folded, hovering: hovering)
-                }
-            }
-            .modifier(FoldOnTap(enabled: folds) { if let id = heading.runID { controller.projects.toggleFolded(run: id) } })
-            .accessibilityLabel("Projects")
-            .accessibilityValue(heading.folded ? "folded" : "")
+            SidebarHeading("Projects")
+            Spacer(minLength: scale(Space.tight))
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { Task { await controller.projects.addProject() } }
                 Button("Add Divider…") { controller.sheets.presentNewDivider() }
@@ -82,7 +66,6 @@ struct SidebarHeader: View {
         }
         .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
-        .onHover { hovering = $0 }
     }
 }
 
@@ -168,7 +151,7 @@ struct ProjectHeaderRow: View {
             Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
             if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
             Divider()
-            Button("Jira Projects…") { controller.sheets.presentJiraProjects(for: project) }
+            Button("Edit Project…") { controller.sheets.presentJiraProjects(for: project) }
                 .disabled(!controller.canChangeWorkspace)
             Divider()
             // The git operations, a group of their own. The branch is named once a pass has read it.
@@ -375,7 +358,6 @@ struct TaskRowView: View {
         let awaitsRetry = removal?.awaitsRetry == true
         let failed = controller.windows.hasFailed(row.id)
         let caption = TaskRowCaption(removal: removal, missing: missing, failed: failed)
-        let folded = caption.folds(under: row.operatorLine)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
@@ -393,12 +375,15 @@ struct TaskRowView: View {
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
                         HelpText(progress, fixedVerticalSize: false).frame(height: scale(Size.chip))
-                    } else if !folded {
+                    } else {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
                         // A badge never squeezes, so a row too narrow for all of them draws the fullest
                         // fit that still leaves the status mark its slot (`TaskRowBadges.fits`), ahead of
                         // the branch, which shortens in what is left.
+                        SignalBadgeLine(line: caption.note == nil ? row.operatorLine : nil,
+                                        normalText: [badges.ticket?.label, badges.mergeRequest?.label, row.branch.name].compactMap { $0 }.joined(separator: " · "),
+                                        enabled: task?.signalTask.map { !$0.takenOver } == true) {
                         HStack(spacing: 0) {
                             ViewThatFits(in: .horizontal) {
                                 // "Absent, not disabled": no VS Code, no badge.
@@ -409,17 +394,14 @@ struct TaskRowView: View {
                             .layoutPriority(1)
                             BranchLabelView(label: row.branch)
                         }
-                        .transition(.opacity)
+                        }
                     }
                     // Why a removal stopped, or what the task is missing, comes first; else what the
                     // Operator says of it: `queued · after PAY-232`, `Operator answering`, `done · 4f2a91c`.
                     if let note = caption.note {
                         HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
-                    } else if let line = row.operatorLine {
-                        OperatorBadge(line: line)
                     }
                 }
-                .animation(motionStill == nil ? Motion.settle : nil, value: folded)
             } mark: {
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
                 // check, a queued or paused one's the pause sign. Known work opens the same card on hover.
@@ -435,8 +417,8 @@ struct TaskRowView: View {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
-                    case .archive: Button(voiceOver.title(of: action)) { Task { await controller.archiver.archive(task: task) } }
-                    case .remove: Button(voiceOver.title(of: action)) { Task { await controller.remover.confirmRemove(task: task) } }
+                    case .archive: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
+                    case .remove: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
                     }
                 }
             }
@@ -447,11 +429,9 @@ struct TaskRowView: View {
         .selectionDisabled(removing)
         .contextMenu {
             if let task {
-                let operatorItems = OperatorMenus.task(task.operated, broadcastLive: row.broadcastLive)
-                if !operatorItems.isEmpty {
-                    OperatorMenuButtons(items: operatorItems, enabled: { _ in controller.canChangeWorkspace && !removing }) {
-                        controller.perform($0, on: task)
-                    }
+                if task.signalTask.map({ !$0.takenOver }) == true {
+                    Button("Take Over") { Task { await controller.takeOver(task.id) } }
+                        .disabled(!controller.canChangeWorkspace || removing)
                     Divider()
                 }
                 Button("Rename…") { controller.sheets.presentRename(task: task) }
@@ -462,9 +442,9 @@ struct TaskRowView: View {
                 if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Shelve \(task.kindName)") { Task { await controller.archiver.archive(task: task) } }
+                Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
                     .disabled(!controller.canChangeWorkspace || removing || awaitsRetry)
-                Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.remover.confirmRemove(task: task) } }
+                Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
         }
@@ -605,7 +585,7 @@ extension EnvironmentValues {
 #endif
 
 /// A quiet Jira mark and total count opening every linked project in one menu. The final
-/// "Jira Projects…" action is disabled while the workspace is locked; links remain available.
+/// "Edit Project…" action is disabled while the workspace is locked; links remain available.
 private struct ProjectJiraBadgeView: View {
     let badge: ProjectJiraBadge
     let markInk: Badge.MarkInk
@@ -618,7 +598,7 @@ private struct ProjectJiraBadgeView: View {
                 Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
             }
             Divider()
-            Button("Jira Projects…", action: editProjects).disabled(!canChangeWorkspace)
+            Button("Edit Project…", action: editProjects).disabled(!canChangeWorkspace)
         }
     }
 }
@@ -670,7 +650,7 @@ struct TaskRowAccessibility: Equatable {
     /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
     func title(of action: Action) -> String {
         switch action {
-        case .archive: "Shelve \(kindName)"
+        case .archive: "Archive \(kindName)"
         case .remove: "Remove \(kindName)"
         }
     }
@@ -709,7 +689,7 @@ struct TaskRowAccessibility: Equatable {
 /// workers stopped for a pause of yours (`TaskRow.paused`; the Operator's row too, once every task's did). The
 /// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
 /// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a
-/// removal or shelving in progress spins.
+/// removal or archiving in progress spins.
 enum TaskRowMark: Equatable {
     case status(TaskStatus), ended, pauseSign
 
@@ -786,7 +766,7 @@ struct TaskRowCaption: Equatable {
         switch removal {
         case .removing: self.init(progress: "Removing…", note: nil)
         case .closing: self.init(progress: "Closing…", note: nil)
-        case .archiving: self.init(progress: "Shelving…", note: nil)
+        case .archiving: self.init(progress: "Archiving…", note: nil)
         case .stopped(let note, _): self.init(progress: nil, note: .warning(note))
         case nil:
             if missing { self.init(progress: nil, note: .plain("Worktree missing")) }

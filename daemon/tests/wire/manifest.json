@@ -86,6 +86,9 @@
       "session.activate": [
         "reply.session.activate.json"
       ],
+      "session.closeIdle": [
+        "reply.session.closeIdle.json"
+      ],
       "session.deliver": [
         "reply.session.deliver.json",
         "reply.session.deliver.refused.json"
@@ -146,6 +149,7 @@
     "operator.reply",
     "operator.revoke",
     "session.activate",
+    "session.closeIdle",
     "session.deliver",
     "session.dismissStartup",
     "session.prompt",

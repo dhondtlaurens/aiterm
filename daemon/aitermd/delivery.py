@@ -221,6 +221,12 @@ def wake_text_problem(text: str) -> str | None:
     (the app's OperatorWaker): no digit and no one-letter word, which a menu opening as it arrives could
     take for its answer (`1`, `y`, `a`), and short enough to paste, since a wake line never goes
     through a message file."""
+    # Signal wakes carry only an app-owned event and UUID, never a host title or key. Keep
+    # the older prose form's digit restriction; this narrow grammar is the only exception.
+    identity = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    if re.fullmatch(r"\[AiTerm\] (?:worker_ended|task_blocked|question_waiting|reconnected|signal_failed) "
+                    + identity + r"; call run_status", text):
+        return None
     if any(ch.isdigit() for ch in text):
         return "a wake line may not carry a digit"
     words = (word.strip(string.punctuation + _QUOTES) for word in text.split())
@@ -272,6 +278,27 @@ class Deliverer:
 
     def _turn(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
+
+    async def close_idle(self, session_id: str, ownership: int, conversation: str) -> DeliveryResult:
+        """Replace only an ended CLI, under the same ownership/input checks as a wake.
+
+        Closing one session preserves the task's other tabs. A conversation must be named so a
+        recycled terminal can never authorize closing the replacement process.
+        """
+        async with self._turn(session_id):
+            ready = await self._check(session_id, ownership, True)
+            if isinstance(ready, Refusal):
+                return _refused(ready)
+            session, _ = ready
+            if not conversation or session.conversation_id != conversation:
+                return _refused(Refusal("replaced", "another conversation now runs in the session"))
+            if session.state not in ("idle", "done"):
+                return _refused(Refusal("prompt", "the worker has not ended its turn"))
+            try:
+                await self.iterm.close_session(session_id)
+            except (SessionNotFound, ItermUnavailable) as exc:
+                return _refused(Refusal("itermRefused", str(exc)))
+            return DeliveryResult("delivered")
 
     async def deliver(self, session_id: str, text: str, ownership: int, *, wake: bool = False,
                       worktree: str | None = None) -> DeliveryResult:

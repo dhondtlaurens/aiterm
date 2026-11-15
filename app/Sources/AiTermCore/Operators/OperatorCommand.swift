@@ -21,22 +21,16 @@ public enum OperatorCommand {
     /// changes; `AskUserQuestion` is not a Bash tool and is left out, as the Operator has `ask_you`),
     /// plus the changes to a checkout that only a worker's task makes: commits, hard resets, branch
     /// switches and cleans, also through `git -C` and `git -c`, and the other changes to a request on
-    /// the host: closing, editing, reviewing, approving and commenting. Pushes stay with `finish_task`.
+    /// the host: closing, editing, reviewing, approving and commenting. Skills' workers publish their own branches.
     /// The gate refuses the same from the parsed words (`ShellGate.hardDenial`); these are Claude's
     /// backstop, for a command that reaches no gate because AiTerm isn't there.
-    public static let shellDenials = AgentCommand.operatedClaudeDenials.filter { $0 != "AskUserQuestion" } + [
+    public static let shellDenials = ["Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] + [
         "Bash(git commit:*)", "Bash(git * commit:*)", "Bash(git reset --hard:*)", "Bash(git checkout:*)", "Bash(git switch:*)",
         "Bash(git clean:*)", "Bash(git -C * checkout:*)", "Bash(git -C * reset:*)", "Bash(git -C * switch:*)", "Bash(git -C * clean:*)",
         "Bash(git -c * reset:*)", "Bash(git -c * checkout:*)", "Bash(git -c * switch:*)", "Bash(git -c * clean:*)",
         "Bash(gh pr close:*)", "Bash(gh pr reopen:*)", "Bash(gh pr edit:*)", "Bash(gh pr review:*)", "Bash(gh pr comment:*)",
         "Bash(glab mr close:*)", "Bash(glab mr reopen:*)", "Bash(glab mr approve:*)", "Bash(glab mr note:*)", "Bash(glab mr rebase:*)",
     ]
-
-    /// `operators/runs/<run-id>/` in AiTerm's support folder: outside every worktree.
-    public static func runFolder(_ runId: UUID, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        AiTermPaths.supportDirectory(home: home).appendingPathComponent("operators")
-            .appendingPathComponent("runs").appendingPathComponent(runId.uuidString)
-    }
 
     /// The command's words, unquoted. Model and effort go as the Claude harness passes them
     /// (`--model`, `--effort`); `resuming` is the conversation `claude --resume` continues (§9).
@@ -118,39 +112,11 @@ public enum OperatorCommand {
 
     /// Writes the run folder — `brief.md`, `mcp.json`, `gate.json` and `token`, the three holding the token
     /// readable by you alone (0600, in a 0700 folder) — and returns the command to run in it.
-    /// A fresh launch also writes the broadcast as `first-message.md`, the operator's first message:
-    /// `firstMessage` when given (`freshStartMessage`), else `firstMessage(for:)`; `resuming` a
-    /// conversation sends none. A command too long to type goes to `launch.sh` (`typed`).
-    public static func prepare(run: OperatorRun, projects: [Project], hookPort: Int = AiTermPaths.hookPort,
-                               home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig(),
-                               token: String = makeToken(),
-                               resuming conversation: String? = nil, firstMessage message: String? = nil) throws -> Prepared {
-        let folder = runFolder(run.id, home: home)
-        let manager = FileManager.default
-        try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-        try trustRunFolder(folder, home: home, claudeConfig: claudeConfig)
-        try Data(brief(run: run, projects: projects).utf8)
-            .write(to: folder.appendingPathComponent(briefFile), options: .atomic)
-        try writePrivate(Data(try mcpConfig(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(mcpFile))
-        // On a resume too: a reopened Operator gets the gate with its shell.
-        try writePrivate(Data(try gateSettings(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(gateFile))
-        // Exactly the 64 hex digits: the daemon reads the file back after a restart.
-        try writePrivate(Data(token.utf8), to: folder.appendingPathComponent(tokenFile))
-        let first = conversation == nil && !run.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if first {
-            try Data((message ?? firstMessage(for: run)).utf8).write(to: folder.appendingPathComponent(firstMessageFile), options: .atomic)
-        }
-        let words = launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: folder,
-                                projectPaths: projects.map(\.path), resuming: conversation)
-        return Prepared(folder: folder, command: try typed(command(words: words, firstMessage: first), in: folder), token: token)
-    }
-
-    /// Each broadcast runs in a new directory AiTerm created, outside the person's repositories.
+    /// The single Operator uses a private folder outside the person's repositories.
     /// Record trust for that exact folder before Claude opens, without changing tool permissions.
     /// Claude's global-state writer uses a `.lock` directory around its read/merge/atomic write.
     /// Join that lock briefly; never take it from another writer or replace unreadable state.
-    private static func trustRunFolder(_ folder: URL, home: URL, claudeConfig: ClaudeConfig) throws {
+    static func trustRunFolder(_ folder: URL, home: URL, claudeConfig: ClaudeConfig) throws {
         let file = UserConfigFile(home: home, url: claudeConfig.globalJSON(home: home))
         let manager = FileManager.default, lock = file.url.appendingPathExtension("lock")
         // Foundation strips a leading `/private`; Claude keys trust on the physical working directory.
@@ -177,7 +143,7 @@ public enum OperatorCommand {
             guard code == EEXIST else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        guard acquired else { throw file.refusal("is busy in another Claude session. Try starting the broadcast again") }
+        guard acquired else { throw file.refusal("is busy in another Claude session. Try opening the Operator again") }
         defer { rmdir(lock.path) }
 
         // Re-read under the lock: another session may have saved since the fast-path read.
@@ -213,28 +179,6 @@ public enum OperatorCommand {
         }
         try writePrivate(Data(line.utf8), to: file)
         return "eval \"$(command cat \(launchFile))\""
-    }
-
-    /// The first message has a fixed header so a prompt starting with a bullet is not read as a CLI option.
-    /// Append the per-task review and optional broadcast goal.
-    static func firstMessage(for run: OperatorRun) -> String {
-        var text = "Your broadcast:\n\n" + run.prompt
-        if let review = said(run.taskSettings.review) { text += "\n\nEach task is reviewed with: " + review }
-        if let goal = said(run.goal?.text) { text += "\n\nGoal: " + goal }
-        return text
-    }
-
-    /// A new Operator session for a broadcast under way (Start Fresh, or a reopening with no conversation
-    /// to resume): the broadcast as `firstMessage(for:)` says it, then where it stands as `run_status`
-    /// shows it (`status`, its JSON) and the decisions logged so far, so it picks the work up rather
-    /// than plans it again.
-    public static func freshStartMessage(for run: OperatorRun, status: String) -> String {
-        var text = firstMessage(for: run)
-        text += "\n\nThis is a new session of a broadcast already under way: its earlier conversation can’t be resumed. "
-            + "Where it stands, as run_status shows it now:\n\n" + status
-        let decisions = run.decisions.map { "- " + $0.text + ($0.why.map { " Why: " + $0 } ?? "") }
-        text += decisions.isEmpty ? "\n\nNo decisions are logged yet." : "\n\nYour decisions so far:\n" + decisions.joined(separator: "\n")
-        return text + "\n\nCall run_status, then carry on from there."
     }
 
     /// `text` trimmed, or nil when nothing is said: the one rule for what a person typed.

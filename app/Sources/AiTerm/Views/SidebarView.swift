@@ -83,11 +83,16 @@ struct SidebarView: View {
     /// last. The heading is off the arrow path, as a divider is; the rest is on it, the Operator's row with an id of
     /// its own (`OperatorRow.id(of:)`), each task with its own.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
-        OperatorHeading(controller: controller).selectionDisabled()
-        if let broadcast = rows.broadcast, !broadcast.folded {
-            OperatorRowView(row: broadcast.operatorRow, controller: controller).tag(broadcast.operatorRow.id)
-            ForEach(broadcast.tasks) { row in
-                TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+        SignalOperatorHeading(controller: controller).selectionDisabled()
+        ForEach([rows.signalOperator]) { value in
+            SignalOperatorRow(value: value, controller: controller).tag(value.id)
+        }
+        ForEach(rows.signalSections) { section in
+            SignalHeader(section: section, controller: controller).equatable()
+            if !section.collapsed {
+                ForEach(section.tasks) { row in
+                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+                }
             }
         }
     }
@@ -96,12 +101,8 @@ struct SidebarView: View {
     /// entry's rows: what the list draws under the Operator's, and the snapshots stack.
     @ViewBuilder static func projectRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SidebarHeader(controller: controller).selectionDisabled()
-        if !rows.projectsFolded {
-            if !rows.hasProjects {
-                SidebarEmptyState(controller: controller).selectionDisabled()
-            }
-            ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
-        }
+        if !rows.hasProjects { SidebarEmptyState(controller: controller).selectionDisabled() }
+        ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
     }
 
     var body: some View {
@@ -280,10 +281,7 @@ struct SidebarBanners: View {
                         perform: { action in Task { await controller.perform(action) } },
                         cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.notices.dismissIssue() })
         }
-        if let wake = controller.operatorController.wakeNotice {
-            OperatorWakeBanner(notice: wake, open: { controller.openOperatorWindow(of: wake.run) },
-                               fix: { controller.presentAgentSettings(for: .claude) })
-        }
+
         if let banner = controller.helper.itermConnection.banner {
             SidebarConnectionBanner(banner: banner, status: controller.helper.itermConnection.status)
         }
@@ -319,20 +317,7 @@ struct SidebarConnectionBanner: View {
 /// The Operator's wake line refused (`OperatorWakeNotice`): what waits on it and why, with Open the Operator
 /// and, when Settings can fix it, Fix in Settings as its links. The Operator runs on Claude Code, whose card Fix in
 /// Settings is for.
-struct OperatorWakeBanner: View {
-    let notice: OperatorWakeNotice
-    let open: () -> Void
-    let fix: () -> Void
 
-    var body: some View {
-        SidebarBanner(vertical: Space.base) {
-            Notice(title: OperatorWakeNotice.title, description: notice.description) {
-                Button("Open the Operator", action: open)
-                if notice.fixInSettings { Button("Fix in Settings", action: fix) }
-            }
-        }
-    }
-}
 
 /// A failed operation above the list, and the Find a Fix it offers (`BannerFixPresentation`), as one
 /// `Notice`: the issue's title and reason, its ways out as links — then, once a fix is asked for, the
@@ -429,11 +414,7 @@ struct SidebarSheet: View {
         // not grow, so a scaled sheet's fields would outgrow them.
         Group {
             switch kind {
-                case .jiraProjects(let project):
-                    JiraProjectSheet(projectName: project.name, linked: project.jiraProjects,
-                                     canSubmit: controller.canChangeWorkspace,
-                                     loadProjects: controller.projects.loadJiraProjects,
-                                     submit: { controller.projects.setJiraProjects($0, on: project) })
+                case .project(let model): ProjectSheet(model: model)
                 case .newTask(let model): NewTaskSheet(model: model)
                 case .newReview(let model): NewReviewSheet(model: model)
                 case .newTerminal(let project, let name, let branch): NameSheet.newTerminal(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.terminals.newTerminal(project: project, name: $0) })
@@ -445,7 +426,6 @@ struct SidebarSheet: View {
                         case .divider(let divider): controller.projects.rename(divider: divider, to: name)
                         case .task(let task): controller.projects.rename(task: task, to: name)
                         case .terminal(let terminal): controller.projects.rename(terminal: terminal, to: name)
-                        case .broadcast(let run): controller.rename(run: run, to: name)
                         }
                     })
                 case .settings(let jira, let gitLab, let gitHub, let tab, let agent):
@@ -463,9 +443,7 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
-                case .newBroadcast(let model): NewBroadcastSheet(model: model)
-                case .broadcastBoard(let id): BroadcastBoardHost(runId: id, controller: controller)
-                case .shelvedBroadcast(let id): BroadcastBoardHost(runId: id, source: .shelved, controller: controller)
+                case .signal(let model): SignalSheet(model: model)
             }
         }
         .interfaceScale(.standard)

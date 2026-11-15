@@ -41,14 +41,14 @@ public struct ActivityEntry: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// Whether the call only looked: the Activity tab reads its line muted.
-    public var isRead: Bool { ActivityLine.reads.contains(tool) }
+    public var isRead: Bool { SignalOperatorTool(rawValue: tool)?.mutating == false || tool == "shell_read" }
 
     /// Whether Activity lists it before Show everything (14 Nov 2026): a call that changed something, and any call that
     /// did not go through. What only looked and went through waits: a status check, a read, a shell command.
     public var showsAmongChanges: Bool {
         switch outcome {
         case .refused, .challenged, .failed: true
-        case .ok, .repeated: !ActivityLine.looks.contains(tool)
+        case .ok, .repeated: !isRead && tool != "shell"
         }
     }
 }

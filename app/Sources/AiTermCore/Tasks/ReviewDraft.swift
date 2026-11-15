@@ -16,6 +16,7 @@ public struct ReviewDraft: AgentDraft, Equatable, Sendable {
     public var promptText = ""
     /// Step 3's "Include ticket details": the reviewer reads the ticket with the merge request.
     public var appendTicket = true
+    public var appendRequest = true
     /// As `TaskDraft.copiesWorktreeInclude`. Only read when the review gets a worktree of its own:
     /// one that opens in the task that has its branch makes none.
     public var copiesWorktreeInclude = true

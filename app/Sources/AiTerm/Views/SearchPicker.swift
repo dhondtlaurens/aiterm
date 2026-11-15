@@ -199,14 +199,9 @@ struct TicketPickerField: View {
     let onClear: () -> Void
 
     var body: some View {
-        SearchPicker(placeholder: placeholder, query: $query, open: $open, items: items, selection: selection,
-                     row: { ticket in
-                         PickerResultRow(mark: .brand(ticket.brand), key: ticket.key, keyWidth: Size.pickerTicketKey,
-                                         title: ticket.summary, detail: ticket.status ?? "")
-                     }, selected: { ticket in
-                         PickedItemField(mark: .brand(ticket.brand), key: ticket.key, title: ticket.summary, trailing: {
-                             if let status = ticket.status { LaneChip(lane: status, brand: ticket.brand, ink: ticket.laneInk) }
-                         }, clearHelp: "Clear ticket", clear: onClear)
-                     }, onPick: onPick, toggleHelp: { $0 ? "Hide tickets" : "Show open tickets" })
+        ChipsPicker(placeholder: placeholder, picks: selection.map { [$0] } ?? [], open: $open,
+                    matches: { _ in items }, mark: { .brand($0.brand) }, label: { $0.key + " · " + $0.summary },
+                    row: { PickerResultRow(mark: .brand($0.brand), key: $0.key, keyWidth: Size.pickerTicketKey, title: $0.summary, detail: $0.status) },
+                    onPick: onPick, onRemove: { _ in onClear() }, query: $query, selectionLimit: 1)
     }
 }

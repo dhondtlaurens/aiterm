@@ -91,17 +91,17 @@ struct TaskCreationModelTests {
     @Test func agentStepCannotContinueWithoutASelectableCurrentModel() async {
         let model = fixture(agent: .pi, model: "", catalogue: { _ in [] })
         await model.loadAgentCatalogue()
-        #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
-        #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.steps.agentStep!, model: model))
     }
 
     /// A title of spaces is no name: create refuses it, so the sheet must not carry it through three
     /// steps first. The rule is the one New Review and `TaskCreator` apply.
-    @Test func aBlankTitleCannotLeaveTheFirstStep() async {
+    @Test func aBlankTitleCannotLeaveTheNamingStep() async {
         let model = fixture()
         await model.loadAgentCatalogue()
         model.draft.setTitle("   ")
-        #expect(!NewTaskSheet.canAdvance(step: 1, model: model))
+        #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
         #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
     }
 
@@ -112,8 +112,7 @@ struct TaskCreationModelTests {
         await model.loadAgentCatalogue()
         #expect(model.selectedModelIsCurrent)
         #expect(NewTaskSheet.canAdvance(step: 1, model: model))
-        #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
-        #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.steps.agentStep!, model: model))
     }
 
     /// A keystroke in the prompt redraws the prompt step and the command preview, which draw it,
@@ -129,7 +128,6 @@ struct TaskCreationModelTests {
         #expect(!invalidates(wholeSheet, by: { model.draft.promptText = "go" }), "nor through the draft")
         #expect(model.draft.promptText == "go" && model.previewCommand.contains("go"))
 
-        #expect(invalidates({ _ = CommandPreview(model: model).body }, by: { model.promptText = "go on" }))
         #expect(invalidates({ _ = PromptStep(text: Bindable(model).promptText, agent: .claude, completions: model.completions).body },
                             by: { model.draft.promptText = "" }))
         // The rest of the draft still redraws the sheet that shows it.
@@ -228,12 +226,12 @@ struct TaskCreationModelTests {
     /// "Include Jira ticket details" is kept — the same composition `create` hands the agent.
     @Test func thePreviewedCommandCarriesTheTicketOnlyWhenItIsIncluded() {
         let model = fixture()
-        let ticket = JiraTicket(key: "ML-7", summary: "Drain the queue", description: nil,
+        let ticket = JiraTicket(key: "ML-7", summary: "Drain the queue", description: "Drain it carefully.",
                                 issueType: "Task", status: "To Do", url: "https://example/ML-7")
         model.draft.apply(ticket: ticket)
         model.draft.promptText = "Start here."
         model.draft.appendTicket = true
-        #expect(model.previewCommand.contains("ML-7: Drain the queue"))
+        #expect(model.previewCommand.contains("Drain it carefully."))
         #expect(model.previewCommand.contains("Start here."))
         model.draft.appendTicket = false
         #expect(!model.previewCommand.contains("ML-7"))

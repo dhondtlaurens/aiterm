@@ -10,7 +10,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         draft.setTitle("Shared name")
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
-        var worker = OperatorFixtures.task("worker")
+        var worker = TaskItem.make(project: project.id, title: "Worker", branch: "feat/worker")
         worker.projectId = project.id
         worker.branch = "fix/shared-name"
         worker.worktreePath = ""
@@ -77,7 +77,8 @@ import Testing
         draft.promptText = "/code-review\tTabbed, so it is read from a file"
         let created = try await TaskWorkflow(git: .hermetic()).createReview(draft: draft, project: project)
         let prompt = try String(contentsOfFile: created.task.worktreePath + "/.aiterm/first-prompt.md", encoding: .utf8)
-        #expect(prompt.contains("a file\n\nJVS-5793: invoice_to_exact flags unchanged invoices\n\n## Acceptance"))
+        #expect(prompt.contains("a file") && prompt.contains("## Acceptance") && prompt.contains("untrusted"))
+        #expect(!prompt.contains("invoice_to_exact flags unchanged invoices"))
         #expect(created.task.jira == JiraRef(ticket))
         #expect(created.task.kind == .review)
     }
@@ -163,7 +164,7 @@ import Testing
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty)
     }
 
-    /// Shelve keeps Remove's record: its own archive that git refused halfway, the folder since gone
+    /// Archive keeps Remove's record: its own archive that git refused halfway, the folder since gone
     /// from git's list, is cleaned up on a retry without asking.
     @Test func shelvesOwnHalfFinishedArchiveIsCleanedUpOnARetry() async throws {
         let (project, draft) = try fixture()
@@ -183,7 +184,7 @@ import Testing
 
         #expect(!FileManager.default.fileExists(atPath: path))
         #expect(try !git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty,
-                "Shelve keeps the branch")
+                "Archive keeps the branch")
     }
 
     /// The project's checkout is rarely sitting on the base branch — users often keep another task's
@@ -273,6 +274,16 @@ import Testing
         #expect(result.branchRefusal == nil && result.keptBranch == nil)
     }
 
+    @Test func aSignalCleanupCanKeepAReviewsBranchForAPendingStage() async throws {
+        let fixture = try ReviewRemovalFixture(withOrigin: true)
+        defer { fixture.cleanUp() }
+        _ = try await TaskWorkflow(git: .hermetic()).remove(task: fixture.review, project: fixture.project,
+                                                          deleteBranch: false, force: false, preserveBranch: true)
+        #expect(try fixture.hasLocalBranch())
+        let restored = try await TaskWorkflow(git: .hermetic()).restore(fixture.review, project: fixture.project)
+        #expect(FileManager.default.fileExists(atPath: restored.task.worktreePath))
+    }
+
     /// Pushed, the local copy is deleted; unpushed fixes keep it, and the removal says so — as a
     /// note, not a warning: the review is gone either way, there is nothing to retry.
     @Test func testRemovingAReviewReleasesItsBranchOnlyWhenPushed() async throws {
@@ -337,7 +348,7 @@ import Testing
         #expect(URL(fileURLWithPath: made.task.worktreePath).lastPathComponent == slug + "-2")
     }
 
-    /// The preflight Remove and Shelve share, and the uncommitted-work check the teardown asks after it, answer what the
+    /// The preflight Remove and Archive share, and the uncommitted-work check the teardown asks after it, answer what the
     /// three reads before phase 7 answered, each with a listing of its own: the head (`head(of:in:)`), whether an
     /// unlisted folder asks first (that rule, kept here as the reference), and whether the worktree holds unsaved work
     /// (`hasUnsavedWork(task:project:)`). On real repositories, most of them dirty so the last answer means something:

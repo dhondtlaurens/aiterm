@@ -121,7 +121,7 @@ protocol CreationKind {
 
 extension CreationKind {
     /// New Task and New Review: three steps, the agent second.
-    static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 2) }
+    static var steps: CreationSteps { CreationSteps(count: 4, agentStep: 4, promptSteps: [3], summarizesOnlyOnLast: true) }
 
     /// The person's text, trimmed. New Task appends its ticket.
     func composedPrompt(_ text: String, draft: Draft) -> String? {
@@ -148,6 +148,8 @@ struct CreationSteps: Equatable {
     /// New Broadcast's Agents step: the rows the Operator may start workers on, which starts no agent of the sheet's
     /// own and is no prompt editor.
     var agentsListStep: Int? = nil
+    var promptSteps: Set<Int>? = nil
+    var summarizesOnlyOnLast = false
 
     /// Broadcast · Prompt · Agents · Task · Done: the Operator chooses each task's agent from the Agents rows, so no
     /// step starts one.
@@ -158,14 +160,14 @@ struct CreationSteps: Equatable {
     func secondaryTitle(onStep step: Int) -> String { step == 1 ? "Cancel" : "Back" }
     /// Step 1, which names where the window opens, and the last, which opens it. Never the agent's
     /// step, so nothing works the line out there (finding the unused worktree slug looks at the disk).
-    func showsDestination(onStep step: Int) -> Bool { step == 1 || step == count }
+    func showsDestination(onStep step: Int) -> Bool { summarizesOnlyOnLast ? step == count : step == 1 || step == count }
     /// The command preview, under every step past the first of a sheet that starts an agent.
-    func showsCommand(onStep step: Int) -> Bool { agentStep != nil && step > 1 }
+    func showsCommand(onStep step: Int) -> Bool { agentStep != nil && (summarizesOnlyOnLast ? step == count : step > 1) }
     /// Why no agent can run, on the create step of a sheet that starts one.
     func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
     /// The steps past the first that are not the agent's or the Agents list's: a prompt editor, whose completion popup
     /// ⎋ closes.
-    func hasPrompt(onStep step: Int) -> Bool { step > 1 && step != agentStep && step != agentsListStep }
+    func hasPrompt(onStep step: Int) -> Bool { promptSteps?.contains(step) ?? (step > 1 && step != agentStep && step != agentsListStep) }
 }
 
 /// The dependencies shared by New Task and New Review; disk and preference sources are explicit.
@@ -221,6 +223,7 @@ final class CreationModel<Kind: CreationKind> {
         get { itemSearch.error }
         set { itemSearch.error = newValue }
     }
+    var branchesLoaded = false
     var branches: [String] = [] {
         didSet { kind.branchesChanged(in: self) }
     }
@@ -392,6 +395,7 @@ final class CreationModel<Kind: CreationKind> {
         let found = await BackgroundWork.run { Repository(path, git: git).branches() }
         guard !Task.isCancelled else { return }
         branches = found
+        branchesLoaded = true
     }
 
     /// The project's files and folders, read once when the sheet opens, off the main actor as the

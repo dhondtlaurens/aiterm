@@ -6,6 +6,7 @@
     "agentCwd": null,
     "background": [],
     "contextPercent": null,
+    "contextTokens": null,
     "conversationId": null,
     "cwd": "/repo/.worktrees/feat-wire",
     "displayWork": null,

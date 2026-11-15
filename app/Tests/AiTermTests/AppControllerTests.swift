@@ -32,7 +32,7 @@ import Testing
         let controller = AppController(store: store, preferences: .scratch())
         try controller.workspace.load()
         #expect(controller.workspace.flush())
-        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: true)
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "sonnet" }
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
@@ -213,7 +213,7 @@ import Testing
         controller.workspace.mutate { state in state.updateProject(id: project.id) { $0.collapsed = true } }
         #expect(controller.canShowFocusView)
 
-        controller.sheet = .jiraProjects(project)
+        controller.sheets.presentJiraProjects(for: project)
         #expect(!controller.canShowFocusView)
         controller.sheet = nil
 
@@ -238,7 +238,7 @@ import Testing
         }
         #expect(controller.canShowListView)
 
-        controller.sheet = .jiraProjects(folded)
+        controller.sheets.presentJiraProjects(for: folded)
         #expect(!controller.canShowListView)
         controller.sheet = nil
 
@@ -308,7 +308,9 @@ import Testing
         #expect(controller.workspace.flush())
 
         controller.sheets.presentJiraProjects(for: project)
-        #expect(controller.sheet?.id == "project-jira-\(project.id)")
+        #expect(controller.sheet != nil)
+        if case .project(let model)? = controller.sheet { #expect(model.editing && model.preparation.project.id == project.id) }
+        else { Issue.record("Edit Project did not open") }
 
         controller.projects.setJiraProjects([frontend, portal, frontend], on: project)
         #expect(controller.state.projects[0].jiraProjects == [frontend, portal], "a project is linked once")
@@ -348,6 +350,8 @@ import Testing
         fixture.prompter.folder = folder
 
         await controller.projects.addProject()
+        #expect(controller.state.projects.isEmpty, "nothing persists before Add")
+        await controller.savePreparedProject()
 
         #expect(controller.sheet == nil)
         #expect(fixture.prompter.asked.isEmpty)
@@ -594,7 +598,7 @@ import Testing
         let app = AiTermApp(controller: controller)
         #expect(app.prepareWorkspace())
         #expect(controller.workspace.flush())
-        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: true)
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
         #expect(!controller.workspace.flush())
         // Closing the last window triggers quit too; Cancel must make Retry reachable again.
@@ -666,7 +670,7 @@ import Testing
         #expect(controller.state.tasks[0].windowId == "w3")
         controller.focus.browse(.terminal(terminal.id))
         // Observations still update memory when saving is blocked.
-        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: true)
         controller.windows.handleWindowClosed("w2")
         #expect(controller.state.terminals.map(\.windowId) == [nil], "the terminal stays, owed")
         #expect(controller.focus.selectedTerminalId == terminal.id)
@@ -969,7 +973,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         await controller.projects.addProject(path: repo)
-        #expect(prompter.asked.map(\.message) == ["Import 2 worktrees?"])
+        await controller.savePreparedProject(importWorktrees: true)
+        #expect(prompter.asked.isEmpty, "import is chosen in the project sheet")
 
         #expect(controller.state.projects.count == 1)
         let imported = Dictionary(uniqueKeysWithValues: controller.state.tasks.map { ($0.branch, $0.kind) })
@@ -994,6 +999,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
 
         await controller.projects.addProject(path: repo)
+        await controller.savePreparedProject(importWorktrees: true)
         #expect(controller.state.projects.count == 1, "the project itself is added")
         #expect(prompter.asked.isEmpty)
         #expect(controller.state.tasks.isEmpty, "no task is saved with a guessed base branch")
@@ -1017,13 +1023,13 @@ import Testing
 
         let adding = Task { await controller.projects.addProject(path: repo) }
         await eventually { git.isWaiting }
-        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: true)
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "sonnet" }
         #expect(!controller.workspace.flush())
         git.open()
         await adding.value
 
-        #expect(controller.state.projects.count == 1)
+        #expect(controller.state.projects.isEmpty, "a failed workspace cannot present or add the prepared project")
         #expect(controller.issue == nil, "got \(String(describing: controller.issue))")
     }
 
@@ -1371,6 +1377,6 @@ extension ControllerLifecycleTests {
                                             locateAgents: { nil }, setBadge: { _ in }, activateIterm: {}, launchIterm: {},
                                             itermRunning: { true }, backpackPorts: .inert, machineSensor: InertMachineSensor(),
                                             scan: { _, _, _, _, _, _, _ in scan })
-        #expect(controller.operatorController.ports.claudeConfig.directory(home: home) == home.appendingPathComponent("profile"))
+        #expect(controller.signalController.ports.claudeConfig.directory(home: home) == home.appendingPathComponent("profile"))
     }
 }

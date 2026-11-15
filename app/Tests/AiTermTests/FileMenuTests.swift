@@ -35,15 +35,15 @@ import Testing
         return Dictionary(uniqueKeysWithValues: file.items.filter { !$0.isSeparatorItem }.map { ($0.title, app.validateMenuItem($0)) })
     }
 
-    @Test func withNothingSelectedProjectDividerAndBroadcastAreOn() throws {
+    @Test func withNothingSelectedProjectDividerAndSignalAreOn() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
         #expect(controller.targetProject == nil)
         #expect(try enabled(controller) == ["New Task…": false, "New Review…": false, "New Terminal…": false,
-                                            "Add Project…": true, "Add Divider…": true, "New Broadcast…": true])
+                                            "Add Project…": true, "Add Divider…": true, "New Signal…": true])
     }
 
-    @Test func commandBOpensNewBroadcastWithoutASelectedProject() async throws {
+    @Test func commandSOpensNewSignalWithoutASelectedProject() async throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
         let saved = NSApplication.shared.mainMenu
@@ -51,27 +51,23 @@ import Testing
         let app = AiTermApp(controller: controller)
         app.buildMenu()
         let menu = try #require(NSApplication.shared.mainMenu)
-        let item = try #require(menu.items.compactMap(\.submenu).flatMap(\.items).first { $0.title == "New Broadcast…" })
+        let item = try #require(menu.items.compactMap(\.submenu).flatMap(\.items).first { $0.title == "New Signal…" })
         item.target = app
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
                                                 timestamp: 0, windowNumber: 0, context: nil,
-                                                characters: "b", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: 11))
+                                                characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
         #expect(menu.performKeyEquivalent(with: event))
-        #expect(await eventually(describing: "⌘B opens New Broadcast") { controller.sheet != nil })
-        guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
-        #expect(sheet.offeredProjects == [git, folder])
+        #expect(await eventually(describing: "⌘S opens New Signal") { controller.sheet != nil })
+        guard case .signal(let sheet)? = controller.sheet else { Issue.record("no New Signal sheet"); return }
+        #expect(sheet.projects == [git, folder])
     }
 
-    @Test func newBroadcastIsOffUntilThePreviousBroadcastEnds() throws {
+    @Test func signalsCanBeAddedWhileAnotherSignalExists() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
-        let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run] }
-        #expect(try enabled(controller)["New Broadcast…"] == false)
-        controller.presentNewBroadcast()
-        #expect(controller.sheet == nil)
-        controller.workspace.mutate { $0.runs[0].state = .stopped }
-        #expect(try enabled(controller)["New Broadcast…"] == true)
+        var world = SignalWorld(); _ = world.signal()
+        controller.workspace.mutate { $0.signals = world.state.signals }
+        #expect(try enabled(controller)["New Signal…"] == true)
     }
 
     @Test func aSelectedRowTargetsItsProject() throws {

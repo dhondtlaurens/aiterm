@@ -19,13 +19,11 @@ struct SidebarScrollTests {
         try controller.workspace.load()
         var first: UUID?
         for index in 0..<20 {
-            let project = OperatorUIFixtures.project("Repo \(index)")
+            let project = Project.make(name: "Repo \(index)")
             first = first ?? project.id
             controller.workspace.mutate { $0.append(project: project) }
         }
         // The broadcast folded into OPERATOR, so the projects are open and the list scrolls.
-        let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run]; $0.setFolded(run: run.id, true) }
         controller.focus.browse(.project(try #require(first)))
         let host = testHost(SidebarView(controller: controller), size: CGSize(width: Size.sidebarMinWidth, height: 400))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
@@ -36,7 +34,7 @@ struct SidebarScrollTests {
         window.orderFront(nil)
         defer { window.orderOut(nil) }
         // OPERATOR, PROJECTS and the 20 projects.
-        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 22 }
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 23 }
         let table = try #require(host.firstDescendant(NSTableView.self))
         let scroll = try #require(table.enclosingScrollView)
         let controls = try #require(window.standardWindowButton(.closeButton)?.superview)
@@ -102,12 +100,12 @@ struct SidebarScrollTests {
         controller.workspace.mutate { $0.updateProject(id: last.projectId) { $0.collapsed = false } }
         controller.focus.browse(.terminal(last.id))
         settle(host, describing: "the last terminal's row scrolled into view") {
-            list.numberOfRows == 42 && list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1))
+            list.numberOfRows == 43 && list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1))
         }
 
         // The last terminal is the last row. Not `selectedRow`: a selection set from the model
         // reaches the table's own `selectedRow` only later, if at all.
-        #expect(list.numberOfRows == 42)
+        #expect(list.numberOfRows == 43)
         #expect(list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1)))
     }
 }

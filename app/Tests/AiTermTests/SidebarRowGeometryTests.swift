@@ -61,17 +61,17 @@ struct SidebarRowGeometryTests {
 
         let list = try #require(host.firstDescendant(NSTableView.self))
         // The OPERATORS heading, the PROJECTS heading and the project row come first; the three task rows follow in order.
-        #expect(list.numberOfRows == 6)
-        let selectedRow = host.convert(list.rect(ofRow: 3), from: list)
-        let hoveredRow = host.convert(list.rect(ofRow: 4), from: list)
-        #expect(list.selectedRow == 3)
+        #expect(list.numberOfRows == 7)
+        let selectedRow = host.convert(list.rect(ofRow: 4), from: list)
+        let hoveredRow = host.convert(list.rect(ofRow: 5), from: list)
+        #expect(list.selectedRow == 4)
         #expect(selectedRow.size == hoveredRow.size)
 
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
         // Empty list, below the last row: the backdrop every pill is measured against.
-        let backdrop = try #require(bitmap.colorAt(x: 1, y: Int((host.convert(list.rect(ofRow: 5), from: list).maxY + 20) * scale)))
+        let backdrop = try #require(bitmap.colorAt(x: 1, y: Int((host.convert(list.rect(ofRow: 6), from: list).maxY + 20) * scale)))
         let selected = try #require(paintedBox(bitmap: bitmap, scale: scale, row: selectedRow, backdrop: backdrop))
         let hovered = try #require(paintedBox(bitmap: bitmap, scale: scale, row: hoveredRow, backdrop: backdrop))
         return (selected, hovered)
@@ -155,8 +155,8 @@ struct SidebarContextMenuHighlightTests {
         let (host, table, window) = try hostedSidebar()
         defer { window.orderOut(nil) }
         // OPERATORS, PROJECTS, the project row, then the one task.
-        #expect(table.numberOfRows == 4)
-        let pill = try paintedBox(host: host, table: table, row: 3)
+        #expect(table.numberOfRows == 5)
+        let pill = try paintedBox(host: host, table: table, row: 4)
 
         // What AppKit does when the row's context menu opens.
         #expect(ContextMenuHighlight.silence(),
@@ -164,10 +164,10 @@ struct SidebarContextMenuHighlightTests {
         let setUp = NSSelectorFromString("_setupContextMenuHighlightingForRow:column:")
         #expect(table.responds(to: setUp), "AppKit no longer highlights the clicked row this way — recheck the fix")
         typealias SetUpFn = @convention(c) (AnyObject, Selector, Int, Int) -> Void
-        unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 3, 0)
+        unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 4, 0)
         host.display()
 
-        let highlighted = try paintedBox(host: host, table: table, row: 3)
+        let highlighted = try paintedBox(host: host, table: table, row: 4)
         #expect(highlighted == pill, "the context menu ring \(highlighted) grew the row past its pill \(pill)")
     }
 }

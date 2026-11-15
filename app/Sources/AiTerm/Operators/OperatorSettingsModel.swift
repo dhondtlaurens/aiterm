@@ -24,7 +24,6 @@ final class OperatorSettingsModel {
     /// The Operator's model and reasoning: always Claude's.
     private(set) var model = ""
     private(set) var reasoning: String?
-    var slices = Slices.none
     var oracle = OracleSetting.standard
     var instructions = ""
     private(set) var models: [AgentKind: [AgentModel]] = [:]
@@ -55,7 +54,7 @@ final class OperatorSettingsModel {
 
     /// The profile as it stands, edits and all.
     var profile: OperatorProfile {
-        OperatorProfile(model: model, reasoning: reasoning, slices: slices, oracle: oracle, instructions: instructions)
+        OperatorProfile(model: model, reasoning: reasoning, oracle: oracle, instructions: instructions)
     }
 
     /// Reads the profile, the catalogues and the skills off the main actor, as Settings opens.
@@ -77,7 +76,6 @@ final class OperatorSettingsModel {
         let profile = loaded.profile
         model = profile.model
         reasoning = profile.reasoning
-        slices = profile.slices
         oracle = profile.oracle
         instructions = profile.instructions
         models = loaded.models

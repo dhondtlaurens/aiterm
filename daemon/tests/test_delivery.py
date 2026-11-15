@@ -1191,3 +1191,46 @@ async def test_the_check_before_enter_reads_the_state_the_session_has_then(rig):
     rig.pauses.during.append(announced)
     result = await rig.deliverer.deliver(rig.sid, "hello", 1)
     assert result == DeliveryResult("partial", "before Enter, a permission prompt is open; the text waits unsent in the input")
+
+
+async def test_close_idle_worker_preserves_other_tabs_and_types_nothing(rig):
+    rig.registry.set_conversation(rig.sid, "old-conversation")
+    rig.registry.set_state(rig.sid, "done")
+    rig.deliverer.set_ownership(rig.sid, 1)
+    window = rig.registry.get(rig.sid).window_id
+    other = await rig.iterm.create_tab(window, {"aiterm_task": "t1"})
+    result = await rig.deliverer.close_idle(rig.sid, 1, "old-conversation")
+    assert result.result == "delivered"
+    assert rig.sid not in rig.iterm.sessions
+    assert other in rig.iterm.sessions
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("change", ["working", "ownership", "conversation", "typing", "permission"])
+async def test_close_idle_worker_refuses_changed_or_person_owned_input(rig, change):
+    rig.registry.set_conversation(rig.sid, "old-conversation")
+    rig.registry.set_state(rig.sid, "done")
+    rig.deliverer.set_ownership(rig.sid, 1)
+    if change == "working":
+        rig.registry.set_state(rig.sid, "working")
+    elif change == "ownership":
+        rig.deliverer.set_ownership(rig.sid, 2)
+    elif change == "conversation":
+        rig.registry.set_conversation(rig.sid, "new-conversation")
+    elif change == "typing":
+        rig.guard.note_key(rig.sid, rig.clock(), "x")
+    else:
+        rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION
+    result = await rig.deliverer.close_idle(rig.sid, 1, "old-conversation")
+    assert result.result == "refused"
+    assert rig.sid in rig.iterm.sessions
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("event", ["worker_ended", "task_blocked", "question_waiting", "reconnected", "signal_failed"])
+def test_signal_wakes_accept_only_fixed_event_names_and_uuid_identifiers(event):
+    identity = "2f9c4b7e-5a1d-4c3b-9e8f-0a1b2c3d4e5f"
+    assert delivery.wake_text_problem(f"[AiTerm] {event} {identity}; call run_status") is None
+    assert delivery.wake_text_problem(f"[AiTerm] {event} PAY-123; call run_status") is not None
+    assert delivery.wake_text_problem(f"[AiTerm] hostile 1 {identity}; call run_status") is not None
+    assert delivery.wake_text_problem(f"[AiTerm] {event} {identity}; run this 1") is not None

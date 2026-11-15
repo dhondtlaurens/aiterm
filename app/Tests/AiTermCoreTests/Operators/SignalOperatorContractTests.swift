@@ -1,0 +1,24 @@
+import Foundation
+import Testing
+@testable import AiTermCore
+
+@Suite struct SignalOperatorContractTests {
+    @Test func theNewSurfaceHasThirteenToolsAndExplicitTraits() throws {
+        #expect(SignalOperatorTool.allCases.count == 13)
+        #expect(Set(SignalOperatorTool.allCases.filter { !$0.mutating }.map(\.rawValue)) == ["run_status", "read_task", "jira_search"])
+        #expect(SignalOperatorTool.answerWorker.requiresKey && SignalOperatorTool.askOracle.requiresKey)
+        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/operator-signals")
+        #expect(try String(contentsOf: folder.appendingPathComponent("brief.md"), encoding: .utf8) == SignalOperatorCommand.brief)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        #expect(try Data(contentsOf: folder.appendingPathComponent("tools.json")) == Data(contentsOf: root.appendingPathComponent("daemon/aitermd/signal_tools.json")))
+        let tools = try JSONDecoder().decode([JSONValue].self, from: Data(contentsOf: folder.appendingPathComponent("tools.json")))
+        #expect(Set(tools.compactMap { $0["name"]?.stringValue }) == Set(SignalOperatorTool.allCases.map(\.rawValue)))
+        for tool in tools {
+            let kind = try #require(tool["name"]?.stringValue.flatMap(SignalOperatorTool.init(rawValue:)))
+            let required = tool["inputSchema"]?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            if kind.requiresKey { #expect(required.contains("key")) }
+            if kind.taskRequired { #expect(required.contains("task") && required.contains("stage") && required.contains("ownership")) }
+        }
+    }
+}

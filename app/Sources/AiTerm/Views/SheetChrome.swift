@@ -287,7 +287,7 @@ struct SheetFooter<Status: View>: View {
     }
 }
 
-/// The footer every creation sheet shares (New Task, New Review, New Broadcast): the last failure,
+/// The footer every creation sheet shares (New Task, New Review, New Signal): the last failure,
 /// why no agent can run, and a `SheetFooter` — Back, or Cancel on the first step, and Continue or
 /// the create button on the last (`CreationSteps`). A failure
 /// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
@@ -324,7 +324,7 @@ struct CreationFooter: View {
     var canApply = true
     /// Apply on the proposal that is up.
     var applyFix: () -> Void = {}
-    /// What the create waits for, one line each, under a title: New Broadcast's `BroadcastReadiness`.
+    /// What the create waits for, one line each, under a title: New Signal's `SignalReadiness`.
     /// A Notice with no actions, as a failure is; none while nothing waits.
     var waiting: (title: String, lines: [String])? = nil
 
@@ -407,11 +407,16 @@ struct CreationFooter: View {
 /// `Palette.muted`; a later one the ring round its number in `Palette.tertiary`. A firm `Hairline`
 /// `Space.gap` long joins them, `Space.base` clear either side. No accent: it says where you are, and is
 /// not navigation, so no step is a button. VoiceOver reads it as one element, "Step 2 of 3, Agent".
-/// New Task's and New Review's three and New Broadcast's five are drawn the same.
+/// New Task's and New Review's three and New Signal's five are drawn the same.
 struct SheetStepper: View {
     let step: Int
-    /// New Task's first step names a ticket; New Review's names a branch; New Broadcast has five.
+    /// New Task's first step names a ticket; New Review's names a branch; New Signal has five.
     let names: [String]
+
+    var onSelect: ((Int) -> Void)? = nil
+    static func canNavigate(from step: Int, to target: Int, count: Int) -> Bool {
+        target > 0 && target < step && target <= count
+    }
 
     /// How a step is drawn.
     enum Mark: Equatable {
@@ -442,11 +447,17 @@ struct SheetStepper: View {
         HStack(spacing: Space.base) {
             ForEach(Array(marks.enumerated()), id: \.offset) { index, mark in
                 if index > 0 { Hairline(.firm).frame(width: Space.gap) }
-                Self.draw(mark, number: index + 1)
+                if let onSelect, Self.canNavigate(from: step, to: index + 1, count: names.count) {
+                    Button { onSelect(index + 1) } label: { Self.draw(mark, number: index + 1) }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                        .help(names[index] + " · ⌘" + String(index + 1))
+                        .accessibilityLabel("Go to " + names[index])
+                } else { Self.draw(mark, number: index + 1) }
             }
         }
         .fixedSize()
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: onSelect == nil ? .ignore : .contain)
         .accessibilityLabel(Self.accessibilityLabel(step: step, names: names))
     }
 

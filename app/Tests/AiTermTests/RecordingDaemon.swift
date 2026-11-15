@@ -20,6 +20,7 @@ final class RecordingDaemon: DaemonCommands {
     var failing: [String: DaemonError.Code]
     /// What `session.deliver` answers, in order, the last one repeated; delivered when empty.
     var deliveries: [Delivery] = []
+    var idleClosures: [Delivery] = []
     /// What `session.prompt` answers for each session; none open when absent.
     var prompts: [String: PromptKind] = [:]
     /// The sessions whose startup dialog `session.dismissStartup` declines (an update offer); others answer false.
@@ -139,6 +140,12 @@ final class RecordingDaemon: DaemonCommands {
         return first
     }
 
+    func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
+        try await answer("session.closeIdle", ["sessionId": sessionId, "ownership": ownership, "conversation": conversation])
+        guard let first = idleClosures.first else { return Delivery(result: .delivered, reason: nil) }
+        if idleClosures.count > 1 { idleClosures.removeFirst() }
+        return first
+    }
     func prompt(sessionId: String) async throws -> PromptKind? {
         try await answer("session.prompt", ["sessionId": sessionId])
         return prompts[sessionId]
@@ -163,9 +170,13 @@ final class RecordingDaemon: DaemonCommands {
         try await answer("session.setOwnership", ["sessionId": sessionId, "ownership": ownership])
     }
 
-    func registerOperator(runId: String, token: String) async throws { try await answer("operator.register", ["runId": runId, "token": token]) }
 
-    func revokeOperator(runId: String) async throws { try await answer("operator.revoke", ["runId": runId]) }
+    func registerOperator(runId: String, token: String, generation: Int) async throws {
+        try await answer("operator.register", ["runId": runId, "token": token, "generation": generation])
+    }
+    func revokeOperator(runId: String, generation: Int) async throws {
+        try await answer("operator.revoke", ["runId": runId, "generation": generation])
+    }
 
     /// Recorded with `result` as the `JSONValue` itself, so a test reads the answer as the operator would.
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {

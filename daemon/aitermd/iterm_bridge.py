@@ -639,6 +639,10 @@ class ItermBridge:
         await (await self._window(window_id)).async_close(force=True)
 
     @_bounded
+    async def close_session(self, session_id: str) -> None:
+        await (await self._session(session_id)).async_close(force=True)
+
+    @_bounded
     async def send_text(self, session_id: str, text: str) -> None:
         await (await self._session(session_id)).async_send_text(text)
 

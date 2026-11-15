@@ -11,7 +11,7 @@
 # tests, the Info.plist by the release feed's, the test queue's writer by the run-record reader's.
 # Keep a new reader in step with its row here.
 #
-# OperatorEvalTests reads daemon/aitermd and daemon/tools but is opt-in and spends quota, so no
+# OperatorEvalRunner reads daemon/aitermd and daemon/tools but is opt-in and spends quota, so no
 # row selects it.
 #
 # scripts/test-test-select.sh fails when a test reads outside its own target and is not accounted for
@@ -21,16 +21,17 @@
 # `# opt-in, reads outside its target:` line; a daemon reader by `<test file>=<path it reads>` on the
 # `# daemon readers outside daemon/:` line, where a row above must route that path to daemon.
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
-# reads only its own target: PaletteDistinctionTests OperatorPlanToolsTests OperatorCommandTests OperatorCurrentContractTests WorkerTurnTests
-# opt-in, reads outside its target: OperatorEvalTests
+# reads only its own target: PaletteDistinctionTests WorkerTurnTests SignalSavedFormatTests
+# opt-in, reads outside its target: OperatorEvalRunner SignalOperatorEvalRunner WorkerGuardCodexTests
 # daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py
 
 # The daemon, and what the Swift suites read from it.
 daemon/*	daemon
 daemon/tests/wire/*	daemon suite:AiTermCoreTests.WireContractTests
-daemon/tests/fixtures/wake-lines.json	daemon suite:AiTermTests.OperatorWakerTests
+daemon/tests/fixtures/wake-lines.json	daemon
 daemon/aitermd/delivery.py	daemon suite:AiTermCoreTests.OperatorTimingTests
-daemon/aitermd/operator_mcp.py	daemon suite:AiTermCoreTests.OperatorToolTests suite:AiTermTests.OperatorCurrentContractTests
+daemon/aitermd/signal_tools.json	daemon suite:AiTermCoreTests.SignalOperatorContractTests
+daemon/aitermd/operator_mcp.py	daemon suite:AiTermCoreTests.SignalOperatorContractTests suite:AiTermTests.SignalControllerTests
 hooks/*	daemon suite:AiTermCoreTests.StatusLineShimTests
 # The compatibility check: the captures (read by both contract suites) and the app's templates and
 # verified list (CompatContractTests keeps the templates; the bundle check reads the list).
@@ -47,6 +48,8 @@ app/Sources/AiTermUI/*	target:AiTermUITests target:AiTermTests
 app/Sources/AiTerm/*	target:AiTermTests suite:AiTermUITests.DesignRulesTests
 app/Sources/AiTerm/Resources/Info.plist	suite:AiTermCoreTests.ReleaseFeedTests
 
+# The guard probe is a test-only executable invoked by this process proof.
+app/Tests/AiTermWorkerGuardProbe/*	target:AiTermCoreTests suite:AiTermCoreTests.WorkerGuardLaunchTests
 # A test target's own files.
 app/Tests/AiTermCoreTests/*	target:AiTermCoreTests
 app/Tests/AiTermUITests/*	target:AiTermUITests
@@ -93,3 +96,5 @@ scripts/compat-check.sh	none
 # The agents' skills (.claude/skills is a link to .agents/skills).
 .claude/skills	none
 .agents/*	none
+
+app/Tests/AiTermTests/Fixtures/operator-saved-format/state.json	suite:AiTermCoreTests.SignalRetiredKeysTests

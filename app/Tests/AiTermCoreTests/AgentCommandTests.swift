@@ -181,8 +181,9 @@ import Darwin
 
     @Test func testComposePrompt() {
         let t = JiraTicket(key: "WEB-5447", summary: "Add graceful SIGTERM", description: "Drain in-flight tasks.", issueType: "Task", status: "In Progress", url: "https://x/browse/WEB-5447")
-        #expect(AgentCommand.composePrompt(userText: "/plan first", ticket: t, appendTicket: true) ==
-                       "/plan first\n\nWEB-5447: Add graceful SIGTERM\n\nDrain in-flight tasks.")
+        let composed = AgentCommand.composePrompt(userText: "/plan first", ticket: t, appendTicket: true) ?? ""
+        #expect(composed.hasPrefix("/plan first") && composed.contains("Drain in-flight tasks."))
+        #expect(!composed.contains("WEB-5447") && !composed.contains("Add graceful SIGTERM"))
         #expect(AgentCommand.composePrompt(userText: nil, ticket: t, appendTicket: false) == nil)
         #expect(AgentCommand.composePrompt(userText: "  ", ticket: nil, appendTicket: true) == nil)
     }

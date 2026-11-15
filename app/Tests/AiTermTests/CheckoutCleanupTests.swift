@@ -81,7 +81,7 @@ import Testing
         controller.helper.setDaemonClient(server)
 
         let removal = await controller.remover.confirmRemove(task: fixture.task)
-        #expect(prompter.asked.map(\.buttons) == [["Remove", "Cancel"]], "the menu's Remove offers no Shelve")
+        #expect(prompter.asked.map(\.buttons) == [["Remove", "Cancel"]], "the menu's Remove offers no Archive")
         try await server.received("window.close")
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")

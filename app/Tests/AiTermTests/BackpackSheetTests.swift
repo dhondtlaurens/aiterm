@@ -225,7 +225,7 @@ import Testing
         #expect(BackpackSheetPresentation.safeTitle == "Unplugged. Safe to close the lid.")
         #expect(BackpackSheetPresentation.safeStatus == SettingsStatus(.ready, "Unplugged enabled"))
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .agentsStop)
-                == "On Laurens’s iPhone. Unplugged ends when your agents are done and no broadcast is active, or at 10 % battery.")
+                == "On Laurens’s iPhone. Unplugged ends when your agents are done and the Operator has no work left, or at 10 % battery.")
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .turnedOff)
                 == "On Laurens’s iPhone. Unplugged stays on until you turn it off, or at 10 % battery.")
         #expect(BackpackSheetPresentation.title == "Unplugged")

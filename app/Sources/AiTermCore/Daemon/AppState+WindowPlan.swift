@@ -67,7 +67,7 @@ public extension AppState {
         // back a window its tag is in, but is reopened only by the operator controller on your click
         // (`reopenWorker`), which resumes its worker with the Operator's worker flags rather than the
         // resume a sheet's task gets.
-        for task in tasks where task.hasCheckout { plan(.task(task.id), window: task.windowId, adoptOnly: task.operated != nil) }
+        for task in tasks where task.hasCheckout { plan(.task(task.id), window: task.windowId, adoptOnly: task.signalTask != nil) }
         for terminal in terminals { plan(.terminal(terminal.id), window: terminal.windowId) }
         return steps
     }

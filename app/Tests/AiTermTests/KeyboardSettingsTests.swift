@@ -6,10 +6,11 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct KeyboardSettingsTests {
-    @Test func theListDescribesTheBoardAndShelfKeys() throws {
+    @Test func theListDescribesCreationNavigationAndArchiveWithoutRetiredBoardKeys() throws {
         let sheets = try #require(KeyBindings.all.first { $0.title == "Sheets" })
-        #expect(sheets.bindings.contains { $0.keys == ["⌘", "1–3"] && $0.action.contains("board") })
-        #expect(sheets.bindings.contains { $0.keys == ["⌘", "⌫"] && $0.action.contains("Shelf") })
+        #expect(sheets.bindings.contains { $0.keys == ["⌘", "1–4"] && $0.action.contains("completed creation step") })
+        #expect(!sheets.bindings.contains { $0.action.contains("board") })
+        #expect(sheets.bindings.contains { $0.keys == ["⌘", "⌫"] && $0.action.contains("Archive") })
     }
 
     /// Widest reach first: each group works only where the one before it does.
@@ -76,10 +77,10 @@ import Testing
         #expect(Self.keys(of: try item("New Task…")) == ["⌘", "N"])
         #expect(Self.keys(of: try item("New Review…")) == ["⌘", "R"])
         #expect(Self.keys(of: try item("New Terminal…")) == ["⌘", "T"])
-        #expect(Self.keys(of: try item("New Broadcast…")) == ["⌘", "B"])
+        #expect(Self.keys(of: try item("New Signal…")) == ["⌘", "S"])
         let fileMenu = try #require(menus.first { $0.title == "File" })
         #expect(fileMenu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
-            "Add Project…", "Add Divider…", "New Task…", "New Review…", "New Terminal…", "New Broadcast…",
+            "Add Project…", "Add Divider…", "New Task…", "New Review…", "New Terminal…", "New Signal…",
         ])
         #expect(Self.keys(of: try item("Hide AiTerm")) == ["⌘", "H"])
         #expect(Self.keys(of: try item("Hide Others")) == ["⌥", "⌘", "H"])
@@ -101,7 +102,7 @@ import Testing
         app.buildMenu()
         let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
         let titles = view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title }
-        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "—", "Show Shelf", "Show Settings", "—", "Unplugged", "—"])
+        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "—", "Show Archive", "Show Settings", "—", "Unplugged", "—"])
         let item = try #require(view.items.first { $0.title == "Unplugged" })
         #expect(Self.keys(of: item) == ["⌘", "U"])
         #expect(app.validateMenuItem(item), "never disabled: a press that cannot turn it on answers with a toast")
@@ -131,7 +132,7 @@ import Testing
         #expect(first.title == "Settings…", "the app menu comes first, so it owns ⌘,")
     }
 
-    /// View › Show Shelf, ⌘S, after the views; off while a sheet is up. (The Shelf is the archive in code.)
+    /// View › Show Archive, ⌘A, after the views; off while a sheet is up. (The Archive is the archive in code.)
     @Test func theViewMenuCarriesShowArchive() throws {
         let saved = NSApplication.shared.mainMenu
         defer { NSApplication.shared.mainMenu = saved }
@@ -140,15 +141,15 @@ import Testing
         let app = AiTermApp(controller: controller)
         app.buildMenu()
         let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
-        let item = try #require(view.items.first { $0.title == "Show Shelf" })
-        #expect(Self.keys(of: item) == ["⌘", "S"], "Select All claims ⌘A on the list, so the Shelf took ⌘S")
+        let item = try #require(view.items.first { $0.title == "Show Archive" })
+        #expect(Self.keys(of: item) == ["⌘", "A"], "The local monitor preserves Select All during text editing")
         #expect(app.validateMenuItem(item))
         controller.presentArchive()
         #expect(!app.validateMenuItem(item), "not over a sheet")
     }
 
-    /// View › Show Shelf answers ⌘S: a plain ⌘ key, no other modifier, and no other menu item claims it.
-    @Test func showShelfAnswersCommandS() throws {
+    /// View › Show Archive answers ⌘A: a plain ⌘ key, no other modifier, and no other menu item claims it.
+    @Test func showArchiveAnswersCommandA() throws {
         let saved = NSApplication.shared.mainMenu
         defer { NSApplication.shared.mainMenu = saved }
         let app = AiTermApp(controller: AppController(preferences: .scratch()))
@@ -156,11 +157,11 @@ import Testing
         let mainMenu = try #require(NSApplication.shared.mainMenu)
         let menus = mainMenu.items.compactMap(\.submenu)
         let view = try #require(menus.first { $0.title == "View" })
-        let item = try #require(view.items.first { $0.title == "Show Shelf" })
-        #expect(item.keyEquivalent == "s")
+        let item = try #require(view.items.first { $0.title == "Show Archive" })
+        #expect(item.keyEquivalent == "a")
         #expect(item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command)
-        let claimants = menus.flatMap(\.items).filter { $0.keyEquivalent == "s" && $0.keyEquivalentModifierMask == item.keyEquivalentModifierMask }
-        #expect(claimants.map(\.title) == ["Show Shelf"], "nothing else in the menus answers ⌘S")
+        let claimants = menus.flatMap(\.items).filter { $0.keyEquivalent == "a" && $0.keyEquivalentModifierMask == item.keyEquivalentModifierMask }
+        #expect(claimants.map(\.title) == ["Select All", "Show Archive"], "The View menu advertises ⌘A")
     }
 
     /// A row as the menu check compares it: its title and its keys.
@@ -210,6 +211,6 @@ import Testing
         let items = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).flatMap(\.items)
         #expect(items.filter { $0.keyEquivalent.lowercased() == "i" }.isEmpty)
         let sidebar = try #require(KeyBindings.all.first { $0.title == "Sidebar" })
-        #expect(sidebar.bindings.contains { $0.action.contains("broadcast") }, "↩ names what it does on the broadcast's header")
+        #expect(sidebar.bindings.contains { $0.action.contains("signal") }, "↩ names what it does on a signal header")
     }
 }

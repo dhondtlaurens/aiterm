@@ -20,8 +20,8 @@ async def app(make_service):
     w.close()
 
 
-async def register(r, w, request_id=1, run_id="run-1", token=TOKEN):
-    await send(w, request_id, "operator.register", {"runId": run_id, "token": token})
+async def register(r, w, request_id=1, run_id="E7A1C0DE-0000-4000-8000-000000000042", token=TOKEN):
+    await send(w, request_id, "operator.register", {"runId": run_id, "generation": 1, "token": token})
     return await read_until(r, lambda m: m.get("id") == request_id)
 
 
@@ -35,7 +35,8 @@ async def test_a_tool_call_reaches_the_app_and_its_reply_reaches_the_operator(ap
     calling = asyncio.create_task(operator_post(svc.hooks.port, tool_call("run_status", {}), token=TOKEN))
     request = (await read_until(r, lambda m: m.get("event") == "operator.request"))["payload"]
     assert request["requestId"].startswith("op-") and request["requestId"].endswith("-1")
-    assert {k: v for k, v in request.items() if k != "requestId"} == {"runId": "run-1", "tool": "run_status", "arguments": {}}
+    assert {k: v for k, v in request.items() if k != "requestId"} == {
+        "runId": "E7A1C0DE-0000-4000-8000-000000000042", "tool": "run_status", "generation": 1, "arguments": {}}
     await send(w, 2, "operator.reply", {"requestId": request["requestId"], "result": {"revision": 4}, "error": None})
     assert (await read_until(r, lambda m: m.get("id") == 2))["result"] == {}
     status, reply = await calling
@@ -45,7 +46,7 @@ async def test_a_tool_call_reaches_the_app_and_its_reply_reaches_the_operator(ap
 async def test_a_revoked_run_is_shut_out(app):
     svc, r, w = app
     await register(r, w)
-    await send(w, 2, "operator.revoke", {"runId": "run-1"})
+    await send(w, 2, "operator.revoke", {"runId": "E7A1C0DE-0000-4000-8000-000000000042", "generation": 1})
     assert (await read_until(r, lambda m: m.get("id") == 2))["result"] == {}
     assert (await operator_post(svc.hooks.port, tool_call("run_status", {}), token=TOKEN))[0] == 401
 
@@ -95,7 +96,7 @@ async def test_the_gate_relays_the_command_and_answers_claude(app):
     await register(r, w)
     gating = asyncio.create_task(operator_post(svc.hooks.port, pre_tool_use(), token=TOKEN, path=GATE))
     request = await answer_gate(r, w, {"decision": "deny", "reason": "r", "rewrite": None})
-    assert request["tool"] == "gate_command" and request["runId"] == "run-1"
+    assert request["tool"] == "gate_command" and request["runId"] == "E7A1C0DE-0000-4000-8000-000000000042"
     assert request["arguments"] == {"command": "rm -rf build", "directory": "/work/repo", "description": "Clean up"}
     assert await gating == (200, hook_output("deny", "r"))
 
@@ -144,13 +145,13 @@ async def test_the_gate_fails_open_on_timeout(app, monkeypatch):
     assert_unchallenged(reply)
 
 
-async def test_the_gate_fails_open_on_a_bad_token(app):
+async def test_the_gate_denies_a_missing_or_revoked_token(app):
     svc, r, w = app
     await register(r, w)
     for token in ("e" * 64, None):
         status, reply = await operator_post(svc.hooks.port, pre_tool_use(), token=token, path=GATE)
         assert status == 200
-        assert_unchallenged(reply)
+        assert reply["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 @pytest.mark.parametrize("body", [[], {"tool_input": "ls"}, {"tool_input": {}}, {"tool_input": {"command": 3}},
@@ -189,3 +190,22 @@ async def test_the_operator_cannot_call_the_gate_as_a_tool(app):
     await register(r, w)
     status, reply = await operator_post(svc.hooks.port, tool_call("gate_command", {"command": "ls"}), token=TOKEN)
     assert status == 200 and reply["error"]["code"] == -32602
+
+
+async def test_single_operator_authority_runs_through_http_and_the_app_socket(app):
+    svc, r, w = app
+    operator = "E7A1C0DE-0000-4000-8000-000000000042"
+    await send(w, 1, "operator.register", {"runId": operator, "generation": 4, "token": TOKEN})
+    assert (await read_until(r, lambda m: m.get("id") == 1))["result"] == {}
+    _, listed = await operator_post(svc.hooks.port, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token=TOKEN)
+    assert len(listed["result"]["tools"]) == 13
+    calling = asyncio.create_task(operator_post(svc.hooks.port, tool_call("note", {"key": "n", "task": "t"}), token=TOKEN))
+    request = (await read_until(r, lambda m: m.get("event") == "operator.request"))["payload"]
+    assert request["generation"] == 4 and request["runId"] == operator
+    await send(w, 2, "operator.reply", {"requestId": request["requestId"], "result": {"status": "recorded"}})
+    assert (await calling)[1]["result"]["structuredContent"] == {"status": "recorded"}
+    await send(w, 3, "operator.revoke", {"runId": operator, "generation": 4})
+    assert (await read_until(r, lambda m: m.get("id") == 3))["result"] == {}
+    assert (await operator_post(svc.hooks.port, tool_call("run_status", {}), token=TOKEN))[0] == 401
+    _, gate = await operator_post(svc.hooks.port, pre_tool_use(), token=TOKEN, path=GATE)
+    assert gate["hookSpecificOutput"]["permissionDecision"] == "deny"

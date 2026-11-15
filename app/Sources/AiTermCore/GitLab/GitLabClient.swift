@@ -54,6 +54,14 @@ public struct GitLabClient: HostRepository {
         return base
     }
 
+    /// Read before a worker pushes, so a renamed default is never inferred from a stale local ref.
+    public func defaultBranch() async throws -> String {
+        struct Metadata: Decodable { var defaultBranch: String }
+        let branch = try await get(Metadata.self, path: boundPath, notFound: .projectNotFound(project)).defaultBranch
+        guard !branch.isEmpty else { throw GitLabError.decoding }
+        return branch
+    }
+
     public func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitLab, host: Self.base(config.hostURL), token: config.token) {
             try await Self.testConnection(config: config, session: session)
@@ -199,6 +207,21 @@ public struct GitLabClient: HostRepository {
         return try await get([MergeRequestPayload].self, path: boundPath + "/merge_requests", query: query,
                              notFound: .projectNotFound(project))
             .first { $0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId }?.mergeRequest
+    }
+
+    /// Signal observation also finds a request merged before the first watch. Publication's
+    /// existingRequest remains open-only. Forks never become this task's own request.
+    public func signalRequest(from source: String) async throws -> MergeRequest? {
+        if let open = try await existingRequest(from: source) { return open }
+        for page in 1...100 {
+            let query = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "source_branch", value: source),
+                         URLQueryItem(name: "order_by", value: "created_at"), URLQueryItem(name: "sort", value: "desc"),
+                         URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let values = try await get([MergeRequestPayload].self, path: boundPath + "/merge_requests", query: query, notFound: .projectNotFound(project))
+            if let own = values.first(where: { $0.sourceBranch == source && ($0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId) }) { return own.mergeRequest }
+            if values.count < 100 { return nil }
+        }
+        throw IncompleteRead("branch requests")
     }
 
     /// A merge request from `source` into `target`. A draft is GitLab's `Draft:` title prefix. The
@@ -543,7 +566,7 @@ public struct GitLabClient: HostRepository {
 
     private func api(_ notFound: GitLabError) -> HostAPI { Self.api(config, session: session, notFound: notFound) }
 
-    private static func api(_ config: GitLabConfig, session: URLSession, notFound: GitLabError) -> HostAPI {
+    static func api(_ config: GitLabConfig, session: URLSession, notFound: GitLabError) -> HostAPI {
         HostAPI(base: Self.base(config.hostURL), headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"], session: session, malformed: GitLabError.notSent(.decoding),
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }

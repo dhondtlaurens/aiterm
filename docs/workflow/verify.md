@@ -21,7 +21,7 @@ Never invoke `swift` directly; `scripts/swift.sh` and the other scripts pin it.
 
 - Logic: the gate, or while iterating `scripts/test.sh swift -- --filter <Suite>` and
   `daemon/.venv/bin/pytest -k <expr>` from `daemon/`. A filtered run must execute at least one test.
-- Anything visual: `scripts/snapshots.sh build/<folder>` draws the sidebar, boards and sheets from
+- Anything visual: `scripts/snapshots.sh build/<folder>` draws the sidebar and sheets from
   fixtures with a fixed clock; the agent reads the PNGs itself against the rules in
   `app/Sources/AiTermUI/README.md`. Never hand a visual check to the maintainer.
 - The README picture: `scripts/release.sh` redraws `docs/desktop.png` and commits it when it changed;

@@ -52,8 +52,8 @@ final class BackpackController {
     @ObservationIgnored private let retryDelays: [Duration]
     /// Whether any session in the workspace is `.working`: the 5 s check's reason to stay on.
     @ObservationIgnored private let agentsWorking: @MainActor () -> Bool
-    /// A broadcast spans quiet agent turns and continues to need the Mac awake.
-    @ObservationIgnored private let hasBroadcast: @MainActor () -> Bool
+    /// Signals can start work between agent turns, so keep the Mac awake until they are paused.
+    @ObservationIgnored private let operatorMayStartWork: @MainActor () -> Bool
     @ObservationIgnored private var cancelled = false
     /// The sheet closed under the connect (the lid): nobody is left to Cancel, so a hotspot not in
     /// range is no longer waited for. Reset by each connect.
@@ -68,7 +68,7 @@ final class BackpackController {
     init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
          retryDelays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(30)],
          now: @escaping @Sendable () -> Date = Date.init, agentsWorking: @escaping @MainActor () -> Bool = { false },
-         broadcastRunning: @escaping @MainActor () -> Bool = { false },
+         operatorCanStartWork: @escaping @MainActor () -> Bool = { false },
          openLocationSettings: @escaping @MainActor () -> Void = {},
          toast: @escaping @MainActor (String) -> Void) {
         self.openLocationSettings = openLocationSettings
@@ -77,7 +77,7 @@ final class BackpackController {
         self.tickInterval = tickInterval
         self.retryDelays = retryDelays
         self.agentsWorking = agentsWorking
-        self.hasBroadcast = broadcastRunning
+        self.operatorMayStartWork = operatorCanStartWork
         self.toast = toast
         setup.network = settings.network
     }
@@ -88,7 +88,7 @@ final class BackpackController {
     }
 
     var isOn: Bool { state.isOn }
-    var broadcastRunning: Bool { hasBroadcast() }
+    var operatorCanStartWork: Bool { operatorMayStartWork() }
 
     /// The hotspot and its password, written on Save. A change takes effect at the next turn-on.
     var network: String? {
@@ -279,7 +279,7 @@ final class BackpackController {
 
     /// The 5 s check: the cutoff, the work, and the network.
     func tick() async {
-        let mode = self.mode, working = agentsWorking() || broadcastRunning
+        let mode = self.mode, working = agentsWorking() || operatorCanStartWork
         let outcome: BackpackTick? = await worker.run { mode.tick(agentsWorking: working) }
         state = mode.state
         if case .on(let status) = state { power = status.power }
