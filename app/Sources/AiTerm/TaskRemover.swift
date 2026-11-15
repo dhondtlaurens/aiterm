@@ -225,7 +225,11 @@ final class TaskRemover: CheckoutRemovals {
                     throw ActionUnavailable("Its worktree is no longer on its task branch.")
                 }
             }
-            guard workspace.state.task(id: task.id) == task else {
+            guard let current = workspace.state.task(id: task.id), current.projectId == task.projectId,
+                  current.worktreePath == task.worktreePath, current.branch == task.branch, current.baseBranch == task.baseBranch,
+                  current.windowId == task.windowId, current.kind == task.kind,
+                  current.signalTask?.stage == task.signalTask?.stage, current.signalTask?.ownership == task.signalTask?.ownership,
+                  current.signalTask?.takenOver == task.signalTask?.takenOver else {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
             try waitForTurns()

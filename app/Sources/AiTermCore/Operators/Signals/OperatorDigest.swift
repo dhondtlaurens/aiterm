@@ -1,7 +1,7 @@
 import Foundation
 
 /// AiTerm-built session context. Descriptions are deliberately absent: read_task supplies quoted
-/// host text on demand. Only our journal entries appear as durable notes.
+/// host text on demand. Our decisions and explicitly quoted steering survive fresh sessions.
 public struct OperatorDigest: Encodable, Equatable, Sendable {
     public struct WorkerLine: Encodable, Equatable, Sendable {
         public var task: UUID
@@ -56,6 +56,8 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         public var journal: [TaskJournal.Entry]
         public var pendingReplies: [String: SignalWorkerReply] = [:]
     }
+    public var weeklyUsage: [String: Int]
+    public var snags: [OperatorSnag]
     public var oracleRounds: [ChallengeRecord]
     public var skipped: [SignalSeen]
     public var sourceFailures: [String: String]
@@ -72,7 +74,9 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     public var questions: [OperatorSession.Question]
     public var waitingOnYou: Int
     public init(state: AppState, at: Date, oracleOn: Bool, task: UUID? = nil,
-                sessions: [SessionInfo] = [], instructions: String? = nil) {
+                sessions: [SessionInfo] = [], instructions: String? = nil, usage: UsageSnapshot = .empty) {
+        weeklyUsage = Dictionary(uniqueKeysWithValues: SidebarModel.weeklyUsage(usage, now: at).map { ($0.key.rawValue, $0.value) })
+        snags = Array((state.operatorSession?.snags ?? []).suffix(100))
         oracleRounds = (state.operatorSession?.oracleRounds ?? []).filter { $0.stage != .acted }
         skipped = state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching && state.signal(id: $0.signal) != nil }
         sourceFailures = state.operatorSession?.sourceFailures ?? [:]
@@ -94,14 +98,20 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
                 TabLine(key: $0.key, agent: $0.agent, model: $0.model, reasoning: $0.reasoning, session: $0.sessionId, conversation: $0.conversation)
             }
             let pending = record.pendingStages.map { PendingLine(signal: $0.signal, item: $0.item, matchedAt: $0.matchedAt) }
-            let journal = record.journal.filter { if case .ours = $0.text { true } else { false } }
+            let journal = record.journal.filter {
+                switch $0.text {
+                case .ours: true
+                case .quoted(let quote): quote.source == "operator instruction"
+                default: false
+                }
+            }
             var line = TaskLine(id: value.id, project: value.projectId, ownership: record.ownership,
                             candidates: record.candidateProjects, permittedAgents: configuration?.agents ?? [],
                             blockedReason: record.blockedReason, currentAct: record.currentAct, tabs: tabs,
                             signal: record.signal, item: record.item, agent: value.agent, model: value.model,
-                            reasoning: value.reasoning, prompt: configuration?.work.prompt, finish: configuration?.finish,
+                            reasoning: value.reasoning, prompt: task == nil ? nil : configuration?.work.prompt, finish: configuration?.finish,
                             request: record.watchedRequest, branch: value.branch, stage: record.stage,
-                            phase: record.phase, pending: pending, journal: Array(journal.suffix(TaskJournal.stateLimit)))
+                            phase: record.phase, pending: pending, journal: Array(journal.suffix(task == nil ? 1 : TaskJournal.stateLimit)))
             line.pendingReplies = record.pendingReplies ?? [:]
             return line
         }

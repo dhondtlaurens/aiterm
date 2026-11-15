@@ -446,7 +446,7 @@ Each step leaves the package building and the gate green.
 - [x] The act line's decode, the signal heading's fold and counts, Take Over, every row state.
 - [x] Settings › Operator and the Oracle: the copy as picked.
 - [x] Fresh sessions end to end: context size, idle, digest, token handover.
-- [ ] Performance: watching tasks out of the per-tick reads, the status cache, the bounds.
+- [x] Performance: watching tasks out of the per-tick reads, the status cache, the bounds.
 - [ ] Docs, the README inventory, the design page synced with the proposal removed (the
       `design-system` skill's loop; publishing the page to its artifact is the maintainer's step and
       is not needed to finish).
@@ -768,3 +768,35 @@ at merge, and a late branch deletion rechecking pause, ownership and other live 
 All regression tests were observed red before their logic changed. The plain gate passed: 1,598
 daemon tests (one skipped), 123 UI, 1,020 app tests (one known issue), 1,680 Core tests (three known
 issues), and the snapshot check. No installed app, live Operator or host workflow was switched.
+
+### Performance and recovery proof · 15 Nov 2026
+
+Watching tasks do not read worker transcripts. Read-only task details share in-flight reads and
+expire by the configured cache/budget; claim, repository, request and connection identity form
+the cache key. Finish checks fetch only their selected facts; merge checks always read fresh.
+Journals retain twenty state entries, transitions one hundred, closed questions fifty and snags
+one hundred; idempotency expires at seven days/five hundred entries. Unresolved questions and
+undelivered current-worker answers remain. Seen retention protects live and pending item identities.
+The default digest gives one journal entry per task without repeating its prompt; detailed status
+retains the prompt and twenty entries. A thousand-task payload stays below one MiB without a task
+or concurrency cap. Weekly usage stays visible and the first native launch reuses the 80% rule.
+
+Sidebar projections exclude journals, launch history and other bookkeeping. Headings compare their
+drawn facts alone; menus resolve current saved tasks when invoked. Automatic cleanup checks resource
+identity after preflight, so a harmless journal append cannot strand completed work. Own permission
+prompts outrank acts, runtime failures reach the cached main row, and notifications select its
+managed window through the ordinary focus path.
+
+Regression tests also caught native watch boundaries: Operator-judged work keeps watching until an
+opted-in merge is confirmed; discovered requests gain ordinary clickable badges; a merged request
+can be found even before its first watch. Branch discovery retains open-request preference and uses
+the hosts' complete history queries ([GitLab](https://docs.gitlab.com/api/merge_requests/),
+[GitHub](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests)); publishing lookup is unchanged.
+Steering returns a waiting task to working and journals the instruction as quoted data before
+delivery. A missing first/extra worker eventually blocks for inspection without duplicating its
+launch. A blocked worker no longer receives a stale pause carry-on. Oracle jobs receive the current
+standing instructions and discard results if those instructions change while they run.
+
+Behavioral red tests preceded these fixes. Plain `scripts/test.sh` passed: 1,598 daemon tests
+(1 skipped), 123 UI, 1,040 app (1 known issue), 1,683 Core (3 known issues), and the snapshot suite.
+No live app switch or host write was performed.

@@ -58,7 +58,9 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         ledger.append(LedgerEntry(key: key, result: result, at: at, arguments: arguments))
         ledger = Array(ledger.suffix(500))
     }
-    public mutating func prune() {
+    public mutating func prune(at now: Date = Date()) {
+        ledger = Array(ledger.filter { now.timeIntervalSince($0.at) <= 7 * 86400 }.suffix(500))
+        snags = Array(snags.suffix(100))
         func pending(_ question: Question) -> Bool {
             question.resolvedAt == nil || (question.workerQuestion != nil && question.answer != nil && question.deliveredAt == nil)
         }

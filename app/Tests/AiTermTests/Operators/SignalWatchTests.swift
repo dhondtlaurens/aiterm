@@ -15,6 +15,33 @@ import Testing
         return .init(reference: SignalRequestRef(remote: "git@git.example:shop/web.git", number: 7), facts: facts,
                      head: "aabbcc", localHead: "aabbcc", approvals: true, greenChecks: true)
     }
+    @Test func aDiscoveredRequestAddsTheOrdinaryClickableBadge() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }; let runner = stages(h, at: world.now)
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
+        let link = MergeRequestRef(iid: 7, title: "Retries", url: "https://git.example/shop/web/-/merge_requests/7")
+        var snapshot = ready(); snapshot.link = link
+        let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
+            workerIsWorking: { _ in false }, read: { _ in snapshot }, oracleMerge: { _, _ in false }, merge: { _, _ in }))
+        await watch.pass()
+        #expect(h.workspace.state.task(id: id)?.mr == link)
+    }
+    @Test func theOperatorJudgesDoneBeforeItsMergeThenFinishesAfterHostConfirmation() async throws {
+        var world = SignalWorld(); let signal = world.signal(); world.state.signals[0].finish.mergesWhenReady = true
+        let id = world.workingTask(signal: signal), h = try SignalHarness(world); defer { h.cleanUp() }; let runner = stages(h, at: world.now)
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
+        var merged = false, merges = 0
+        let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
+            workerIsWorking: { _ in false }, read: { task in
+                var snapshot = ready(merged: merged); snapshot.facts.operatorJudged = task.signalTask?.operatorJudged == true; return snapshot
+            }, oracleMerge: { _, _ in true }, merge: { _, _ in merged = true; merges += 1 }))
+        await watch.pass(); #expect(merges == 0)
+        try await runner.finish(id, action: .watch(.operatorJudges), judged: true)
+        await watch.pass()
+        #expect(merges == 1 && h.workspace.state.task(id: id)?.signalTask?.phase == .done)
+    }
     @Test func anApprovedRequestArchivesOnlyAfterItsConditionHolds() async throws {
         var world = SignalWorld(); let signal = world.signal(then: .archive, done: .approved), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }

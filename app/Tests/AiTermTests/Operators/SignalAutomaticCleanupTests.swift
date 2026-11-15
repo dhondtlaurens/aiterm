@@ -6,6 +6,24 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite(.blocking) struct SignalAutomaticCleanupTests {
+    @Test func aJournalAppendDuringCleanupPreflightDoesNotChangeItsCheckoutAuthority() async throws {
+        let git = PreflightHeldGit()
+        let fixture = try await RaceFixture(controllerGit: git); let server = RecordingDaemon()
+        defer { git.open(); fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let original = try await fixture.addTask(windowId: "alive")
+        var record = SignalTask(signal: UUID(), item: .unknown(.null), startedAt: Date()); record.phase = .done
+        fixture.controller.workspace.mutate { state in if let index = state.tasks.firstIndex(where: { $0.id == original.id }) { state.tasks[index].signalTask = record } }
+        let task = try #require(fixture.controller.state.task(id: original.id))
+        git.arm()
+        let job = Task { try await fixture.controller.remover.removeAutomatically(task, starting: { true }) }
+        await eventually { git.started }
+        let note = TaskJournal.Entry(at: Date(), stage: 1, text: .ours("A saved decision."))
+        fixture.controller.workspace.mutate { $0.updateSignalTask(task.id) { $0.journal.append(note) } }
+        git.open()
+        try await job.value
+        #expect(fixture.controller.state.task(id: task.id) == nil)
+    }
     @Test func automaticArchiveClosesAndSavesBeforeRemovingACleanCheckoutWithoutQuestions() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon()
@@ -77,5 +95,20 @@ private final class RemovalHeldGit: GitRunning {
         let result = try inner.run(args, in: dir, timeout: timeout, environment: environment)
         if args.starts(with: ["worktree", "remove"]) { began.withLock { $0 = true }; gate.wait() }
         return result
+    }
+}
+
+private final class PreflightHeldGit: GitRunning {
+    private let armed = Mutex(false), began = Mutex(false)
+    private let gate = DispatchSemaphore(value: 0), inner = GitRunner.hermetic()
+    var started: Bool { began.withLock { $0 } }
+    func arm() { armed.withLock { $0 = true } }
+    func open() { gate.signal() }
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        let value = try inner.run(args, in: dir, timeout: timeout, environment: environment)
+        if args.first == "status", armed.withLock({ value in let old = value; value = false; return old }) {
+            began.withLock { $0 = true }; gate.wait()
+        }
+        return value
     }
 }

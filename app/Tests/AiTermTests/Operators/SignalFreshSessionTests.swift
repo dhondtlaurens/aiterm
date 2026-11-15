@@ -5,6 +5,26 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor struct SignalFreshSessionTests {
+    @Test func oracleChecksReadStandingInstructionsAndDiscardAnAnswerWhenTheyChange() async throws {
+        var world = SignalWorld(); world.state.operatorSession = OperatorSession(createdAt: world.now)
+        let h = try SignalHarness(world); defer { h.cleanUp() }; var ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }; nonisolated(unsafe) let defaults = ports.preferences
+        let profile = OperatorProfile(model: "opus", reasoning: "high", oracle: .init(isOn: true, agent: .claude, model: "oracle", reasoning: nil), instructions: "Never move tickets to Done.")
+        try OperatorProfileStore.save(profile, defaults); ports.profile = { profile }
+        ports.secondOpinion = SecondOpinionRunner(locate: { _ in "/synthetic/claude" }, run: { _, arguments, _, _, _ in
+            #expect(arguments.joined(separator: " ").contains(profile.instructions))
+            try await MainActor.run { var changed = profile; changed.instructions = "Ask before any merge."; try OperatorProfileStore.save(changed, defaults) }
+            return ProcessOutput(status: 0, stdout: #"{"result":"YES"}"#, stderr: "", timedOut: false)
+        })
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.start(); await ports.work.settled()
+        let session = try #require(h.workspace.state.operatorSession)
+        let answer = await root.gate.respond(.init(requestId: "shell", runId: session.id.uuidString, tool: "gate_command",
+            arguments: ["command": "./deploy", "directory": .string(h.folder.path)], generation: session.generation))
+        #expect(answer["decision"] == "deny")
+        root.stop(); await ports.work.settled()
+    }
     @Test func aLostCloseReplyCanFinishItsSavedHandoverAfterRestart() async throws {
         var world = SignalWorld(); var session = OperatorSession(createdAt: world.now)
         session.window = "already-closed"; session.startingFresh = true; session.handover = .closing

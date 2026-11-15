@@ -10,8 +10,11 @@ import AiTermCore
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
     @ObservationIgnored private(set) var derivations = 0
+    @ObservationIgnored var operatorIssue: () -> String? = { nil }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
     private struct Inputs: Equatable {
+        var skipped: [UUID: [String]]
+        var failures: [String: String]
         var operatorRow: SignalOperatorRowValue
         var signals: [Signal]
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem], sessions: [SessionInfo]
@@ -32,8 +35,24 @@ import AiTermCore
     }
     @discardableResult func refresh() -> Bool {
         let state = workspace.state
-        let drawn = state.tasks.map { task in var value = task; value.conversations = []; return value }
-        let next = Inputs(operatorRow: .make(state: state, sessions: live.rowSessions), signals: state.signals,
+        let drawn = state.tasks.map { task in
+            var value = task
+            value.conversations = []
+            if let record = task.signalTask {
+                if !record.takenOver && task.windowId == nil && task.firstWorkerConversation != nil {
+                    value.conversations = [.init(agent: task.agent, id: "saved")]
+                }
+                var visible = SignalTask(signal: record.signal, item: .unknown(.null), startedAt: .distantPast)
+                visible.phase = record.phase; visible.stage = record.stage; visible.ownership = record.ownership
+                visible.takenOver = record.takenOver; visible.currentAct = record.currentAct; visible.blockedReason = record.blockedReason
+                if state.signal(id: record.signal) == nil { visible.configuration = record.configuration }
+                value.signalTask = visible
+            }
+            return value
+        }
+        let skipped = Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
+            .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
+        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:], operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue()), signals: state.signals,
             items: state.items, tasks: drawn, terminals: state.terminals, sessions: live.rowSessions,
             branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask)
         guard next != inputs else { return false }

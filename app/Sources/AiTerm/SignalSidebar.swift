@@ -4,6 +4,9 @@ import AiTermCore
 struct SignalSection: Equatable, Identifiable {
     var signal: Signal
     var tasks: [TaskRow]
+    var skipped: [String] = []
+    var failure: String?
+    var removed = false
     var id: UUID { signal.id }
     var collapsed: Bool { signal.collapsed || tasks.isEmpty }
 }
@@ -25,7 +28,12 @@ struct SignalSidebar {
             }
         }
         signals = definitions.map { signal in
-            SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state) } })
+            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state) } })
+            section.skipped = state.signalSeen.filter { $0.signal == signal.id && $0.disposition == .skipped && $0.isMatching }
+                .map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted()
+            section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
+            section.removed = state.signal(id: signal.id) == nil
+            return section
         }
         projects = entries.map { entry in
             guard case .project(var section) = entry else { return entry }
@@ -88,10 +96,14 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
     var status: TaskStatus
     var paused: Bool
     static let empty = Self(line: OperatorLine("watching 0 tasks in 0 signals"), status: .idle, paused: false)
-    static func make(state: AppState, sessions: [SessionInfo]) -> Self {
+    static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil) -> Self {
         let session = state.operatorSession
         let line: OperatorLine
         if session?.paused == true { line = .paused }
+        else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .needsInput }) {
+            line = OperatorLine("needs you", look: .needsYou)
+        }
+        else if let issue { line = OperatorLine("needs you", look: .needsYou, tooltip: issue) }
         else if session?.startingFresh == true {
             let count = state.allSignalTasks.filter { $0.signalTask?.takenOver == false }.count
             line = OperatorLine("starting fresh · \(count) \(count == 1 ? "task" : "tasks") carried over", look: .acting)
@@ -102,9 +114,6 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
             let name = task.jira?.key ?? task.mr.map { "request \($0.iid)" } ?? task.title
             let text = act.contains("its worker") ? act.replacingOccurrences(of: "its worker", with: name + "’s worker") : act + " · " + name
             line = OperatorLine(text, look: .acting)
-        }
-        else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .needsInput }) {
-            line = OperatorLine("needs you", look: .needsYou)
         }
         else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .working }) { line = .working }
         else {

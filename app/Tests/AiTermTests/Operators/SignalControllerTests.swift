@@ -5,6 +5,22 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalControllerTests {
+    @Test func aPausedWorkerThatFailedIsNotSentCarryOnOrLeftBusyForever() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.operatorSession?.pausedWorkers = [PausedWorker(task: id, tab: "main", ownership: 0)]
+        world.state.updateSignalTask(id) { $0.phase = .blocked }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("worker", tag: id, state: .done, conversation: "failed")]
+        let native = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let signaller = SignalPauseSignaller(workspace: h.workspace, live: live, native: native, enabled: { true }, now: { world.now })
+        await signaller.reconcile()
+        #expect(h.workspace.state.operatorSession?.pausedWorkers?.isEmpty == true)
+        #expect(daemon.requests("session.deliver").isEmpty)
+        #expect(!native.busy(id))
+    }
     @Test func takeOverRevokesTheStageAndWithdrawsItsQuestions() async throws {
         var world = SignalWorld(); let signal = world.signal(); let task = world.workingTask(signal: signal)
         world.state.operatorSession = OperatorSession(createdAt: world.now)

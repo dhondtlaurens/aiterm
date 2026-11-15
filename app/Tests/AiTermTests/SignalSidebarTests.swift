@@ -7,6 +7,30 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test func theOperatorsOwnPermissionPromptOutranksItsTaskAct() {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.currentAct = "consulting the Oracle" }
+        let own = OperatorServiceFixtures.session("operator", tag: world.state.operatorSession!.id, state: .needsInput)
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: [own]).status == .needsInput)
+    }
+    @Test func anOperatorFailureIsADrawnFactInTheProjection() throws {
+        let controller = AppController(preferences: .scratch()); try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.rows.operatorIssue = { "The Operator could not sign in." }
+        controller.rows.refresh()
+        #expect(controller.rows.signalOperator.status == .needsInput)
+        #expect(controller.rows.signalOperator.line.tooltip.contains("sign in"))
+    }
+    @Test func aQuestionNotificationSelectsTheOperatorThroughTheManagedFocusPath() throws {
+        let controller = AppController(preferences: .scratch()); try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        controller.workspace.mutate { state in
+            var session = OperatorSession(createdAt: Date()); session.window = "operator-window"; state.operatorSession = session
+        }
+        controller.helper.setDaemonClient(RecordingDaemon())
+        controller.openNote(.operatorWindow)
+        #expect(controller.focus.selection == .operation(OperatorSession.rowID))
+    }
     @Test func headingsHoldTheSameTaskRowsAndTakeoverReturnsTheTaskToItsProject() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])

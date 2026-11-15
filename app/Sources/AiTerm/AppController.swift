@@ -233,12 +233,13 @@ final class AppController {
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
             switch target {
-            case .operatorWindow: Task { await self.signalController.openOperator() }
+            case .operatorWindow: self.focus.select(.operation(OperatorSession.rowID))
             case .task(let id): self.focus.select(.task(id))
             }
         }
         // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
+        rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
         signalController.onChange { [weak self] in self?.refreshRows() }
         sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
@@ -471,7 +472,7 @@ final class AppController {
     /// AiTerm posted, the task whose prompt waits on you, its tab that asks in front (`choose(task:)`).
     func openNote(_ target: OperatorNote.Target) {
         switch target {
-        case .operatorWindow: Task { await signalController.openOperator() }
+        case .operatorWindow: focus.select(.operation(OperatorSession.rowID))
         case .task(let id): choose(task: id)
         }
     }

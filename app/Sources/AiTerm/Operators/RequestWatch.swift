@@ -9,6 +9,7 @@ import AiTermCore
         var facts: DoneCheck.Facts
         var head: String?, localHead: String?
         var approvals: Bool, greenChecks: Bool
+        var link: MergeRequestRef? = nil
         var canMerge: Bool {
             facts.hostReadComplete && approvals && greenChecks && facts.threadsResolved
                 && head != nil && head == localHead && !facts.merged && !facts.closed
@@ -60,7 +61,13 @@ import AiTermCore
     }
     private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, signal: Signal) async throws {
         var snapshot = first
-        if let reference = snapshot.reference { workspace.mutate { $0.updateSignalTask(task.id) { $0.watchedRequest = reference } } }
+        if let reference = snapshot.reference { workspace.mutate { state in
+            state.updateSignalItem(task.id) { task in
+                task.signalTask?.watchedRequest = reference
+                if let link = snapshot.link { task.mr = link }
+            }
+        } }
+        if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
         let merges = signal.finish.mergesWhenReady
         if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
             let roundID = UUID().uuidString, generation = workspace.state.operatorSession?.generation

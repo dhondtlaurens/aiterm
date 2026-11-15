@@ -200,7 +200,7 @@ import AiTermCore
                     $0.tool == "answer_worker" && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unchallenged)
                 }
             }
-            state.operatorSession?.prune()
+            state.operatorSession?.prune(at: now())
         }
         guard workspace.flush() else { throw ActionUnavailable("The question couldn’t be saved.") }
         changed()
@@ -215,7 +215,7 @@ import AiTermCore
         workspace.mutate { state in
             state.operatorSession?.questions[index].resolvedAt = now()
             state.operatorSession?.questions[index].answer = answer
-            state.operatorSession?.prune()
+            state.operatorSession?.prune(at: now())
         }
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
         changed()

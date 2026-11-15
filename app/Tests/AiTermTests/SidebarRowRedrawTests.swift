@@ -66,6 +66,26 @@ import Testing
         return sidebar
     }
 
+    @Test func expandedSignalHeadersIgnoreLedgersAndTheirChildStatusChanges() throws {
+        let sidebar = try hostedSidebar(); defer { sidebar.window.orderOut(nil) }
+        let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .working; record.configuration = signal
+        sidebar.controller.workspace.mutate { state in
+            state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Date())
+            state.tasks[0].signalTask = record
+        }
+        sidebar.settleRows(); sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.operatorSession?.remember(key: "result", result: "ok", at: Date()) }
+        sidebar.settleRows()
+        #expect(sidebar.counter.counts.isEmpty, "A ledger entry is not a header or row change.")
+        sidebar.counter.reset()
+        let tab = OperatorServiceFixtures.session("worker", tag: sidebar.tasks[0].id, state: .needsInput)
+        sidebar.controller.live.handle(.sessionOpened(tab))
+        sidebar.settleRows { sidebar.counter.counts[sidebar.tasks[0].id] != nil }
+        #expect(sidebar.counter.counts[signal.id] == nil, "An expanded heading has no status counts to redraw.")
+    }
     @Test func anArrowKeyRedrawsOnlyTheRowItLeavesAndTheRowItReaches() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }

@@ -6,6 +6,8 @@ import AiTermCore
 @MainActor final class SignalHostIO {
     let workspace: WorkspaceStore
     let git: any GitRunning
+    var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)
+    var hostCache: TimeInterval = OperatorTiming.hostReadCache
     var enabled: () -> Bool = { true }
     var connections: @MainActor () async -> SignalConnections
     var remote: @MainActor (Project, TaskItem) async throws -> String
@@ -32,11 +34,15 @@ import AiTermCore
         let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: current), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
         return (current, host)
     }
+    private func requestNumber(_ task: TaskItem) -> Int? {
+        if case .mergeRequest(let reference) = task.signalTask?.item { return reference.number }
+        return task.mr?.iid ?? task.signalTask?.watchedRequest?.number
+    }
     private func request(_ task: TaskItem, host: any SignalHostReading) async throws -> MergeRequest? {
-        if let number = task.signalTask?.watchedRequest?.number ?? task.mr?.iid {
+        if let number = requestNumber(task) {
             return try await host.mergeRequests(search: String(number)).first { $0.iid == number }
         }
-        return try await host.existingRequest(from: task.branch)
+        return try await host.signalRequest(from: task.branch)
     }
     private func ticket(_ task: TaskItem, links: SignalConnections) async throws -> JiraTicket? {
         guard let ref = task.jira, ref.source == .jira else { return nil }
@@ -48,7 +54,7 @@ import AiTermCore
     }
     func read(_ task: TaskItem) async throws -> RequestWatch.Snapshot {
         guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { throw ActionUnavailable("Its signal is missing.") }
-        var facts = DoneCheck.Facts()
+        var facts = DoneCheck.Facts(); facts.operatorJudged = record.operatorJudged == true
         let empty = RequestWatch.Snapshot(reference: nil, facts: facts, head: nil, localHead: nil, approvals: false, greenChecks: false)
         if signal.finish.doneWhen == .operatorJudges && !signal.finish.mergesWhenReady { return empty }
         let links = await connections()
@@ -60,8 +66,20 @@ import AiTermCore
         let (remote, host) = try await binding(task, links: links)
         guard let request = try await request(task, host: host) else { var value = empty; value.facts = facts; return value }
         let reference = SignalRequestRef(remote: remote, number: request.iid)
-        if let saved = record.watchedRequest, ItemRef.request(remote: remote, number: request.iid).identity != ItemRef.mergeRequest(saved).identity {
-            throw ActionUnavailable("The watched request belongs to another repository.")
+        if let number = requestNumber(task), number != request.iid { throw ActionUnavailable("The watched request changed.") }
+        guard request.sourceBranch == task.branch else { throw ActionUnavailable("The request belongs to another branch.") }
+        facts.merged = request.state == "merged"; facts.closed = request.state == "closed"
+        let link = MergeRequestRef(iid: request.iid, title: request.title, url: request.url)
+        if !signal.finish.mergesWhenReady {
+            switch signal.finish.doneWhen {
+            case .hasReviewer: facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
+            case .approved: facts.approved = try await !host.approvals(of: request.iid).isEmpty
+            case .threadsResolved: facts.threadsResolved = try await host.threads(of: request.iid).allSatisfy(\.resolved)
+            case .myReviewPosted: facts.reviewPostedAt = try await host.mySignalReviewPostedAt(of: request.iid)
+            default: break
+            }
+            facts.hostReadComplete = true
+            return RequestWatch.Snapshot(reference: reference, facts: facts, head: nil, localHead: nil, approvals: false, greenChecks: false, link: link)
         }
         let state = try await host.state(of: request)
         let readiness = try await host.readiness(of: request.iid)
@@ -78,7 +96,7 @@ import AiTermCore
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
         let ready: Bool = if case .ready = readiness { true } else { false }
         return RequestWatch.Snapshot(reference: reference, facts: facts, head: head, localHead: local,
-                                     approvals: facts.approved && ready, greenChecks: state.pipeline == "success")
+                                     approvals: facts.approved && ready, greenChecks: state.pipeline == "success", link: link)
     }
     func merge(_ task: TaskItem, snapshot: RequestWatch.Snapshot) async throws {
         guard let claim = SignalClaim(task), let reference = snapshot.reference, let head = snapshot.head, snapshot.canMerge,
@@ -91,8 +109,59 @@ import AiTermCore
               workspace.state.operatorSession?.paused != true, claim.canAct(in: workspace.state), !Task.isCancelled else { throw ActionUnavailable("The task changed before merging.") }
         _ = try await host.merge(reference.number, at: head)
     }
+    private struct DetailBasis: Equatable {
+        var claim: SignalClaim?
+        var jira: JiraRef?
+        var request: MergeRequestRef?
+        var watched: SignalRequestRef?
+        var branch: String
+        var remote: String?
+        var jiraAccount: JiraConfig?
+        var gitLab: GitLabConfig?
+        var gitHub: GitHubConfig?
+        var session: ObjectIdentifier
+    }
+    private struct DetailCache { var basis: DetailBasis; var value: JSONValue; var at: Date }
+    private struct DetailFlight { var basis: DetailBasis; var nonce: UUID; var task: Task<JSONValue, Error> }
+    private var detailsCache: [UUID: DetailCache] = [:]
+    private var detailFlights: [UUID: DetailFlight] = [:]
+    var now: () -> Date = Date.init
+    func cancelReads() {
+        for flight in detailFlights.values { flight.task.cancel() }
+        detailFlights.removeAll(); detailsCache.removeAll()
+    }
     func details(_ task: TaskItem) async throws -> JSONValue {
         let links = await connections()
+        let basis = DetailBasis(claim: SignalClaim(task), jira: task.jira, request: task.mr, watched: task.signalTask?.watchedRequest,
+            branch: task.branch, remote: workspace.state.project(id: task.projectId)?.remoteUrl,
+            jiraAccount: links.jira, gitLab: links.gitLab, gitHub: links.gitHub, session: ObjectIdentifier(links.session))
+        let ids = Set(workspace.state.allSignalTasks.map(\.id))
+        detailsCache = detailsCache.filter { ids.contains($0.key) && now().timeIntervalSince($0.value.at) < hostCache }
+        if let cached = detailsCache[task.id], cached.basis == basis { return cached.value }
+        if let flight = detailFlights[task.id], flight.basis == basis { return try await flight.task.value }
+        let nonce = UUID(), budget = hostTimeout
+        let read: @MainActor @Sendable () async throws -> JSONValue = { [self] in try await uncachedDetails(task, links: links) }
+        let job = Task { @MainActor in
+            try await withThrowingTaskGroup(of: JSONValue.self) { group in
+                group.addTask { try await read() }
+                group.addTask {
+                    try await Task.sleep(for: budget)
+                    throw ActionUnavailable("The source status read timed out.")
+                }
+                defer { group.cancelAll() }
+                guard let value = try await group.next() else { throw CancellationError() }
+                return value
+            }
+        }
+        detailFlights[task.id] = DetailFlight(basis: basis, nonce: nonce, task: job)
+        defer { if detailFlights[task.id]?.nonce == nonce { detailFlights[task.id] = nil } }
+        let value = try await job.value
+        guard enabled(), !Task.isCancelled, basis.claim?.holds(in: workspace.state) != false,
+              workspace.state.project(id: task.projectId)?.remoteUrl == basis.remote else { throw ActionUnavailable("The task changed while its source was read.") }
+        detailsCache[task.id] = DetailCache(basis: basis, value: value, at: now())
+        return value
+    }
+    private func uncachedDetails(_ task: TaskItem, links: SignalConnections) async throws -> JSONValue {
         var value: [String: JSONValue] = [:]
         if let ticket = try await ticket(task, links: links) { value["ticketDescription"] = ticket.description.map(JSONValue.string) ?? .null }
         if task.mr != nil || task.signalTask?.watchedRequest != nil {

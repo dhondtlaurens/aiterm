@@ -112,11 +112,12 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The resume intent couldn’t be saved.") }
         await run(id)
     }
-    func finish(_ id: UUID, action: SignalAction) async throws {
+    func finish(_ id: UUID, action: SignalAction, judged: Bool = false) async throws {
         guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask else {
             throw ActionUnavailable("The task is no longer the Operator’s.")
         }
-        let next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: ports.workerIsWorking(id))
+        var next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: ports.workerIsWorking(id))
+        if judged, next.stage == record.stage { next.operatorJudged = true }
         let configuration = next.configuration ?? workspace.state.signal(id: next.signal)
         workspace.mutate { state in
             state.updateSignalItem(id) { task in

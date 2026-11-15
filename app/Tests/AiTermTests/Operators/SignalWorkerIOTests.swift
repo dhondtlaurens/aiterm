@@ -5,6 +5,62 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalWorkerIOTests {
+    @Test(arguments: [false, true]) func steeringAWatchingTaskResumesWorkerObservation(extraTab: Bool) async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalItem(id) {
+            $0.worktreePath = h.folder.path; $0.signalTask?.phase = .watching(.operatorJudges)
+            $0.signalTask?.operatorJudged = true
+        } }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("worker", tag: id, state: .done, conversation: "steering")]
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let task = try #require(h.workspace.state.task(id: id))
+        if extraTab { _ = try await io.openTab(task, key: "check", choice: SignalWorld.agent, prompt: "Inspect again.", why: "A new fact", allowed: { true }) }
+        else { try await io.message(task, text: "Inspect again.", tab: "main", allowed: { true }) }
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.operatorJudged != true)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.needsWorkerReads == true)
+    }
+    @Test(arguments: [false, true], ["main", "check"]) func anAcceptedLaunchWithoutAWorkerEventuallyRequiresInspection(activeWorker: Bool, tab: String) async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalTask(id) {
+            $0.launch = LaunchAttempt(number: 1, requestedAt: world.now.addingTimeInterval(-200), openedAt: world.now.addingTimeInterval(-200))
+            $0.pendingReplies = [tab: SignalWorkerReply(at: world.now.addingTimeInterval(-200), fingerprint: nil)]
+            if tab != "main" { $0.extraTabs = [ExtraTab(key: tab, agent: .claude, model: SignalWorld.agent.model, reasoning: SignalWorld.agent.reasoning, modelReason: "Check", brief: "Inspect.", launch: LaunchAttempt(number: 1, requestedAt: world.now.addingTimeInterval(-200)))] }
+        } }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        if activeWorker {
+            var worker = OperatorServiceFixtures.session("worker", tag: id, state: .working, conversation: "still-working")
+            worker.tabKey = tab == "main" ? nil : tab; live.sessions = [worker]
+        }
+        let instant = world.now
+        var timed = ports; timed.clock.now = { instant }
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: timed,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        await io.refreshTurns()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == (activeWorker ? .working : .blocked))
+        #expect(io.busy(id) == activeWorker, "Inspection must be able to resume a blocked launch.")
+    }
+    @Test func aFirstLaunchUsesTheAllowedAgentBelowItsWeeklyLimit() async throws {
+        let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        var world = SignalWorld(); let signal = world.signal(agents: [SignalWorld.agent, codex]), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalItem(id) { $0.worktreePath = h.folder.path; $0.windowId = nil; $0.signalTask?.phase = .launching } }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.usage = UsageSnapshot(claude: Usage(fiveHour: nil, sevenDay: .init(usedPercent: 80, resetsAt: nil), spend: nil, updatedAt: 1),
+            codex: Usage(fiveHour: nil, sevenDay: .init(usedPercent: 20, resetsAt: nil), spend: nil, updatedAt: 1))
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        _ = try await io.launch(try #require(h.workspace.state.task(id: id)), prompt: "Work.")
+        #expect(h.workspace.state.task(id: id)?.agent == .codex)
+        #expect((daemon.requests("window.createTask").first?.params["agentCommand"] as? String)?.contains("launch-codex.sh") == true)
+    }
     @Test(arguments: [false, true]) func anApiFailureBlocksTheStageInsteadOfReusingAnEarlierQuestion(hasConversation: Bool) async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }

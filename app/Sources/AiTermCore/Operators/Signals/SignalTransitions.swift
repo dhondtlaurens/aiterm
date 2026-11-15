@@ -8,7 +8,7 @@ public enum SignalTransitions {
         func continueStage(_ stage: SignalStage) {
             next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.ownership += 1; next.startedAt = at
             next.configuration = stage.configuration; next.prompt = stage.prompt; next.thenApplied = nil
-            next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil
+            next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil; next.operatorJudged = nil
         }
         func startPending() {
             guard !next.pendingStages.isEmpty else { return }
@@ -18,6 +18,11 @@ public enum SignalTransitions {
         case .workerStarted:
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
             next.phase = .working
+        case .workRequested:
+            guard task.phase == .working || task.phase == .done || { if case .watching = task.phase { true } else { false } }() else {
+                throw SignalTransitionError.invalidEdge
+            }
+            next.phase = .working; next.operatorJudged = nil; next.thenApplied = nil; next.blockedReason = nil
         case .matched(let stage):
             if task.phase.canContinue && !workerIsWorking { continueStage(stage) }
             else if !next.pendingStages.contains(where: { $0.signal == stage.signal }) { next.pendingStages.append(stage) }
@@ -47,6 +52,7 @@ public enum SignalTransitions {
         if next.phase != task.phase || next.stage != task.stage {
             next.edges.append(SignalEdge(from: task.phase, to: next.phase, stage: next.stage, at: at))
         }
+        next.edges = Array(next.edges.suffix(SignalTask.edgeLimit))
         return next
     }
 }

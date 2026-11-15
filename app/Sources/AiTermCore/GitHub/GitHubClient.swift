@@ -173,6 +173,24 @@ public struct GitHubClient: HostRepository {
             .map(\.mergeRequest).first { $0.sourceBranch == source && $0.forkHead == nil }
     }
 
+    /// Observation includes closed requests; the list's merged_at is not a merge proof, so a
+    /// candidate from history is fetched by number for the authoritative merged flag.
+    public func signalRequest(from source: String) async throws -> MergeRequest? {
+        if let open = try await existingRequest(from: source) { return open }
+        guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        for page in 1...100 {
+            let query = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
+                         URLQueryItem(name: "sort", value: "created"), URLQueryItem(name: "direction", value: "desc"),
+                         URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let values = try await get([PullPayload].self, path: boundPath + "/pulls", query: query, notFound: .repoNotFound(repo))
+            if let own = values.map(\.mergeRequest).first(where: { $0.sourceBranch == source && $0.forkHead == nil }) {
+                return try await mergeRequests(search: String(own.iid)).first
+            }
+            if values.count < 100 { return nil }
+        }
+        throw IncompleteRead("branch requests")
+    }
+
     /// A pull request from `source` into `target`, a draft or not. The branch is never deleted
     /// afterwards and auto-merge is never enabled: merging is `merge`, at the accepted commit.
     public func createRequest(from source: String, into target: String, title: String, description body: String,

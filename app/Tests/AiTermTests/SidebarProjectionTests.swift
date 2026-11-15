@@ -41,6 +41,24 @@ import Testing
         { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
     }
 
+    @Test func journalEdgesAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date()); record.phase = .working; record.configuration = signal
+        controller.workspace.mutate { $0.signals = [signal]; $0.updateSignalTask(Self.taskId) { $0 = record } }
+        // The ordinary row initially has no SignalTask to update.
+        controller.workspace.mutate { $0.tasks[0].signalTask = record }
+        let rows = controller.rows, before = rows.derivations, at = Date()
+        #expect(!invalidates(readsTheList(rows)) {
+            controller.workspace.mutate { $0.updateSignalTask(Self.taskId) {
+                $0.journal.append(.init(at: at, stage: 1, text: .ours("A saved decision.")))
+                $0.pendingReplies = ["main": .init(at: at, fingerprint: "record")]
+                $0.edges.append(.init(from: .launching, to: .working, stage: 1, at: at))
+            } }
+        })
+        #expect(rows.derivations == before)
+    }
     @Test func aDisplayOnlyJobInvalidatesItsRowWithoutChangingItsStatus() throws {
         let controller = try controller()
         defer { controller.shutdown() }

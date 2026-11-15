@@ -417,8 +417,8 @@ struct TaskRowView: View {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
-                    case .archive: Button(voiceOver.title(of: action)) { Task { await controller.archiver.archive(task: task) } }
-                    case .remove: Button(voiceOver.title(of: action)) { Task { await controller.remover.confirmRemove(task: task) } }
+                    case .archive: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
+                    case .remove: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
                     }
                 }
             }
@@ -442,9 +442,9 @@ struct TaskRowView: View {
                 if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Archive \(task.kindName)") { Task { await controller.archiver.archive(task: task) } }
+                Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
                     .disabled(!controller.canChangeWorkspace || removing || awaitsRetry)
-                Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.remover.confirmRemove(task: task) } }
+                Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
         }

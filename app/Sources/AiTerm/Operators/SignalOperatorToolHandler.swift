@@ -15,6 +15,7 @@ import AiTermCore
         var actionsAllowed: @MainActor () -> Bool = { true }
         var sessions: @MainActor () -> [SessionInfo] = { [] }
         var instructions: @MainActor () -> String? = { nil }
+        var usage: @MainActor () -> UsageSnapshot = { .empty }
     }
     let workspace: WorkspaceStore
     let stages: StageRunner

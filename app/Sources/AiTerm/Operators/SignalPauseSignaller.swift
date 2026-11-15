@@ -39,7 +39,7 @@ import AiTermCore
         for target in workspace.state.operatorSession?.pausedWorkers ?? [] {
             guard enabled(), !Task.isCancelled else { return }
             guard let task = workspace.state.task(id: target.task), task.signalTask?.takenOver == false,
-                  task.signalTask?.ownership == target.ownership else { forget(target); continue }
+                  task.signalTask?.ownership == target.ownership, task.signalTask?.phase == .working else { forget(target); continue }
             guard !paused(task) else { continue }
             do {
                 try await native.control(task, tab: target.tab ?? "main", text: Self.carryOnNote, resuming: true)

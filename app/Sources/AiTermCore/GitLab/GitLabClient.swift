@@ -209,6 +209,21 @@ public struct GitLabClient: HostRepository {
             .first { $0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId }?.mergeRequest
     }
 
+    /// Signal observation also finds a request merged before the first watch. Publication's
+    /// existingRequest remains open-only. Forks never become this task's own request.
+    public func signalRequest(from source: String) async throws -> MergeRequest? {
+        if let open = try await existingRequest(from: source) { return open }
+        for page in 1...100 {
+            let query = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "source_branch", value: source),
+                         URLQueryItem(name: "order_by", value: "created_at"), URLQueryItem(name: "sort", value: "desc"),
+                         URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let values = try await get([MergeRequestPayload].self, path: boundPath + "/merge_requests", query: query, notFound: .projectNotFound(project))
+            if let own = values.first(where: { $0.sourceBranch == source && ($0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId) }) { return own.mergeRequest }
+            if values.count < 100 { return nil }
+        }
+        throw IncompleteRead("branch requests")
+    }
+
     /// A merge request from `source` into `target`. A draft is GitLab's `Draft:` title prefix. The
     /// source branch is kept after a merge: deleting a branch is ask-first. Nothing here asks GitLab
     /// to merge, squash or rebase it: merging is `merge`, at the accepted commit.

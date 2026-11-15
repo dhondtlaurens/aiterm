@@ -8,6 +8,8 @@ public struct SignalWorkerReply: Codable, Equatable, Sendable {
 }
 
 public struct SignalTask: Codable, Equatable, Sendable {
+    /// Durable journals retain history; state keeps the latest transitions for inspection.
+    public static let edgeLimit = 100
     public var signal: UUID
     public var item: ItemRef
     public var configuration: Signal?
@@ -23,6 +25,7 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var peopleReview: PeopleReview?
     public var watchedRequest: SignalRequestRef?
     public var thenApplied: Bool?
+    public var operatorJudged: Bool?
     public var currentAct: String?
     public var takenOver = false
     public var ownership = 0
