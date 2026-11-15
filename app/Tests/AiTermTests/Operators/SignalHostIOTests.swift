@@ -5,6 +5,54 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalHostIOTests {
+    @Test func mergingRechecksTheLocalHeadAtTheNativeEffectBoundary() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { _ in (200, Data(#"{"state":"merged"}"#.utf8)) }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links })
+        io.remote = { _, _ in "git@git.example:shop/web.git" }
+        var facts = DoneCheck.Facts(); facts.hostReadComplete = true; facts.threadsResolved = true
+        let snapshot = RequestWatch.Snapshot(reference: SignalRequestRef(remote: "git@git.example:shop/web.git", number: 7),
+            facts: facts, head: "accepted-head", localHead: "accepted-head", approvals: true, greenChecks: true)
+        await #expect(throws: (any Error).self) { try await io.merge(try #require(h.workspace.state.task(id: id)), snapshot: snapshot) }
+        #expect(stub.requests.isEmpty, "An unknown or changed local head cannot send a merge request.")
+    }
+    @Test func aTicketSignalFindsTheRelatedRequestDescriptionFromItsBranch() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.tasks[0].branch = "feat/PAY-1"
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            #expect(request.url!.path.contains("merge_requests"))
+            return (200, Data(#"[{"iid":7,"title":"DO NOT COPY THIS TITLE","source_branch":"feat/PAY-1","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","description":"Only the request description.","state":"opened"}]"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: GitRunner.hermetic(), connections: { links })
+        io.remote = { _, _ in "git@git.example:shop/web.git" }
+        let prompt = try await io.additionalContext(try #require(h.workspace.state.task(id: id)))
+        #expect(prompt.contains("Only the request description."))
+        #expect(!prompt.contains("DO NOT COPY THIS TITLE") && !prompt.contains("PAY-1"))
+    }
+    @Test func aRequestSignalResolvesItsLinkedJiraDescriptionWithoutAddingTheKeyOrTitle() async throws {
+        var world = SignalWorld(); let signal = world.signal()
+        world.state.signals[0].source = .gitLab(RequestConditions(event: .reviewRequested))
+        world.state.signals[0].work.requestDescription = false
+        let id = world.workingTask(signal: signal)
+        world.state.tasks[0].branch = "feat/PAY-1-work"
+        world.state.updateSignalTask(id) { $0.item = .request(remote: "git@git.example:shop/web.git", number: 7) }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            #expect(request.url!.host == "jira.example")
+            return (200, Data(#"{"issues":[{"key":"PAY-1","fields":{"summary":"DO NOT COPY THIS TITLE","description":"Only the ticket description.","status":{"name":"Open"}}}],"isLast":true}"#.utf8))
+        }
+        let links = SignalConnections(jira: JiraConfig(siteURL: URL(string: "https://jira.example")!, email: "fake", token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: GitRunner.hermetic(), connections: { links })
+        let prompt = try await io.additionalContext(try #require(h.workspace.state.task(id: id)))
+        #expect(prompt.contains("Only the ticket description."))
+        #expect(!prompt.contains("DO NOT COPY THIS TITLE") && !prompt.contains("PAY-1"))
+    }
     @Test func ticketStatusNeedsOnlyItsJiraReadAndNeverRequiresARequest() async throws {
         var world = SignalWorld(); let signal = world.signal(done: .ticketStatus("Done")); let id = world.workingTask(signal: signal)
         let ticket = world.ticket().ticket.map(JiraRef.init)

@@ -14,6 +14,8 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         public var ownership: Int?
         public var tab: String?
         public var workerQuestion: String?
+        public var workerBinding: String?
+        public var deliveredAt: Date?
         public var gate: GateRequest?
         public var gateConsumedAt: Date?
         public init(id: String, task: UUID?, text: String, openedAt: Date, resolvedAt: Date? = nil) {
@@ -34,6 +36,8 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var conversation: String?
     public var session: String?
     public var pausedWorkers: [PausedWorker]?
+    public var wakeAwaitingRead: Bool?
+    public var sourceFailures: [String: String]?
     public var paused = false
     public var startingFresh = false
     public var handover: OperatorHandover?
@@ -55,8 +59,11 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         ledger = Array(ledger.suffix(500))
     }
     public mutating func prune() {
-        let closed = questions.filter { $0.resolvedAt != nil }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
-        questions = questions.filter { $0.resolvedAt == nil } + closed
+        func pending(_ question: Question) -> Bool {
+            question.resolvedAt == nil || (question.workerQuestion != nil && question.answer != nil && question.deliveredAt == nil)
+        }
+        let closed = questions.filter { !pending($0) }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
+        questions = questions.filter(pending) + closed
         oracleRounds.removeAll { $0.stage == .acted }
     }
 }

@@ -13,6 +13,8 @@ import AiTermCore
         var jiraSearch: @MainActor (String) async throws -> JSONValue
         var oracle: @MainActor (TaskItem?, String, String) async throws -> String
         var actionsAllowed: @MainActor () -> Bool = { true }
+        var sessions: @MainActor () -> [SessionInfo] = { [] }
+        var instructions: @MainActor () -> String? = { nil }
     }
     let workspace: WorkspaceStore
     let stages: StageRunner

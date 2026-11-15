@@ -22,8 +22,8 @@ enum SignalReadiness: Equatable {
     /// agent's Messaging and `iterm` iTerm2's own checks; nil where not read yet.
     static func of(installed: Set<AgentKind>, snapshots: [AgentKind: HarnessSnapshot],
                    messaging: (AgentKind) -> DeliveryReadiness?, iterm: DeliveryReadiness?) -> SignalReadiness {
+        guard installed.contains(.claude) else { return .notReady(["The Operator needs Claude Code. Install it in Settings › Agents."]) }
         let agents = ModelChoice.pair.filter(installed.contains)
-        guard !agents.isEmpty else { return .notReady(["No agent to plan on: install Claude Code or Codex in Settings › Agents"]) }
         var lines: [String] = [], reading = false
         for agent in agents {
             guard let snapshot = snapshots[agent], let messaging = messaging(agent) else { reading = true; continue }

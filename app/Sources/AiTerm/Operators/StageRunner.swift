@@ -88,7 +88,7 @@ import AiTermCore
         }
     }
     func resume(_ id: UUID, project: UUID? = nil, agent: AgentChoice? = nil) async throws {
-        guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
+        guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
               let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask, !record.takenOver,
               record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")

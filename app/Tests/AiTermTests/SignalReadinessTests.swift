@@ -29,6 +29,10 @@ import Testing
                                      iterm: iterm ?? itermPassed)
     }
 
+    @Test func codexWorkersStillNeedClaudeForTheOperator() {
+        let result = readiness(installed: [.codex])
+        #expect(result.lines.contains { $0.contains("Claude Code") })
+    }
     @Test func everythingReadyIsReady() {
         #expect(readiness() == .ready)
     }
@@ -50,7 +54,7 @@ import Testing
     @Test func onlyTheAgentsTheOperatorMayPlanOnAreWaitedFor() {
         #expect(readiness(installed: [.claude], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
         #expect(readiness(installed: [.claude, .pi], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
-        #expect(readiness(installed: []) == .notReady(["No agent to plan on: install Claude Code or Codex in Settings › Agents"]))
+        #expect(readiness(installed: []) == .notReady(["The Operator needs Claude Code. Install it in Settings › Agents."]))
     }
 
     /// Until every piece is read it is checking, unless something read already is not ready.

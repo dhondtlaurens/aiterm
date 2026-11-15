@@ -34,3 +34,8 @@ through `StateStore`. Its normal run compares the complete bytes and reloads the
 pending stage, an archived item, a worker reply intent, an extra tab, our journal entry, generation
 2, an open question, an open Oracle round and an idempotency result. It contains no account tokens.
 The old broadcast input is retained only for retirement coverage and the before/after eval data.
+
+On 15 Nov 2026 the current brief gained the `standingInstructions` status rule. Saving Settings
+wakes the existing chat and its next `run_status` supplies the current instructions, replacing the
+copy from its initial prompt. Only `operator-signals/brief.md` was updated deliberately for this
+current contract; the historical broadcast baseline and eval recordings were left intact.

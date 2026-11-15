@@ -65,7 +65,7 @@ public enum TicketMergeRequests {
         return firstGroup(#"^(\d+)-"#, in: branch).flatMap { Int($0) }
     }
 
-    static func jiraKey(in text: String) -> String? {
+    public static func jiraKey(in text: String) -> String? {
         firstGroup(#"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9_]+-\d+)(?![0-9])"#, in: text).map { $0.uppercased() }
     }
 

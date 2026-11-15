@@ -10,6 +10,8 @@ import AiTermCore
         var close: @MainActor (String) async throws -> Void
         var revoke: @MainActor (UUID) async throws -> Void
         var open: @MainActor (OperatorSession, OperatorDigest) async throws -> String
+        var sessions: @MainActor () -> [SessionInfo] = { [] }
+        var instructions: @MainActor () -> String? = { nil }
     }
     private let workspace: WorkspaceStore
     private let now: () -> Date
@@ -58,7 +60,7 @@ import AiTermCore
             }
             if case .unknown = session.handover { return }
             if session.handover == nil, ports.windowIsOpen(session) { return }
-            let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn())
+            let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions())
             let window = try await ports.open(session, digest)
             guard holds(session, pass: key, allowPaused: allowPaused) else { return }
             workspace.mutate { state in

@@ -445,7 +445,7 @@ Each step leaves the package building and the gate green.
       `state.json` loads and its next save has none of them; the old per-run tokens leave the daemon.
 - [x] The act line's decode, the signal heading's fold and counts, Take Over, every row state.
 - [x] Settings › Operator and the Oracle: the copy as picked.
-- [ ] Fresh sessions end to end: context size, idle, digest, token handover.
+- [x] Fresh sessions end to end: context size, idle, digest, token handover.
 - [ ] Performance: watching tasks out of the per-tick reads, the status cache, the bounds.
 - [ ] Docs, the README inventory, the design page synced with the proposal removed (the
       `design-system` skill's loop; publishing the page to its artifact is the maintainer's step and
@@ -741,3 +741,30 @@ model selection and Oracle choice retention keep their coverage.
 The two full native Settings drawings (Oracle on and off) were inspected in
 `build/operator-signals-settings`. The plain gate passed: 1,598 daemon tests (one skipped), 123 UI,
 1,009 app tests (one known issue), 1,679 Core tests (three known issues), and the snapshot check.
+
+### Fresh-session and native-boundary proof · 15 Nov 2026
+
+The native controller test follows current input context from 50k to 150k, closes the old CLI,
+revokes its authority and opens generation 2 with the saved question and quiescent Oracle round.
+Active checks still prevent a fresh start; saved rounds travel in the digest. A saved closing
+handover also recovers after a lost reply by confirming the old window is absent, rather than
+closing a window by a stale number. A delivered wake stays pending until `run_status` reads it,
+including after restart, so an old idle snapshot cannot close the chat just woken.
+
+The digest carries pending worker messages, current worker observations, skipped items, source
+failures, open Oracle rounds and resolved answers still awaiting delivery. Worker answers bind the
+stage, ownership, terminal session, conversation and full assistant-record fingerprint; a repeated
+caption cannot reuse another turn’s answer. Successfully delivered person answers are marked and
+leave the pending digest. Oracle settings use a monotonic revision: off/on cycles discard the old
+check, and a stale shell check is retried under the current setting. Saved standing instructions
+reach the existing chat through a settings wake and status; the current brief fixture records that
+intentional rule change and its provenance.
+
+The native proof also covers related ticket/request descriptions found through linked projects and
+branches (descriptions only), early API failures blocking a worker, mandatory Claude for the
+Operator, a blocked stage refusing Resume while its worker is active, the final local-head check
+at merge, and a late branch deletion rechecking pause, ownership and other live tasks.
+
+All regression tests were observed red before their logic changed. The plain gate passed: 1,598
+daemon tests (one skipped), 123 UI, 1,020 app tests (one known issue), 1,680 Core tests (three known
+issues), and the snapshot check. No installed app, live Operator or host workflow was switched.

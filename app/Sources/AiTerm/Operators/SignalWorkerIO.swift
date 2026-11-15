@@ -29,6 +29,7 @@ import AiTermCore
             || workspace.state.operatorSession?.pausedWorkers?.contains { $0.task == id } == true
             || inFlight.contains(id) || !(task.signalTask?.pendingReplies?.isEmpty ?? true)
             || tabs.contains { $0.isStillAtWork || $0.status == .needsInput }
+            || (task.signalTask?.phase == .working && tabs.contains { $0.session?.stoppedOn != nil })
             || (task.signalTask?.phase == .working && tabs.contains { tab in
                 tab.status?.turnEnded == true && replies[id]?[tab.reference.name].map {
                     WorkerTurn.ending(lastMessage: $0.text, commitsAhead: nil) == .asks
@@ -38,8 +39,8 @@ import AiTermCore
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard !inFlight.contains(id), workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
-              let session = worker.session, let reply = replies[id]?[tab], WorkerTurn.ending(lastMessage: reply.text, commitsAhead: nil) == .asks else { return nil }
-        return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text)
+              let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.ending(lastMessage: reply.text, commitsAhead: nil) == .asks else { return nil }
+        return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text, conversation: worker.conversation, fingerprint: reply.fingerprint)
     }
     /// A saved intent may already have opened its worker before a reply was lost. Its private
     /// launch scope binds the observed process to this stage; observing it never repeats work.
@@ -82,7 +83,18 @@ import AiTermCore
         for task in tasks {
             guard let claim = SignalClaim(task) else { continue }
             for worker in task.workerTabs(in: live.sessions) {
-                guard let session = worker.session, let conversation = worker.conversation, worker.status?.turnEnded == true else { continue }
+                guard let session = worker.session, worker.status?.turnEnded == true else { continue }
+                if let stopped = session.stoppedOn {
+                    workspace.mutate { state in
+                        state.updateSignalTask(task.id) { record in
+                            if let next = try? SignalTransitions.apply(.block("Its worker " + stopped.reason(now: ports.now()) + "."), to: record, at: ports.now()) {
+                                record = next; record.currentAct = nil
+                            }
+                        }
+                    }
+                    replies[task.id] = nil; workspace.flush(); onBlocked(task.id); break
+                }
+                guard let conversation = worker.conversation else { continue }
                 let locator = transcripts, agent = worker.agent, key = worker.reference.name
                 let reply = await BackgroundWork.run { locator.lastReply(agent: agent, conversation: conversation) }
                 guard claim.holds(in: workspace.state), workspace.state.task(id: task.id)?.workerTab(key, in: live.sessions)?.conversation == conversation else { continue }

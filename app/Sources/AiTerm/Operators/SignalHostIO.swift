@@ -84,6 +84,9 @@ import AiTermCore
         guard let claim = SignalClaim(task), let reference = snapshot.reference, let head = snapshot.head, snapshot.canMerge,
               task.signalTask?.configuration?.finish.mergesWhenReady == true else { throw ActionUnavailable("Automatic merging is not enabled or ready.") }
         let links = await connections(), (remote, host) = try await binding(task, links: links)
+        let git = git
+        let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
+        guard local == head, local == snapshot.localHead else { throw ActionUnavailable("Its local head changed before merging.") }
         guard enabled(), ItemRef.repository(remote) == ItemRef.repository(reference.remote), workspace.canChangeWorkspace,
               workspace.state.operatorSession?.paused != true, claim.canAct(in: workspace.state), !Task.isCancelled else { throw ActionUnavailable("The task changed before merging.") }
         _ = try await host.merge(reference.number, at: head)
@@ -100,17 +103,38 @@ import AiTermCore
     }
     func additionalContext(_ task: TaskItem) async throws -> String {
         guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { return "" }
-        let needsTicket: Bool = if case .ticket = record.item { false } else { signal.work.ticketDescription && task.jira != nil }
-        let needsRequest: Bool = if case .mergeRequest = record.item { false } else { signal.work.requestDescription && task.mr != nil }
+        let needsTicket: Bool = if case .ticket = record.item { false } else { signal.work.ticketDescription }
+        let needsRequest: Bool = if case .mergeRequest = record.item { false } else { signal.work.requestDescription }
         guard needsTicket || needsRequest else { return "" }
         let links = await connections()
-        let ticketText = needsTicket ? try await ticket(task, links: links)?.description : nil
+        var related = task
+        if needsTicket, related.jira == nil, let jira = links.jira,
+           let key = TicketMergeRequests.jiraKey(in: task.branch),
+           workspace.state.project(id: task.projectId)?.jiraProjects.contains(where: {
+               key.hasPrefix($0.key.uppercased() + "-") && $0.siteURL == jira.siteURL
+           }) == true {
+            related.jira = JiraRef(key: key, summary: "", url: jira.siteURL.appendingPathComponent("browse/" + key).absoluteString)
+        }
+        let ticketText = needsTicket ? try await ticket(related, links: links)?.description : nil
         var requestText: String?
-        if needsRequest { let (_, host) = try await binding(task, links: links); requestText = try await request(task, host: host)?.description }
+        if needsRequest {
+            let known = task.mr != nil || record.watchedRequest != nil
+            let available = workspace.state.project(id: task.projectId)?.remoteUrl.map { remote in
+                switch ProviderDetector.detect(remoteUrl: remote).provider {
+                case .gitlab: links.gitLab != nil
+                case .github: links.gitHub != nil
+                default: false
+                }
+            } ?? false
+            if known || available {
+                let (_, host) = try await binding(task, links: links)
+                requestText = try await request(task, host: host)?.description
+            }
+        }
         return SignalWork(prompt: "", ticketDescription: needsTicket, requestDescription: needsRequest).workerPrompt(ticket: ticketText, request: requestText)
     }
     func deleteMergedBranch(of task: TaskItem) async {
-        guard let record = task.signalTask, let signal = record.configuration, signal.finish.deletesMergedBranch,
+        guard enabled(), let record = task.signalTask, let signal = record.configuration, signal.finish.deletesMergedBranch,
               task.kind != .review, workspace.state.signalItem(id: task.id) == nil,
               let project = workspace.state.project(id: task.projectId) else { return }
         do {
@@ -121,7 +145,11 @@ import AiTermCore
                   !workspace.state.tasks.contains(where: { $0.projectId == task.projectId && $0.branch == task.branch }) else { return }
             _ = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: head, mergedHead: head,
                 kind: task.kind, path: project.path, git: git, saveDeletion: { [workspace] in
-                    workspace.canChangeWorkspace && workspace.state.signalItem(id: task.id) == nil && workspace.flush()
+                    self.enabled() && workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true
+                        && workspace.state.signal(id: record.signal)?.enabled != false
+                        && workspace.state.signalItem(id: task.id) == nil
+                        && !workspace.state.tasks.contains { $0.projectId == task.projectId && $0.branch == task.branch }
+                        && workspace.flush()
                 })
         } catch { /* An unavailable merge proof keeps the branch. */ }
     }

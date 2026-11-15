@@ -50,6 +50,7 @@ import AiTermCore
         let response: String?
         do { response = try await oracle(prompt) }
         catch {
+            if error is SignalOracleSettingsChanged, oracleEnabled() { return answer("deny", "The Oracle settings changed. Check this command again.") }
             do { try validate(request) } catch { return answer("deny", OperationIssue.reason(of: error)) }
             return answer("allow", "unchallenged: the Oracle could not answer")
         }

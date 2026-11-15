@@ -5,6 +5,21 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalWorkerIOTests {
+    @Test(arguments: [false, true]) func anApiFailureBlocksTheStageInsteadOfReusingAnEarlierQuestion(hasConversation: Bool) async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        var tab = OperatorServiceFixtures.session("worker", tag: id, state: .done, conversation: hasConversation ? "failed" : nil)
+        tab.stoppedOn = StoppedOn(error: "billing_error")
+        live.sessions = [tab]
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        await io.refreshTurns()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.blockedReason?.contains("billing") == true)
+        #expect(io.question(id, tab: "main") == nil)
+    }
     @Test func firstWorkerUsesGuardedPublishingProfileAndSavedLaunchIntent() async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         let harness = try SignalHarness(world); defer { harness.cleanUp() }

@@ -5,6 +5,16 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite struct SignalSelectionTests {
+    @Test func aBlockedStageCannotResumeWhileItsWorkerHasStartedAnotherTurn() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .blocked }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in true }, prepare: { task, _ in task }, launch: { _, _ in "unexpected" }, restore: { $0 }))
+        await #expect(throws: (any Error).self) { try await runner.resume(id) }
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.ownership == 0)
+    }
     @Test func aMergeRequestOnAnExistingTasksBranchContinuesThatTask() throws {
         var world = SignalWorld(); let signal = world.signal()
         world.state.signals[0].source = .gitLab(RequestConditions(event: .myRequest))

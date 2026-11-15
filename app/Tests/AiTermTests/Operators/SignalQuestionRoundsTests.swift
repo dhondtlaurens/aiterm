@@ -7,6 +7,22 @@ import Testing
 @MainActor @Suite struct SignalQuestionRoundsTests {
     private let question = QuestionRounds.Question(session: "s1", tab: "main", text: "Which retry key?", message: "Question: Which retry key?")
 
+    @Test(arguments: [false, true]) func aRecordedAnswerCannotCrossToANewQuestionWithTheSameCaption(newSession: Bool) async throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var current = question, deliveries = 0
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            oracleEnabled: { false }, question: { _, _ in current }, oracle: { _ in .agreed("Yes") },
+            deliver: { _, _, _ in deliveries += 1 }))
+        try rounds.askYou(key: "scope", task: task, text: current.text)
+        try rounds.resolveQuestion(key: "scope", answer: "Use the payment ID.")
+        if newSession { current.session = "replacement-session" } else { current.message += " A different tail beyond the caption." }
+        await #expect(throws: (any Error).self) {
+            try await rounds.answer(task: task, key: "answer", proposal: "Use the payment ID.", fromQuestion: "scope")
+        }
+        #expect(deliveries == 0)
+    }
+
     @Test func agreementAnswersOnceAndTheSavedKeySurvivesARestart() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
@@ -54,6 +70,8 @@ import Testing
         #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
         let answer = try await rounds.answer(task: task, key: "person-answer", proposal: "Use the payment ID.", fromQuestion: "person")
         #expect(answer["status"] == "answered" && calls == 3 && deliveries == 1)
+        #expect(h.workspace.state.operatorSession?.questions.first?.deliveredAt != nil)
+        #expect(OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true).questions.isEmpty)
     }
 
     @Test(arguments: [false, true]) func theOracleBeingOffOrCallingItThePersonsDecisionAsksInChat(oracleOn: Bool) async throws {

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import AiTermCore
 
 /// The Operator proposes; the Oracle agrees or critiques, at most three times. Only ask_you
@@ -6,6 +7,11 @@ import AiTermCore
 @MainActor final class QuestionRounds {
     struct Question: Equatable, Sendable {
         var session: String, tab: String, text: String, message: String
+        var conversation: String? = nil
+        var fingerprint: String? = nil
+        var identity: String {
+            fingerprint ?? SHA256.hash(data: Data(message.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
     }
     struct Input: Sendable {
         var task: TaskItem, question: Question, proposal: String, round: Int, discussion: [String]
@@ -46,7 +52,8 @@ import AiTermCore
         guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), task.signalTask?.phase == .working,
               let question = ports.question(id, tab) else { throw ActionUnavailable("This worker has no current unanswered question.") }
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
-                                      "session": .string(question.session), "tab": .string(question.tab), "question": .string(question.text)])
+                                      "session": .string(question.session), "conversation": question.conversation.map(JSONValue.string) ?? .null,
+                                      "tab": .string(question.tab), "fingerprint": .string(question.identity)])
         guard !activeQuestions.contains(binding) else { return ["status": "pending"] }
         func stillAsks() -> Bool {
             workspace.canChangeWorkspace && !Task.isCancelled && claim.canAct(in: workspace.state)
@@ -60,7 +67,7 @@ import AiTermCore
         if let fromQuestion {
             guard let asked = workspace.state.operatorSession?.questions.first(where: { $0.id == fromQuestion }),
                   asked.resolvedAt != nil, asked.task == id, asked.stage == claim.stage, asked.ownership == claim.ownership,
-                  asked.workerQuestion == question.text, asked.tab == tab, asked.answer == proposal else {
+                  asked.workerBinding == binding, asked.tab == tab, asked.answer == proposal, asked.deliveredAt == nil else {
                 throw ActionUnavailable("That recorded answer does not belong to this worker's current question.")
             }
             humanAnswer = true
@@ -69,7 +76,7 @@ import AiTermCore
         if !humanAnswer {
             if let asked = workspace.state.operatorSession?.questions.first(where: {
                 $0.task == id && $0.stage == claim.stage && $0.ownership == claim.ownership && $0.tab == tab
-                    && $0.workerQuestion == question.text && $0.resolvedAt == nil
+                    && $0.workerBinding == binding && $0.resolvedAt == nil
             }) {
                 return try remember(["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
                                      "next": "Wait for the person's answer in your chat."], key: ledgerKey, arguments: arguments)
@@ -139,6 +146,13 @@ import AiTermCore
             try await ports.deliver(current, question, proposal)
             guard claim.canAct(in: workspace.state), !Task.isCancelled, workspace.state.operatorSession?.id == operatorID,
                   workspace.state.operatorSession?.generation == operatorGeneration else { clear(roundID); throw ActionUnavailable("The task changed while its answer was delivered.") }
+            if let fromQuestion {
+                workspace.mutate { state in
+                    if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
+                        state.operatorSession?.questions[index].deliveredAt = now()
+                    }
+                }
+            }
             clear(roundID)
             return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
         case .critique(let text):
@@ -175,8 +189,10 @@ import AiTermCore
         let binding: String?
         if let task, let current = workspace.state.task(id: task), let claim = SignalClaim(current), let worker = ports.question(task, tab) {
             binding = try Self.json(["task": .string(task.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
-                                     "session": .string(worker.session), "tab": .string(worker.tab), "question": .string(worker.text)])
+                                     "session": .string(worker.session), "conversation": worker.conversation.map(JSONValue.string) ?? .null,
+                                     "tab": .string(worker.tab), "fingerprint": .string(worker.identity)])
         } else { binding = nil }
+        question.workerBinding = binding
         workspace.mutate { state in
             state.operatorSession?.questions.append(question)
             if let binding {
