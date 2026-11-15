@@ -233,12 +233,13 @@ final class AppController {
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
             switch target {
-            case .board, .question: Task { await self.signalController.openOperator() }
+            case .operatorWindow: Task { await self.signalController.openOperator() }
             case .task(let id): self.focus.select(.task(id))
             }
         }
         // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
+        signalController.onChange { [weak self] in self?.refreshRows() }
         sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
@@ -326,7 +327,10 @@ final class AppController {
     /// moved — a section changed, a removal started or ended — and the label almost never changes.
     /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let label = DockBadge.label(for: rows.sections, skippingTasks: remover.leavingTasks)
+        let count = rows.projectsNeedingAttention.filter { row in
+            if case .task(let id) = row { return !remover.leavingTasks.contains(id) }; return true
+        }.count
+        let label = count == 0 ? nil : String(count)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         setBadge(label)
@@ -335,10 +339,10 @@ final class AppController {
     // -- Focus View and List View -----------------------------------------------------
     /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
     /// would otherwise land, and with no project that has rows and no broadcast (`SidebarModel.focusView`).
-    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections)) }
+    var canShowFocusView: Bool { canApplyView(signalLayout(focus: true)) }
     /// Whether List View would do anything: off behind a sheet, as Focus View, and with no project
     /// that has rows to open and no broadcast.
-    var canShowListView: Bool { canApplyView(SidebarModel.listView(rows.sections)) }
+    var canShowListView: Bool { canApplyView(signalLayout(focus: false)) }
 
     /// ⌘F: opens every project with a done or needs-input row, and the broadcast's group while something
     /// in it needs you, and folds the rest — all of them when nothing is waiting — in one save, then peeks
@@ -347,16 +351,25 @@ final class AppController {
     /// is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
-        let sections = rows.sections
-        guard applyView(SidebarModel.focusView(sections)) else { return nil }
+        guard applyView(signalLayout(focus: true)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = SidebarModel.firstNeedingAttention(sections, skippingTasks: remover.leavingTasks)
+        guard let first = rows.projectsNeedingAttention.first(where: { row in
+            if case .task(let id) = row { return !remover.leavingTasks.contains(id) }; return true
+        })
         else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
     /// ⌘L: opens every project with rows, and the broadcast's group, in one save.
-    func showListView() { applyView(SidebarModel.listView(rows.sections)) }
+    func showListView() { applyView(signalLayout(focus: false)) }
+
+    private func signalLayout(focus: Bool) -> [UUID: Bool] {
+        var layout = focus ? SidebarModel.focusView(rows.sections) : SidebarModel.listView(rows.sections)
+        for section in rows.signalSections where !section.tasks.isEmpty {
+            layout[section.id] = focus && !section.tasks.contains { $0.status == .needsInput }
+        }
+        return layout
+    }
 
     private func canApplyView(_ layout: [UUID: Bool]) -> Bool {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
@@ -440,7 +453,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .operation, nil: nil
+        case .operation, .signal, nil: nil
         }
     }
 
@@ -458,7 +471,7 @@ final class AppController {
     /// AiTerm posted, the task whose prompt waits on you, its tab that asks in front (`choose(task:)`).
     func openNote(_ target: OperatorNote.Target) {
         switch target {
-        case .board, .question: Task { await signalController.openOperator() }
+        case .operatorWindow: Task { await signalController.openOperator() }
         case .task(let id): choose(task: id)
         }
     }
@@ -484,6 +497,10 @@ final class AppController {
     /// that give it a row.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
+        if case .signal(let id) = focus.selection, let section = rows.signalSections.first(where: { $0.id == id }) {
+            if !section.tasks.isEmpty { toggleCollapsed(section.signal) }
+            return nil
+        }
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
             if projects.hasRows(project) {
                 projects.toggleCollapsed(project)
@@ -515,7 +532,7 @@ final class AppController {
         case .operation(let id):
             if id == OperatorSession.rowID { return focus.select(.operation(id)) }
             return focus.select(row)
-        case .terminal, .project:
+        case .terminal, .project, .signal:
             return focus.select(row)
         }
     }

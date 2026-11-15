@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 
 /// A private per-worker launch environment. Nothing is installed in the repository or the
 /// person's git/CLI settings. The existing project pre-push hook keeps its arguments and stdin.
@@ -41,6 +42,14 @@ public enum WorkerGuardLaunch {
         for path in [folder, folder.appendingPathComponent("bin"), folder.appendingPathComponent("hooks")] {
             try manager.createDirectory(at: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
+        }
+        let lock = Darwin.open(folder.appendingPathComponent("scope.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { _ = flock(lock, LOCK_UN); _ = Darwin.close(lock) }
+        guard flock(lock, LOCK_EX) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        if let old = recordedScope(task: scope.task, home: home, slot: slot),
+           old.ownership > scope.ownership || (old.ownership == scope.ownership && (old.stage ?? 0) > (scope.stage ?? 0)) {
+            throw CocoaError(.fileWriteNoPermission)
         }
         let config = folder.appendingPathComponent("scope.json"), settings = folder.appendingPathComponent("settings.json")
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]

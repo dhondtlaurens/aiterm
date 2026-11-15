@@ -358,7 +358,6 @@ struct TaskRowView: View {
         let awaitsRetry = removal?.awaitsRetry == true
         let failed = controller.windows.hasFailed(row.id)
         let caption = TaskRowCaption(removal: removal, missing: missing, failed: failed)
-        let folded = caption.folds(under: row.operatorLine)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
@@ -376,12 +375,15 @@ struct TaskRowView: View {
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
                         HelpText(progress, fixedVerticalSize: false).frame(height: scale(Size.chip))
-                    } else if !folded {
+                    } else {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
                         // A badge never squeezes, so a row too narrow for all of them draws the fullest
                         // fit that still leaves the status mark its slot (`TaskRowBadges.fits`), ahead of
                         // the branch, which shortens in what is left.
+                        SignalBadgeLine(line: caption.note == nil ? row.operatorLine : nil,
+                                        normalText: [badges.ticket?.label, badges.mergeRequest?.label, row.branch.name].compactMap { $0 }.joined(separator: " · "),
+                                        enabled: task?.signalTask.map { !$0.takenOver } == true) {
                         HStack(spacing: 0) {
                             ViewThatFits(in: .horizontal) {
                                 // "Absent, not disabled": no VS Code, no badge.
@@ -392,17 +394,14 @@ struct TaskRowView: View {
                             .layoutPriority(1)
                             BranchLabelView(label: row.branch)
                         }
-                        .transition(.opacity)
+                        }
                     }
                     // Why a removal stopped, or what the task is missing, comes first; else what the
                     // Operator says of it: `queued · after PAY-232`, `Operator answering`, `done · 4f2a91c`.
                     if let note = caption.note {
                         HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
-                    } else if let line = row.operatorLine {
-                        OperatorBadge(line: line)
                     }
                 }
-                .animation(motionStill == nil ? Motion.settle : nil, value: folded)
             } mark: {
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
                 // check, a queued or paused one's the pause sign. Known work opens the same card on hover.
@@ -430,7 +429,11 @@ struct TaskRowView: View {
         .selectionDisabled(removing)
         .contextMenu {
             if let task {
-
+                if task.signalTask.map({ !$0.takenOver }) == true {
+                    Button("Take Over") { Task { await controller.takeOver(task.id) } }
+                        .disabled(!controller.canChangeWorkspace || removing)
+                    Divider()
+                }
                 Button("Rename…") { controller.sheets.presentRename(task: task) }
                     .disabled(!controller.canChangeWorkspace || removing)
                 Divider()

@@ -443,7 +443,7 @@ Each step leaves the package building and the gate green.
 - [x] Deletion: broadcasts, the board, New Broadcast, the old handler extensions, brief and tests go;
       `runs`, `foldedRuns` and `operated` are retired in `Models.swift` with the test that an old
       `state.json` loads and its next save has none of them; the old per-run tokens leave the daemon.
-- [ ] The act line's decode, the signal heading's fold and counts, Take Over, every row state.
+- [x] The act line's decode, the signal heading's fold and counts, Take Over, every row state.
 - [ ] Settings › Operator and the Oracle: the copy as picked.
 - [ ] Fresh sessions end to end: context size, idle, digest, token handover.
 - [ ] Performance: watching tasks out of the per-tick reads, the status cache, the bounds.
@@ -708,3 +708,24 @@ passed. The release note explains ending installed broadcasts before the update;
 eval data is retained for the before/after comparison.
 
 Deletion gate: plain `scripts/test.sh` passed: 1,598 daemon, 123 UI, 999 app, 1,677 Core and 1 snapshot test. Existing labelled known issues remained known issues.
+
+### Sidebar, pause and Take Over proof · 15 Nov 2026
+
+The whole badge line now decodes into an act, holds a short act for three seconds, changes directly
+between acts and returns on hover in 0.35 seconds. Reduce Motion swaps without scrambling. Signal
+headings participate in keyboard selection and fold independently of projects; only folded headings
+show status counts. Switch On previews its current start count. The permanent row, questions,
+watching, blocked, completed, paused, closed-window and removed-signal states use the same row grid.
+Thirteen native, hidden-window drawings were inspected in `build/operator-signals-row-states`.
+
+Pause and Switch Off defer every engine effect and save the workers told to finish their turn, so
+Resume can send carry-on after a restart. Take Over revokes the stage, withdraws its questions,
+refreshes every worker guard's ownership, unfolds the project and shows the picked toast. Guard
+preparation serializes scope writes and refuses an older ownership or stage. Notifications aggregate
+questions into the single Operator chat, including delivered-note reconciliation at startup.
+
+Behavioral red tests exposed the action hold, per-source launch pause, takeover authority and stale
+guard writes before their fixes. The plain gate passed: 1,598 daemon tests (one skipped), 123 UI,
+1,009 app tests (one known issue), 1,678 Core tests (three known issues), and the snapshot check.
+Two daemon queue tests now use an unstarted fake service: the service's periodic poll had raced
+their explicitly queued callers in one gate run. Their focused check and the subsequent gate pass.

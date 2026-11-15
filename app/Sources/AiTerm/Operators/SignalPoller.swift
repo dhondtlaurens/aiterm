@@ -25,6 +25,7 @@ final class SignalPoller {
     private var loops: [String: PollLoop] = [:]
     private var progress: [String: Progress] = [:]
     private var generation = UUID()
+    var canPoll: @MainActor () -> Bool = { true }
     var onPass: @MainActor ([SignalObservation]) -> Void = { _ in }
     var onRead: @MainActor ([UUID], SignalRead) -> Void = { _, _ in }
     var onFailure: @MainActor ([UUID], String) -> Void = { _, _ in }
@@ -57,6 +58,7 @@ final class SignalPoller {
     }
     func tick() { for host in passes.keys { tick(host: host) } }
     private func tick(host: String) {
+        guard canPoll() else { return }
         let groups = Dictionary(grouping: registrations.filter { $0.sourceHost == host }, by: \.readKey)
         let firsts = groups.values.compactMap(\.first).sorted { $0.id.uuidString < $1.id.uuidString }
         let generation = generation
@@ -73,13 +75,13 @@ final class SignalPoller {
             let full = !registration.isJira || before.lastFull.map { at.timeIntervalSince($0) >= 600 } != false
             do {
                 let read = try await registration.reader.poll(since: full ? nil : before.cursor, full: full)
-                guard !Task.isCancelled, self.generation == generation else { return }
+                guard !Task.isCancelled, self.generation == generation, self.canPoll() else { return }
                 guard read.complete else { throw IncompleteRead("signal matches") }
                 self.progress[key] = Progress(cursor: read.cursor ?? at, lastFull: full ? at : before.lastFull, next: at.addingTimeInterval(60))
                 observations.append(SignalObservation(signals: sharing.map(\.id), read: read))
                 self.onRead(sharing.map(\.id), read)
             } catch {
-                guard !Task.isCancelled, self.generation == generation else { return }
+                guard !Task.isCancelled, self.generation == generation, self.canPoll() else { return }
                 var next = before; next.next = at.addingTimeInterval(300); self.progress[key] = next
                 self.onFailure(sharing.map(\.id), error.localizedDescription)
             }

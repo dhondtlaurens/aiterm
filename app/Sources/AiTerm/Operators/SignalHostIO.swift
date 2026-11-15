@@ -85,7 +85,7 @@ import AiTermCore
               task.signalTask?.configuration?.finish.mergesWhenReady == true else { throw ActionUnavailable("Automatic merging is not enabled or ready.") }
         let links = await connections(), (remote, host) = try await binding(task, links: links)
         guard enabled(), ItemRef.repository(remote) == ItemRef.repository(reference.remote), workspace.canChangeWorkspace,
-              workspace.state.operatorSession?.paused != true, claim.holds(in: workspace.state), !Task.isCancelled else { throw ActionUnavailable("The task changed before merging.") }
+              workspace.state.operatorSession?.paused != true, claim.canAct(in: workspace.state), !Task.isCancelled else { throw ActionUnavailable("The task changed before merging.") }
         _ = try await host.merge(reference.number, at: head)
     }
     func details(_ task: TaskItem) async throws -> JSONValue {

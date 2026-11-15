@@ -62,6 +62,7 @@ import AiTermCore
                     throw ToolRefusal("The task's stage or ownership changed. Read run_status again.")
                 }
             }
+            if tool.mutating, !claim.canAct(in: workspace.state) { throw ToolRefusal("Its signal is switched off or this task cannot be acted on.") }
             task = value
         } else {
             guard !tool.taskRequired else { throw ToolRefusal("\(tool.rawValue) needs `task`.") }
@@ -71,7 +72,7 @@ import AiTermCore
         let allowed: @MainActor () -> Bool = { [weak self] in
             guard let self, (try? self.requireSession(request, mutating: tool.mutating)) != nil, !Task.isCancelled else { return false }
             if tool == .messageTask, let task, self.ports.workerQuestion(task.id, call.optionalString("tab") ?? "main") { return false }
-            return claim?.holds(in: self.workspace.state) ?? true
+            return claim.map { tool.mutating ? $0.canAct(in: self.workspace.state) : $0.holds(in: self.workspace.state) } ?? true
         }
         if let ledgerKey { running.insert(ledgerKey) }
         defer { if let ledgerKey { running.remove(ledgerKey) } }

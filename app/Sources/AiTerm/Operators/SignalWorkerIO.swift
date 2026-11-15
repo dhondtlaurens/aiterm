@@ -25,7 +25,9 @@ import AiTermCore
     func busy(_ id: UUID) -> Bool {
         guard let task = workspace.state.signalItem(id: id) else { return false }
         let tabs = task.workerTabs(in: live.sessions, now: ports.now())
-        return inFlight.contains(id) || !(task.signalTask?.pendingReplies?.isEmpty ?? true)
+        return workspace.state.operatorSession?.questions.contains { $0.task == id && $0.resolvedAt == nil } == true
+            || workspace.state.operatorSession?.pausedWorkers?.contains { $0.task == id } == true
+            || inFlight.contains(id) || !(task.signalTask?.pendingReplies?.isEmpty ?? true)
             || tabs.contains { $0.isStillAtWork || $0.status == .needsInput }
             || (task.signalTask?.phase == .working && tabs.contains { tab in
                 tab.status?.turnEnded == true && replies[id]?[tab.reference.name].map {
@@ -113,7 +115,7 @@ import AiTermCore
     }
     private func require(_ task: TaskItem) throws -> SignalClaim {
         guard enabled(), workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let claim = SignalClaim(task), claim.holds(in: workspace.state), !Task.isCancelled else {
+              let claim = SignalClaim(task), claim.canAct(in: workspace.state), !Task.isCancelled else {
             throw ActionUnavailable("The task changed hands or the Operator is paused.")
         }
         return claim
@@ -147,7 +149,7 @@ import AiTermCore
         }
         // A checkout made before Take Over remains a resource of the same task, even when the
         // late completion has no authority to launch a CLI in it.
-        if !claim.holds(in: workspace.state), let current = workspace.state.task(id: task.id), current.projectId == task.projectId,
+        if (!enabled() || !claim.canAct(in: workspace.state)), let current = workspace.state.task(id: task.id), current.projectId == task.projectId,
            current.branch == task.branch, !current.hasCheckout {
             workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = result.worktreePath; $0.baseBranch = result.baseBranch } }
             workspace.flush()
@@ -196,14 +198,14 @@ import AiTermCore
     }
     private func command(for task: TaskItem, prompt: String, slot: String, conversation: String? = nil) async throws -> String {
         guard let record = task.signalTask, let configuration = record.configuration ?? workspace.state.signal(id: record.signal),
-              configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) else {
+              (record.takenOver || configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning))) else {
             throw ActionUnavailable("This agent and model are not permitted by the task's signal.")
         }
         let git = ports.git, home = ports.home, executable = ports.workerGuardExecutable
         let remote = workspace.state.project(id: task.projectId)?.remoteUrl
         return try await BackgroundWork.run {
             let command = try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
-                worktreePath: task.worktreePath, git: git, operated: true, promptFile: "signal-" + UUID().uuidString + ".md",
+                worktreePath: task.worktreePath, git: git, operated: !record.takenOver, promptFile: "signal-" + UUID().uuidString + ".md",
                 publishing: true, resuming: conversation)
             return try WorkerGuardLaunch.command(command, task: task, remote: remote, home: home,
                 executable: executable, git: git, slot: slot, publishes: task.kind != .review)
@@ -241,6 +243,17 @@ import AiTermCore
         let sent = try await daemon.deliver(sessionId: session.sessionId, text: text, ownership: task.signalTask?.ownership ?? 0, wake: false, worktree: task.worktreePath)
         guard sent.result == .delivered else { throw ActionUnavailable(sent.reason ?? "The message was not delivered.") }
         replies[task.id]?[tab] = nil
+    }
+    func control(_ task: TaskItem, tab: String, text: String, resuming: Bool) async throws {
+        guard enabled(), let claim = SignalClaim(task), claim.holds(in: workspace.state),
+              let worker = task.workerTab(tab, in: live.sessions), worker.status != .needsInput,
+              let session = worker.session, let daemon = daemon() else { throw ActionUnavailable("This worker cannot receive a note.") }
+        try await daemon.setOwnership(sessionId: session.sessionId, ownership: claim.ownership)
+        guard enabled(), claim.holds(in: workspace.state) else { throw ActionUnavailable("The task changed.") }
+        if resuming { try await markPending(task, tab: tab, conversation: worker.conversation) }
+        let sent = try await daemon.deliver(sessionId: session.sessionId, text: text, ownership: claim.ownership, wake: false, worktree: task.worktreePath)
+        guard sent.result == .delivered else { throw ActionUnavailable(sent.reason ?? "The note was not delivered.") }
+        if resuming { replies[task.id]?[tab] = nil }
     }
     func read(_ task: TaskItem) async throws -> JSONValue {
         let locator = transcripts, tabs = task.workerTabs(in: live.sessions), snapshot = task
@@ -291,7 +304,11 @@ import AiTermCore
     }
     /// A person's click resumes the conversation without sending a new work instruction.
     func reopen(_ task: TaskItem) async throws {
-        _ = try require(task)
+        func valid() -> Bool {
+            enabled() && workspace.canChangeWorkspace && !Task.isCancelled && workspace.state.task(id: task.id)?.signalTask?.ownership == task.signalTask?.ownership
+                && workspace.state.task(id: task.id)?.worktreePath == task.worktreePath
+        }
+        guard valid() else { throw ActionUnavailable("This task changed.") }
         guard let daemon = daemon(), task.hasCheckout, let conversation = task.firstWorkerConversation?.id,
               let token = work.begin(.reopening, onTask: task.id) else { throw ActionUnavailable("Its worker has no saved conversation to reopen.") }
         defer { work.end(token) }
@@ -299,10 +316,10 @@ import AiTermCore
             try await daemon.activate(sessionId: existing.sessionId); return
         }
         let command = try await command(for: task, prompt: "", slot: "main", conversation: conversation)
-        _ = try require(task)
+        guard valid() else { throw ActionUnavailable("This task changed.") }
         let opening = try await daemon.openWorkerWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title,
                                                        agentCommand: command, frame: frame())
-        _ = try require(task)
+        guard valid() else { throw ActionUnavailable("This task changed.") }
         guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
         workspace.mutate { $0.updateSignalItem(task.id) { $0.windowId = opening.id } }; workspace.flush()
     }

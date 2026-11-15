@@ -23,9 +23,11 @@ import AiTermCore
     }
     var hasProjects: Bool { !sections.isEmpty }
     var projectsNeedingAttention: [RowID] {
-        sections.flatMap { section in
-            section.terminals.filter { $0.status == .needsInput }.map { RowID.terminal($0.id) }
-                + section.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) }
+        (signalOperator.status == .needsInput ? [.operation(OperatorSession.rowID)] : [])
+            + signalSections.flatMap { $0.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) } }
+            + sections.flatMap { section in
+            section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
+                + section.tasks.filter { $0.status.needsAttention }.map { RowID.task($0.id) }
         }
     }
     @discardableResult func refresh() -> Bool {
@@ -64,7 +66,7 @@ import AiTermCore
         case .operation(let id):
             guard id == OperatorSession.rowID, let session = workspace.state.operatorSession else { return nil }
             return SidebarModel.usageTaskRow(taskId: session.id, agent: .claude, sessions: live.rowSessions, contexts: contexts)
-        case .project, nil: return nil
+        case .project, .signal, nil: return nil
         }
     }
 }

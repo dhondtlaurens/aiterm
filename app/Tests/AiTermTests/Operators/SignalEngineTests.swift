@@ -18,6 +18,23 @@ import Testing
         #expect(task.signalTask?.pendingStages.map(\.signal) == [newer])
     }
 
+    @Test func switchingOffAnOwnerDefersItsSavedLaunchUntilItIsOnAgain() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .launching }
+        world.state.signals[0].enabled = false
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var launches = 0
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now },
+            ports: .init(workerIsWorking: { _ in false }, prepare: { task, _ in task },
+                         launch: { _, _ in launches += 1; return "window" }, restore: { $0 }))
+        await runner.run(id)
+        #expect(launches == 0)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .launching)
+        h.workspace.mutate { $0.signals[0].enabled = true }
+        await runner.run(id)
+        #expect(launches == 1)
+    }
+
     @Test func aCompleteMatchSavesItsStageBeforePreparingAndLaunchingAWorker() async throws {
         var world = SignalWorld()
         let signal = world.signal()

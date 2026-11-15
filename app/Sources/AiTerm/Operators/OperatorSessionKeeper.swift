@@ -21,8 +21,8 @@ import AiTermCore
         self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
     }
     func stop() { pass = nil }
-    func ensure() async {
-        guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), workspace.state.operatorSession?.paused != true else { return }
+    func ensure(allowPaused: Bool = false) async {
+        guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), (allowPaused || workspace.state.operatorSession?.paused != true) else { return }
         let key = UUID(); pass = key
         defer { if pass == key { pass = nil } }
         do {
@@ -33,19 +33,20 @@ import AiTermCore
                 guard workspace.flush() else { return }
             }
             guard var session = workspace.state.operatorSession else { return }
+            if session.paused && session.startingFresh { return }
             if session.startingFresh, session.handover == nil {
                 workspace.mutate { $0.operatorSession?.handover = .closing }; session.handover = .closing
                 guard workspace.flush() else { return }
             }
             if session.handover == .closing {
                 if let window = session.window { try await ports.close(window) }
-                guard holds(session, pass: key) else { return }
+                guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                 workspace.mutate { $0.operatorSession?.window = nil; $0.operatorSession?.handover = .revoking }
                 guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
             }
             if session.handover == .revoking {
                 try await ports.revoke(session.id)
-                guard holds(session, pass: key) else { return }
+                guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                 workspace.mutate { state in
                     state.operatorSession?.generation += 1
                     state.operatorSession?.createdAt = now()
@@ -59,7 +60,7 @@ import AiTermCore
             if session.handover == nil, ports.windowIsOpen(session) { return }
             let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn())
             let window = try await ports.open(session, digest)
-            guard holds(session, pass: key) else { return }
+            guard holds(session, pass: key, allowPaused: allowPaused) else { return }
             workspace.mutate { state in
                 state.operatorSession?.window = window; state.operatorSession?.startingFresh = false
                 state.operatorSession?.handover = nil
@@ -74,10 +75,10 @@ import AiTermCore
         guard workspace.flush() else { return }
         await ensure()
     }
-    private func holds(_ session: OperatorSession, pass key: UUID) -> Bool {
+    private func holds(_ session: OperatorSession, pass key: UUID, allowPaused: Bool = false) -> Bool {
         pass == key && !Task.isCancelled && workspace.canChangeWorkspace && ports.canOpen()
             && workspace.state.operatorSession?.id == session.id
             && workspace.state.operatorSession?.generation == session.generation
-            && workspace.state.operatorSession?.paused != true
+            && (allowPaused || workspace.state.operatorSession?.paused != true)
     }
 }

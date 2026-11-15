@@ -35,6 +35,9 @@ import AiTermCore
     @ObservationIgnored private var oracleJobs: Set<UUID> = []
     @ObservationIgnored private var hooks: [() -> Void] = []
     @ObservationIgnored private var savedObserver: (any NSObjectProtocol)?
+    @ObservationIgnored lazy var pause = SignalPauseSignaller(workspace: workspace, live: live, native: native,
+        enabled: { [weak self] in self?.isStopped == false }, now: ports.now)
+    @ObservationIgnored private var lastNote: OperatorNote?
     @ObservationIgnored lazy var router = ItemRouter(workspace: workspace, now: ports.now, workerIsWorking: native.busy)
     @ObservationIgnored lazy var stages = StageRunner(workspace: workspace, journal: journal, now: ports.now,
         ports: .init(workerIsWorking: native.busy, prepare: native.prepare, launch: native.launch, restore: native.restore))
@@ -144,6 +147,7 @@ import AiTermCore
         host = SignalHostIO(workspace: workspace, git: ports.git, connections: { SignalConnections() })
         journal = SignalJournal(workspace: workspace, folder: SignalOperatorCommand.folder(home: ports.home).appendingPathComponent("journals"), now: ports.now)
         poller = SignalPoller(work: ports.work, automatic: automatic, now: ports.now)
+        poller.canPoll = { [weak self] in self.map { !$0.isStopped && $0.workspace.state.operatorSession?.paused != true } ?? false }
         native.enabled = { [weak self] in self?.isStopped == false }
         native.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
         native.additionalContext = { [weak self] task in try await self?.host.additionalContext(task) ?? "" }
@@ -212,7 +216,17 @@ import AiTermCore
             }
         }
     }
-    private func changed() { for hook in hooks { hook() } }
+    private func changed() {
+        if !isStopped {
+            let note = SignalQuestionNotification.make(state: workspace.state)
+            if note != lastNote {
+                if let note { ports.notifications.requestAuthorization(); ports.notifications.post(note) }
+                else { ports.notifications.withdraw(ids: [SignalQuestionNotification.id]) }
+                lastNote = note
+            }
+        }
+        for hook in hooks { hook() }
+    }
     func connections() async -> SignalConnections { let read = readConnections; return await BackgroundWork.run(read) }
     private func normalized(_ signals: [Signal]) -> [Signal] { signals.map { var value = $0; value.collapsed = false; return value } }
     func start() {
@@ -223,7 +237,14 @@ import AiTermCore
         if automatic { loop = PollLoop(interval: ports.reconcileInterval) { [weak self] in
             guard let self, !self.isStopped else { return nil }; await self.reconcile(); return self.ports.reconcileInterval
         } }
-        schedule { await self.loadProfile(); await self.configure(); await self.reconcile() }
+        schedule {
+            let delivered = await self.ports.notifications.readDelivered()
+            if delivered.contains(SignalQuestionNotification.id) {
+                self.lastNote = SignalQuestionNotification.make(state: self.workspace.state)
+                if self.lastNote == nil { self.ports.notifications.withdraw(ids: [SignalQuestionNotification.id]) }
+            }
+            await self.loadProfile(); await self.configure(); await self.reconcile(); self.changed()
+        }
     }
     func stop() {
         isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); keeper.stop()
@@ -257,7 +278,7 @@ import AiTermCore
             else { state.signals.append(signal) }
         }
         guard workspace.flush() else { throw ActionUnavailable("The signal could not be saved.") }
-        await configure(refresh: [signal.id]); await keeper.ensure()
+        await pause.reconcile(); await configure(refresh: [signal.id]); await keeper.ensure()
     }
     func daemonAttached() { tabsKnown = false; settingsDue = .distantPast }
     func handle(_ event: DaemonEvent) {
@@ -303,6 +324,7 @@ import AiTermCore
         rememberOperator()
         await native.recoverLaunches()
         await native.refreshTurns()
+        await pause.reconcile()
         guard !isStopped, workspace.state.operatorSession?.paused != true else { return }
         for task in workspace.state.allSignalTasks where task.signalTask?.phase == .launching { schedule { await self.stages.run(task.id) } }
         for task in workspace.state.tasks where task.signalTask?.canRunThen == true { schedule { await self.then.apply(task.id) } }
@@ -370,8 +392,42 @@ import AiTermCore
         guard !isStopped, profile.oracle == setting else { throw ActionUnavailable("The Oracle settings changed.") }
         switch answer { case .critique(let text): return text; case .unchallenged(let reason): throw ActionUnavailable(reason) }
     }
+    func setPaused(_ paused: Bool) async {
+        guard !isStopped, workspace.canChangeWorkspace else { return }
+        workspace.mutate { state in
+            if state.operatorSession == nil { state.operatorSession = OperatorSession(createdAt: ports.now()) }
+            state.operatorSession?.paused = paused
+        }
+        guard workspace.flush() else { return }
+        await pause.reconcile()
+        if !paused { await configure(refresh: Set(workspace.state.signals.filter(\.enabled).map(\.id))); await reconcile() }
+    }
+    func takeOver(_ id: UUID) async {
+        guard workspace.canChangeWorkspace, let task = workspace.state.task(id: id), let record = task.signalTask, !record.takenOver else { return }
+        workspace.mutate { state in
+            state.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1; $0.currentAct = nil }
+            state.updateProject(id: task.projectId) { $0.collapsed = false }
+            state.operatorSession?.questions.removeAll { $0.task == id }
+            state.operatorSession?.pausedWorkers?.removeAll { $0.task == id }
+        }
+        guard workspace.flush() else { return }
+        let home = ports.home, executable = ports.workerGuardExecutable, slots = ["main"] + record.extraTabs.map(\.key)
+        do {
+            try await BackgroundWork.run {
+                for slot in slots {
+                    if var scope = WorkerGuardLaunch.recordedScope(task: id, home: home, slot: slot) {
+                        scope.ownership = record.ownership + 1
+                        _ = try WorkerGuardLaunch.prepare(scope: scope, home: home, slot: slot, executable: executable)
+                    }
+                }
+            }
+        } catch { lastError = "The task is yours, but its branch guard could not be refreshed: " + OperationIssue.reason(of: error) }
+        do { try await journal.append(.ours("The person took over this task."), task: id) }
+        catch { lastError = OperationIssue.reason(of: error) }
+        changed()
+    }
     func openOperator() async {
-        await keeper.ensure()
+        await keeper.ensure(allowPaused: true)
         guard let window = workspace.state.operatorSession?.window, let daemon = daemon() else { return }
         do { try await daemon.activate(windowId: window) }
         catch { lastError = OperationIssue.reason(of: error) }

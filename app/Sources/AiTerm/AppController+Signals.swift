@@ -48,10 +48,20 @@ extension AppController {
             self.sheets.present(signal: model)
         }
     }
+    func takeOver(_ id: UUID) async {
+        guard let task = state.task(id: id), task.signalTask?.takenOver == false else { return }
+        await signalController.takeOver(id)
+        if state.task(id: id)?.signalTask?.takenOver == true {
+            notices.showToast((task.jira?.key ?? task.title) + " is yours. The Operator let go of it.")
+        }
+    }
     func toggleCollapsed(_ signal: Signal) {
         guard canChangeWorkspace else { return }
         workspace.mutate { state in
             if let index = state.signals.firstIndex(where: { $0.id == signal.id }) { state.signals[index].collapsed.toggle() }
+            else { for task in state.tasks where task.signalTask?.signal == signal.id {
+                state.updateSignalTask(task.id) { $0.configuration?.collapsed = !signal.collapsed }
+            } }
         }
     }
     func toggleEnabled(_ signal: Signal) {

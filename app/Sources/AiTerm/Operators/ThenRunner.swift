@@ -22,11 +22,11 @@ import AiTermCore
     func apply(_ id: UUID) async {
         guard workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
               !running.contains(id), !ports.workerIsWorking(id), let task = workspace.state.task(id: id),
-              let claim = SignalClaim(task), let record = task.signalTask, record.canRunThen, record.thenApplied != true,
+              let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask, record.canRunThen, record.thenApplied != true,
               let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { return }
         let allowed: @MainActor () -> Bool = { [self] in
             workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true && !Task.isCancelled
-                && claim.holds(in: workspace.state) && workspace.state.signalItem(id: id)?.signalTask?.canRunThen == true
+                && claim.canAct(in: workspace.state) && workspace.state.signalItem(id: id)?.signalTask?.canRunThen == true
                 && !ports.workerIsWorking(id)
         }
         running.insert(id)
@@ -60,7 +60,7 @@ import AiTermCore
                 workspace.flush()
             }
         } catch {
-            guard claim.holds(in: workspace.state) else { return }
+            guard claim.canAct(in: workspace.state), !Task.isCancelled else { return }
             // A person's or worker's turn, and a disconnected helper, are retried. Unsaved work
             // stays for the person, as the existing prompt-free removal does.
             if !(error is ClosingWait), workspace.state.signalItem(id: id)?.signalTask?.pendingStages.isEmpty == true {

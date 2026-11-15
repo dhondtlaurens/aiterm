@@ -43,13 +43,13 @@ import AiTermCore
             if let result { return result }
         }
         guard !running.contains(ledgerKey) else { return ["status": "pending"] }
-        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), task.signalTask?.phase == .working,
+        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), task.signalTask?.phase == .working,
               let question = ports.question(id, tab) else { throw ActionUnavailable("This worker has no current unanswered question.") }
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
                                       "session": .string(question.session), "tab": .string(question.tab), "question": .string(question.text)])
         guard !activeQuestions.contains(binding) else { return ["status": "pending"] }
         func stillAsks() -> Bool {
-            workspace.canChangeWorkspace && !Task.isCancelled && claim.holds(in: workspace.state)
+            workspace.canChangeWorkspace && !Task.isCancelled && claim.canAct(in: workspace.state)
                 && ports.question(id, tab) == question && workspace.state.operatorSession?.startingFresh == false
                 && workspace.state.operatorSession?.paused != true
                 && workspace.state.operatorSession?.id == operatorID && workspace.state.operatorSession?.generation == operatorGeneration
@@ -137,7 +137,7 @@ import AiTermCore
             try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
             guard stillAsks(), let current = workspace.state.task(id: id) else { clear(roundID); throw ActionUnavailable("The task or question changed.") }
             try await ports.deliver(current, question, proposal)
-            guard claim.holds(in: workspace.state), !Task.isCancelled, workspace.state.operatorSession?.id == operatorID,
+            guard claim.canAct(in: workspace.state), !Task.isCancelled, workspace.state.operatorSession?.id == operatorID,
                   workspace.state.operatorSession?.generation == operatorGeneration else { clear(roundID); throw ActionUnavailable("The task changed while its answer was delivered.") }
             clear(roundID)
             return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)

@@ -88,7 +88,7 @@ struct SidebarView: View {
             SignalOperatorRow(value: value, controller: controller).tag(value.id)
         }
         ForEach(rows.signalSections) { section in
-            SignalHeader(section: section, controller: controller).selectionDisabled()
+            SignalHeader(section: section, controller: controller)
             if !section.collapsed {
                 ForEach(section.tasks) { row in
                     TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)

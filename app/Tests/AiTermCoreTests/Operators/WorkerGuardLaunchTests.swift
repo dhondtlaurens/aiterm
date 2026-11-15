@@ -43,6 +43,17 @@ import Testing
         #expect(try refused.git.ask(["rev-parse", "--verify", "refs/heads/feat/pay-1"], in: refused.origin, none: [128]) == nil)
     }
 
+    @Test func aStaleLaunchCannotRestoreAuthorityAfterTakeOver() throws {
+        let home = try ScratchFolder.make("aiterm-guard-authority-")
+        defer { try? FileManager.default.removeItem(at: home) }
+        var scope = WorkerGuard.Scope(task: UUID(), worktree: home.path, branch: "task", remote: "origin", allowsPush: true)
+        scope.ownership = 1
+        _ = try WorkerGuardLaunch.prepare(scope: scope, home: home, executable: Self.probe)
+        scope.ownership = 0
+        #expect(throws: (any Error).self) { try WorkerGuardLaunch.prepare(scope: scope, home: home, executable: Self.probe) }
+        #expect(WorkerGuardLaunch.recordedScope(task: scope.task, home: home)?.ownership == 1)
+    }
+
     private struct Fixture {
         let folder: URL, config: URL, path: String, origin: String, sha: String
         let git = GitRunner.hermetic()

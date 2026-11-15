@@ -33,6 +33,7 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var window: String?
     public var conversation: String?
     public var session: String?
+    public var pausedWorkers: [PausedWorker]?
     public var paused = false
     public var startingFresh = false
     public var handover: OperatorHandover?

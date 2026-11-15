@@ -26,11 +26,14 @@ import AiTermCore
     }
     func run(_ id: UUID) async {
         guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, !running.contains(id), !ports.workerIsWorking(id),
-              let initial = workspace.state.signalItem(id: id), let claim = SignalClaim(initial),
+              let initial = workspace.state.signalItem(id: id), let claim = SignalClaim(initial), claim.canAct(in: workspace.state),
               let record = initial.signalTask, record.phase == .launching,
               let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else { return }
         let launchGeneration = generation
-        running.insert(id); defer { running.remove(id) }
+        running.insert(id); defer {
+            running.remove(id)
+            workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } } }
+        }
         do {
             if workspace.state.archived(id: id) != nil {
                 let restored = try await ports.restore(initial)
@@ -76,7 +79,7 @@ import AiTermCore
             workspace.flush()
             changed(id, "Its stage started.")
         } catch {
-            guard !Task.isCancelled, !isStopped, generation == launchGeneration, claim.holds(in: workspace.state) else { return }
+            guard !Task.isCancelled, !isStopped, generation == launchGeneration, claim.canAct(in: workspace.state) else { return }
             workspace.mutate { $0.updateSignalTask(id) { record in
                 record.phase = .blocked; record.blockedReason = OperationIssue.reason(of: error); record.currentAct = nil
             } }
@@ -86,7 +89,7 @@ import AiTermCore
     }
     func resume(_ id: UUID, project: UUID? = nil, agent: AgentChoice? = nil) async throws {
         guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let task = workspace.state.signalItem(id: id), let record = task.signalTask, !record.takenOver,
+              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask, !record.takenOver,
               record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")
         }
@@ -110,7 +113,7 @@ import AiTermCore
         await run(id)
     }
     func finish(_ id: UUID, action: SignalAction) async throws {
-        guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, let record = workspace.state.signalItem(id: id)?.signalTask else {
+        guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask else {
             throw ActionUnavailable("The task is no longer the Operator’s.")
         }
         let next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: ports.workerIsWorking(id))
@@ -135,7 +138,7 @@ import AiTermCore
     }
     private func holds(_ claim: SignalClaim, generation expected: UUID) -> Bool {
         !isStopped && generation == expected && workspace.state.operatorSession?.paused != true
-            && workspace.canChangeWorkspace && claim.holds(in: workspace.state)
+            && workspace.canChangeWorkspace && claim.canAct(in: workspace.state)
             && workspace.state.signalItem(id: claim.task)?.signalTask?.phase == .launching && !Task.isCancelled
     }
 }

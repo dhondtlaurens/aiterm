@@ -5,13 +5,13 @@ import AiTermCore
 /// row, `operation`, by its broadcast's id, whose window is the Operator's. A header has no window: selecting it
 /// shows nothing and raises nothing.
 enum RowSelection: Equatable {
-    case project(UUID), task(UUID), terminal(UUID), operation(UUID)
+    case project(UUID), signal(UUID), task(UUID), terminal(UUID), operation(UUID)
 
     /// The row's id in the list, which keys each row by one UUID: the Operator's row has one of its own
     /// (`OperatorRow.id(of:)`), never its broadcast's.
     var id: UUID {
         switch self {
-        case .project(let id), .task(let id), .terminal(let id): return id
+        case .project(let id), .signal(let id), .task(let id), .terminal(let id): return id
         case .operation(let run): return OperatorRow.id(of: run)
         }
     }
@@ -167,6 +167,7 @@ final class RowFocus {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
+        if state.signals.contains(where: { $0.id == id }) || state.tasks.contains(where: { $0.signalTask?.signal == id && $0.signalTask?.takenOver == false }) { return .signal(id) }
         if state.project(id: id) != nil { return .project(id) }
         if OperatorRow.id(of: OperatorSession.rowID) == id { return .operation(OperatorSession.rowID) }
         return nil
@@ -201,7 +202,7 @@ final class RowFocus {
     @discardableResult
     func select(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
-        case .project:
+        case .project, .signal:
             browse(row)
             return nil
         case .task(let id) where workspace.state.task(id: id).map({ $0.signalTask?.phase == .launching && !$0.hasCheckout }) == true:
@@ -227,7 +228,7 @@ final class RowFocus {
             return activate(row, failure: "Couldn’t activate the terminal")
         case .operation:
             return activate(row, failure: "Couldn’t activate the operator’s window")
-        case .project:
+        case .project, .signal:
             return nil
         }
     }
@@ -328,7 +329,7 @@ final class RowFocus {
     private func window(for row: RowSelection) -> String? {
         let state = workspace.state
         return switch row {
-        case .project: nil
+        case .project, .signal: nil
         case .task(let id): state.task(id: id)?.windowId
         case .terminal(let id): state.terminal(id: id)?.windowId
         case .operation(let id) where id == OperatorSession.rowID: state.operatorSession?.window

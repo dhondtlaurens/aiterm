@@ -44,6 +44,10 @@ struct SignalOperatorRow: View {
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }
+        .contextMenu {
+            Button(value.paused ? "Resume" : "Pause") { Task { await controller.signalController.setPaused(!value.paused) } }
+                .disabled(!controller.canChangeWorkspace)
+        }
         .help(controller.signalController.lastError ?? line.tooltip)
         .accessibilityLabel("Operator, Claude Code session")
         .accessibilityValue(line.tooltip)
@@ -54,6 +58,7 @@ struct SignalHeader: View {
     let section: SignalSection
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    @State private var starts: Int?
     private var signal: Signal { section.signal }
     private var mark: IconSource {
         switch signal.source {
@@ -71,10 +76,11 @@ struct SignalHeader: View {
             conditions = query.event == .reviewRequested ? "When you are asked to review" : "Your requests waiting on your reply or sent back to you"
         case .unknown: conditions = "This version cannot run this signal."
         }
-        let skipped = controller.state.signalSeen.filter { $0.signal == signal.id && $0.disposition == .skipped }.compactMap(\.reason)
+        let skipped = controller.state.signalSeen.filter { $0.signal == signal.id && $0.disposition == .skipped }.filter(\.isMatching).map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }
         return ([conditions] + skipped + [controller.signalController.sourceErrors[signal.id]].compactMap { $0 }).joined(separator: "\n")
     }
     var body: some View {
+        let selected = controller.focus.isSelected(signal.id)
         HStack(spacing: scale(Space.base)) {
             HStack(spacing: scale(Space.base)) {
                 HeaderChevron(collapsed: section.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
@@ -84,20 +90,37 @@ struct SignalHeader: View {
                 Spacer(minLength: scale(Space.tight))
                 if section.collapsed { StatusCountChips(counts: SidebarModel.statusCounts(tasks: section.tasks)) }
             }
-            .modifier(FoldOnTap(enabled: !section.tasks.isEmpty && controller.canChangeWorkspace) { controller.toggleCollapsed(signal) })
+            .modifier(FoldOnTap(enabled: !section.tasks.isEmpty && controller.canChangeWorkspace, selected: selected) { controller.toggleCollapsed(signal) })
             Group {
                 if !signal.enabled { Image(systemName: "pause.fill").font(Typography.chip).foregroundStyle(Palette.tertiary) }
                 else { Color.clear }
             }.frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
         }
         .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
+        .modifier(RowPill(selected: selected))
+        .tag(signal.id)
         .help(help)
         .contextMenu {
+            if controller.state.signal(id: signal.id) != nil {
             Button("Edit Signal…") { controller.presentNewSignal(editing: signal) }
-            Button(signal.enabled ? "Switch Off" : "Switch On") { controller.toggleEnabled(signal) }
+            Button(signal.enabled ? "Switch Off" : starts.map { "Switch On (starts \($0))" } ?? "Switch On") { controller.toggleEnabled(signal) }
             Divider()
             Button("Remove Signal…", role: .destructive) { controller.removeSignal(signal) }
+            }
         }
         .disabled(!controller.canChangeWorkspace)
+        .task(id: signal) {
+            guard !signal.enabled, controller.state.signal(id: signal.id) != nil else { starts = nil; return }
+            do {
+                let links = await controller.signalController.connections()
+                let read = try await links.reader(for: signal.source).poll(since: nil, full: true)
+                guard read.complete, !Task.isCancelled else { return }
+                starts = read.items.filter { item in
+                    !ItemProjectMapper.projects(for: item.item, in: controller.state.projects).isEmpty && !controller.state.signalSeen.contains {
+                        $0.signal == signal.id && $0.item.identity == item.item.identity && $0.disposition == .started && $0.isMatching
+                    }
+                }.count
+            } catch { starts = nil }
+        }
     }
 }

@@ -25,7 +25,7 @@ struct SignalSidebar {
             }
         }
         signals = definitions.map { signal in
-            SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.signal == signal.id }.compactMap { rows[$0.id] })
+            SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state) } })
         }
         projects = entries.map { entry in
             guard case .project(var section) = entry else { return entry }
@@ -35,6 +35,50 @@ struct SignalSidebar {
             return .project(section)
         }
     }
+    private static func present(_ original: TaskRow, task: TaskItem, state: AppState) -> TaskRow {
+        guard let record = task.signalTask else { return original }
+        var row = original
+        let busy = [.working, .background].contains(row.status)
+        let paused = state.operatorSession?.paused == true || state.signal(id: record.signal)?.enabled == false
+        let questions = state.operatorSession?.questions.filter { $0.task == task.id && $0.resolvedAt == nil } ?? []
+        if row.status == .needsInput { return row }
+        if paused && !busy { row.operatorLine = .paused; row.paused = true; row.status = .idle }
+        else if let question = questions.first {
+            row.operatorLine = OperatorLine("waiting on you", look: .needsYou, tooltip: question.text); row.status = .needsInput
+        } else if let act = record.currentAct {
+            row.operatorLine = OperatorLine("Operator " + act, look: .acting); row.status = .working
+        } else {
+            switch record.phase {
+            case .launching: row.operatorLine = OperatorLine("starting its worker", look: .acting); row.status = .working
+            case .working:
+                if task.windowId == nil && task.firstWorkerConversation != nil { row.operatorLine = .windowClosed; row.status = .idle }
+                else if !busy { row.status = .working }
+            case .watching(let condition):
+                row.operatorLine = OperatorLine(waiting(for: condition)); if !busy { row.status = .idle }
+            case .blocked:
+                row.operatorLine = OperatorLine("blocked", look: .needsYou, tooltip: record.blockedReason ?? "Open its window to inspect it.")
+                row.status = .needsInput
+            case .done, .archived:
+                row.operatorLine = OperatorLine("done", look: .ended); if !busy { row.status = .idle }
+            case .stopped, .unknown: break
+            }
+        }
+        return row
+    }
+    private static func waiting(for condition: DoneWhen) -> String {
+        switch condition {
+        case .operatorJudges: "waiting for the Operator"
+        case .hasReviewer: "waiting on a reviewer"
+        case .approved: "waiting on approval"
+        case .threadsResolved: "waiting on review threads"
+        case .merged: "waiting for the merge"
+        case .ticketStatus(let status): "waiting for " + status
+        case .myReviewPosted: "waiting for the posted review"
+        case .mergedOrClosed: "waiting for the request to close"
+        case .unknown: "unsupported done condition"
+        }
+    }
+
 }
 
 /// Only the permanent row's drawn facts: a tool ledger or journal write changes none of them.
@@ -48,12 +92,25 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         let session = state.operatorSession
         let line: OperatorLine
         if session?.paused == true { line = .paused }
-        else if session?.startingFresh == true { line = OperatorLine("starting fresh", look: .acting) }
+        else if session?.startingFresh == true {
+            let count = state.allSignalTasks.filter { $0.signalTask?.takenOver == false }.count
+            line = OperatorLine("starting fresh · \(count) \(count == 1 ? "task" : "tasks") carried over", look: .acting)
+        }
         else if let count = session?.waitingOnYou, count > 0 { line = OperatorLine("waiting on you · \(count)", look: .needsYou) }
-        else if sessions.contains(where: { $0.taskUUID == session?.id && $0.agent == .claude && $0.state == .working }) { line = .working }
+        else if let task = state.tasks.first(where: { $0.signalTask?.currentAct != nil && $0.signalTask?.takenOver == false }),
+                let act = task.signalTask?.currentAct {
+            let name = task.jira?.key ?? task.mr.map { "request \($0.iid)" } ?? task.title
+            let text = act.contains("its worker") ? act.replacingOccurrences(of: "its worker", with: name + "’s worker") : act + " · " + name
+            line = OperatorLine(text, look: .acting)
+        }
+        else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .needsInput }) {
+            line = OperatorLine("needs you", look: .needsYou)
+        }
+        else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .working }) { line = .working }
         else {
             let tasks = state.tasks.filter { $0.signalTask.map { !$0.takenOver && $0.phase != .stopped } == true }.count
-            line = OperatorLine("watching \(tasks) \(tasks == 1 ? "task" : "tasks") in \(state.signals.count) \(state.signals.count == 1 ? "signal" : "signals")")
+            let signals = Set(state.signals.map(\.id) + state.tasks.compactMap { $0.signalTask.flatMap { !$0.takenOver && $0.phase != .stopped ? $0.signal : nil } }).count
+            line = OperatorLine("watching \(tasks) \(tasks == 1 ? "task" : "tasks") in \(signals) \(signals == 1 ? "signal" : "signals")")
         }
         return Self(line: line, status: line.look == .needsYou ? .needsInput : line.look == .acting ? .working : .idle,
                     paused: session?.paused == true)

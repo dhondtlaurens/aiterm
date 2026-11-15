@@ -192,8 +192,9 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
     assert session is None or session.display_work is None or session.display_work.shells is None
 
 
-async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(stack):
-    svc, it, files, r, w = stack
+async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(make_service):
+    svc = make_service()
+    it = svc.iterm
     gate, snapshots = gated_snapshots(it)
     first = asyncio.create_task(svc.tick())
     await wait_until(lambda: snapshots[0] == 1)
@@ -207,8 +208,10 @@ async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(stack):
     assert svc.registry.get(sid) is not None
 
 
-async def test_a_failed_tick_serves_nobody_queued_behind_it(stack):
-    svc, it, files, r, w = stack
+async def test_a_failed_tick_serves_nobody_queued_behind_it(make_service):
+    # Exercise the queued callers alone; a started service adds a two-second poll caller.
+    svc = make_service()
+    it = svc.iterm
     gate, snapshots = gated_snapshots(it, fail_on=2)
     first = asyncio.create_task(svc.tick())
     await wait_until(lambda: snapshots[0] == 1)
