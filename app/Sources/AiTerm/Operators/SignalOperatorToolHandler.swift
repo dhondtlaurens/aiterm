@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-/// The signal contract, kept beside the served broadcast handler until activation. Every external
+/// The served Signal contract. Every external
 /// effect receives a live authority check; an uncertain delivery is never blindly replayed.
 @MainActor final class SignalOperatorToolHandler {
     struct Ports {

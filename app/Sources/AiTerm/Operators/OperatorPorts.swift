@@ -52,12 +52,12 @@ struct OperatorPorts {
     var agentModels: @Sendable (AgentKind) -> [AgentModel] = { _ in [] }
     /// The version each agent CLI installed here reports (`AgentVersions`). Blocking: read through `BackgroundWork`.
     var installedVersions: @Sendable ([AgentKind]) -> [AgentKind: String] = { _ in [:] }
-    /// Settings › Operator's profile, as a new broadcast freezes it (`OperatorProfileStore.load`). Blocking: read
+    /// Settings › Operator's current profile (`OperatorProfileStore.load`). Blocking: read
     /// through `BackgroundWork`.
     var profile: @Sendable () -> OperatorProfile = { OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: [])) }
-    /// The preferences Settings keeps: where each start saves its Agents rows as the last broadcast's
-    /// (`OperatorProfileStore.lastAgents`), where New Broadcast reads them and Settings › Agents' defaults, and where the
-    /// Oracle's settings are read again during a broadcast.
+    /// The preferences Settings keeps: where each start saves its Agents rows as the last signal's
+    /// (`OperatorProfileStore.lastAgents`), where New Signal reads them and Settings › Agents' defaults, and where the
+    /// Oracle's settings are read again during a signal.
     var preferences: UserDefaults = .standard
 
     /// The app's ports: its home, git and Jira, and what Settings › Agents (`agents`) and the app's `preferences` keep.
@@ -70,7 +70,7 @@ struct OperatorPorts {
         ports.installedAgents = { [weak agents] in agents?.availableAgents ?? [] }
         let catalogue = agents.catalogue
         ports.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
-        // A broadcast freezes Settings › Operator's profile as these preferences keep it.
+        // Read the Operator's current model, Oracle and standing instructions from its preferences.
         ports.profile = agents.operatorProfile
         ports.preferences = preferences
         return ports

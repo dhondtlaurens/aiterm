@@ -4,14 +4,11 @@ import Testing
 
 /// Metrics members held at the numbers a picked design drew: the Operator's greenfield design's
 /// (19 Oct 2026) 12 pt mark beside a line of text — the Notice's, the Find a Fix button's — and the
-/// board's height (the broadcast's sheet, 14 Nov 2026); the layered foundation's radii and
+/// layered foundation's radii and
 /// heading styles (13 Nov 2026).
 struct MetricsTests {
-    @Test func inlineMarkAndBoardHeight() {
+    @Test func inlineMark() {
         #expect(Size.inlineMark == 12)
-        // Taller than every other sheet, Settings' included, and as wide as all of them.
-        #expect(Sheet.boardHeight == 640)
-        #expect(Sheet.boardHeight > Sheet.settingsHeight)
     }
 
     /// The layered foundation (13 Nov 2026) draws every shape one step rounder than AppKit's 4, 6, 8

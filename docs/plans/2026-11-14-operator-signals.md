@@ -447,7 +447,7 @@ Each step leaves the package building and the gate green.
 - [x] Settings › Operator and the Oracle: the copy as picked.
 - [x] Fresh sessions end to end: context size, idle, digest, token handover.
 - [x] Performance: watching tasks out of the per-tick reads, the status cache, the bounds.
-- [ ] Docs, the README inventory, the design page synced with the proposal removed (the
+- [x] Docs, the README inventory, the design page synced with the proposal removed (the
       `design-system` skill's loop; publishing the page to its artifact is the maintainer's step and
       is not needed to finish).
 - [ ] Gate, review, one commit per step, `scripts/test.sh all`; stop before the merge.
@@ -800,3 +800,23 @@ standing instructions and discard results if those instructions change while the
 Behavioral red tests preceded these fixes. Plain `scripts/test.sh` passed: 1,598 daemon tests
 (1 skipped), 123 UI, 1,040 app (1 known issue), 1,683 Core (3 known issues), and the snapshot suite.
 No live app switch or host write was performed.
+
+### Documentation and design reference proof · 15 Nov 2026
+
+Rewrote the Operator guide for Signals, shared item stages, questions in chat, publishing guards,
+source-specific completion and explicit automatic merging. README, configuration, keyboard,
+windows, status, architecture, testing and release guidance now agree; release guidance requires
+ending a running broadcast in the installed build before switching. Current fixtures and the
+immutable historical evaluation inputs are distinguished by their actual owners/paths.
+
+The UI README and pattern inventory name the shipped types. The design page retains the existing
+Palette/Metrics foundations and primitive specimens, replaces the old board/runtime inventory with
+57 source-verified pattern types/files, and uses embedded native renders for Signals, creation and
+Settings. The implemented proposal and its renderers are removed; Proposals retains its intro and
+“No open proposals.” The unused board-height token and its obsolete assertions are removed.
+A hidden Retina native render refreshed `docs/desktop.png`. Headless Chrome inspection checked the
+three tabs, loaded native images, source names and the page at real point sizes; the local HTML
+was synchronized without publishing the external artifact. No live app was replaced.
+Plain `scripts/test.sh` passed after synchronization: 1,598 daemon (1 skipped), 123 UI,
+1,040 app (1 known issue), 1,683 Core (3 known issues), and the snapshot suite. The protocol guide
+also documents required generations, fixed event/UUID wakes and safe idle-conversation closure.
