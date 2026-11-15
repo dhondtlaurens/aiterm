@@ -4,7 +4,7 @@ import AiTermCore
 
 /// Every archived task and review and every ended broadcast, newest first, searched from the navigation
 /// band: ↑ ↓ move the highlight, ⌘↩ or a double-click restores it — or, on a broadcast, opens its sheet in
-/// the Shelf's place — ⌘⌫ asks Remove's question about it, ⎋ clears a search and then closes. The search
+/// the Archive's place — ⌘⌫ asks Remove's question about it, ⎋ clears a search and then closes. The search
 /// field keeps the keyboard throughout, so its commands are the sheet's: ⌘⌫ — a field's
 /// delete-to-line-start — removes the highlighted row instead, ⎋ having cleared the line.
 struct ArchiveSheet: View {
@@ -19,7 +19,7 @@ struct ArchiveSheet: View {
         let archive = model.projection
         let rows = archive.rows, highlighted = archive.highlighted?.id, total = archive.total, primary = archive.primaryTitle
         let now = model.now(), calendar = clock?.calendar ?? .current
-        SheetLayout(title: "Shelf", height: .fixed(Sheet.height), contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
+        SheetLayout(title: "Archive", height: .fixed(Sheet.height), contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
             HStack(spacing: Space.base) {
                 Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
                 SearchField(placeholder: "Search title, ticket, !MR, branch, project",
@@ -31,11 +31,11 @@ struct ArchiveSheet: View {
         } content: {
             if total == 0 {
                 VStack(alignment: .leading, spacing: Space.base) {
-                    Text("Nothing on the shelf yet.").font(Typography.body).foregroundStyle(Palette.text)
-                    HelpText("Shelve a task from its menu to put its worktree away and keep its conversations.")
+                    Text("Nothing on the archive yet.").font(Typography.body).foregroundStyle(Palette.text)
+                    HelpText("Archive a task from its menu to put its worktree away and keep its conversations.")
                 }
             } else if rows.isEmpty {
-                Text("No shelved task matches “\(model.query.trimmingCharacters(in: .whitespaces))”.")
+                Text("No archived task matches “\(model.query.trimmingCharacters(in: .whitespaces))”.")
                     .font(Typography.body).foregroundStyle(Palette.text)
             } else {
                 ScrollViewReader { scroller in
@@ -139,8 +139,8 @@ struct ArchiveRow: View {
     }
 }
 
-/// An ended broadcast on the Shelf: the broadcast's glyph, its name, and the day it ended on the
-/// name's line, where a shelved task's date sits. Inked from its `Surface`, which the pill around it declares.
+/// An ended broadcast on the Archive: the broadcast's glyph, its name, and the day it ended on the
+/// name's line, where a archived task's date sits. Inked from its `Surface`, which the pill around it declares.
 struct ShelvedBroadcastRow: View {
     let broadcast: ShelvedBroadcast
     let date: String

@@ -174,12 +174,12 @@ final class TaskRemover: CheckoutRemovals {
         // Archive never deletes a branch, so beside it a review's branch sentence is Remove's alone.
         let detail = switch (shown.kind == .review, archiveInstead != nil) {
         case (true, true):
-            "Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore later. "
+            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later. "
                 + "Remove also deletes its local branch, unless it has unpushed commits."
         case (true, false):
             "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
         case (false, true):
-            "Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore later."
+            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later."
         case (false, false):
             "Deletes its worktree and closes its iTerm2 window."
         }
@@ -306,7 +306,7 @@ final class TaskRemover: CheckoutRemovals {
     }
 
     /// The question before a folder git no longer lists is deleted: it may hold files AiTerm did not
-    /// make. Keep is the default and ⎋. One wording for Remove and Shelve.
+    /// make. Keep is the default and ⎋. One wording for Remove and Archive.
     static func unlistedFolderQuestion(for task: TaskItem) -> AlertPrompt {
         AlertPrompt(message: "Delete the unlisted folder for “\(task.title)”?",
                     detail: "Git no longer lists this folder as a worktree. It may contain files AiTerm did not create.\n\(task.worktreePath)",
@@ -349,7 +349,7 @@ final class TaskRemover: CheckoutRemovals {
         return removal
     }
 
-    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Shelve
+    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Archive
     /// shares (`WorktreeTeardown`). A worktree with uncommitted changes asks first, while the window is still open; nil
     /// means it was kept. Unsaved work written after that check is only found once the window has closed: kept then, the
     /// task is a task again, and its window, if this removal closed it, is owed and comes back (`WindowReconciler`).

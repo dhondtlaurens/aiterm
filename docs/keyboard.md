@@ -22,7 +22,7 @@ carries one keyboard shortcut, so a second one hangs on a hidden button in an ov
 | ⌘+ ⌘− ⌘0 | Zoom In, Zoom Out, Actual Size | The sidebar only — sheets keep Apple's sizes. ⌘= is a hidden alias of ⌘+, as in Safari. Off while a sheet is up. |
 | ⌘F | Focus View | View menu; off while a sheet is up. Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you, showing its window even when it was already selected and leaving the keyboard in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included, and in the broadcast's group only what is amber, the Operator's row first; the group is opened while one of those is in it and folded otherwise. The Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | View menu; off while a sheet is up. Opens every project that has rows, folding the broadcast's section into OPERATOR: the two are open one at a time. |
-| ⌘S | Show Shelf | View menu, after the views, in a group of its own with Show Settings. Off while a sheet is up and while the workspace can't change. |
+| ⌘A | Show Archive | View menu, after the views, in a group of its own with Show Settings. Outside a text field; text editing keeps Select All. Off while a sheet is up and while the workspace can't change. |
 | ⌘U | Unplugged | View menu, after the views. Unplugged: opens its sheet at the desk, plugs back in when unplugged. Checked while on. ⌘U follows the name’s initial; ⌘B opens New Broadcast…. |
 | ⌘Q | Quit | Flushes a sidebar move made in the last 150 ms, then takes the daemon down — an orphan would block the next launch's socket. |
 | ⌘Z | The standard Edit menu | Undo, Redo, Cut, Copy, Paste, Delete, Select All. Built by hand: without it no text field in any sheet could be edited normally. |
@@ -33,7 +33,7 @@ matching actions: PROJECTS adds projects and dividers, a project creates tasks, 
 and OPERATOR creates a broadcast. File’s create items are off while a sheet is up, so their keys
 leave the sheet’s text fields alone.
 
-There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast's, on OPERATOR and its lead row — Open Board, Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…. New Broadcast… is also in File on ⌘B.
+There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Archive Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast's, on OPERATOR and its lead row — Open Board, Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…. New Broadcast… is also in File on ⌘B.
 
 The Keyboard shortcuts section of Settings › Interface lists every key AiTerm answers to
 (`KeyBindings.all`), a row that mirrors a menu item under that item's exact title, and
@@ -61,11 +61,11 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key in iTerm2 closes the window first; AiTerm then asks Remove's question a second later, Shelve puts the task away instead, and Cancel brings the window back. |
+| ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key in iTerm2 closes the window first; AiTerm then asks Remove's question a second later, Archive puts the task away instead, and Cancel brings the window back. |
 | ← → | Fold and open a project, Finder-style | Dropped: ↩ on a header folds or opens it, as a click on its label does. ⌘L opens every project. |
-| ⌘A | — | Edit › Select All claims it even on the list, where it is disabled, so Show Shelf took ⌘S. |
+| ⌘A | Select All while editing text | Outside a text field, the local key monitor opens the Archive. |
 | ⌘I | Open the broadcast's board | Dropped: OPERATOR's board button opens it, and so does Open Board in its menu. |
-| — | Shelve a task | Shelve Task is in the row's menu and Shelve is in the window-close question. |
+| — | Archive a task | Archive Task is in the row's menu and Archive is in the window-close question. |
 
 ## New Task, New Review and New Broadcast sheets
 
@@ -102,7 +102,7 @@ This is the whole reason the editor is a real `NSTextView` on TextKit 1: SwiftUI
 exposes neither the caret's position nor the arrow keys, and a TextKit 2 view has no
 `NSLayoutManager` to take a caret rectangle from.
 
-## Shelf sheet
+## Archive sheet
 
 The search field keeps the keyboard the whole time the sheet is up, so these keys are the sheet's
 even while typing (`ArchiveSheetModel`).
@@ -110,11 +110,11 @@ even while typing (`ArchiveSheetModel`).
 | Keys | Action | Notes |
 |---|---|---|
 | ↑ ↓ | Move | The highlight, wrapping at both ends. It starts on the first row — the newest, or the best match — and goes back there whenever the search changes. A click highlights a row too. |
-| ⌘↩ | Restore | The highlighted row: its worktree back at its own path, its row back in the sidebar and chosen, its window reopened with its conversations resumed; the sheet closes. A refusal comes up as an alert and leaves it on the shelf. With nothing shelved Restore is absent, key and all. |
-| ⌘↩ | Open | On an ended broadcast the button reads Open: the Shelf closes and the broadcast's sheet opens in its place, read-only, its summary on top. |
+| ⌘↩ | Restore | The highlighted row: its worktree back at its own path, its row back in the sidebar and chosen, its window reopened with its conversations resumed; the sheet closes. A refusal comes up as an alert and leaves it on the archive. With nothing archived Restore is absent, key and all. |
+| ⌘↩ | Open | On an ended broadcast the button reads Open: the Archive closes and the broadcast's sheet opens in its place, read-only, its summary on top. |
 | double-click | Restore or Open | That row, as ⌘↩. VoiceOver has it as the row's Restore or Open action. |
-| ⌘⌫ | Remove from the shelf | The highlighted row, after Remove's question. In the field ⌘⌫ would delete to the line's start; with a row shown it removes the row instead, and with none the field has it back. |
-| ⎋ | Clear the search, then close | A search is cleared first, the whole shelf back; ⎋ on an empty field closes the sheet. |
+| ⌘⌫ | Remove from the archive | The highlighted row, after Remove's question. In the field ⌘⌫ would delete to the line's start; with a row shown it removes the row instead, and with none the field has it back. |
+| ⎋ | Clear the search, then close | A search is cleared first, the whole archive back; ⎋ on an empty field closes the sheet. |
 
 The search finds a row by its title, ticket key and summary, merge request number and title, branch
 or project, and an ended broadcast by its name and what it was asked, ignoring case and accents. A merge request is found by its number in any form — `482`,
@@ -151,10 +151,10 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 |---|---|---|
 | Remove task / Remove review | Remove, red | Cancel |
 | Delete branch | Delete Branch, red | Cancel |
-| Remove task / Remove review, after its window was closed | Remove, red | Cancel — Shelve is the grey button between them |
-| Uncommitted changes | Keep Task / Keep Review, blue | Keep Task / Keep Review — Delete Changes and Remove, or Delete Changes and Shelve, is the grey button |
-| Remove a shelved task or review | Remove, red | Cancel |
-| Remove an ended broadcast from the Shelf | Remove, red: its activity log and summary are deleted | Cancel |
+| Remove task / Remove review, after its window was closed | Remove, red | Cancel — Archive is the grey button between them |
+| Uncommitted changes | Keep Task / Keep Review, blue | Keep Task / Keep Review — Delete Changes and Remove, or Delete Changes and Archive, is the grey button |
+| Remove an archived task or review | Remove, red | Cancel |
+| Remove an ended broadcast from the Archive | Remove, red: its activity log and summary are deleted | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
 | Stop a task the Operator drives | Stop Task, blue: its window and branch stay | Cancel |
 | End a broadcast, before every task is done | End Broadcast, blue: its started tasks stay, worktrees and MRs too | Cancel |
@@ -171,6 +171,6 @@ inside a SwiftUI key handler, where it comes up without its checkbox: a question
 `ModalPrompter` brings its alert up a turn later, so ⌘⌫'s Remove alert is never inside one.
 
 Closing one task's window in iTerm2 asks the Remove task alert a second later, AiTerm brought
-forward for it, with Shelve as a third button; iTerm2 quitting or crashing asks nothing. A task that
-can't be shelved — its worktree isn't on a branch — and one that can't be restored are told so in
+forward for it, with Archive as a third button; iTerm2 quitting or crashing asks nothing. A task that
+can't be archived — its worktree isn't on a branch — and one that can't be restored are told so in
 a one-button alert.

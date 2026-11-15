@@ -423,7 +423,7 @@ Each step leaves the package building and the gate green.
       new keys decode and encode beside the old ones. Unused yet; the broadcast keys stay.
 - [x] Sources: Jira paging, labels and count; host-wide GitLab and GitHub accounts; the mapper; the
       poller behind a fake. Nothing starts a task yet.
-- [ ] The creation-sheet family as picked, on today's sheets (New Task, New Review, Add Project with
+- [x] The creation-sheet family as picked, on today's sheets (New Task, New Review, Add Project with
       Edit Project, New Terminal, Add Divider): shared steps, agent row and copy; the Shelf renamed
       the Archive, on ⌘A outside text fields. New Broadcast untouched yet.
 - [ ] The engine owners beside today's controller, not wired into it: `ItemRouter`, `StageRunner`,
@@ -576,3 +576,20 @@ for this to-do.
   were checked against the [Jira search reference](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/),
   [GitLab MR reference](https://docs.gitlab.com/api/merge_requests/) and
   [GitHub search reference](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests).
+
+- **Creation sheets:** Task and Review now follow Ticket/Merge request → Name and branch → Prompt
+  → Agent, with completed-step navigation, whole-branch inputs, single-selection chips, description
+  choices and a final closing block. The shared Agent/Model/Reasoning row uses selects. Add Project
+  prepares its combined folder, Jira-link and worktree-import sheet before persisting anything;
+  Edit Project reuses it. Terminal and Divider use the same one-step anatomy. Shelf wording is now
+  Archive, with ⌘A routed to Select All during text editing and Archive otherwise. AppKit requires
+  the shared menu selector to retain both advertised equivalents; the Archive item targets the app
+  explicitly. New Broadcast remains available and its body is unchanged.
+- **Creation proof:** new model, description-composition, whole-branch and key-routing tests;
+  adapted hosted keyboard/picker and controller race tests retain their behavioral coverage for
+  the new step positions and explicit Add/Save action. Plain `scripts/test.sh` passed: 2,194 Core,
+  2,021 app, 123 UI and 5 snapshot tests, with existing labelled known issues. Native sheet frames
+  were inspected against the before frames, with fixed repository answers for the fixtures;
+  ImageRenderer also checked the static chrome where native offscreen captures omit a title.
+  Final local images are in `build/operator-signals-creation-final/`. No contract goldens were
+  regenerated and no live app was launched. Design-page synchronization remains its later to-do.

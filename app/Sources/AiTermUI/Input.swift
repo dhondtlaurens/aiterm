@@ -19,23 +19,25 @@ public struct Input: View {
     var secure: Bool
     var caretAtEnd: Bool
     var onFocus: (() -> Void)?
+    var onCommand: ((Selector) -> Bool)?
     @Environment(\.interfaceScale) private var scale
     @State private var focused: Bool = false
 
     public init(placeholder: String, text: Binding<String>, monospaced: Bool = false, secure: Bool = false,
-                caretAtEnd: Bool = false, onFocus: (() -> Void)? = nil) {
+                caretAtEnd: Bool = false, onFocus: (() -> Void)? = nil, onCommand: ((Selector) -> Bool)? = nil) {
         self.placeholder = placeholder
         self._text = text
         self.monospaced = monospaced
         self.secure = secure
         self.caretAtEnd = caretAtEnd
         self.onFocus = onFocus
+        self.onCommand = onCommand
     }
 
     public var body: some View {
         InputField(placeholder: placeholder, text: $text, focused: $focused,
                    font: (monospaced ? Typography.monoCode : Typography.body).scaled(by: scale).nsFont,
-                   secure: secure, caretAtEnd: caretAtEnd)
+                   secure: secure, caretAtEnd: caretAtEnd, onCommand: onCommand)
             .fieldChrome(focused: focused)
             .onChange(of: focused) { _, now in if now { onFocus?() } }
     }
@@ -58,6 +60,7 @@ private struct InputField: NSViewRepresentable {
     let secure: Bool
     /// The caret after the text on focus, rather than all of it selected (`Input.caretAtEnd`).
     let caretAtEnd: Bool
+    var onCommand: ((Selector) -> Bool)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -115,6 +118,9 @@ private struct InputField: NSViewRepresentable {
                 if let editor = self?.editing.field?.currentEditor() { Input.placeCaretAtEnd(of: editor) }
             }
         }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            parent.onCommand?(commandSelector) ?? false
+        }
         func controlTextDidEndEditing(_ notification: Notification) { editing.focusEnded() }
 
         func controlTextDidChange(_ notification: Notification) {
@@ -127,6 +133,7 @@ private struct InputField: NSViewRepresentable {
 final class FocusableSecureTextField: NSSecureTextField {
     /// Called when the field takes the keyboard, and when it keeps it through the end of an edit.
     var onFocus: (() -> Void)?
+    var onCommand: ((Selector) -> Bool)?
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()

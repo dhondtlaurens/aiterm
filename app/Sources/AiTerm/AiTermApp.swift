@@ -41,6 +41,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         super.init()
     }
     var window: NSWindow!
+    private lazy var archiveShortcut = ArchiveShortcut { [weak self] in self?.showArchive() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DevBuildIcon.apply()
@@ -70,6 +71,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sheetDidEnd() } }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak tiling] _ in MainActor.assumeIsolated { tiling?.sidebarMoved() } }
         buildMenu()
+        archiveShortcut.start()
         controller.start()
     }
 
@@ -90,6 +92,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        archiveShortcut.stop()
         controller.shutdown()
     }
 
@@ -179,8 +182,9 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         viewMenu.addItem(withTitle: "Focus View", action: #selector(showFocusView), keyEquivalent: "f")
         viewMenu.addItem(withTitle: "List View", action: #selector(showListView), keyEquivalent: "l")
         viewMenu.addItem(.separator())
-        // ⌘S: Edit › Select All comes first and, disabled on the sidebar list, still claims ⌘A.
-        viewMenu.addItem(withTitle: "Show Shelf", action: #selector(showArchive), keyEquivalent: "s")
+        // The local monitor gives this key to Select All while text is being edited.
+        let archiveItem = viewMenu.addItem(withTitle: "Show Archive", action: #selector(archiveFromMenu(_:)), keyEquivalent: "a")
+        archiveItem.target = self
         // The same action as AiTerm › Settings…, which comes first and so owns ⌘, ; this one shares its key
         // only to show it, and is enabled by the same rule (`validateMenuItem` keys on the action).
         viewMenu.addItem(withTitle: "Show Settings", action: #selector(openSettings), keyEquivalent: ",")
@@ -205,7 +209,10 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func actualSize() { changeInterfaceSize(to: .standard) }
     @objc func showFocusView() { controller.showFocusView() }
     @objc func showListView() { controller.showListView() }
-    @objc func showArchive() { controller.presentArchive() }
+    func showArchive() { controller.presentArchive() }
+    // AppKit keeps a shared key equivalent only when both items use the same selector. Edit’s
+    // item still targets the text responder; this item targets us, and the local monitor routes keys.
+    @objc(selectAll:) func archiveFromMenu(_ sender: Any?) { showArchive() }
     @objc func toggleBackpack() { controller.toggleBackpack() }
 
     private func changeInterfaceSize(to size: InterfaceSize?) {
@@ -231,7 +238,7 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(actualSize): return zoomable && controller.preferences.interfaceSize != .standard
         case #selector(showFocusView): return controller.canShowFocusView
         case #selector(showListView): return controller.canShowListView
-        case #selector(showArchive): return controller.canPresentArchive
+        case #selector(archiveFromMenu(_:)): return controller.canPresentArchive
         case #selector(toggleBackpack):
             item.state = controller.backpack.isOn ? .on : .off
             return true

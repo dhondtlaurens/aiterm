@@ -58,7 +58,7 @@ extension AppController {
     /// sheet's root view on every state change of the presenting view, so the draft is built once,
     /// by `SheetCoordinator`, instead of in `NewTaskSheet.init`.
     enum SheetKind: Identifiable {
-        case jiraProjects(Project)
+        case project(ProjectSheetModel)
         case newTask(TaskCreationModel), newReview(ReviewCreationModel)
         case newTerminal(Project, name: String, branch: String)
         case newDivider, rename(RenameTarget)
@@ -78,7 +78,7 @@ extension AppController {
         case shelvedBroadcast(UUID)
         var id: String {
             switch self {
-            case .jiraProjects(let project): return "project-jira-\(project.id)"
+            case .project(let model): return "project-\(model.id)"
             case .newTask(let model): return "task-\(model.id)"
             case .newReview(let model): return "review-\(model.id)"
             case .newTerminal(let p, _, _): return "terminal-\(p.id)"

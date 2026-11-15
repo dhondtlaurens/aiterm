@@ -56,7 +56,7 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
         case .pathTaken(let path):
             return "\(folderName(path)) in .worktrees is in use by something else, so the worktree can’t come back there."
         case .branchGone(let branch):
-            return "Its branch \(branch) no longer exists here or on origin. Remove it from the shelf instead."
+            return "Its branch \(branch) no longer exists here or on origin. Remove it from the archive instead."
         case .branchInUse(let branch, let path):
             return "“\(branch)” is checked out at \(path). Switch that checkout to another branch, then restore it."
         }

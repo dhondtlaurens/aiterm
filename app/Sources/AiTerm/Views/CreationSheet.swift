@@ -2,17 +2,8 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// What New Task and New Review share around their steps: the stepper, at `Sheet.creationHeight`, the command preview under
-/// every step past the first, the destination line that ends the first step and the last, the footer
-/// and its keys, and the loads the sheet starts when it appears. How many steps there are, and which
-/// one picks the agent, is the kind's (`CreationKind.steps`); New Broadcast, which starts no agent of
-/// its own, draws the same parts from `CreationSteps.broadcast` (`NewBroadcastSheet`). Each sheet
-/// keeps what is its own — its first step, where it opens, what its create button says, when it may
-/// advance, and its pickers — and hands those in as values.
-///
-/// `pickers` are the sheet's open-list flags in the order ⎋ closes them: ⎋ belongs to an open list
-/// first — in every other app that list is a window of its own, and closing the whole sheet is not
-/// what the key means there — and a click on the sheet's background closes them all.
+/// Shared creation chrome, completed-step navigation, closing summary, footer and initial loads.
+/// Each sheet owns its decisions and picker state; this frame owns the common keyboard routing.
 struct CreationSheet<Kind: CreationKind, Content: View>: View {
     let model: CreationModel<Kind>
     @Binding var step: Int
@@ -37,10 +28,15 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
 
     var body: some View {
         SteppedSheetFrame(title: title, height: Sheet.creationHeight, step: step, stepNames: stepNames,
-                          onBackgroundTap: { for picker in pickers { picker.wrappedValue = false } }) {
+                          onBackgroundTap: { for picker in pickers { picker.wrappedValue = false } }, onNavigate: navigate) {
             content
-            if Kind.steps.showsCommand(onStep: step) { CommandPreview(model: model) }
-            if Kind.steps.showsDestination(onStep: step), let destination { DestinationLine(destination) }
+            if Kind.steps.creates(onStep: step) {
+                CreationClosingBlock {
+                    if let destination { DestinationLine(destination) }
+                    Text("Runs \(model.draft.agent.displayName) with \(model.models.first { $0.id == model.draft.model }?.label ?? model.draft.model).")
+                        .font(Typography.body).foregroundStyle(Palette.text)
+                }
+            }
         } footer: {
             CreationFooter(step: step, steps: Kind.steps, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
@@ -70,9 +66,15 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
             model.completions.close()
             return true
         }
-        guard step == 1, let open = pickers.first(where: { $0.wrappedValue }) else { return false }
+        guard step <= 2, let open = pickers.first(where: { $0.wrappedValue }) else { return false }
         open.wrappedValue = false
         return true
+    }
+
+    private func navigate(_ target: Int) {
+        guard !model.creating, SheetStepper.canNavigate(from: step, to: target, count: Kind.steps.count) else { return }
+        for picker in pickers { picker.wrappedValue = false }
+        model.completions.close(); step = target
     }
 
     private func back() { guard !model.creating else { return }; if step == 1 { dismiss.afterThisEvent() } else { step -= 1 } }
@@ -94,11 +96,4 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
 
     /// The footer's fix for the last failure, and the create after it, dismissing as `create` does.
     private func recover() { Task { if await model.recoverAndCreate() { dismiss() } } }
-}
-
-/// The command preview under every step past the first: the one part of the frame that reads the prompt, so a
-/// keystroke in the prompt redraws this line and not the sheet around it.
-struct CommandPreview<Kind: CreationKind>: View {
-    let model: CreationModel<Kind>
-    var body: some View { CommandBlock(caption: "Command", command: model.previewCommand) }
 }

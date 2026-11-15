@@ -67,11 +67,11 @@ import Testing
             #expect(operated.ownership == 1, "as after a takeover, nothing the Operator queued lands")
         }
         #expect(world.task(accepted.id)?.operated?.state == .accepted && world.task(accepted.id)?.operated?.takenOver == false)
-        // The Shelf's board keeps what was in flight, yours, In progress beside what was done.
-        let shelved = BroadcastBoard.shelved(run: try #require(world.run(run.id)), state: world.state)
-        let lanes = Dictionary(uniqueKeysWithValues: shelved.stages.map { ($0.stage, Set($0.cards.map(\.id))) })
+        // The Archive's board keeps what was in flight, yours, In progress beside what was done.
+        let archived = BroadcastBoard.shelved(run: try #require(world.run(run.id)), state: world.state)
+        let lanes = Dictionary(uniqueKeysWithValues: archived.stages.map { ($0.stage, Set($0.cards.map(\.id))) })
         #expect(lanes[.inProgress] == [working.id, blocked.id] && lanes[.done] == [accepted.id])
-        #expect(shelved.stages.flatMap(\.cards).filter(\.takenOver).count == 2)
+        #expect(archived.stages.flatMap(\.cards).filter(\.takenOver).count == 2)
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
         #expect(world.daemon.requests("session.setOwnership").map { $0.params["sessionId"] as? String } == ["w1"])
     }

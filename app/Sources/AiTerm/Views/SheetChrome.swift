@@ -413,6 +413,11 @@ struct SheetStepper: View {
     /// New Task's first step names a ticket; New Review's names a branch; New Broadcast has five.
     let names: [String]
 
+    var onSelect: ((Int) -> Void)? = nil
+    static func canNavigate(from step: Int, to target: Int, count: Int) -> Bool {
+        target > 0 && target < step && target <= count
+    }
+
     /// How a step is drawn.
     enum Mark: Equatable {
         /// Behind the current step: a check.
@@ -442,11 +447,17 @@ struct SheetStepper: View {
         HStack(spacing: Space.base) {
             ForEach(Array(marks.enumerated()), id: \.offset) { index, mark in
                 if index > 0 { Hairline(.firm).frame(width: Space.gap) }
-                Self.draw(mark, number: index + 1)
+                if let onSelect, Self.canNavigate(from: step, to: index + 1, count: names.count) {
+                    Button { onSelect(index + 1) } label: { Self.draw(mark, number: index + 1) }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                        .help(names[index] + " · ⌘" + String(index + 1))
+                        .accessibilityLabel("Go to " + names[index])
+                } else { Self.draw(mark, number: index + 1) }
             }
         }
         .fixedSize()
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: onSelect == nil ? .ignore : .contain)
         .accessibilityLabel(Self.accessibilityLabel(step: step, names: names))
     }
 

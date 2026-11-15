@@ -71,8 +71,8 @@ struct BoardActionsWiringTests {
         actions.perform(.takeOver, task.id)
         await eventually(describing: "the task taken over") { controller.state.task(id: task.id)?.operated?.takenOver == true }
         #expect(try items(card()) == [.handBack, .separator, .stopTask])
-        let shelved = BroadcastBoard.shelved(run: try #require(controller.state.run(id: run.id)), state: controller.state)
-        #expect(shelved.stages.flatMap(\.cards).allSatisfy { $0.stoppable == nil }, "a shelved board's rows have none of them")
+        let archived = BroadcastBoard.shelved(run: try #require(controller.state.run(id: run.id)), state: controller.state)
+        #expect(archived.stages.flatMap(\.cards).allSatisfy { $0.stoppable == nil }, "an archived board's rows have none of them")
 
         actions.answer("gate-1", "yes")
         await eventually(describing: "the refusal reported") { controller.notices.issue != nil }

@@ -47,7 +47,7 @@ enum Budget {
 }
 
 /// Work budgets outside the Operator's tools (plan 2026-11-10, phase 0): what one step of the sidebar, the window lock,
-/// a Shelve and a restore costs today, counted by `WorkMeter` or a recording git, never timed. Each number is exact and
+/// an Archive and a restore costs today, counted by `WorkMeter` or a recording git, never timed. Each number is exact and
 /// is today's: a later change that makes the step cheaper lowers it here, and none may raise it.
 @MainActor @Suite(.blocking) struct WorkBudgetTests {
     // MARK: - The sidebar's rows
@@ -140,12 +140,12 @@ enum Budget {
         #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls with nothing owed: \(work)")
     }
 
-    // MARK: - Shelve and restore
+    // MARK: - Archive and restore
 
-    /// Shelving a task with a clean worktree and an open window, then restoring it from the Shelf, as git sees it: the
+    /// Archiving a task with a clean worktree and an open window, then restoring it from the Archive, as git sees it: the
     /// controller's own git, the checkout monitor's scan reading nothing.
     ///
-    /// Shelve: 8 spawns, `worktree list` four times — once for the preflight before any question, once right before the
+    /// Archive: 8 spawns, `worktree list` four times — once for the preflight before any question, once right before the
     /// `status --porcelain` that looks for unsaved work (only a listing then says the folder is still this repository's
     /// worktree), once for the head once its window has closed, once by the removal itself — then `worktree unlock`,
     /// `worktree remove` and `worktree prune` (9 before phase 7's one preflight, with `worktree list` five times: head,
@@ -163,8 +163,8 @@ enum Budget {
 
         var mark = git.calls.count
         await (await controller.archiver.archive(task: task))?.value
-        let shelve = Budget.commands(git, since: mark)
-        #expect(controller.state.archive.map(\.id) == [task.id], "shelved")
+        let archive = Budget.commands(git, since: mark)
+        #expect(controller.state.archive.map(\.id) == [task.id], "archived")
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.lastRestore?.value
@@ -174,8 +174,8 @@ enum Budget {
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
-        #expect(shelve.count == 8, "spawns per Shelve: \(shelve)")
-        #expect(shelve.filter { $0 == "worktree list" }.count == 4, "\(shelve)")
+        #expect(archive.count == 8, "spawns per Archive: \(archive)")
+        #expect(archive.filter { $0 == "worktree list" }.count == 4, "\(archive)")
         #expect(restore.count == 4, "spawns per restore: \(restore)")
         #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
     }
@@ -224,15 +224,15 @@ enum Budget {
 
     // MARK: - Fixture timings, printed only
 
-    /// The frozen workspace padded with 500 shelved tasks, saved 20 times: the median, printed. Never asserted, and no
+    /// The frozen workspace padded with 500 archived tasks, saved 20 times: the median, printed. Never asserted, and no
     /// installed-app latency: a fixture timing on this machine, for deciding whether the save on the main actor stalls.
     @Test(.enabled(if: Budget.measuring)) func savingTheFrozenWorkspaceWith500ShelvedTasks() throws {
         var state = try OperatorCurrentContractTests.load()
         let project = try #require(state.tasks.first?.projectId)
         state.archive = (0..<500).map { n in
-            ArchivedTask(task: .make(project: project, title: "Shelved task \(n)", branch: "feat/shelved-\(n)",
-                                     worktreePath: "/synthetic/aiterm/shop/.worktrees/shelved-\(n)",
-                                     firstPrompt: "Do the shelved work number \(n), as the ticket says."),
+            ArchivedTask(task: .make(project: project, title: "Archived task \(n)", branch: "feat/archived-\(n)",
+                                     worktreePath: "/synthetic/aiterm/shop/.worktrees/archived-\(n)",
+                                     firstPrompt: "Do the archived work number \(n), as the ticket says."),
                          archivedAt: Build.epoch.addingTimeInterval(Double(n)))
         }
         let folder = try ScratchFolder.make("aiterm-budget-save-")
@@ -241,7 +241,7 @@ enum Budget {
         try store.save(state)
         let median = try Budget.median(of: 20) { try store.save(state) }
         let bytes = (try? FileManager.default.attributesOfItem(atPath: store.url.path)[.size] as? Int) ?? 0
-        print("AITERM_MEASURE StateStore.save, frozen state + 500 shelved tasks (\(bytes) bytes): median of 20 = \(String(format: "%.2f", median)) ms")
+        print("AITERM_MEASURE StateStore.save, frozen state + 500 archived tasks (\(bytes) bytes): median of 20 = \(String(format: "%.2f", median)) ms")
     }
 
     /// One `run_status` build (`OperatorController.status`) for a broadcast of 20 working tasks, each with its worker and

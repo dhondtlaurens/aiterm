@@ -149,6 +149,8 @@ import Synchronization
         await controller.windows.lastRestore?.value
 
         await controller.projects.addProject(path: fixture.repo.path)
+
+        await controller.savePreparedProject()
         let imported = try #require(controller.state.tasks.first)
         #expect(imported.windowId == nil, "imported without a window")
 

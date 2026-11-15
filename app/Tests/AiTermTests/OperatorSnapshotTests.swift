@@ -5,7 +5,7 @@ import Testing
 
 /// Every Operator state has a fixture image: the OPERATOR heading with no broadcast, the
 /// broadcast's header and Operator row in each state, driven task rows, the board at each moment, its summary,
-/// its Activity tab and its read-only form from the Shelf, its rows and its questions, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
+/// its Activity tab and its read-only form from the Archive, its rows and its questions, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
 /// sheet's footer, and the broadcast's group folded and just started.
 @MainActor
 struct OperatorSnapshotTests {

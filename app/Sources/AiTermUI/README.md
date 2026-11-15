@@ -127,7 +127,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `FormField` | Label/control stack with dropdown overhang above following content. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
 | `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
-| `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus`, monospaced option. |
+| `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus` and command-key delegation, monospaced option. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
 | `Select` | `fieldBox` chrome over a borderless native pop-up: AppKit keeps the menu, click and keyboard, the house draws the title and chevrons. Fills its column, or fits its widest title when left to itself. Optional per-value tooltip and selectable predicate, with disabled items retained in the menu; monospaced option. It does not dim itself: whoever disables it fades it. |
 | `SegmentedControl` | A choice among a few values: neutral selected fill, house focus ring, selectable predicate, per-segment tooltip, labels inked for their ground. Not for tabs. |

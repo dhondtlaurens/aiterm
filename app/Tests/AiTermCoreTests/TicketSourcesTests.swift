@@ -264,10 +264,11 @@ import Foundation
         #expect(!TaskPublisher.description(of: jira, acceptance: accepted).contains("Closes"))
     }
 
-    @Test func anIssuesPromptBlockAsksForClosesInTheRequest() {
+    @Test func anIssuesPromptBlockContainsOnlyItsDescription() {
         let issue = JiraTicket(key: "#55", summary: "Opt-in Entire", description: "Details", issueType: nil, status: nil, url: "u",
                                source: .gitLab(project: "ai/agentflow"))
-        #expect(AgentCommand.composePrompt(userText: "Plan first", ticket: issue, appendTicket: true) ==
-                "Plan first\n\nGitLab issue #55: Opt-in Entire\n\nDetails\n\nPut `Closes #55` in the merge request’s description.")
+        let prompt = AgentCommand.composePrompt(userText: "Plan first", ticket: issue, appendTicket: true) ?? ""
+        #expect(prompt.hasPrefix("Plan first") && prompt.contains("Details"))
+        #expect(prompt.contains("untrusted") && !prompt.contains("Closes #55") && !prompt.contains("Opt-in Entire"))
     }
 }

@@ -12,7 +12,7 @@ import Testing
     }
 
     @Test func anArchivingRowSaysSoInItsBadgeLine() {
-        #expect(TaskRowCaption(removal: .archiving, missing: false, failed: false) == TaskRowCaption(progress: "Shelving…", note: nil))
+        #expect(TaskRowCaption(removal: .archiving, missing: false, failed: false) == TaskRowCaption(progress: "Archiving…", note: nil))
     }
 
     @Test func whyARemovalStoppedTakesTheCaptionsPlace() {
@@ -56,7 +56,7 @@ import Testing
     @Test func aSessionInUseARemovalAndEveryOtherLineKeepTheirOwnMark() {
         #expect(TaskRowMark(status: .working, line: ended, removing: false) == .status(.working))
         #expect(TaskRowMark(status: .needsInput, line: ended, removing: false) == .status(.needsInput))
-        #expect(TaskRowMark(status: .idle, line: ended, removing: true) == .status(.working), "removing or shelving spins")
+        #expect(TaskRowMark(status: .idle, line: ended, removing: true) == .status(.working), "removing or archiving spins")
         #expect(TaskRowMark(status: .idle, line: OperatorLine("failed · the tests fail"), removing: false) == .status(.idle))
         #expect(TaskRowMark(status: .done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou), removing: false) == .status(.done))
         #expect(TaskRowMark(status: .done, line: nil, removing: false) == .status(.done), "a task of your own")

@@ -61,7 +61,7 @@ import AiTermUI
             _ = model.projection
             for _ in 0..<5 { model.move(by: 1); _ = model.projection }
         }
-        print("Shelf rankings for five highlight moves: \(meter[.archiveRank])")
+        print("Archive rankings for five highlight moves: \(meter[.archiveRank])")
         #expect(meter[.archiveRank] == 1, "baseline 11; final 1 for one opening and five highlight moves")
         #expect(model.projection.highlighted?.id == rows[2].id)
     }
@@ -167,14 +167,14 @@ import AiTermUI
                             size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
-        settle(host, describing: "the Shelf rows") { !counter.counts.isEmpty }
+        settle(host, describing: "the Archive rows") { !counter.counts.isEmpty }
         let initial = counter.counts.count
-        print("Shelf initial materialized rows: \(initial) of 100")
-        #expect(initial == 8, "baseline 100; final 8 Shelf rows in its sheet viewport")
+        print("Archive initial materialized rows: \(initial) of 100")
+        #expect(initial == 8, "baseline 100; final 8 Archive rows in its sheet viewport")
         #expect(model.projection.rows.map(\.id) == rows.map(\.id))
         let scroll = try #require(host.firstDescendant(NSScrollView.self))
         model.highlight(rows.last!.id)
-        settle(host, describing: "the last highlighted Shelf row at the bottom") {
+        settle(host, describing: "the last highlighted Archive row at the bottom") {
             counter.counts[rows.last!.id] != nil && scroll.documentVisibleRect.minY > 0
                 && abs((scroll.documentView?.bounds.maxY ?? 0) - scroll.documentVisibleRect.maxY) <= 32
         }

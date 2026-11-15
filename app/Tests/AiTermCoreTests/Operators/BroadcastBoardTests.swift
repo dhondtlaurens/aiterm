@@ -5,7 +5,7 @@ import Testing
 
 /// The broadcast's board as a value (spec §4, §4.2, §13): the header restating the brief, the columns
 /// Todo · In progress · Review · Done with each task's card where its state puts it, what a card opens,
-/// and what its tabs read: the summary, what is left for you, and the shelved form of an ended broadcast.
+/// and what its tabs read: the summary, what is left for you, and the archived form of an ended broadcast.
 @Suite struct BroadcastBoardTests {
     private let web = OperatorUIFixtures.project("webshop"), api = OperatorUIFixtures.project("payments-api")
 
@@ -466,7 +466,7 @@ import Testing
         }
     }
 
-    /// An ended broadcast, read from the Shelf: every task it drove, the live and the archived, in the order they were
+    /// An ended broadcast, read from the Archive: every task it drove, the live and the archived, in the order they were
     /// created, no row a button and no end to change, never paused. What End handed you
     /// mid-flight stays In progress, taken over, and counts towards the total but not as done.
     @Test func aShelvedBoardListsLiveAndArchivedTasksAndOpensNothing() throws {
@@ -502,7 +502,7 @@ import Testing
         #expect(handed.allSatisfy { $0.line == nil && !$0.needsYou && $0.result == nil }, "they read taken over, nothing more")
         #expect(board.progress == "2 of 4 done", "counted, and not as done")
         #expect(board.band.text == "ended")
-        #expect(cards.allSatisfy { $0.opens == .nothing }, "a shelved board opens no window")
+        #expect(cards.allSatisfy { $0.opens == .nothing }, "an archived board opens no window")
         #expect(cards.allSatisfy { $0.end == nil }, "and changes no end")
         #expect(cards.first { $0.title == "Checkout layout" }?.ticket == "PAY-230")
         #expect(board.isShelved && !board.isPaused)
@@ -533,7 +533,7 @@ import Testing
         #expect(board.fixTask(board.snags[0]) == run.snags[0].fixTask(broadcast: "Checkout redesign", runId: run.id))
     }
 
-    /// An ended broadcast opened from the Shelf keeps what the Operator worked around, each copying as its fix task.
+    /// An ended broadcast opened from the Archive keeps what the Operator worked around, each copying as its fix task.
     @Test func aShelvedBroadcastsSummaryShowsItsSnags() throws {
         var run = run(.active)
         run.snags = [snag("Waiting on you showed a task with no prompt open", taskKey: "PAY-232")]

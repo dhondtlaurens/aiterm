@@ -46,7 +46,7 @@ import AiTermCore
         host.layoutSubtreeIfNeeded()
         let fieldsAfterSelection = host.descendants(NSTextField.self)
         #expect(!fieldsAfterSelection.contains { $0.placeholderString == "Search by key or title" })
-        #expect(fieldsAfterSelection.contains { $0.stringValue == "Second ticket" })
+        #expect(model.draft.ticket?.key == "ML-2")
     }
 
     @Test func ticketSearchFieldTakesFocusWhenItsPopupRequestsIt() throws {
@@ -85,14 +85,14 @@ import AiTermCore
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
-        let host = testHost(NewTaskSheet(model: model).seeded(step: 1), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let host = testHost(NewTaskSheet(model: model).seeded(step: 2), size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
         #expect(model.draft.branchType != .fix)
 
         let field = try #require(host.descendants(NSTextField.self)
-            .first { $0.placeholderString == "branch-name" })
+            .first { $0.placeholderString == "feat/my-task" })
         #expect(window.makeFirstResponder(field))
         let editor = try #require(field.currentEditor() as? NSTextView)
         editor.selectAll(nil)
@@ -103,7 +103,7 @@ import AiTermCore
         #expect(model.draft.branchType == .fix)
         #expect(model.draft.branchName == "login")
         #expect(field.currentEditor() != nil, "picking the type took the keyboard from the field")
-        #expect(field.currentEditor()?.string == "login")
+        #expect(field.currentEditor()?.string == "fix/login")
     }
 
     /// Going from Agent to Prompt inserts the prompt step into a sheet already on screen; the

@@ -10,14 +10,14 @@ import Testing
 /// the account can see — hundreds of them — so it searches rather than scrolls. These tests drive
 /// the rendered field the way the ticket picker's do.
 @MainActor
-@Suite(.serialized) struct JiraProjectSheetTests {
+@Suite(.serialized) struct ProjectSheetPickerTests {
     static let site = URL(string: "https://example.atlassian.net")!
     static let projects = [
         JiraProjectRef(id: "1", key: "PLT", name: "Platform", siteURL: site),
         JiraProjectRef(id: "2", key: "WEB", name: "Website", siteURL: site),
         JiraProjectRef(id: "3", key: "WEBX", name: "Website extras", siteURL: site),
     ]
-    static let placeholder = "Add a Jira project by key or name"
+    static let placeholder = "Add a Jira project"
 
     /// What `submit` was handed, and whether it was called at all — an empty list is a real answer,
     /// so the count matters as much as the value.
@@ -26,7 +26,7 @@ import Testing
     }
 
     struct Harness {
-        let host: NSHostingView<JiraProjectSheet>
+        let host: NSHostingView<ProjectSheet>
         let window: NSWindow
         let submissions: Submissions
     }
@@ -38,10 +38,11 @@ import Testing
         let submissions = Submissions()
         // The chevron opens the list in the app; seeding it is the same `State` the button writes,
         // as `NewReviewSheetTests` does for the branch picker.
-        let sheet = JiraProjectSheet(projectName: "aiterm", linked: linked, canSubmit: true,
-                                     loadProjects: { Self.projects },
-                                     submit: { submissions.calls.append($0) })
-            .seeded(projects: seedProjects ? Self.projects : nil, open: listOpen)
+        let preparation = ProjectPreparation(project: .make(name: "aiterm", jiraProjects: linked))
+        let model = ProjectSheetModel(preparation: preparation, editing: true, canChange: { true }, inspect: { _ in preparation },
+                                      chooseFolder: { nil }, loadProjects: { Self.projects }, commit: { _, links, _ in submissions.calls.append(links) })
+        if seedProjects { model.seedProjects(Self.projects) }
+        let sheet = ProjectSheet(model: model).seeded(open: listOpen)
         let host = testHost(sheet, size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(hosting: host, styleMask: [])
         settle(host)
@@ -61,13 +62,14 @@ import Testing
         field.delegate?.control?(field, textView: NSTextView(), doCommandBy: selector) ?? false
     }
 
-    private func pressCommandReturn(_ h: Harness) {
+    private func pressCommandReturn(_ h: Harness) async {
         let event = keyDown("\r", code: 36, modifiers: [.command], in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
+        await Task.yield()
         settle(h.host, for: 0.1)
     }
 
-    @Test func testTypingNarrowsTheListSoReturnAddsTheMatchingProject() throws {
+    @Test func testTypingNarrowsTheListSoReturnAddsTheMatchingProject() async throws {
         let h = harness(listOpen: true, seedProjects: true)
         defer { h.window.close() }
         let field = try #require(self.field(in: h.host))
@@ -80,12 +82,12 @@ import Testing
 
         // A pick joins the list above the field, and the field stays for the next one.
         #expect(self.field(in: h.host) != nil)
-        pressCommandReturn(h)
+        await pressCommandReturn(h)
         #expect(h.submissions.calls == [[Self.projects[2]]])
     }
 
     /// A project picked here joins the ones already linked, after them.
-    @Test func testAPickIsAddedAfterTheLinkedProjects() throws {
+    @Test func testAPickIsAddedAfterTheLinkedProjects() async throws {
         let h = harness(linked: [Self.projects[0]], listOpen: true, seedProjects: true)
         defer { h.window.close() }
         let field = try #require(self.field(in: h.host))
@@ -94,35 +96,35 @@ import Testing
         settle(h.host)
         #expect(send(#selector(NSResponder.insertNewline(_:)), to: field))
         settle(h.host)
-        pressCommandReturn(h)
+        await pressCommandReturn(h)
 
         #expect(h.submissions.calls == [[Self.projects[0], Self.projects[1]]])
     }
 
-    @Test func testSavingWithoutAPickKeepsTheLinkedProjects() throws {
+    @Test func testSavingWithoutAPickKeepsTheLinkedProjects() async throws {
         let h = harness(linked: [Self.projects[1], Self.projects[0]], seedProjects: true)
         defer { h.window.close() }
 
-        pressCommandReturn(h)
+        await pressCommandReturn(h)
 
         #expect(h.submissions.calls == [[Self.projects[1], Self.projects[0]]])
     }
 
     /// Nothing linked is a valid answer: New Task then searches every Jira project. The sheet does
     /// not preselect one — a project chosen by alphabet is not one the reader picked.
-    @Test func testAnEmptyListMeansNoJiraProject() throws {
+    @Test func testAnEmptyListMeansNoJiraProject() async throws {
         let h = harness(seedProjects: true)
         defer { h.window.close() }
         #expect(self.field(in: h.host) != nil)
 
-        pressCommandReturn(h)
+        await pressCommandReturn(h)
 
         #expect(h.submissions.calls == [[]])
     }
 
     /// ⎋ with the list open closes the list, not the sheet: an unlink made before it survives, and
     /// Save still hands it up. The list's own ⎋ had lost to Cancel's key equivalent.
-    @Test func escapeClosesTheListBeforeTheSheet() throws {
+    @Test func escapeClosesTheListBeforeTheSheet() async throws {
         let h = harness(linked: [Self.projects[0], Self.projects[1]], listOpen: true, seedProjects: true)
         defer { h.window.close() }
         #expect(listIsOpen(in: h.host))
@@ -133,7 +135,7 @@ import Testing
 
         #expect(!listIsOpen(in: h.host))
         #expect(self.field(in: h.host) != nil, "the sheet is still up")
-        pressCommandReturn(h)
+        await pressCommandReturn(h)
         #expect(h.submissions.calls == [[Self.projects[0], Self.projects[1]]])
     }
 

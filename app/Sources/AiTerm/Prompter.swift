@@ -37,7 +37,7 @@ extension AlertPrompt {
     @MainActor static func removeTask(_ task: TaskItem, detail: String, offersArchive: Bool = false) -> AlertPrompt {
         let offersBranch = TaskRemover.offersBranchDeletion(for: task)
         return AlertPrompt(message: "Remove \(task.kindName.lowercased()) “\(task.title)”?", detail: detail,
-                           buttons: offersArchive ? ["Remove", "Shelve", "Cancel"] : ["Remove", "Cancel"],
+                           buttons: offersArchive ? ["Remove", "Archive", "Cancel"] : ["Remove", "Cancel"],
                            checkbox: offersBranch ? "Delete local branch" : nil,
                            checkboxHelp: offersBranch ? task.branch : nil, defaultDeletes: true)
     }

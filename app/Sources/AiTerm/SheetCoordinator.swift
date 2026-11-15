@@ -28,6 +28,7 @@ final class SheetCoordinator {
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
+    private let projects: ProjectActions
     private let workspace: WorkspaceStore
     private let checkouts: CheckoutMonitor
     private let agents: AgentIntegrations
@@ -48,12 +49,13 @@ final class SheetCoordinator {
     /// The queue a New Review Fix lands on, with creation, removal and pull.
     private let workflow: TaskWorkflow
 
-    init(workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
+    init(projects: ProjectActions, workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
          launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults,
          fixPipeline: @escaping @MainActor (Project) -> FixPipeline) {
+        self.projects = projects
         self.defaults = defaults
         self.workspace = workspace
         self.checkouts = checkouts
@@ -89,7 +91,26 @@ final class SheetCoordinator {
     /// The sheet that edits the project's linked Jira projects, opened on the list as it is now.
     func presentJiraProjects(for project: Project) {
         guard canChangeWorkspace, let current = state.project(id: project.id) else { return }
-        present(.jiraProjects(current))
+        present(.project(projects.makeProjectSheet(ProjectPreparation(project: current, defaultBranch: checkouts.defaultBranch[current.id]), editing: true)))
+    }
+
+    func presentAddProject(path: String? = nil) {
+        guard sheet == nil, canChangeWorkspace else { return }
+        cancelPreparation()
+        preparingSheet = Task {
+            let picked: String
+            if let path { picked = path }
+            else { guard let folder = await projects.chooseProjectFolder() else { return }; picked = folder.path }
+            guard !Task.isCancelled, sheet == nil, canChangeWorkspace else { return }
+            do {
+                let prepared = try await projects.prepareProject(path: picked)
+                guard !Task.isCancelled, sheet == nil, canChangeWorkspace else { return }
+                sheet = .project(projects.makeProjectSheet(prepared, editing: false))
+            } catch {
+                guard !Task.isCancelled, sheet == nil, canChangeWorkspace else { return }
+                await projects.reportAddFailure(error)
+            }
+        }
     }
 
     func presentNewDivider() {

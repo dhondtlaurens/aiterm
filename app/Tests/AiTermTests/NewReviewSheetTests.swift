@@ -24,16 +24,17 @@ import AiTermCore
 
     /// Step 1 needs both a name and a branch. Unlike a task, a review derives neither — there is
     /// nothing to fall back on if the branch is blank.
-    @Test func testStepOneNeedsBothANameAndABranch() {
-        #expect(!NewReviewSheet.canAdvance(step: 1, title: "", branch: "feat-x", creating: false))
-        #expect(!NewReviewSheet.canAdvance(step: 1, title: "Review", branch: "", creating: false))
-        #expect(NewReviewSheet.canAdvance(step: 1, title: "Review", branch: "feat-x", creating: false))
-        #expect(!NewReviewSheet.canAdvance(step: 1, title: "Review", branch: "feat-x", creating: true))
+    @Test func theNamingStepNeedsBothANameAndABranch() {
+        #expect(NewReviewSheet.canAdvance(step: 1, title: "", branch: "", creating: false))
+        #expect(!NewReviewSheet.canAdvance(step: 2, title: "", branch: "feat-x", creating: false))
+        #expect(!NewReviewSheet.canAdvance(step: 2, title: "Review", branch: "", creating: false))
+        #expect(NewReviewSheet.canAdvance(step: 2, title: "Review", branch: "feat-x", creating: false))
+        #expect(!NewReviewSheet.canAdvance(step: 2, title: "Review", branch: "feat-x", creating: true))
     }
 
     @Test func testWhitespaceIsNotAName() {
-        #expect(!NewReviewSheet.canAdvance(step: 1, title: "   ", branch: "feat-x", creating: false))
-        #expect(!NewReviewSheet.canAdvance(step: 1, title: "Review", branch: "  ", creating: false))
+        #expect(!NewReviewSheet.canAdvance(step: 2, title: "   ", branch: "feat-x", creating: false))
+        #expect(!NewReviewSheet.canAdvance(step: 2, title: "Review", branch: "  ", creating: false))
     }
 
     private static let project = Project(id: UUID(), name: "acme-web", path: "/p", provider: .gitlab,
@@ -47,7 +48,7 @@ import AiTermCore
                              worktreePath: "/p/.worktrees/gift-card", baseBranch: "main", jira: nil,
                              agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
                              createdAt: Date(), windowId: nil)
-        for step in [1, 3] {
+        for step in [4] {
             #expect(NewReviewSheet.destination(step: step, project: Self.project, owner: owner, slug: "review-gift-card",
                                                branch: "feat/gift-card")?.text
                     == "Opens in iTerm2 · task “Gift card” · feat/gift-card")
@@ -63,7 +64,7 @@ import AiTermCore
         #expect(NewReviewSheet.createLabel(owner: nil) == "Create Review")
         var review = owner
         review.kind = .review
-        #expect(NewReviewSheet.destination(step: 3, project: Self.project, owner: review, slug: "review-gift-card",
+        #expect(NewReviewSheet.destination(step: 4, project: Self.project, owner: review, slug: "review-gift-card",
                                            branch: "feat/gift-card")?.text
                 == "Opens in iTerm2 · review “Gift card” · feat/gift-card")
         #expect(NewReviewSheet.createLabel(owner: review) == "Open in Review")
@@ -76,7 +77,7 @@ import AiTermCore
         func slug() -> String { reads += 1; return "review-gift-card" }
         #expect(NewReviewSheet.destination(step: 2, project: Self.project, owner: nil, slug: slug(), branch: "feat/x") == nil)
         #expect(reads == 0)
-        #expect(NewReviewSheet.destination(step: 3, project: Self.project, owner: nil, slug: slug(), branch: "feat/x")?.text
+        #expect(NewReviewSheet.destination(step: 4, project: Self.project, owner: nil, slug: slug(), branch: "feat/x")?.text
                 == "Opens in iTerm2 · acme-web/.worktrees/review-gift-card · feat/x")
         #expect(reads == 1)
     }
@@ -175,6 +176,8 @@ import AiTermCore
                                             if createFails { throw Refused() }
                                         }, recover: { _ in })
         model.branches = branches
+        model.branchQuery = "main"
+        model.branchQuery = ""
         if !title.isEmpty { model.draft.setTitle(title) }
         if !branch.isEmpty { model.draft.setBranch(branch) }
         // The search's answer, as `.task` would land it; a bare `NSHostingView` never runs it.
@@ -188,7 +191,7 @@ import AiTermCore
     }
 
     private static let mrPlaceholder = "Search by !number, title or branch"
-    private static let branchPlaceholder = "Search branches"
+    private static let branchPlaceholder = "feat/my-task"
 
     private func field(_ placeholder: String, in host: NSView) -> NSTextField? {
         host.descendants(NSTextField.self).first { $0.placeholderString == placeholder }
@@ -223,39 +226,26 @@ import AiTermCore
         let h = harness()
         defer { h.window.orderOut(nil) }
         let field = try #require(self.field(Self.mrPlaceholder, in: h.host))
-        #expect(self.field(Self.branchPlaceholder, in: h.host) != nil, "no branch picked yet, so the branch field is a search field")
-
         #expect(send(#selector(NSResponder.moveDown(_:)), to: field))
         #expect(send(#selector(NSResponder.insertNewline(_:)), to: field))
         settle(h.host)
-
         #expect(h.model.draft.mr == Self.second)
-        #expect(h.model.draft.title == "Drop the legacy importer")
-        #expect(h.model.draft.branch == "chore-drop-importer")
-        // Both search fields are gone: each picker draws its selection chrome instead.
         #expect(self.field(Self.mrPlaceholder, in: h.host) == nil)
-        #expect(self.field(Self.branchPlaceholder, in: h.host) == nil)
-        #expect(h.host.descendants(NSTextField.self).contains { $0.stringValue == "Drop the legacy importer" },
-                "the review name follows the merge request")
+        pressCommandReturn(h)
+        #expect(self.field("Describe the review", in: h.host)?.stringValue == "Drop the legacy importer")
+        #expect(self.field(Self.branchPlaceholder, in: h.host)?.stringValue == "chore-drop-importer")
     }
 
     /// Spec §3.4's key contract, and the part that is this sheet's alone: it is the only sheet in
     /// the app with two pickers, so ⎋ has three things it could mean. It closes the merge-request
     /// list first, then the branch list, and only then does it reach the sheet.
     @Test func escapeClosesTheMergeRequestListBeforeTheBranchList() throws {
-        let h = harness(mrOpen: true, branchOpen: true)
+        let h = harness(mrOpen: true)
         defer { h.window.orderOut(nil) }
         #expect(listIsOpen(Self.mrPlaceholder, in: h.host))
-        #expect(listIsOpen(Self.branchPlaceholder, in: h.host))
-
         pressEscape(h)
-        #expect(!listIsOpen(Self.mrPlaceholder, in: h.host), "the merge-request list goes first")
-        #expect(listIsOpen(Self.branchPlaceholder, in: h.host), "the branch list is still open")
-
-        pressEscape(h)
-        #expect(!listIsOpen(Self.branchPlaceholder, in: h.host))
-        // Neither ⎋ created or dismissed anything: step 1 is still on screen.
-        #expect(self.field("Describe the review", in: h.host) != nil)
+        #expect(!listIsOpen(Self.mrPlaceholder, in: h.host))
+        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
         #expect(h.created.drafts.isEmpty)
     }
 
@@ -264,10 +254,10 @@ import AiTermCore
     @Test func escapeWithNoListOpenStepsBack() throws {
         let h = harness(step: 2, title: "Review it", branch: "main", mrOpen: false)
         defer { h.window.orderOut(nil) }
-        #expect(self.field("Describe the review", in: h.host) == nil, "step 2 is the agent step")
-
+        #expect(self.field("Describe the review", in: h.host) != nil)
         pressEscape(h)
-        #expect(self.field("Describe the review", in: h.host) != nil, "⎋ went back to step 1")
+        #expect(self.field("Describe the review", in: h.host) == nil)
+        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
     }
 
     /// A list left open on step 1 is out of sight on step 2, so ⎋ there steps back at once rather
@@ -276,19 +266,24 @@ import AiTermCore
         let h = harness(title: "Review it", branch: "main", mrOpen: true)
         defer { h.window.orderOut(nil) }
         pressCommandReturn(h)
-        #expect(self.field("Describe the review", in: h.host) == nil, "⌘↩ went on to step 2")
-
+        #expect(self.field("Describe the review", in: h.host) != nil)
         pressEscape(h)
-        #expect(self.field("Describe the review", in: h.host) != nil, "one ⎋ went back to step 1")
-        #expect(!listIsOpen(Self.mrPlaceholder, in: h.host), "advancing closed the list")
+        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
+        #expect(!listIsOpen(Self.mrPlaceholder, in: h.host))
     }
 
     /// The same when the sheet opens on a later step with a list still marked open.
     @Test func escapeOnAPreviewedLaterStepStepsBack() throws {
-        let h = harness(step: 2, title: "Review it", branch: "main", mrOpen: true)
+        let h = harness(step: 2, title: "Review it", branch: "main", mrOpen: false, branchOpen: true)
         defer { h.window.orderOut(nil) }
+        h.model.branchQuery = ""
+        settle(h.host)
+        #expect(listIsOpen(Self.branchPlaceholder, in: h.host))
         pressEscape(h)
+        #expect(!listIsOpen(Self.branchPlaceholder, in: h.host))
         #expect(self.field("Describe the review", in: h.host) != nil)
+        pressEscape(h)
+        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
     }
 
     /// The prompt's completion popup is a list too: on step 3, ⎋ closes only the popup, and the
@@ -317,38 +312,32 @@ import AiTermCore
         let event = keyDown("\r", code: 36, in: h.window)!
         _ = h.window.performKeyEquivalent(with: event)
         settle(h.host, for: 0.1)
-        #expect(self.field("Describe the review", in: h.host) != nil, "still step 1")
+        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
+        #expect(h.created.drafts.isEmpty)
     }
 
     /// ⌘↩ does what the primary button says: Continue on steps 1 and 2, Create Review on step 3.
     @Test func commandReturnAdvancesEachStepAndCreatesOnTheLast() async throws {
         let h = harness(title: "Review it", branch: "main", mrOpen: false, createFails: true)
         defer { h.window.orderOut(nil) }
-        #expect(self.field("Describe the review", in: h.host) != nil, "step 1: Branch")
-
+        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
         pressCommandReturn(h)
-        // Step 2 now waits for a real catalogue selection before it can continue. The catalogue
-        // is loaded off-main; wait for it rather than assuming the old 50 ms render settle also
-        // completed that work.
+        #expect(self.field("Describe the review", in: h.host) != nil)
+        #expect(h.created.drafts.isEmpty)
+        pressCommandReturn(h)
+        #expect(!h.host.descendants(NSTextView.self).isEmpty)
+        #expect(h.created.drafts.isEmpty)
+        pressCommandReturn(h)
         await eventually { h.model.catalogueLoaded }
         settle(h.host)
-        #expect(self.field("Describe the review", in: h.host) == nil)
-        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty, "step 2: Agent, with its model select")
-        #expect(h.created.drafts.isEmpty, "Continue must not create")
-
-        pressCommandReturn(h)
-        #expect(h.host.descendants(NSPopUpButton.self).isEmpty)
-        #expect(!h.host.descendants(NSTextView.self).isEmpty, "step 3: Prompt, with its editor")
+        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty)
         #expect(h.created.drafts.isEmpty)
-
         pressCommandReturn(h)
-        // Creation runs in a `Task` the button's action starts; awaiting is what lets it run.
         await eventually { !h.created.drafts.isEmpty }
-        #expect(h.created.drafts.count == 1, "step 3's ⌘↩ says Create Review, and creates")
+        #expect(h.created.drafts.count == 1)
         #expect(h.created.drafts.first?.title == "Review it")
         #expect(h.created.drafts.first?.branch == "main")
-        // The failure came back through the sheet's own model, so this really went the whole way.
         #expect(h.model.error == CreationFailure(reason: "Refused.", detail: nil))
-        #expect(!h.host.descendants(NSTextView.self).isEmpty, "a refused create leaves step 3 up to correct")
+        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty)
     }
 }

@@ -55,25 +55,25 @@ final class TaskArchiver {
             defer { work.end(token) }
             do { try await archive(shown, in: project, holding: token) }
             catch Stop.kept {}
-            catch Stop.keptLate { remover.recordStop(of: id, note: "Not shelved") }
+            catch Stop.keptLate { remover.recordStop(of: id, note: "Not archived") }
             catch Stop.detached {
                 await prompter.ask(AlertPrompt(
-                    message: "“\(shown.title)” can’t be shelved",
+                    message: "“\(shown.title)” can’t be archived",
                     detail: "Its worktree isn’t on a branch, so its commits would be lost. Check out a branch, or remove the \(kind.lowercased())."))
             }
             catch TeardownStop.noDaemon {
-                remover.recordStop(of: id, note: "Not shelved: iTerm2 isn’t connected")
-                notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).",
+                remover.recordStop(of: id, note: "Not archived: iTerm2 isn’t connected")
+                notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).",
                                               error: ActionUnavailable("iTerm2 isn’t connected, so its window couldn’t close and nothing was deleted."),
                                               subject: id))
             }
             catch TeardownStop.windowStayedOpen(let why) {
-                remover.recordStop(of: id, note: "Not shelved: its window did not close")
-                notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).", error: why, subject: id))
+                remover.recordStop(of: id, note: "Not archived: its window did not close")
+                notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).", error: why, subject: id))
             }
             catch {
-                remover.recordStop(of: id, note: "Not shelved")
-                notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).", error: error, subject: id))
+                remover.recordStop(of: id, note: "Not archived")
+                notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).", error: error, subject: id))
             }
         }
     }
@@ -104,10 +104,10 @@ final class TaskArchiver {
             // back a task whose checkout is gone, which the cleanup forgets. The row is a task again,
             // owed its window; the store is failing, so it is not flushed again.
             workspace.mutate { $0.moveFromArchive(id: task.id) }
-            throw ActionUnavailable("Its place on the shelf couldn’t be saved, so nothing was deleted.")
+            throw ActionUnavailable("Its place on the archive couldn’t be saved, so nothing was deleted.")
         }
         do {
-            // The row is on the shelf by now, so a late question goes on with the task it had.
+            // The row is on the archive by now, so a late question goes on with the task it had.
             let archived: Void? = try await teardown.run(prepared, verb: .archive, current: { $0 }) { task, force in
                 try await workflow.archive(task: task, project: project, force: force, allowUnlisted: prepared.allowUnlisted)
             }
@@ -121,7 +121,7 @@ final class TaskArchiver {
         checkouts.forget(task: task.id)
         checkouts.dropDiff(for: task.id)
         checkouts.refresh()
-        if workspace.persistenceError == nil { notices.showToast("\(task.kindName) shelved.", symbol: "tray.and.arrow.down") }
+        if workspace.persistenceError == nil { notices.showToast("\(task.kindName) archived.", symbol: "tray.and.arrow.down") }
     }
 
     // -- restore ------------------------------------------------------------------------
@@ -175,7 +175,7 @@ final class TaskArchiver {
         guard workspace.canChangeWorkspace, work.operation(onTask: id) == nil, let shown = workspace.state.archived(id: id)?.task,
               workspace.state.project(id: shown.projectId) != nil else { return nil }
         let answer = await prompter.ask(.removeTask(shown,
-            detail: "Forgets it and its conversations. Its worktree was deleted when it was shelved."
+            detail: "Forgets it and its conversations. Its worktree was deleted when it was archived."
                 + (shown.kind == .review ? " Its local branch goes too, unless it has unpushed commits." : "")))
         // As in Remove: what the answer finds is decided on the row as it is once the alert is gone.
         guard answer.confirmed, workspace.canChangeWorkspace, let task = workspace.state.archived(id: id)?.task,

@@ -271,14 +271,14 @@ import Testing
         #expect(try world.workspace.file.load().run(id: run.id)?.endedAt == clock.now)
     }
 
-    /// Remove on the Shelf: the run and its folder go, the tasks it ran — in the sidebar or shelved — stay.
+    /// Remove on the Archive: the run and its folder go, the tasks it ran — in the sidebar or archived — stay.
     @Test func forgettingAnEndedBroadcastKeepsItsTasks() async throws {
         var ended = OperatorServiceFixtures.run(projects: [project], state: .stopped)
         ended.intent = .stopped
         let live = OperatorServiceFixtures.task(in: ended, project: project, key: "PLUTO-1", state: .stopped)
-        let shelved = OperatorServiceFixtures.task(in: ended, project: project, key: "PLUTO-2", state: .published)
+        let archived = OperatorServiceFixtures.task(in: ended, project: project, key: "PLUTO-2", state: .published)
         var state = OperatorServiceFixtures.state(projects: [project], runs: [ended], tasks: [live])
-        state.archive = [ArchivedTask(task: shelved, archivedAt: Date(timeIntervalSince1970: 50))]
+        state.archive = [ArchivedTask(task: archived, archivedAt: Date(timeIntervalSince1970: 50))]
         let world = try OperatorWorld(state)
         let folder = world.controller.folder(of: ended.id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -11,12 +11,13 @@ struct SteppedSheetFrame<Content: View, Footer: View>: View {
     let step: Int
     let stepNames: [String]
     let onBackgroundTap: () -> Void
+    var onNavigate: ((Int) -> Void)? = nil
     @ViewBuilder let content: () -> Content
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
         SheetLayout(title: title, height: .fixed(height), onBackgroundTap: onBackgroundTap) {
-            SheetStepper(step: step, names: stepNames)
+            SheetStepper(step: step, names: stepNames, onSelect: onNavigate)
         } header: {
             EmptyView()
         } content: {

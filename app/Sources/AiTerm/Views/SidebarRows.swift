@@ -168,7 +168,7 @@ struct ProjectHeaderRow: View {
             Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
             if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
             Divider()
-            Button("Jira Projects…") { controller.sheets.presentJiraProjects(for: project) }
+            Button("Edit Project…") { controller.sheets.presentJiraProjects(for: project) }
                 .disabled(!controller.canChangeWorkspace)
             Divider()
             // The git operations, a group of their own. The branch is named once a pass has read it.
@@ -462,7 +462,7 @@ struct TaskRowView: View {
                 if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Shelve \(task.kindName)") { Task { await controller.archiver.archive(task: task) } }
+                Button("Archive \(task.kindName)") { Task { await controller.archiver.archive(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing || awaitsRetry)
                 Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.remover.confirmRemove(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing)
@@ -605,7 +605,7 @@ extension EnvironmentValues {
 #endif
 
 /// A quiet Jira mark and total count opening every linked project in one menu. The final
-/// "Jira Projects…" action is disabled while the workspace is locked; links remain available.
+/// "Edit Project…" action is disabled while the workspace is locked; links remain available.
 private struct ProjectJiraBadgeView: View {
     let badge: ProjectJiraBadge
     let markInk: Badge.MarkInk
@@ -618,7 +618,7 @@ private struct ProjectJiraBadgeView: View {
                 Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
             }
             Divider()
-            Button("Jira Projects…", action: editProjects).disabled(!canChangeWorkspace)
+            Button("Edit Project…", action: editProjects).disabled(!canChangeWorkspace)
         }
     }
 }
@@ -670,7 +670,7 @@ struct TaskRowAccessibility: Equatable {
     /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
     func title(of action: Action) -> String {
         switch action {
-        case .archive: "Shelve \(kindName)"
+        case .archive: "Archive \(kindName)"
         case .remove: "Remove \(kindName)"
         }
     }
@@ -709,7 +709,7 @@ struct TaskRowAccessibility: Equatable {
 /// workers stopped for a pause of yours (`TaskRow.paused`; the Operator's row too, once every task's did). The
 /// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
 /// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a
-/// removal or shelving in progress spins.
+/// removal or archiving in progress spins.
 enum TaskRowMark: Equatable {
     case status(TaskStatus), ended, pauseSign
 
@@ -786,7 +786,7 @@ struct TaskRowCaption: Equatable {
         switch removal {
         case .removing: self.init(progress: "Removing…", note: nil)
         case .closing: self.init(progress: "Closing…", note: nil)
-        case .archiving: self.init(progress: "Shelving…", note: nil)
+        case .archiving: self.init(progress: "Archiving…", note: nil)
         case .stopped(let note, _): self.init(progress: nil, note: .warning(note))
         case nil:
             if missing { self.init(progress: nil, note: .plain("Worktree missing")) }

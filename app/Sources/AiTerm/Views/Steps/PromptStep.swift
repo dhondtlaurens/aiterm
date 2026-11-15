@@ -21,7 +21,7 @@ struct PromptStep<Extra: View>: View {
     @State private var editorFocused: Bool = false
 
     init(text: @autoclosure @escaping () -> Binding<String>, agent: AgentKind, completions: PromptCompletions,
-         label: String = "First prompt (optional)", placeholder: String? = "Describe what the agent should do.", help: String? = nil,
+         label: String = "Prompt (optional)", placeholder: String? = "Describe what the agent should do.", help: String? = nil,
          @ViewBuilder extra: @escaping () -> Extra = { EmptyView() }) {
         self.text = text; self.agent = agent; self.completions = completions
         self.label = label; self.placeholder = placeholder; self.help = help; self.extra = extra

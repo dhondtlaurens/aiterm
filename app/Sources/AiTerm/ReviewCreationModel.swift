@@ -95,7 +95,7 @@ final class ReviewCreation: CreationKind {
 
     /// The reviewer's prompt carries the ticket too, when step 3's checkbox was kept.
     func composedPrompt(_ text: String, draft: ReviewDraft) -> String? {
-        AgentCommand.composePrompt(userText: text, ticket: draft.ticket, appendTicket: draft.appendTicket)
+        AgentCommand.composePrompt(userText: text, ticket: draft.ticket, appendTicket: draft.appendTicket, request: draft.mr, appendRequest: draft.appendRequest)
     }
 
     func slug(for draft: ReviewDraft) -> String { BranchNaming.reviewSlug(branch: draft.branch) }

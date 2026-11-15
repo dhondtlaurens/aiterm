@@ -49,96 +49,111 @@ final class ProjectActions {
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
     private var state: AppState { workspace.state }
 
-    // -- adding a project ---------------------------------------------------------------
-    /// The folder chooser adds the project at once: its Jira projects are linked afterwards, from
-    /// the project's context menu, and none linked means New Task searches every Jira project.
-    /// Whether the workspace can still change once a folder is picked is `addProject(path:)`'s
-    /// first question.
-    func addProject() async {
-        guard canChangeWorkspace, let url = await prompter.chooseFolder(prompt: "Add Project") else { return }
-        await addProject(path: url.path)
-    }
+    // -- adding and editing a project ---------------------------------------------------
+    var presentAdd: @MainActor (String?) async -> Void = { _ in }
+    func addProject() async { await presentAdd(nil) }
+    func addProject(path picked: String) async { await presentAdd(picked) }
+    func chooseProjectFolder() async -> URL? { await prompter.chooseFolder(prompt: "Add Project") }
 
-    /// The repository a picked folder belongs to, added with its remote, then the offer to import
-    /// its worktrees. A folder inside a repository adds the repository itself, and a toast says so;
-    /// one already in the workspace is refused. A git that cannot say whether the folder is in a
-    /// repository at all — it timed out, or would not start — adds nothing, and the banner says so.
-    func addProject(path picked: String) async {
-        guard canChangeWorkspace else { return }
-        let git = self.git
-        let inspection: (toplevel: String?, path: String, remote: String?)
-        do {
-            inspection = try await BackgroundWork.run {
-                let top = try Repository.toplevel(of: picked, git: git)
-                let path = top ?? picked
-                // A lookup that fails adds the project without a remote, which the checkout monitor's
-                // next pass finds and adopts; it is not worth refusing the folder over, nor telling
-                // anyone about. Its worktrees are still offered: a repository is `.git` without one.
-                let remote = top == nil ? nil : Log.git.attempt("Reading the remote of \(path)") { try Repository(path, git: git).remoteUrl() }
-                return (top, path, remote ?? nil)
+    private struct AlreadyAdded: LocalizedError {
+        var project: Project
+        var errorDescription: String? { "\(project.name) is already in your projects" }
+    }
+    func prepareProject(path picked: String) async throws -> ProjectPreparation {
+        let git = git
+        let inspection = try await BackgroundWork.run { () throws -> (String?, String, String?) in
+            var directory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: picked, isDirectory: &directory), directory.boolValue else {
+                throw ActionUnavailable("Choose an existing folder.")
             }
-        } catch {
-            Log.workspace.failed("Inspecting \(picked) to add it as a project", error)
-            if canChangeWorkspace { notices.report(OperationIssue(title: "Couldn’t add the project.", error: error)) }
-            return
+            let top = try Repository.toplevel(of: picked, git: git), path = top ?? picked
+            let remote = top == nil ? nil : Log.git.attempt("Reading the remote of \(path)") { try Repository(path, git: git).remoteUrl() }
+            return (top, path, remote ?? nil)
         }
-        guard canChangeWorkspace else { return }
-        let (toplevel, path, remote) = inspection
-        if let existing = state.projects.first(where: { $0.path == path }) {
-            await prompter.ask(AlertPrompt(message: "\(existing.name) is already in your projects", detail: existing.path))
-            return
-        }
-        let provider = ProviderDetector.detect(remoteUrl: remote, repoPath: toplevel == nil ? nil : path).provider
+        try Task.checkCancellation()
+        let (top, path, remote) = inspection
+        if let existing = state.projects.first(where: { $0.path == path }) { throw AlreadyAdded(project: existing) }
+        let provider = ProviderDetector.detect(remoteUrl: remote, repoPath: top == nil ? nil : path).provider
         let project = Project(id: UUID(), name: URL(fileURLWithPath: path).lastPathComponent, path: path,
                               provider: provider, remoteUrl: remote, addedAt: Date(), collapsed: false)
-        workspace.mutate { $0.append(project: project) }
-        // Its worktrees are offered for import once it is saved, and not at all if it cannot be.
-        guard workspace.flush() else { return }
-        checkouts.refresh()
-        if let toplevel, toplevel != picked { notices.showToast("Added \(project.name), the repository around the folder you picked.") }
-        await importWorktrees(for: project)
+        var prepared = ProjectPreparation(project: project, pickedPath: picked)
+        if provider != .none {
+            do {
+                let known = Set(state.tasks.map(\.worktreePath))
+                let found = try await BackgroundWork.run { () throws -> ([Worktree], String) in
+                    let repository = Repository(path, git: git)
+                    return (try repository.managedWorktrees().filter { $0.branch != nil && !known.contains($0.path) },
+                            try repository.detectDefaultBranch() ?? Repository.fallbackDefaultBranch)
+                }
+                try Task.checkCancellation()
+                prepared.worktrees = found.0; prepared.defaultBranch = found.1
+            } catch {
+                try Task.checkCancellation()
+                prepared.importIssue = OperationIssue(title: "Couldn’t check \(project.name) for worktrees to import.", error: error)
+            }
+        }
+        return prepared
     }
-
-    private func importWorktrees(for project: Project) async {
-        guard project.provider != .none else { return }
-        let git = self.git, catalogue = agents.catalogue
-        let agent = state.lastAgentByProject[project.id] ?? .claude
-        let remembered = state.lastModelByAgent[agent]
-        let imports: (found: [Worktree], detected: String?, preference: ModelPreference)
+    func reportAddFailure(_ error: any Error) async {
+        guard canChangeWorkspace else { return }
+        if let duplicate = error as? AlreadyAdded {
+            await prompter.ask(AlertPrompt(message: duplicate.localizedDescription, detail: duplicate.project.path))
+        } else { notices.report(OperationIssue(title: "Couldn’t add the project.", error: error)) }
+    }
+    func makeProjectSheet(_ preparation: ProjectPreparation, editing: Bool) -> ProjectSheetModel {
+        ProjectSheetModel(preparation: preparation, editing: editing,
+                          canChange: { [weak self] in
+                              guard let self else { return false }
+                              return self.canChangeWorkspace && (!editing || self.state.project(id: preparation.project.id) != nil)
+                          }, inspect: { [weak self] path in
+                              guard let self else { throw CancellationError() }
+                              return try await self.prepareProject(path: path)
+                          }, chooseFolder: { [weak self] in await self?.chooseProjectFolder() },
+                          loadProjects: { [weak self] in
+                              guard let self else { throw CancellationError() }
+                              return try await self.loadJiraProjects()
+                          }, commit: { [weak self] prepared, linked, imports in
+                              guard let self, self.canChangeWorkspace else { throw ActionUnavailable("The workspace can’t change right now.") }
+                              if editing {
+                                  guard self.state.project(id: prepared.project.id) != nil else { throw ActionUnavailable("The project was removed.") }
+                                  self.setJiraProjects(linked, on: prepared.project)
+                                  guard self.workspace.flush() else { throw ActionUnavailable("The project couldn’t be saved.") }
+                              } else { try await self.commitProject(prepared, linked: linked, imports: imports) }
+                          })
+    }
+    private func commitProject(_ prepared: ProjectPreparation, linked: [JiraProjectRef], imports: Bool) async throws {
+        guard canChangeWorkspace else { throw ActionUnavailable("The workspace can’t change right now.") }
+        var project = prepared.project; project.jiraProjects = linked.linkedOnce
+        if let existing = state.projects.first(where: { $0.path == project.path && $0.id != project.id }) { throw AlreadyAdded(project: existing) }
+        if state.project(id: project.id) == nil { workspace.mutate { $0.append(project: project) } }
+        else { workspace.mutate { $0.updateProject(id: project.id) { $0.jiraProjects = project.jiraProjects } } }
+        guard workspace.flush() else { throw ActionUnavailable("The project couldn’t be saved.") }
+        checkouts.refresh()
+        if prepared.pickedPath != project.path { notices.showToast("Added \(project.name), the repository around the folder you picked.") }
+        if let issue = prepared.importIssue { notices.report(issue) }
+        guard imports else { return }
+        let git = git, catalogue = agents.catalogue, projectPath = project.path
+        let agent = state.lastAgentByProject[project.id] ?? .claude, remembered = state.lastModelByAgent[agent]
         do {
-            imports = try await BackgroundWork.run {
-                let repository = Repository(project.path, git: git)
-                return (try repository.managedWorktrees(), try repository.detectDefaultBranch(),
+            // Read again on Add: worktrees and the default branch can change while the sheet is up.
+            let snapshot = try await BackgroundWork.run { () throws -> ([Worktree], String, ModelPreference) in
+                let repository = Repository(projectPath, git: git)
+                return (try repository.managedWorktrees(), try repository.detectDefaultBranch() ?? Repository.fallbackDefaultBranch,
                         ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
             }
+            guard !Task.isCancelled, canChangeWorkspace, state.project(id: project.id)?.path == project.path else { return }
+            let known = Set(state.tasks.map(\.worktreePath))
+            let imported = snapshot.0.compactMap { worktree -> TaskItem? in
+                guard let branch = worktree.branch, !known.contains(worktree.path) else { return nil }
+                return TaskItem(id: UUID(), projectId: project.id, title: branch, branch: branch, worktreePath: worktree.path,
+                                baseBranch: snapshot.1, jira: nil, kind: worktree.importedKind, agent: agent, model: snapshot.2.model,
+                                reasoning: snapshot.2.reasoning, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: nil)
+            }
+            workspace.mutate { $0.tasks += imported }
         } catch {
-            // A default branch git could not be asked for throws above, and nothing is offered: the
-            // offer is made only when the project is added, so it is not made at all rather than
-            // saving "main" into every imported task for a timeout — and the banner says it was not,
-            // unless no import could have been made by now anyway. A repository with no default
-            // branch to name is another matter.
-            Log.git.failed("Looking for worktrees to import into \(project.path)", error)
-            guard canChangeWorkspace, state.project(id: project.id) != nil else { return }
+            guard !Task.isCancelled, canChangeWorkspace, state.project(id: project.id) != nil else { return }
             notices.report(OperationIssue(title: "Couldn’t check \(project.name) for worktrees to import.", error: error))
-            return
         }
-        let (found, detected, preference) = imports
-        guard canChangeWorkspace, state.project(id: project.id) != nil, !found.isEmpty else { return }
-        let base = detected ?? Repository.fallbackDefaultBranch
-        let answer = await prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
-                                              detail: "Adds existing worktrees as tasks without starting agents.",
-                                              buttons: ["Import", "Skip"], escape: 1))
-        // Anything can run across the await, and the project can have gone.
-        guard answer.confirmed, canChangeWorkspace, state.project(id: project.id) != nil else { return }
-        let known = Set(state.tasks.map(\.worktreePath))
-        let imported = found.compactMap { worktree -> TaskItem? in
-            guard let branch = worktree.branch, !known.contains(worktree.path) else { return nil }
-            return TaskItem(id: UUID(), projectId: project.id, title: branch, branch: branch,
-                     worktreePath: worktree.path, baseBranch: base, jira: nil, kind: worktree.importedKind,
-                     agent: agent, model: preference.model,
-                     reasoning: preference.reasoning, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: nil)
-        }
-        workspace.mutate { $0.tasks += imported }
     }
 
     // -- Jira -----------------------------------------------------------------------------
@@ -291,8 +306,8 @@ final class ProjectActions {
         let forgets: String
         switch archived.count {
         case 0: forgets = ""
-        case 1: forgets = ", and forgets its shelved \(archived[0].task.kindName.lowercased())"
-        default: forgets = ", and forgets its \(archived.count) shelved tasks and reviews"
+        case 1: forgets = ", and forgets its archived \(archived[0].task.kindName.lowercased())"
+        default: forgets = ", and forgets its \(archived.count) archived tasks and reviews"
         }
         if tasks == 0 { return "Removes the project from AiTerm\(forgets). Files are kept and terminal windows stay open." }
         let kept = archived.isEmpty ? "Files, worktrees and windows are kept." : "Files, branches, worktrees and windows are kept."
@@ -316,7 +331,7 @@ final class ProjectActions {
         // An archived row's archive, restore or removal lands back in its project, or saves a row whose
         // project would be gone.
         if state.archived(projectId: project.id).contains(where: { work.operation(onTask: $0.id) != nil }) {
-            return "One of its shelved tasks is still being shelved, restored or removed."
+            return "One of its archived tasks is still being archived, restored or removed."
         }
         return nil
     }

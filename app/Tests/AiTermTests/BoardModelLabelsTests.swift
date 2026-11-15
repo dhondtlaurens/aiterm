@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The board's cards name a model as Settings › Agents lists it (broadcast setup v2, 14A): the rows read the agents' labels
-/// off the main actor each time the board's sheet or the Shelf's opens, and the board is derived again with them.
+/// off the main actor each time the board's sheet or the Archive's opens, and the board is derived again with them.
 @MainActor
 struct BoardModelLabelsTests {
     /// Whether the board's sheet shows, as a test flips it.
@@ -29,7 +29,7 @@ struct BoardModelLabelsTests {
         #expect(provider.modelTooltip?.hasPrefix("Codex · gpt-6-astra · medium") == true, "no Codex label read: its id")
     }
 
-    /// The Shelf's sheet reads them as it opens too: its cards name the models as the live board's do.
+    /// The Archive's sheet reads them as it opens too: its cards name the models as the live board's do.
     @Test func theLabelsAreReadAsTheShelfsSheetOpens() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
@@ -40,6 +40,6 @@ struct BoardModelLabelsTests {
         controller.presentShelved(run: ended.id)
         await controller.rows.labelLoad?.value
         #expect(controller.rows.modelLabels == [.claude: ["claude-opus-5-5": "Opus 5.5"]])
-        #expect(controller.rows.board == nil, "the live board isn't derived for the Shelf's sheet")
+        #expect(controller.rows.board == nil, "the live board isn't derived for the Archive's sheet")
     }
 }

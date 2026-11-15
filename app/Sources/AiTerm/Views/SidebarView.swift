@@ -429,11 +429,7 @@ struct SidebarSheet: View {
         // not grow, so a scaled sheet's fields would outgrow them.
         Group {
             switch kind {
-                case .jiraProjects(let project):
-                    JiraProjectSheet(projectName: project.name, linked: project.jiraProjects,
-                                     canSubmit: controller.canChangeWorkspace,
-                                     loadProjects: controller.projects.loadJiraProjects,
-                                     submit: { controller.projects.setJiraProjects($0, on: project) })
+                case .project(let model): ProjectSheet(model: model)
                 case .newTask(let model): NewTaskSheet(model: model)
                 case .newReview(let model): NewReviewSheet(model: model)
                 case .newTerminal(let project, let name, let branch): NameSheet.newTerminal(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.terminals.newTerminal(project: project, name: $0) })

@@ -221,7 +221,7 @@ extension OperatorController {
     }
 
     /// End Broadcast (spec §9, §13), early or once complete: your stop, persisted first with when, for the
-    /// Shelf — one that cannot be saved is taken back and nothing else is done. The tasks that never started are dropped, their rows
+    /// Archive — one that cannot be saved is taken back and nothing else is done. The tasks that never started are dropped, their rows
     /// gone with them: they have no worktree and no window. Those started and still open end `stopped` and
     /// are yours, as after a takeover: their ownership moves on, so nothing the Operator queued lands, and
     /// an agent mid-turn is never interrupted but finishes it. Its second opinions are cancelled, its
@@ -253,15 +253,15 @@ extension OperatorController {
         await windows.closeIfOnlyItsOperator(id, daemon: daemon)
     }
 
-    /// Remove on the Shelf: an ended broadcast forgotten — saved first, one that cannot be saved taken back and
+    /// Remove on the Archive: an ended broadcast forgotten — saved first, one that cannot be saved taken back and
     /// nothing else done — then its run folder deleted off the main actor, `activity.jsonl` and the brief with it, once the
     /// lines already on their way to it have landed, so none makes the folder again.
-    /// Its tasks are not touched: those in the sidebar and those shelved stay where they are, each still naming
+    /// Its tasks are not touched: those in the sidebar and those archived stay where they are, each still naming
     /// the run. Refused for a broadcast that has not ended.
     func forget(run id: UUID) async throws {
         guard let run = self.run(id: id) else { return }
-        guard run.hasEnded else { throw ActionUnavailable("Only an ended broadcast can be removed from the Shelf.") }
-        try savedOrTakenBack("The removal couldn’t be saved, so the broadcast was left on the Shelf.") { state in
+        guard run.hasEnded else { throw ActionUnavailable("Only an ended broadcast can be removed from the Archive.") }
+        try savedOrTakenBack("The removal couldn’t be saved, so the broadcast was left on the Archive.") { state in
             state.runs.removeAll { $0.id == id }
             state.foldedRuns.remove(id)
         }

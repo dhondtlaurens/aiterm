@@ -231,23 +231,19 @@ import Testing
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
     }
 
-    /// Adding a project asks whether to import its worktrees. If the project goes while that is
-    /// asked, nothing is imported: a task whose project is gone fails every save.
-    @Test func worktreesAreNotImportedIntoAProjectRemovedDuringTheAlert() async throws {
-        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
+    /// Cancelling the combined project sheet creates neither a project nor imported tasks.
+    @Test func cancellingProjectCreationDoesNotImportItsWorktrees() async throws {
+        let fixture = try await RaceFixture()
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         controller.workspace.mutate { $0.items = [] }
         #expect(controller.workspace.flush())
         try fixture.git.run(["worktree", "add", "-q", "-b", "feat/old", fixture.repo.path + "/.worktrees/old"], in: fixture.repo.path)
-        fixture.prompter.whileAsking = { _ in
-            if let added = controller.state.projects.first { controller.workspace.mutate { $0.removeItem(id: added.id) } }
-        }
-
         await controller.projects.addProject(path: fixture.repo.path)
-
-        #expect(fixture.prompter.asked.map(\.message) == ["Import 1 worktree?"])
-        #expect(controller.state.tasks.isEmpty)
+        #expect(controller.sheet != nil)
+        controller.sheet = nil
+        #expect(fixture.prompter.asked.isEmpty)
+        #expect(controller.state.projects.isEmpty && controller.state.tasks.isEmpty)
         #expect(controller.workspace.flush())
     }
 

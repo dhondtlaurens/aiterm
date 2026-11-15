@@ -142,17 +142,11 @@ public enum AgentCommand {
         Log.git.attempt("Adding .aiterm/ to \(excludeURL.path)") { try ExcludeFile.append(".aiterm/", to: excludeURL) }
     }
 
-    public static func composePrompt(userText: String?, ticket: JiraTicket?, appendTicket: Bool) -> String? {
-        var blocks: [String] = []
-        if let t = userText?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { blocks.append(t) }
-        if appendTicket, let ticket {
-            let number = ticket.issueNumber
-            var block = (number == nil ? "" : "GitLab issue ") + "\(ticket.key): \(ticket.summary)"
-            if let d = ticket.description?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty { block += "\n\n" + d }
-            // GitLab links and closes the issue from its merge request's description.
-            if let number { block += "\n\nPut `Closes #\(number)` in the merge request’s description." }
-            blocks.append(block)
-        }
-        return blocks.isEmpty ? nil : blocks.joined(separator: "\n\n")
+    public static func composePrompt(userText: String?, ticket: JiraTicket?, appendTicket: Bool,
+                                     request: MergeRequest? = nil, appendRequest: Bool = false) -> String? {
+        let prompt = SignalWork(prompt: userText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                                ticketDescription: appendTicket, requestDescription: appendRequest)
+            .workerPrompt(ticket: ticket?.description, request: request?.description)
+        return prompt.isEmpty ? nil : prompt
     }
 }

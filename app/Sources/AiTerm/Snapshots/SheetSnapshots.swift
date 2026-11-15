@@ -15,9 +15,10 @@ enum SheetSnapshots {
             Snapshot("step1-picked.png") { taskSheet(step: 1, draft: picked(), ticketsOpen: true) },
             // A project whose .worktreeinclude selects files: the checkbox above the destination line.
             Snapshot("step1-worktreeinclude.png") {
-                taskSheet(step: 1, draft: picked(), worktreeIncludes: [".env", "certs/dev.pem"])
+                taskSheet(step: 2, draft: picked(), worktreeIncludes: [".env", "certs/dev.pem"])
             },
-            Snapshot("step2-agent.png") { taskSheet(step: 2, draft: picked()) },
+            Snapshot("step2-name-branch.png") { taskSheet(step: 2, draft: picked()) },
+            Snapshot("step4-agent.png") { taskSheet(step: 4, draft: picked()) },
             Snapshot("step3-prompt.png") {
                 var draft = picked()
                 draft.promptText = "/superpowers:brainstorming\nStart with the worker's shutdown path and the queue drain."
@@ -57,20 +58,21 @@ enum SheetSnapshots {
                     $0.promptText = "/code-review"
                 }
             },
-            Snapshot("review-step2.png") { reviewSheet(step: 2) },
+            Snapshot("review-step2.png") { reviewSheet(step: 2) { $0.draft.apply(mr: mergeRequests[0]) } },
+            Snapshot("review-step4.png") { reviewSheet(step: 4) { $0.draft.apply(mr: mergeRequests[0]) } },
             // Step 3 is reached only with a branch, which its destination line names.
             Snapshot("review-step3.png") { reviewSheet(step: 3) { $0.draft.apply(mr: mergeRequests[0]) } },
             // A branch that is already a task's: the sheet says the review opens there.
             Snapshot("review-in-task.png") {
                 let working = Fixture().working
-                return reviewSheet(step: 1, owner: working) {
+                return reviewSheet(step: 4, owner: working) {
                     $0.draft.setTitle(working.title)
                     $0.draft.setBranch(working.branch)
                 }
             },
             // A review that gets a worktree of its own offers the same checkbox.
             Snapshot("review-step1-worktreeinclude.png") {
-                reviewSheet(step: 1) {
+                reviewSheet(step: 2) {
                     $0.draft.apply(mr: mergeRequests[0])
                     $0.worktreeIncludes = [".env", "certs/dev.pem"]
                 }
@@ -175,7 +177,7 @@ enum SheetSnapshots {
         JiraTicket(key: "PAY-214", summary: "Add Apple Pay to the checkout flow", description: nil, issueType: "Story", status: "In Progress", url: "u"),
         JiraTicket(key: "SHOP-1711", summary: "Migrate the storefront to a monorepo", description: nil, issueType: "Task", status: "DEV", url: "u"),
         JiraTicket(key: "SHOP-1731", summary: "Add customer reviews to the product page", description: nil, issueType: "Story", status: "DEV", url: "u"),
-        JiraTicket(key: "PAY-230", summary: "Retry failed payment webhooks with backoff", description: nil, issueType: "Task", status: "In Progress", url: "u"),
+        JiraTicket(key: "PAY-230", summary: "Retry failed payment webhooks with backoff", description: "Retry with exponential backoff; leave permanent failures for an operator.", issueType: "Task", status: "In Progress", url: "u"),
         JiraTicket(key: "SHOP-1088", summary: "Cut product page load time in half", description: nil, issueType: "Task", status: "In Progress", url: "u"),
         JiraTicket(key: "SHOP-1640", summary: "Fix the storefront's Lighthouse accessibility score", description: nil, issueType: "Bug", status: "To Do", url: "u"),
     ]
@@ -193,16 +195,16 @@ enum SheetSnapshots {
     ]
 
     /// The ticket New Review's states start from: its merge request is `mergeRequests[1]`.
-    static let reviewTicket = JiraTicket(key: "SHOP-1720", summary: "Drop the unused CDN origin", description: nil,
+    static let reviewTicket = JiraTicket(key: "SHOP-1720", summary: "Drop the unused CDN origin", description: "Remove the unused origin after confirming traffic has moved.",
                                          issueType: "Task", status: "Review", url: "u")
 
     static let mergeRequests = [
         MergeRequest(iid: 4, title: "Add a gift-card field to checkout", sourceBranch: "feat-gift-card",
                      targetBranch: "main", author: "Sam Rivera", state: "opened", draft: false,
-                     url: "https://git.example.net/acme/storefront/-/merge_requests/4"),
+                     url: "https://git.example.net/acme/storefront/-/merge_requests/4", description: "Add a gift-card field and validate its code before applying it."),
         MergeRequest(iid: 7, title: "Drop the unused CDN origin", sourceBranch: "chore-drop-cdn-origin",
                      targetBranch: "main", author: "Alex Kim", state: "opened", draft: true,
-                     url: "https://git.example.net/acme/storefront/-/merge_requests/7"),
+                     url: "https://git.example.net/acme/storefront/-/merge_requests/7", description: "Remove the obsolete CDN origin from the deployment configuration."),
     ]
 
     /// A new task's draft on Claude Code and the first model of the bare home's catalogue. Built

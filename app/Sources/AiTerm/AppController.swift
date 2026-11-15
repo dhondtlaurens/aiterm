@@ -185,9 +185,14 @@ final class AppController {
         helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
         let fixPipeline = ports.fixPipeline ?? { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
         self.fixPipeline = fixPipeline
-        sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
+        sheets = SheetCoordinator(projects: projects, workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher, workflow: workflow, defaults: preferences.defaults, fixPipeline: fixPipeline)
+        projects.presentAdd = { [weak sheets] path in
+            guard let sheets else { return }
+            sheets.presentAddProject(path: path)
+            await sheets.preparingSheet?.value
+        }
         // The connections as Settings saved them, read once per pass: a test's are none, so it
         // reads nothing from either host.
         reviewThreads = ReviewThreadsWatcher(workspace: workspace, focus: focus,

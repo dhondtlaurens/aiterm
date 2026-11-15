@@ -1,210 +1,115 @@
-import AppKit
 import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Review's three steps: Branch, Agent, Prompt. A review checks out a branch that already
-/// exists — optionally the source branch of a merge request — instead of creating one, so step 1
-/// picks rather than derives, and there is no base branch to choose. Its merge request and its
-/// ticket fill each other: picking one looks the other up, and the field it filled says so.
 struct NewReviewSheet: View {
     @Bindable var model: ReviewCreationModel
-    @State private var step: Int = 1
-    @State private var mrOpen: Bool = false
-    @State private var branchOpen: Bool = false
-    @State private var ticketsOpen: Bool = false
+    @State private var step = 1
+    @State private var mrOpen = false
+    @State private var branchOpen = false
+    @State private var ticketsOpen = false
     init(model: ReviewCreationModel) { self.model = model }
-
-    /// ⎋ closes the merge request list first, then the ticket list, then the branch list, and only
-    /// then steps back.
     var body: some View {
         CreationSheet(model: model, step: $step, title: "New review in \(model.project.name)",
-                      stepNames: ["Branch", "Agent", "Prompt"],
-                      destination: Self.destination(step: step, project: model.project, owner: model.owningTask,
-                                                    slug: model.worktreeSlug, branch: model.draft.branch),
+                      stepNames: ["Merge request", "Name and branch", "Prompt", "Agent"],
+                      destination: Self.destination(step: step, project: model.project, owner: model.owningTask, slug: model.worktreeSlug, branch: model.draft.branch),
                       createLabel: Self.createLabel(owner: model.owningTask), canAdvance: Self.canAdvance(step: step, model: model),
-                      pickers: [$mrOpen, $ticketsOpen, $branchOpen]) {
-            content
-        }
-        .task { await model.loadCheckouts() }
-        .task { await model.searchTickets(text: "") }
-        // The ticket's lookup found several requests: the list opens on them.
-        .onChange(of: model.requestListOffers) { mrOpen = true }
+                      pickers: [$mrOpen, $ticketsOpen, $branchOpen]) { content }
+            .task { await model.loadCheckouts() }
+            .task { await model.searchTickets(text: "") }
+            .onChange(of: model.requestListOffers) { mrOpen = true }
     }
-
     @ViewBuilder private var content: some View {
         switch step {
         case 1: NewReviewFirstStep(model: model, mrOpen: $mrOpen, branchOpen: $branchOpen, ticketsOpen: $ticketsOpen)
-        case 2: AgentStep(model: model)
-        default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
-            if model.draft.ticket != nil {
-                Toggle("Include ticket details", isOn: $model.draft.appendTicket)
-                    .toggleStyle(.checkbox).font(Typography.body)
+        case 2: NewReviewNamingStep(model: model, branchOpen: $branchOpen)
+        case 3:
+            PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
+                if model.draft.mr?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    DescriptionToggle("Add the merge request’s description", isOn: $model.draft.appendRequest,
+                                      help: "It goes to the agent under your prompt.")
+                }
+                if model.draft.ticket?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    DescriptionToggle("Add the ticket’s description", isOn: $model.draft.appendTicket,
+                                      help: "When it has one, under the merge request’s.")
+                }
             }
-        }
+        default: AgentStep(model: model)
         }
     }
-
-    // -- what the scaffold is handed ------------------------------------------------
-
-    /// Step 1 needs both a name and a branch. A review derives neither — there is nothing to fall
-    /// back on if the branch is blank, unlike a task whose branch follows its title.
     static func canAdvance(step: Int, title: String, branch: String, creating: Bool) -> Bool {
-        guard !creating else { return false }
-        let named = TaskCreator.isNamed(title)
-        guard step == 1 else { return named }
-        return named && !branch.trimmingCharacters(in: .whitespaces).isEmpty
+        !creating && (step == 1 || (TaskCreator.isNamed(title) && !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
     }
-
-    /// The rule above, and past step 1 an agent that can run.
     static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
-        guard canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating) else { return false }
-        return step == 1 || model.agentIsReady
+        canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating)
+            && (step != ReviewCreation.steps.agentStep || model.agentIsReady)
     }
-
-    // A branch that is already a task's opens in that task (see `TaskLauncher.createReview`), and
-    // each of these says so before anything is created — never a surprise after.
-
-    /// Where the review opens, on steps 1 and 3, once it has a branch: the task that already has it,
-    /// or a new worktree. `slug` is read only when the new worktree is named — finding the unused
-    /// slug looks at the disk.
-    static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String,
-                            branch: String) -> Destination? {
+    static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String, branch: String) -> Destination? {
         guard ReviewCreation.steps.showsDestination(onStep: step), !branch.isEmpty else { return nil }
         if let owner { return .existing(owner) }
         return .worktree(project: project, slug: slug(), branch: branch)
     }
-
     static func createLabel(owner: TaskItem?) -> String { owner.map { "Open in \($0.kindName)" } ?? "Create Review" }
-
-    /// What step 1's checkbox offers: the project's `.worktreeinclude` files, or none when the
-    /// review opens in `owner`, the task that already has its branch — no worktree is made there.
     static func worktreeIncludes(_ files: [String], owner: TaskItem?) -> [String] { owner == nil ? files : [] }
 }
 
 #if DEBUG
 extension NewReviewSheet {
-    /// The sheet already on `step`, with its lists open or not: what only clicks reach in the app,
-    /// for the snapshots and the tests that host the sheet.
     func seeded(step: Int, mergeRequestsOpen: Bool = false, branchesOpen: Bool = false, ticketsOpen: Bool = false) -> Self {
-        var sheet = self
-        sheet._step = State(initialValue: step)
-        sheet._mrOpen = State(initialValue: mergeRequestsOpen)
-        sheet._branchOpen = State(initialValue: branchesOpen)
-        sheet._ticketsOpen = State(initialValue: ticketsOpen)
-        return sheet
+        var sheet = self; sheet._step = State(initialValue: step); sheet._mrOpen = State(initialValue: mergeRequestsOpen)
+        sheet._branchOpen = State(initialValue: branchesOpen); sheet._ticketsOpen = State(initialValue: ticketsOpen); return sheet
     }
 }
 #endif
 
-/// Step one's branch and ticket derivations belong to this leaf, apart from the frame's footer and destination.
 struct NewReviewFirstStep: View {
     @Bindable var model: ReviewCreationModel
     @Binding var mrOpen: Bool
     @Binding var branchOpen: Bool
     @Binding var ticketsOpen: Bool
-
-    // -- step 1: branch -------------------------------------------------------------
-
     var body: some View {
         FrontToBackStack(spacing: Space.block) {
             FormField(model.codeHost.reviewField) {
-                SearchPicker(placeholder: model.codeHost.reviewPlaceholder,
-                             query: Binding(get: { model.query }, set: { model.setQuery($0) }),
-                             open: $mrOpen,
-                             items: model.results, selection: model.draft.mr,
-                             row: mrRow, selected: selectedMR,
-                             onPick: { mr in model.pick(mr) },
-                             toggleHelp: { $0 ? "Hide \(model.codeHost.reviewNoun)s" : "Show open \(model.codeHost.reviewNoun)s" })
-                if let message = model.pickRefusal ?? model.searchError {
-                    HelpText(message, tone: .warning)
-                } else if let key = model.draft.mrFoundFrom {
-                    HelpText("Found from \(key).")
-                } else if let note = model.ticketLookupNote {
-                    HelpText(note)
-                } else if model.draft.mr == nil {
-                    // As New Task guards its ticket help line: an instruction to pick one reads
-                    // wrong sitting under one already picked.
-                    HelpText(model.codeHost.reviewHint)
-                }
+                ChipsPicker(placeholder: model.codeHost.reviewPlaceholder, picks: model.draft.mr.map { [$0] } ?? [], open: $mrOpen,
+                            matches: { _ in model.results }, mark: { .brand($0.host.brand) }, label: { $0.reference + " · " + $0.title },
+                            row: { PickerResultRow(mark: .brand($0.host.brand), key: $0.reference, keyWidth: Size.pickerRequestKey, title: $0.title, detail: $0.lane) },
+                            onPick: { model.pick($0) }, onRemove: { _ in model.clearPick(); model.reopenSearch(); mrOpen = true },
+                            query: Binding(get: { model.query }, set: { model.setQuery($0) }), selectionLimit: 1)
+                if let error = model.pickRefusal ?? model.searchError { HelpText(error, tone: .warning) }
+                else if let note = model.ticketLookupNote { HelpText(note) }
+                else { HelpText("It fills in the name and branch. Empty: pick a branch on the next step.") }
             }
-
             FormField("Ticket (optional)") {
                 TicketPickerField(placeholder: model.ticketPlaceholder,
                                   query: Binding(get: { model.ticketQuery }, set: { model.setTicketQuery($0) }),
                                   open: $ticketsOpen, items: model.ticketResults, selection: model.draft.ticket,
                                   onPick: { model.pickTicket($0) },
                                   onClear: { model.clearTicket(); model.reopenTicketSearch(); ticketsOpen = true })
-                if let reference = model.draft.ticketFoundFrom {
-                    HelpText("Found from \(reference).")
-                } else if model.draft.ticket == nil {
-                    if let message = model.ticketSearchError {
-                        HelpText(message, tone: .warning)
-                    } else {
-                        HelpText("Select a ticket to find its \(model.codeHost.reviewNoun).")
-                    }
-                }
+                if let error = model.ticketSearchError { HelpText(error, tone: .warning) }
+                else { HelpText("A ticket finds its merge request. Empty: continue without a ticket.") }
             }
+        }
+    }
+}
 
-            FormField("Review name") {
+struct NewReviewNamingStep: View {
+    @Bindable var model: ReviewCreationModel
+    @Binding var branchOpen: Bool
+    var body: some View {
+        FrontToBackStack(spacing: Space.block) {
+            FormField("Name") {
                 Input(placeholder: "Describe the review", text: Binding(get: { model.draft.title }, set: { model.draft.setTitle($0) }))
+                HelpText("Its name in the sidebar.")
             }
-
             FormField("Branch") {
-                SearchPicker(placeholder: "Search branches",
-                             query: $model.branchQuery,
-                             open: $branchOpen,
-                             items: model.branchMatches.map(BranchChoice.init),
-                             selection: model.draft.branch.isEmpty ? nil : BranchChoice(model.draft.branch),
-                             row: { BranchResultRow(name: $0.name) },
-                             selected: selectedBranch,
-                             onPick: { choice in model.draft.setBranch(choice.name) },
-                             toggleHelp: { $0 ? "Hide branches" : "Show all branches" })
+                BranchInput(text: Binding(get: { model.draft.branch }, set: { model.draft.setBranch($0); model.branchQuery = $0 }),
+                            open: $branchOpen, choices: model.branchMatches)
+                if model.branchesLoaded && !model.draft.branch.isEmpty && !model.branches.contains(model.draft.branch) {
+                    HelpText("That branch doesn’t exist in this repository.", tone: .warning)
+                } else { HelpText("An existing branch. AiTerm checks it out for the review.") }
             }
-
-            // As New Task's: the step's last field, above the destination line — and only when
-            // the review gets a worktree of its own.
             let includes = NewReviewSheet.worktreeIncludes(model.worktreeIncludes, owner: model.owningTask)
-            if !includes.isEmpty {
-                WorktreeIncludeToggle(files: includes, isOn: $model.draft.copiesWorktreeInclude)
-            }
+            if !includes.isEmpty { WorktreeIncludeToggle(files: includes, isOn: $model.draft.copiesWorktreeInclude) }
         }
     }
-
-    /// `SearchPicker` keys on `Identifiable`; a branch is a bare `String`, so it travels wrapped.
-    private struct BranchChoice: Identifiable, Equatable {
-        let name: String
-        var id: String { name }
-        init(_ name: String) { self.name = name }
-    }
-
-    /// A branch in the results, in the ink of the ground its row declares.
-    private struct BranchResultRow: View {
-        let name: String
-        @Environment(\.surface) private var surface
-
-        var body: some View {
-            Text(name).font(Typography.monoCode).foregroundStyle(surface.ink).lineLimit(1)
-        }
-    }
-
-    private func mrRow(_ mr: MergeRequest) -> some View {
-        PickerResultRow(mark: .brand(mr.host.brand), key: mr.reference, keyWidth: Size.pickerRequestKey,
-                        title: mr.title, detail: mr.lane)
-    }
-
-    private func selectedMR(_ mr: MergeRequest) -> some View {
-        PickedItemField(mark: .brand(mr.host.brand), key: mr.reference, title: mr.title, trailing: {
-            LaneChip(lane: mr.lane, brand: mr.host.brand, ink: mr.host.brand.color)
-        }, clearHelp: "Clear \(model.codeHost.reviewNoun)") {
-            model.clearPick(); model.reopenSearch(); mrOpen = true
-        }
-    }
-
-    private func selectedBranch(_ choice: BranchChoice) -> some View {
-        PickedItemField(title: choice.name, monospaced: true, clearHelp: "Change branch") {
-            model.draft.setBranch(""); model.branchQuery = ""; branchOpen = true
-        }
-    }
-
 }

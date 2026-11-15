@@ -8,7 +8,7 @@ import AiTermUI
 
 /// These host each real call site and read its button through AppKit's accessibility tree.
 @MainActor @Suite(.serialized) struct PickerClearAccessibilityTests {
-    enum Copy { case taskTicket, reviewTicket, mergeRequest, pullRequest, branch, linkedProject, chip }
+    enum Copy { case taskTicket, reviewTicket, mergeRequest, pullRequest, linkedProject, chip }
 
     private let ticket = JiraTicket(key: "PAY-231", summary: "Cart drawer", description: nil,
                                     issueType: "Task", status: "Review", url: "https://example/PAY-231")
@@ -20,11 +20,10 @@ import AiTermUI
             draft.apply(ticket: ticket)
             let model = TaskCreationModel(project: .make(), draft: draft, context: .scratch(git: NoPickerGit()),
                                           searchIssues: { _ in [] }, createTask: { _ in })
-            return (AnyView(NewTaskSheet(model: model)), "Clear ticket")
-        case .reviewTicket, .mergeRequest, .pullRequest, .branch:
+            return (AnyView(NewTaskSheet(model: model)), "Remove PAY-231 · Cart drawer")
+        case .reviewTicket, .mergeRequest, .pullRequest:
             var draft = ReviewDraft(mr: nil, agent: .claude, model: "m", reasoning: nil)
             if copy == .reviewTicket { draft.apply(ticket: ticket) }
-            if copy == .branch { draft.setBranch("feat/cart") }
             let host: CodeHost = copy == .pullRequest ? .gitHub : .gitLab
             if copy == .mergeRequest || copy == .pullRequest {
                 draft.apply(mr: MergeRequest(iid: 7, title: "Cart drawer", sourceBranch: "feat/cart", targetBranch: "main",
@@ -33,12 +32,14 @@ import AiTermUI
             }
             let model = ReviewCreationModel(project: .make(), draft: draft, context: .scratch(git: NoPickerGit()),
                                             codeHost: host, searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
-            let help = copy == .reviewTicket ? "Clear ticket" : copy == .branch ? "Change branch" : "Clear \(host.reviewNoun)"
+            let help = copy == .reviewTicket ? "Remove PAY-231 · Cart drawer" : "Remove \(host.reference(7)) · Cart drawer"
             return (AnyView(NewReviewSheet(model: model)), help)
         case .linkedProject:
             let project = JiraProjectRef(id: "1", key: "PAY", name: "Payments", siteURL: URL(string: "https://example.atlassian.net")!)
-            return (AnyView(JiraProjectSheet(projectName: "Shop", linked: [project], canSubmit: true,
-                                            loadProjects: { [] }, submit: { _ in })), "Unlink PAY")
+            let preparation = ProjectPreparation(project: .make(name: "Shop", jiraProjects: [project]))
+            let model = ProjectSheetModel(preparation: preparation, editing: true, canChange: { true }, inspect: { _ in preparation },
+                                          chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in })
+            return (AnyView(ProjectSheet(model: model)), "Remove PAY · Payments")
         case .chip:
             return (AnyView(PickChip(mark: .brand(Palette.jira), label: "PAY · Payments", remove: {})), "Remove PAY · Payments")
         }
@@ -122,7 +123,6 @@ import AiTermUI
     @Test func theNewReviewTicketClearButtonNamesItsAction() throws { try check(.reviewTicket) }
     @Test func theMergeRequestClearButtonNamesItsAction() throws { try check(.mergeRequest) }
     @Test func thePullRequestClearButtonNamesItsAction() throws { try check(.pullRequest) }
-    @Test func theBranchClearButtonNamesItsAction() throws { try check(.branch) }
     @Test func theLinkedProjectClearButtonNamesItsAction() throws { try check(.linkedProject) }
     @Test func thePickChipKeepsItsExistingLabel() throws { try check(.chip) }
 }

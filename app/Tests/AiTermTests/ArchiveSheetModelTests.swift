@@ -68,7 +68,7 @@ import Testing
 
     @Test func theStatusCountsTheArchiveOrTheMatches() {
         let model = ArchiveSheetModel(entries: { [self.entry("Alpha", at: 1), self.entry("Beta", at: 2)] }, restore: { _ in }, open: { _ in }, remove: { _ in })
-        #expect(model.projection.status == "2 shelved")
+        #expect(model.projection.status == "2 archived")
         model.query = "alp"
         #expect(model.projection.status == "1 of 2")
     }
@@ -81,7 +81,7 @@ import Testing
         guard case .archive = controller.sheet else { Issue.record("no archive sheet"); return }
         #expect(!controller.canPresentArchive, "not over another sheet")
     }
-    /// An ended broadcast is on the Shelf, and Open puts its sheet in the Shelf's place; the live one is not.
+    /// An ended broadcast is on the Archive, and Open puts its sheet in the Archive's place; the live one is not.
     @Test func anEndedBroadcastOpensFromTheShelfInItsPlace() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
@@ -92,11 +92,11 @@ import Testing
         guard case .archive(let model) = controller.sheet else { Issue.record("no archive sheet"); return }
         #expect(model.projection.rows.map(\.id) == [ended.id])
         #expect(model.performHighlighted())
-        guard case .shelvedBroadcast(let id)? = controller.sheet else { Issue.record("no shelved broadcast"); return }
+        guard case .shelvedBroadcast(let id)? = controller.sheet else { Issue.record("no archived broadcast"); return }
         #expect(id == ended.id && controller.sheet?.id == "shelved-\(ended.id)")
         controller.sheet = nil
         controller.presentShelved(run: live.id)
-        #expect(controller.sheet == nil, "the live broadcast opens from the sidebar, not the Shelf")
+        #expect(controller.sheet == nil, "the live broadcast opens from the sidebar, not the Archive")
     }
 
     /// Remove on an ended broadcast asks first, then forgets it; Cancel keeps it.
@@ -110,7 +110,7 @@ import Testing
         #expect(await !controller.confirmRemoveShelved(ended.id))
         #expect(controller.state.runs.map(\.id) == [ended.id], "cancelled")
         let asked = try #require(prompter.asked.first)
-        #expect(asked == AlertPrompt(message: "Remove “Sprint 41” from the Shelf?",
+        #expect(asked == AlertPrompt(message: "Remove “Sprint 41” from the Archive?",
                                      detail: "Its activity log and summary are deleted. Its tasks stay where they are.",
                                      buttons: ["Remove", "Cancel"], defaultDeletes: true))
         #expect(await controller.confirmRemoveShelved(ended.id))

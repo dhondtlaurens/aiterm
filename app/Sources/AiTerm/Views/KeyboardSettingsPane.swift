@@ -16,7 +16,7 @@ struct KeyBinding: Equatable, Identifiable {
     private static let spokenNames = [
         "⌘": "Command", "⇧": "Shift", "⌥": "Option", "⌃": "Control", "↩": "Return", "⎋": "Escape",
         "⌫": "Delete", "⇥": "Tab", "↑": "Up Arrow", "↓": "Down Arrow", "←": "Left Arrow", "→": "Right Arrow",
-        "−": "minus", "+": "plus", "1–4": "1 to 4", "1–3": "1 to 3",
+        "−": "minus", "+": "plus", "1–4": "1 to 4", "1–3": "1 to 3", "1–5": "1 to 5",
     ]
 }
 
@@ -40,7 +40,7 @@ enum KeyBindings {
                         bindings: [KeyBinding(action: "Switch between AiTerm and iTerm2", keys: ["⌘", "⇥"])]),
         // Each row is a menu item, titled verbatim: File's, View's, then the AiTerm menu's, each in
         // its menu's order.
-        KeyBindingGroup(title: "Anywhere in AiTerm", help: "The menu bar’s keys.", bindings: [
+        KeyBindingGroup(title: "Anywhere in AiTerm", help: "The menu bar’s keys. ⌘A opens the Archive outside a text field.", bindings: [
             KeyBinding(action: "Add Project…", keys: ["⌘", "P"]),
             KeyBinding(action: "Add Divider…", keys: ["⌘", "D"]),
             KeyBinding(action: "New Task…", keys: ["⌘", "N"]),
@@ -52,7 +52,7 @@ enum KeyBindings {
             KeyBinding(action: "Actual Size", keys: ["⌘", "0"]),
             KeyBinding(action: "Focus View", keys: ["⌘", "F"]),
             KeyBinding(action: "List View", keys: ["⌘", "L"]),
-            KeyBinding(action: "Show Shelf", keys: ["⌘", "S"]),
+            KeyBinding(action: "Show Archive", keys: ["⌘", "A"]),
             KeyBinding(action: "Unplugged", keys: ["⌘", "U"]),
             KeyBinding(action: "Settings…", keys: ["⌘", ","]),
             KeyBinding(action: "Hide AiTerm", keys: ["⌘", "H"]),
@@ -64,13 +64,14 @@ enum KeyBindings {
             KeyBinding(action: "Go to the row’s window, fold or open a project or the broadcast’s group, or open an empty project’s menu", keys: ["↩"]),
             KeyBinding(action: "Remove the task, review or terminal", keys: ["⌘", "⌫"]),
         ]),
-        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf, Settings, New Broadcast and a broadcast’s board.", bindings: [
+        KeyBindingGroup(title: "Sheets", help: "New Task, New Review, New Terminal, Add Project, Edit Project, Add Divider, Rename, Archive, Settings, New Broadcast and a broadcast’s board.", bindings: [
+            KeyBinding(action: "Go to a completed creation step", keys: ["⌘", "1–5"]),
             KeyBinding(action: "Continue, create or save", keys: ["⌘", "↩"]),
             KeyBinding(action: "Back a step, or close", keys: ["⎋"]),
             // One row for the four: the tabs are numbered in the order the tab bar draws them.
             KeyBinding(action: "Switch Settings tabs", keys: ["⌘", "1–4"]),
             KeyBinding(action: "Switch the broadcast’s board tabs", keys: ["⌘", "1–3"]),
-            KeyBinding(action: "Remove the selected Shelf item", keys: ["⌘", "⌫"]),
+            KeyBinding(action: "Remove the selected Archive item", keys: ["⌘", "⌫"]),
         ]),
         KeyBindingGroup(title: "Lists and the prompt", help: "A picker’s results, and the prompt’s completions.", bindings: [
             KeyBinding(action: "Move through the list", keys: ["↑", "↓"]),

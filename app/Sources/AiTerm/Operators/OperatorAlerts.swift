@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-/// The questions the operator menus and the Shelf ask before acting. Only the Shelf's Remove deletes
+/// The questions the operator menus and the Archive ask before acting. Only the Archive's Remove deletes
 /// anything for good — an ended broadcast's log — so its default alone is red: a stopped task keeps its
 /// window and branch, an ended broadcast's started tasks stay. ⎋ is Cancel on each (`docs/keyboard.md`, Alerts).
 enum OperatorAlerts {
@@ -21,10 +21,10 @@ enum OperatorAlerts {
         detail.append("Worktrees and MRs stay.")
         return AlertPrompt(message: "End “\(run.name)”?", detail: detail.joined(separator: " "), buttons: ["End Broadcast", "Cancel"])
     }
-    /// Remove on the Shelf, for an ended broadcast: its run folder goes, its tasks are left as they are.
+    /// Remove on the Archive, for an ended broadcast: its run folder goes, its tasks are left as they are.
     /// A red default: the log is deleted.
     static func removeShelved(_ run: OperatorRun) -> AlertPrompt {
-        AlertPrompt(message: "Remove “\(run.name)” from the Shelf?",
+        AlertPrompt(message: "Remove “\(run.name)” from the Archive?",
                     detail: "Its activity log and summary are deleted. Its tasks stay where they are.",
                     buttons: ["Remove", "Cancel"], defaultDeletes: true)
     }
