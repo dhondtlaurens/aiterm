@@ -88,23 +88,7 @@ struct OperatorBadge: View {
 /// A broadcast's status line as its row and its board's band say it: the `OperatorBadge`, then
 /// `· 2 of 8 done` in `Typography.chip.tabular` and the surface's secondary ink, outside the needs-you box.
 /// The progress keeps its width; the badge's words are what is cut.
-struct BroadcastStatusLine: View {
-    let line: OperatorLine
-    let progress: String?
-    @Environment(\.surface) private var surface
-    @Environment(\.interfaceScale) private var scale
 
-    var body: some View {
-        HStack(spacing: 0) {
-            OperatorBadge(line: line)
-            if let progress {
-                Text(verbatim: " · " + progress).font(Typography.chip.tabular).foregroundStyle(surface.secondaryInk)
-                    .lineLimit(1).fixedSize()
-            }
-        }
-        .frame(height: scale(Size.chip))
-    }
-}
 
 #if DEBUG
 extension OperatorBadge {

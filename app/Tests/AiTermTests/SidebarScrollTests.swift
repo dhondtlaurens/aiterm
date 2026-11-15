@@ -19,13 +19,11 @@ struct SidebarScrollTests {
         try controller.workspace.load()
         var first: UUID?
         for index in 0..<20 {
-            let project = OperatorUIFixtures.project("Repo \(index)")
+            let project = Project.make(name: "Repo \(index)")
             first = first ?? project.id
             controller.workspace.mutate { $0.append(project: project) }
         }
         // The broadcast folded into OPERATOR, so the projects are open and the list scrolls.
-        let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run]; $0.setFolded(run: run.id, true) }
         controller.focus.browse(.project(try #require(first)))
         let host = testHost(SidebarView(controller: controller), size: CGSize(width: Size.sidebarMinWidth, height: 400))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])

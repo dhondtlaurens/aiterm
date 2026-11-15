@@ -10,7 +10,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         draft.setTitle("Shared name")
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
-        var worker = OperatorFixtures.task("worker")
+        var worker = TaskItem.make(project: project.id, title: "Worker", branch: "feat/worker")
         worker.projectId = project.id
         worker.branch = "fix/shared-name"
         worker.worktreePath = ""

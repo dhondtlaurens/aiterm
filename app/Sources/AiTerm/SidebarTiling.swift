@@ -126,7 +126,7 @@ final class SidebarTiling {
         let state = workspace.state
         let frame = taskFrame()
         let ids = state.tasks.compactMap(\.windowId) + state.terminals.compactMap(\.windowId)
-            + state.runs.compactMap(\.operatorWindowId)
+            + [state.operatorSession?.window].compactMap { $0 }
         snapTask?.cancel()
         let task = Task {
             for id in ids {

@@ -324,7 +324,7 @@ struct CreationFooter: View {
     var canApply = true
     /// Apply on the proposal that is up.
     var applyFix: () -> Void = {}
-    /// What the create waits for, one line each, under a title: New Broadcast's `BroadcastReadiness`.
+    /// What the create waits for, one line each, under a title: New Broadcast's `SignalReadiness`.
     /// A Notice with no actions, as a failure is; none while nothing waits.
     var waiting: (title: String, lines: [String])? = nil
 

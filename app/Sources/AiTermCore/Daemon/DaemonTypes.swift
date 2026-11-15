@@ -344,10 +344,10 @@ public enum PromptKind: String, Codable, LenientRawDecodable, CaseIterable, Send
 /// One tool call from an operator: answered with `operator.reply` and the same `requestId`.
 public struct OperatorRequest: Decodable, Equatable, Sendable {
     public var requestId: String, runId: String, tool: String
-    public var generation: Int?
+    public var generation: Int
     /// An object; a call with none reads as an empty one.
     public var arguments: JSONValue
-    public init(requestId: String, runId: String, tool: String, arguments: JSONValue, generation: Int? = nil) {
+    public init(requestId: String, runId: String, tool: String, arguments: JSONValue, generation: Int) {
         self.requestId = requestId; self.runId = runId; self.tool = tool; self.arguments = arguments; self.generation = generation
     }
     private enum CodingKeys: String, CodingKey { case requestId, runId, tool, arguments, generation }
@@ -357,7 +357,7 @@ public struct OperatorRequest: Decodable, Equatable, Sendable {
         runId = try c.decode(String.self, forKey: .runId)
         tool = try c.decode(String.self, forKey: .tool)
         arguments = try c.decodeIfPresent(JSONValue.self, forKey: .arguments) ?? .object([:])
-        generation = try c.decodeIfPresent(Int.self, forKey: .generation)
+        generation = try c.decode(Int.self, forKey: .generation)
     }
 }
 

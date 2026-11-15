@@ -21,7 +21,7 @@ from .hooks_server import HookServer
 from .iterm_port import ItermPort
 from .keystrokes import YOUR_PROMPT_SECONDS, TypingGuard
 from .offload import run_detached
-from .operator_mcp import OperatorRoute, OperatorTokens
+from .operator_mcp import OperatorRoute
 from .operator_session import OperatorSessionTokens
 from .publisher import Publisher
 from .resolver import SessionResolver
@@ -56,7 +56,7 @@ class Service:
                  clock: Callable[[], float], codex_files: CodexSessionFiles,
                  supervisor: ItermSupervisor | None = None, monotonic: Callable[[], float] = time.monotonic,
                  delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
-                 operator_runs: Path | None = None, test_activity: TestActivityReader | None = None):
+                 operator_folder: Path | None = None, test_activity: TestActivityReader | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
@@ -89,8 +89,7 @@ class Service:
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
         # (spec §11); None keeps tokens in memory only.
-        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs),
-                                       OperatorSessionTokens(operator_runs.parent / "operator" if operator_runs else None))
+        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorSessionTokens(operator_folder))
         self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame, window.activate and session.activate each leave a state the next one replaces, and the app

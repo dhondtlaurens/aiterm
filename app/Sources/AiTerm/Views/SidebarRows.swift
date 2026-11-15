@@ -56,25 +56,9 @@ struct SidebarHeader: View {
         #if DEBUG
         let _ = bodyCounter?.countHeading("projects")
         #endif
-        let heading = controller.rows.projectsHeading, folds = heading.runID != nil && controller.canChangeWorkspace
         HStack(spacing: scale(Space.base)) {
-            HStack(spacing: scale(Space.base)) {
-                SidebarHeading("Projects")
-                Spacer(minLength: scale(Space.tight))
-                if heading.runID != nil {
-                    let attention = heading.attention
-                    if heading.folded, attention > 0 {
-                        Button { controller.openProjectsAttention() } label: {
-                            StatusCountChips(counts: [StatusCount(status: .needsInput, count: attention)])
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    SectionFoldChevron(folded: heading.folded, hovering: hovering)
-                }
-            }
-            .modifier(FoldOnTap(enabled: folds) { if let id = heading.runID { controller.projects.toggleFolded(run: id) } })
-            .accessibilityLabel("Projects")
-            .accessibilityValue(heading.folded ? "folded" : "")
+            SidebarHeading("Projects")
+            Spacer(minLength: scale(Space.tight))
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { Task { await controller.projects.addProject() } }
                 Button("Add Divider…") { controller.sheets.presentNewDivider() }
@@ -82,7 +66,6 @@ struct SidebarHeader: View {
         }
         .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
-        .onHover { hovering = $0 }
     }
 }
 
@@ -447,13 +430,7 @@ struct TaskRowView: View {
         .selectionDisabled(removing)
         .contextMenu {
             if let task {
-                let operatorItems = OperatorMenus.task(task.operated, broadcastLive: row.broadcastLive)
-                if !operatorItems.isEmpty {
-                    OperatorMenuButtons(items: operatorItems, enabled: { _ in controller.canChangeWorkspace && !removing }) {
-                        controller.perform($0, on: task)
-                    }
-                    Divider()
-                }
+
                 Button("Rename…") { controller.sheets.presentRename(task: task) }
                     .disabled(!controller.canChangeWorkspace || removing)
                 Divider()

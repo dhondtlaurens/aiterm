@@ -26,3 +26,11 @@ The harness captures assistant text before tool calls as well as the final reply
 errors, and runs each CLI in an isolated scratch directory. Its graders separately cover safe
 steering that rejects hostile instructions. Detailed local proof is in
 `build/operator-signals-eval-proven/`; all runs resolved the same `claude-sonnet-5-5` model.
+
+The current `state.json` was captured on 15 Nov 2026 by
+`AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`.
+`SignalSavedFormatTests` builds fixed synthetic identities through the current models and saves
+through `StateStore`. Its normal run compares the complete bytes and reloads them. It includes a
+pending stage, an archived item, a worker reply intent, an extra tab, our journal entry, generation
+2, an open question, an open Oracle round and an idempotency result. It contains no account tokens.
+The old broadcast input is retained only for retirement coverage and the before/after eval data.

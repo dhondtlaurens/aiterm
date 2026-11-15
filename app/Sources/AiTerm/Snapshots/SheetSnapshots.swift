@@ -165,11 +165,7 @@ enum SheetSnapshots {
             Snapshot("archive-empty.png") { ArchiveSheet(model: ArchiveSnapshots.model(entries: [], query: "")) },
             // Not the proposal's "paymnet": the fuzzy tier finds "payment" in it.
             Snapshot("archive-no-match.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "refund")) },
-            Snapshot("archive-broadcast.png") {
-                let model = ArchiveSnapshots.model(entries: ArchiveSnapshots.rows + [ArchiveSnapshots.broadcast], query: "")
-                model.highlight(ArchiveSnapshots.broadcast.id)
-                return ArchiveSheet(model: model)
-            },
+
         ]
     }
 
@@ -383,16 +379,14 @@ enum SheetSnapshots {
 
     static func model(entries: [ShelfRow]? = nil, query: String) -> ArchiveSheetModel {
         let shown = entries ?? rows
-        let model = ArchiveSheetModel(entries: { shown }, restore: { _ in }, open: { _ in }, remove: { _ in })
+        let model = ArchiveSheetModel(entries: { shown }, restore: { _ in }, remove: { _ in })
         model.query = query
         model.now = { now }
         return model
     }
 
     /// An ended broadcast, two days ago: between the review shelved yesterday and the task three days ago.
-    static let broadcast = ShelfRow.broadcast(ShelvedBroadcast(runId: UUID(), name: "Newsletter signup",
-                                                               asked: "PLUTO-231 newsletter signup block in Storyblok",
-                                                               endedAt: now.addingTimeInterval(-172_800)))
+
 
     static var rows: [ShelfRow] {
         func row(_ title: String, _ agent: AgentKind, jira: String? = nil, mr: Int? = nil, branch: String, project: String,

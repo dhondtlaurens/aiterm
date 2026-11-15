@@ -43,4 +43,23 @@ import Testing
         #expect(reply.params["error"] == nil)
         controller.stop()
     }
+    @Test func toolsAndSkippedItemsKeepTheirOnDiskActivityWithoutABoard() async throws {
+        var world = SignalWorld(); let signal = world.signal()
+        world.state.operatorSession = OperatorSession(createdAt: world.now)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let controller = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace),
+            work: WorkInFlight(), ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let session = try #require(h.workspace.state.operatorSession)
+        _ = await controller.tools.respond(OperatorRequest(requestId: "status", runId: session.id.uuidString,
+            tool: "run_status", arguments: [:], generation: session.generation))
+        _ = controller.router.apply(signals: [signal], read: SignalRead(items: [world.ticket("NOPE-1")], complete: true, full: true))
+        await ports.work.settled()
+        let entries = ActivityLog.read(runFolder: SignalOperatorCommand.folder(home: ports.home)).entries
+        #expect(Set(entries.map(\.tool)) == ["run_status", "signal_match"])
+        #expect(entries.contains { $0.line.contains("NOPE-1") && $0.line.contains("No project") })
+        #expect(h.workspace.state.tasks.isEmpty)
+    }
+
 }

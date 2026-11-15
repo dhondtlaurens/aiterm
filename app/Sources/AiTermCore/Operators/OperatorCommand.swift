@@ -33,10 +33,7 @@ public enum OperatorCommand {
     ]
 
     /// `operators/runs/<run-id>/` in AiTerm's support folder: outside every worktree.
-    public static func runFolder(_ runId: UUID, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        AiTermPaths.supportDirectory(home: home).appendingPathComponent("operators")
-            .appendingPathComponent("runs").appendingPathComponent(runId.uuidString)
-    }
+
 
     /// The command's words, unquoted. Model and effort go as the Claude harness passes them
     /// (`--model`, `--effort`); `resuming` is the conversation `claude --resume` continues (§9).
@@ -121,30 +118,7 @@ public enum OperatorCommand {
     /// A fresh launch also writes the broadcast as `first-message.md`, the operator's first message:
     /// `firstMessage` when given (`freshStartMessage`), else `firstMessage(for:)`; `resuming` a
     /// conversation sends none. A command too long to type goes to `launch.sh` (`typed`).
-    public static func prepare(run: OperatorRun, projects: [Project], hookPort: Int = AiTermPaths.hookPort,
-                               home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig(),
-                               token: String = makeToken(),
-                               resuming conversation: String? = nil, firstMessage message: String? = nil) throws -> Prepared {
-        let folder = runFolder(run.id, home: home)
-        let manager = FileManager.default
-        try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
-        try trustRunFolder(folder, home: home, claudeConfig: claudeConfig)
-        try Data(brief(run: run, projects: projects).utf8)
-            .write(to: folder.appendingPathComponent(briefFile), options: .atomic)
-        try writePrivate(Data(try mcpConfig(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(mcpFile))
-        // On a resume too: a reopened Operator gets the gate with its shell.
-        try writePrivate(Data(try gateSettings(hookPort: hookPort, token: token).utf8), to: folder.appendingPathComponent(gateFile))
-        // Exactly the 64 hex digits: the daemon reads the file back after a restart.
-        try writePrivate(Data(token.utf8), to: folder.appendingPathComponent(tokenFile))
-        let first = conversation == nil && !run.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if first {
-            try Data((message ?? firstMessage(for: run)).utf8).write(to: folder.appendingPathComponent(firstMessageFile), options: .atomic)
-        }
-        let words = launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: folder,
-                                projectPaths: projects.map(\.path), resuming: conversation)
-        return Prepared(folder: folder, command: try typed(command(words: words, firstMessage: first), in: folder), token: token)
-    }
+
 
     /// Each broadcast runs in a new directory AiTerm created, outside the person's repositories.
     /// Record trust for that exact folder before Claude opens, without changing tool permissions.
@@ -217,25 +191,13 @@ public enum OperatorCommand {
 
     /// The first message has a fixed header so a prompt starting with a bullet is not read as a CLI option.
     /// Append the per-task review and optional broadcast goal.
-    static func firstMessage(for run: OperatorRun) -> String {
-        var text = "Your broadcast:\n\n" + run.prompt
-        if let review = said(run.taskSettings.review) { text += "\n\nEach task is reviewed with: " + review }
-        if let goal = said(run.goal?.text) { text += "\n\nGoal: " + goal }
-        return text
-    }
+
 
     /// A new Operator session for a broadcast under way (Start Fresh, or a reopening with no conversation
     /// to resume): the broadcast as `firstMessage(for:)` says it, then where it stands as `run_status`
     /// shows it (`status`, its JSON) and the decisions logged so far, so it picks the work up rather
     /// than plans it again.
-    public static func freshStartMessage(for run: OperatorRun, status: String) -> String {
-        var text = firstMessage(for: run)
-        text += "\n\nThis is a new session of a broadcast already under way: its earlier conversation can’t be resumed. "
-            + "Where it stands, as run_status shows it now:\n\n" + status
-        let decisions = run.decisions.map { "- " + $0.text + ($0.why.map { " Why: " + $0 } ?? "") }
-        text += decisions.isEmpty ? "\n\nNo decisions are logged yet." : "\n\nYour decisions so far:\n" + decisions.joined(separator: "\n")
-        return text + "\n\nCall run_status, then carry on from there."
-    }
+
 
     /// `text` trimmed, or nil when nothing is said: the one rule for what a person typed.
     public static func said(_ text: String?) -> String? {

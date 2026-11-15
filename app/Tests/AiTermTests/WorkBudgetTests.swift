@@ -18,7 +18,7 @@ enum Budget {
 
     /// Waits until the Operator's owners have finished what they started (`OperatorWork`): the turn and transcript
     /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
-    static func settle(_ controller: OperatorController) async { await controller.ports.work.settled() }
+
 
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
     static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
@@ -32,6 +32,11 @@ enum Budget {
 
     /// Whether fixture timings are measured: only when `AITERM_MEASURE` is set. They print, and assert nothing.
     nonisolated static var measuring: Bool { ProcessInfo.processInfo.environment["AITERM_MEASURE"] != nil }
+
+    static func workspace() -> AppState {
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
+        return world.state
+    }
 
     /// The median of `count` timings of `body`, in milliseconds.
     static func median(of count: Int, _ body: () throws -> Void) rethrows -> Double {
@@ -60,29 +65,7 @@ enum Budget {
     /// rows, the projects' entries and the board read them. Before it (phase 0): 3 and 5 with the board closed, the header
     /// and the operated-row lookup, built twice, deriving the requests each; 4 and 18 open, the board deriving them again
     /// and matching worker tabs 13 more times for its 4 cards. None may raise them.
-    @Test(arguments: [false, true]) func aSidebarRefreshDerivesTheRequestsAndTheWorkerTabs(boardShown: Bool) async throws {
-        let state = try OperatorCurrentContractTests.load()
-        let workspace = WorkspaceStore.holding(state)
-        let live = LiveSessions(workspace: workspace)
-        var sessions = try OperatorWorkBudgetTests.frozenSessions(state)
-        live.sessions = sessions
-        let checkouts = CheckoutMonitor(live: live, scan: Budget.noScan, git: .hermetic(), workspace: workspace, onTitles: { _ in })
-        let rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
-        rows.boardShown = { boardShown }
-        rows.refresh()
-        #expect((rows.board != nil) == boardShown)
-        let working = try #require(state.tasks.first { $0.operated?.state == .working })
-        let worker = try #require(sessions.firstIndex { $0.taskUUID == working.id && $0.tabIndex == 0 })
-        sessions[worker].state = .needsInput
-        live.sessions = sessions
-        let start = rows.derivations
 
-        let work = await Budget.metered { rows.refresh() }
-
-        #expect(rows.derivations == start + 1, "one derivation")
-        #expect(work[.requests] == 1, "requests per refresh: \(work)")
-        #expect(work[.workerTabs] == 4, "worker-tab matches per refresh: \(work)")
-    }
 
     // MARK: - The window lock
 
@@ -209,7 +192,7 @@ enum Budget {
     /// A save of the frozen workspace over the one it saved before: 1 file written, the workspace; the backup is a clone
     /// of the file it replaces (2 before phase 2, when the backup was written as bytes too). None may raise it.
     @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
-        let state = try OperatorCurrentContractTests.load()
+        let state = Budget.workspace()
         let folder = try ScratchFolder.make("aiterm-budget-writes-")
         defer { try? FileManager.default.removeItem(at: folder) }
         let store = StateStore(url: folder.appendingPathComponent("state.json"))
@@ -227,7 +210,7 @@ enum Budget {
     /// The frozen workspace padded with 500 archived tasks, saved 20 times: the median, printed. Never asserted, and no
     /// installed-app latency: a fixture timing on this machine, for deciding whether the save on the main actor stalls.
     @Test(.enabled(if: Budget.measuring)) func savingTheFrozenWorkspaceWith500ShelvedTasks() throws {
-        var state = try OperatorCurrentContractTests.load()
+        var state = Budget.workspace()
         let project = try #require(state.tasks.first?.projectId)
         state.archive = (0..<500).map { n in
             ArchivedTask(task: .make(project: project, title: "Archived task \(n)", branch: "feat/archived-\(n)",
@@ -246,38 +229,5 @@ enum Budget {
 
     /// One `run_status` build (`OperatorController.status`) for a broadcast of 20 working tasks, each with its worker and
     /// two extra tabs listed: 60 sessions. The median of 200, printed; never asserted.
-    @Test(.enabled(if: Budget.measuring)) func buildingTheStatusOfTwentyTasksAndSixtySessions() throws {
-        let project = Project.make(path: "/synthetic/aiterm/shop")
-        let run = OperatorRun.make(profile: OperatorServiceFixtures.profile(), projects: [project.id])
-        var sessions: [SessionInfo] = []
-        let tasks = (0..<20).map { n -> TaskItem in
-            let id = UUID()
-            let extras = (1...2).map { k in
-                ExtraTab(key: "tab-\(k)", agent: .codex, model: "gpt-6-astra", reasoning: "medium", modelReason: "Cheap enough.",
-                         brief: "Help with part \(k).", launch: LaunchAttempt(number: 1, requestedAt: Build.epoch, openedAt: Build.epoch),
-                         sessionId: "extra-\(n)-\(k)", conversation: "conversation-\(n)-\(k)")
-            }
-            var operated = OperatedTask.make(run: run.id, key: "SHOP-\(n)", state: .working, launched: true)
-            operated.extraTabs = extras
-            sessions.append(.make("main-\(n)", window: "window-\(n)", task: id, state: .working,
-                                  cwd: "/synthetic/aiterm/shop/.worktrees/shop-\(n)", conversation: "conversation-\(n)"))
-            for k in 1...2 {
-                sessions.append(.make("extra-\(n)-\(k)", window: "window-\(n)", tabIndex: k, task: id, agent: .codex, state: .idle,
-                                      cwd: "/synthetic/aiterm/shop/.worktrees/shop-\(n)", conversation: "conversation-\(n)-\(k)",
-                                      tabKey: "tab-\(k)"))
-            }
-            return .make(id: id, project: project.id, title: "Task SHOP-\(n)", branch: "feat/shop-\(n)",
-                         worktreePath: "/synthetic/aiterm/shop/.worktrees/shop-\(n)", operated: operated)
-        }
-        var state = AppState.empty
-        state.append(project: project)
-        state.runs = [run]
-        state.tasks = tasks
-        #expect(sessions.count == 60)
-        #expect(OperatorController.status(of: run.id, state: state, sessions: sessions, revision: 0, turns: [:])?.tasks.count == 20)
-        let median = Budget.median(of: 200) {
-            _ = OperatorController.status(of: run.id, state: state, sessions: sessions, revision: 0, turns: [:], now: Build.epoch)
-        }
-        print("AITERM_MEASURE OperatorController.status, 20 tasks and 60 sessions: median of 200 = \(String(format: "%.3f", median)) ms")
-    }
+
 }

@@ -30,6 +30,7 @@ import AiTermCore
     @ObservationIgnored private var wakePending: (String, UUID)?
     @ObservationIgnored private var waking = false
     @ObservationIgnored private var opened: (window: String, generation: Int, at: Date)?
+    @ObservationIgnored private var lastActivity: Task<Void, Never>?
     @ObservationIgnored private var activeTools = 0
     @ObservationIgnored private var oracleJobs: Set<UUID> = []
     @ObservationIgnored private var hooks: [() -> Void] = []
@@ -151,8 +152,10 @@ import AiTermCore
         native.recoveryAllowed = { [weak self] id in self.map { !$0.stages.isRunning(id) } ?? false }
         native.onBlocked = { [weak self] id in self?.wake("task_blocked", id: id) }
         native.onTurn = { [weak self] id in self?.wake("worker_ended", id: id) }
-        router.changed = { [weak self] id, _ in
+        router.changed = { [weak self] id, event in
             guard let self else { return }
+            self.recordActivity(tool: "signal_match", task: self.workspace.state.signalItem(id: id)?.id,
+                                arguments: ["owner": .string(id.uuidString)], outcome: .ok, result: event, line: event)
             if self.workspace.state.signalItem(id: id)?.signalTask?.phase == .blocked { self.wake("task_blocked", id: id) }
         }
         stages.changed = { [weak self] id, _ in
@@ -165,6 +168,14 @@ import AiTermCore
         }
         gate.changed = questions.changed
         tools.changed = { [weak self] in self?.changed() }
+        tools.recorded = { [weak self] request, answer in
+            guard let self else { return }
+            let task = request.arguments["task"]?.stringValue.flatMap(UUID.init(uuidString:))
+            let result = answer.value.flatMap { try? SignalOperatorToolHandler.json($0) } ?? answer.message ?? ""
+            self.recordActivity(tool: request.tool, task: task, arguments: request.arguments,
+                                outcome: answer.message == nil ? .ok : .failed, result: result,
+                                line: request.tool + (task.map { " " + $0.uuidString } ?? ""))
+        }
         poller.onPass = { [weak self] observations in
             guard let self, !self.isStopped, self.workspace.state.operatorSession?.paused != true else { return }
             for observation in observations { for id in observation.signals { self.sourceErrors[id] = nil } }
@@ -182,6 +193,25 @@ import AiTermCore
         }
     }
     func onChange(_ hook: @escaping () -> Void) { hooks.append(hook) }
+    private func recordActivity(tool: String, task: UUID?, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String, line: String) {
+        let entry = ActivityEntry(at: ports.now(), tool: tool, task: task, taskLabel: nil, arguments: arguments,
+                                  outcome: outcome, result: result, line: line, reason: outcome == .ok ? nil : result)
+        let previous = lastActivity, folder = SignalOperatorCommand.folder(home: ports.home)
+        lastActivity = ports.work.start { [weak self] in
+            await previous?.value
+            do {
+                try await BackgroundWork.run {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                            attributes: [.posixPermissions: 0o700])
+                    try ActivityLog.append(entry, runFolder: folder)
+                }
+            } catch {
+                guard let self, !self.isStopped else { return }
+                self.lastError = "The Operator activity could not be saved: " + OperationIssue.reason(of: error)
+                self.changed()
+            }
+        }
+    }
     private func changed() { for hook in hooks { hook() } }
     func connections() async -> SignalConnections { let read = readConnections; return await BackgroundWork.run(read) }
     private func normalized(_ signals: [Signal]) -> [Signal] { signals.map { var value = $0; value.collapsed = false; return value } }
@@ -244,7 +274,13 @@ import AiTermCore
         guard let daemon = daemon() else { return }
         activeTools += 1; defer { activeTools -= 1 }
         do {
-            if request.tool == "gate_command" { try await daemon.replyToOperator(requestId: request.requestId, result: await gate.respond(request), error: nil) }
+            if request.tool == "gate_command" {
+                let result = await gate.respond(request)
+                recordActivity(tool: "shell", task: nil, arguments: request.arguments,
+                    outcome: result["decision"]?.stringValue == "allow" ? .ok : .refused,
+                    result: (try? SignalOperatorToolHandler.json(result)) ?? "", line: "Checked an Operator shell command.")
+                try await daemon.replyToOperator(requestId: request.requestId, result: result, error: nil)
+            }
             else {
                 let answer = await tools.respond(request)
                 if request.tool == "run_status", case .result = answer { wakePending = nil }

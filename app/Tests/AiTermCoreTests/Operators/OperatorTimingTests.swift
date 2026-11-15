@@ -55,7 +55,5 @@ import Foundation
     }
 
     /// Each end as the plan, the board and a refusal say it.
-    @Test func eachEndIsSaidByItsName() {
-        #expect(TaskEnd.allCases.map(\.displayName) == ["commit", "draft MR", "merge", "local merge"])
-    }
+
 }

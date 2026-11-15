@@ -44,7 +44,7 @@ enum Snapshots {
     /// images drawn after it.
     static var regressionSet: [Snapshot] {
         SidebarSnapshots.rows + SheetSnapshots.all + SettingsSnapshots.all + [SidebarSnapshots.marks]
-            + SidebarSnapshots.states + OperatorSnapshots.all + BroadcastSetupSnapshots.all + SheetSnapshots.initialization
+            + SidebarSnapshots.states + SheetSnapshots.initialization
             + SidebarSnapshots.backgroundWorkCards + SignalSnapshots.all + SignalSidebarSnapshots.all
     }
 

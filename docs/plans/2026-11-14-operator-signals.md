@@ -440,7 +440,7 @@ Each step leaves the package building and the gate green.
       handler is served, push and MR creation leave the worker denials, New Signal joins the family,
       and the OPERATOR group shows the Operator's row and signal headings over identical task rows.
       Broadcasts can no longer be started; their code is still present but unreachable.
-- [ ] Deletion: broadcasts, the board, New Broadcast, the old handler extensions, brief and tests go;
+- [x] Deletion: broadcasts, the board, New Broadcast, the old handler extensions, brief and tests go;
       `runs`, `foldedRuns` and `operated` are retired in `Models.swift` with the test that an old
       `state.json` loads and its next save has none of them; the old per-run tokens leave the daemon.
 - [ ] The act line's decode, the signal heading's fold and counts, Take Over, every row state.
@@ -688,4 +688,23 @@ closing a CLI; the previous wire frames remain unchanged. Isolated hosted snapsh
 Signal sheets and full sidebar (`build/operator-signals-sheets-native`); the JQL field, match list,
 footer and sidebar hierarchy were inspected. No running app or personal CLI defaults were changed.
 
-Activation gate: plain `scripts/test.sh` passed (1,668 daemon tests; 123 UI, 2,227 Core, 2,089 app and 6 snapshot tests; existing labelled known issues retained).
+Activation gate: plain `scripts/test.sh` passed (1,668 daemon tests; 123 UI, 2,227 Core, 2,083 app and 6 snapshot tests; existing labelled known issues retained).
+
+### Deletion proof · 15 Nov 2026
+
+The former broadcast controller, board, setup sheet, handler extensions, brief, scheduling,
+publication and summary machinery and their feature-specific tests have been removed. Ordinary
+Archive, row, context, window and save-budget coverage now uses Signal fixtures. The single
+Operator retains a private append-only activity log, including skipped items; no Activity view
+remains. The thirteen-tool contract has a complete saved-format fixture, captured through
+`StateStore` with fixed synthetic identities. The historical input proves that old tasks load and
+that the next save drops `runs`, `foldedRuns` and nested `operated` records, including archived
+items. Per-run daemon tokens and generation-less RPC overloads are gone. The wire capture's only
+changed existing frame is `operator.request`, which now carries its required generation.
+
+Focused proof passed: 54 app UI/cache/window tests and 55 Core persistence/wire/log tests, then
+12 controller/engine/persistence tests after restoring activity logging. All 1,598 daemon tests
+passed. The release note explains ending installed broadcasts before the update; only historical
+eval data is retained for the before/after comparison.
+
+Deletion gate: plain `scripts/test.sh` passed: 1,598 daemon, 123 UI, 999 app, 1,677 Core and 1 snapshot test. Existing labelled known issues remained known issues.

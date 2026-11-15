@@ -281,10 +281,7 @@ struct SidebarBanners: View {
                         perform: { action in Task { await controller.perform(action) } },
                         cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.notices.dismissIssue() })
         }
-        if let wake = controller.operatorController.wakeNotice {
-            OperatorWakeBanner(notice: wake, open: { controller.openOperatorWindow(of: wake.run) },
-                               fix: { controller.presentAgentSettings(for: .claude) })
-        }
+
         if let banner = controller.helper.itermConnection.banner {
             SidebarConnectionBanner(banner: banner, status: controller.helper.itermConnection.status)
         }
@@ -320,20 +317,7 @@ struct SidebarConnectionBanner: View {
 /// The Operator's wake line refused (`OperatorWakeNotice`): what waits on it and why, with Open the Operator
 /// and, when Settings can fix it, Fix in Settings as its links. The Operator runs on Claude Code, whose card Fix in
 /// Settings is for.
-struct OperatorWakeBanner: View {
-    let notice: OperatorWakeNotice
-    let open: () -> Void
-    let fix: () -> Void
 
-    var body: some View {
-        SidebarBanner(vertical: Space.base) {
-            Notice(title: OperatorWakeNotice.title, description: notice.description) {
-                Button("Open the Operator", action: open)
-                if notice.fixInSettings { Button("Fix in Settings", action: fix) }
-            }
-        }
-    }
-}
 
 /// A failed operation above the list, and the Find a Fix it offers (`BannerFixPresentation`), as one
 /// `Notice`: the issue's title and reason, its ways out as links — then, once a fix is asked for, the
@@ -442,7 +426,6 @@ struct SidebarSheet: View {
                         case .divider(let divider): controller.projects.rename(divider: divider, to: name)
                         case .task(let task): controller.projects.rename(task: task, to: name)
                         case .terminal(let terminal): controller.projects.rename(terminal: terminal, to: name)
-                        case .broadcast(let run): controller.rename(run: run, to: name)
                         }
                     })
                 case .settings(let jira, let gitLab, let gitHub, let tab, let agent):
@@ -461,9 +444,6 @@ struct SidebarSheet: View {
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
                 case .signal(let model): SignalSheet(model: model)
-                case .newBroadcast(let model): NewBroadcastSheet(model: model)
-                case .broadcastBoard(let id): BroadcastBoardHost(runId: id, controller: controller)
-                case .shelvedBroadcast(let id): BroadcastBoardHost(runId: id, source: .shelved, controller: controller)
             }
         }
         .interfaceScale(.standard)

@@ -27,25 +27,25 @@ import Testing
     /// On the last step every earlier one is ticked.
     @Test func onTheLastStepEveryEarlierOneIsTicked() {
         #expect(SheetStepper.marks(step: 3, names: names) == [.done, .done, .current("Prompt")])
-        let broadcast = NewBroadcastModel.stepNames
+        let broadcast = SignalModel.stepNames
         #expect(SheetStepper.marks(step: 3, names: broadcast) == [.done, .done, .current(broadcast[2]), .ahead(4), .ahead(5)])
     }
 
     /// VoiceOver reads the stepper as one sentence: where you are, of how many, and the step's name.
     @Test func itReadsAsOneSentence() {
         #expect(SheetStepper.accessibilityLabel(step: 2, names: names) == "Step 2 of 3, Agent")
-        #expect(SheetStepper.accessibilityLabel(step: 1, names: NewBroadcastModel.stepNames)
-                == "Step 1 of 5, \(NewBroadcastModel.stepNames[0])")
+        #expect(SheetStepper.accessibilityLabel(step: 1, names: SignalModel.stepNames)
+                == "Step 1 of 5, \(SignalModel.stepNames[0])")
     }
 
     /// Beside New Broadcast's title, all five steps keep their size: the title gives way, cut in its
     /// middle, rather than the stepper.
     @Test func theTitleGivesWayBeforeTheStepper() {
-        let stepper = NSHostingView(rootView: SheetStepper(step: 1, names: NewBroadcastModel.stepNames))
+        let stepper = NSHostingView(rootView: SheetStepper(step: 1, names: SignalModel.stepNames))
         let long = String(repeating: "A long broadcast title ", count: 8)
         let width = Box()
         let sheet = SheetLayout(title: long, height: .fixed(Sheet.height)) {
-            SheetStepper(step: 1, names: NewBroadcastModel.stepNames)
+            SheetStepper(step: 1, names: SignalModel.stepNames)
                 .background(GeometryReader { proxy in Color.clear.onAppear { width.value = proxy.size.width } })
         } header: {
             EmptyView()
@@ -122,10 +122,10 @@ import Testing
     }
 
     /// New Broadcast keeps `Sheet.height` on every step.
-    @Test func newBroadcastKeepsTheSheetHeight() {
+    @Test func newSignalKeepsTheSheetHeight() {
         for step in 1...5 {
-            let model = NewBroadcastModel(projects: [], context: NewBroadcastContext(slices: .none), skills: { _, _ in [] }) { _ in UUID() }
-            let sheet = NewBroadcastSheet(model: model).seeded(step: step)
+            let model = SignalSnapshots.model(.jira)
+            let sheet = SignalSheet(model: model).seeded(step: step)
             #expect(height(of: sheet) == Sheet.fittingHeight(Sheet.height), "step \(step)")
         }
     }

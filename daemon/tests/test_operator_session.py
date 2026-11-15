@@ -8,7 +8,7 @@ import pytest
 
 from aitermd.hook_events import parse_claude_statusline
 from aitermd.operator_session import OperatorSessionTokens
-from aitermd.operator_mcp import OperatorRoute, OperatorTokens
+from aitermd.operator_mcp import OperatorRoute
 from tests.test_operator_mcp import App, answer_with, call, message
 
 ID = "E7A1C0DE-0000-4000-8000-000000000042"
@@ -69,13 +69,10 @@ def test_register_rejects_invalid_generations(generation):
 async def test_single_authority_serves_only_new_tools_and_forwards_its_generation():
     app, sessions = App(), OperatorSessionTokens()
     sessions.register(ID, 3, TOKEN)
-    legacy = OperatorTokens()
-    legacy.register("run-1", OTHER)
-    route = OperatorRoute(app.broadcast, lambda: 1, legacy, sessions)
+    route = OperatorRoute(app.broadcast, lambda: 1, sessions)
     tools = json.loads((await route.serve("POST", AUTH, message("tools/list")))[1])["result"]["tools"]
     assert len(tools) == 13 and "answer_worker" in {tool["name"] for tool in tools}
-    old = json.loads((await route.serve("POST", {"authorization": "Bearer " + OTHER}, message("tools/list")))[1])
-    assert len(old["result"]["tools"]) == 37
+    assert (await route.serve("POST", {"authorization": "Bearer " + OTHER}, message("tools/list")))[0] == 401
     invalid = json.loads((await route.serve("POST", AUTH, call("create_task")))[1])
     assert invalid["error"]["code"] == -32602
     calling = asyncio.create_task(route.serve("POST", AUTH, call("note", {"task": "t", "key": "n"})))
@@ -87,7 +84,7 @@ async def test_single_authority_serves_only_new_tools_and_forwards_its_generatio
 async def test_revocation_while_a_gate_waits_cannot_allow_its_command():
     app, sessions = App(), OperatorSessionTokens()
     sessions.register(ID, 1, TOKEN)
-    route = OperatorRoute(app.broadcast, lambda: 1, OperatorTokens(), sessions)
+    route = OperatorRoute(app.broadcast, lambda: 1, sessions)
     hook = json.dumps({"cwd": "/tmp", "tool_input": {"command": "echo test"}}).encode()
     waiting = asyncio.create_task(route.gate("POST", AUTH, hook))
     await asyncio.wait_for(app.arrived.wait(), 2)
@@ -122,7 +119,7 @@ def test_unknown_context_stays_unknown_and_estimation_needs_a_valid_window(cw, e
 
 async def test_register_and_revoke_use_generation_over_the_socket_surface():
     app, sessions = App(), OperatorSessionTokens()
-    route = OperatorRoute(app.broadcast, lambda: 1, OperatorTokens(), sessions)
+    route = OperatorRoute(app.broadcast, lambda: 1, sessions)
     await route.register({"runId": ID, "generation": 1, "token": TOKEN})
     assert sessions.owner_for(TOKEN) == (ID, 1)
     await route.register({"runId": ID, "generation": 2, "token": OTHER})
@@ -150,3 +147,10 @@ def test_a_failed_revoke_retries_its_file_deletion_before_reporting_success(tmp_
     tokens.revoke(ID, generation=1)
     assert not (tmp_path / "token").exists()
     assert OperatorSessionTokens(tmp_path).owner_for(TOKEN) is None
+
+
+async def test_per_run_registration_is_retired():
+    from aitermd.rpc_server import RpcError
+    route = OperatorRoute(App().broadcast, lambda: 1)
+    with pytest.raises(RpcError):
+        await route.register({"runId": ID, "token": TOKEN})

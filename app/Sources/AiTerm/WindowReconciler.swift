@@ -254,7 +254,7 @@ final class WindowReconciler {
     /// The rows `windowPlan` would restore that have no window: a task with a checkout that no Operator drives, and a
     /// terminal.
     private static func owed(in state: AppState) -> Set<UUID> {
-        Set(state.tasks.filter { $0.hasCheckout && $0.operated == nil && $0.windowId == nil }.map(\.id)
+        Set(state.tasks.filter { $0.hasCheckout && $0.signalTask == nil && $0.windowId == nil }.map(\.id)
             + state.terminals.filter { $0.windowId == nil }.map(\.id))
     }
 
@@ -326,7 +326,7 @@ final class WindowReconciler {
         switch row {
         case .task(let id):
             // A driven task's worker is the operator controller's to resume, never a fresh agent here.
-            guard let task = state.task(id: id), task.windowId == nil, task.operated == nil else { return nil }
+            guard let task = state.task(id: id), task.windowId == nil, task.signalTask == nil else { return nil }
             token = work.begin(.reopening, onTask: id)
         case .terminal(let id):
             guard let terminal = state.terminal(id: id), terminal.windowId == nil else { return nil }
@@ -399,7 +399,7 @@ final class WindowReconciler {
         let row: WindowRow
         switch selection {
         case .task(let id):
-            if state.task(id: id)?.operated != nil { return nil }
+            if state.task(id: id)?.signalTask != nil { return nil }
             row = .task(id)
         case .terminal(let id): row = .terminal(id)
         case .project, .operation: return nil

@@ -6,13 +6,12 @@ extension AppController {
     /// What a rename sheet is pointed at. Each case carries its own copy so the sheet keeps showing
     /// the name it opened with while the workspace changes underneath it.
     enum RenameTarget: Identifiable, Equatable {
-        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem), broadcast(OperatorRun)
+        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem)
         var id: UUID {
             switch self {
             case .divider(let d): return d.id
             case .task(let t): return t.id
             case .terminal(let t): return t.id
-            case .broadcast(let r): return r.id
             }
         }
         var name: String {
@@ -20,7 +19,6 @@ extension AppController {
             case .divider(let d): return d.name
             case .task(let t): return t.title
             case .terminal(let t): return t.name
-            case .broadcast(let r): return r.name
             }
         }
         var title: String {
@@ -28,7 +26,6 @@ extension AppController {
             case .divider: return "Rename divider"
             case .task: return "Rename task"
             case .terminal: return "Rename terminal"
-            case .broadcast: return "Rename broadcast"
             }
         }
         var fieldLabel: String {
@@ -36,7 +33,6 @@ extension AppController {
             case .divider: return "Divider name"
             case .task: return "Task name"
             case .terminal: return "Terminal name"
-            case .broadcast: return "Broadcast name"
             }
         }
         /// The sentence under the title: what the new name changes, and what keeps its own.
@@ -48,7 +44,6 @@ extension AppController {
             // the window's profile name is set once, when it opens.
             case .terminal: return "Renames the row in the sidebar; its iTerm2 tabs keep their branch titles."
             // The row and the board only; the Operator's window was titled when it opened.
-            case .broadcast: return "Renames its row and its board; the Operator’s window and its tasks keep theirs."
             }
         }
     }
@@ -71,12 +66,9 @@ extension AppController {
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
         case archive(ArchiveSheetModel)
         /// New Broadcast…: its projects, prompt, review and done, started on Settings › Operator's profile.
-        case newBroadcast(NewBroadcastModel)
         /// The broadcast's sheet, Board · Activity · Summary: read live from the workspace and its run
         /// folder, so it carries only the run's id.
-        case broadcastBoard(UUID)
         /// An ended broadcast's sheet, opened from the Shelf: read-only (`BroadcastBoardHost`, shelved).
-        case shelvedBroadcast(UUID)
         var id: String {
             switch self {
             case .signal(let model): return "signal-\(model.id)"
@@ -89,9 +81,6 @@ extension AppController {
             case .settings: return "settings"
             case .backpack: return "backpack"
             case .archive: return "archive"
-            case .newBroadcast(let model): return "broadcast-new-\(model.id)"
-            case .broadcastBoard(let id): return "board-\(id)"
-            case .shelvedBroadcast(let id): return "shelved-\(id)"
             }
         }
     }

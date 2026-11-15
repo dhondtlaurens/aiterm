@@ -104,7 +104,7 @@ public extension TaskItem {
     /// The conversation its first worker last named, as its window last showed it (`conversations`): the first of its own
     /// agent's that none of its extra tabs named (`ExtraTab.conversation`), wherever that tab stood in the window.
     var firstWorkerConversation: TaskConversation? {
-        let extra = Set((signalTask?.extraTabs ?? operated?.extraTabs ?? []).compactMap(\.conversation))
+        let extra = Set((signalTask?.extraTabs ?? []).compactMap(\.conversation))
         return conversations.first { $0.agent == agent && !extra.contains($0.id) }
     }
 
@@ -123,36 +123,21 @@ public extension TaskItem {
     /// first worker still launching is at work (`workerTabs(in:now:)`), as `run_status` counts it. A question it waits on
     /// you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose turn an API error ended
     /// (`SessionInfo.stoppedOn`): it did not finish.
-    func isReadyForAcceptance(in sessions: [SessionInfo], now: Date) -> Bool {
-        return isReadyForAcceptance(tabs: workerTabs(in: sessions, now: now))
-    }
+
 
     /// `isReadyForAcceptance(in:now:)` from its worker tabs as of a time (`workerTabs(in:now:)`), for a caller that has
     /// them already.
-    internal func isReadyForAcceptance(tabs: [WorkerTab]) -> Bool {
-        guard let operated, !operated.flags.contains(.waitingOnYou), tabs.allSatisfy({ $0.session?.stoppedOn == nil }) else { return false }
-        let workers = tabs.map(\.status)
-        return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()),
-                                              background: tabs.flatMap(\.background))
-    }
+
 
     /// The tab a click on its row brings forward (P5 A, 21 Oct 2026), its tabs as `sessions` list them: the worker tab
     /// that asks, a request of `requests` naming it (`BroadcastRequest.tab`) or its tab at a prompt not recorded yet;
     /// of several, the most urgent (`BroadcastRequest.Kind.rank`), then by tab order (`main`, then the extra tabs as they
     /// opened). With none asking, the tab of the task last in front in its window, else its first worker. Nil while
     /// none is listed: its window comes back as a row's click brings it.
-    func tabToBring(sessions: [SessionInfo], requests: [BroadcastRequest]) -> SessionInfo? {
+    func tabToBring(sessions: [SessionInfo]) -> SessionInfo? {
         let tabs = workerTabs(in: sessions)
-        var asking: [(rank: Int, place: Int, session: SessionInfo)] = []
-        for (place, tab) in tabs.enumerated() {
-            guard let session = tab.session else { continue }
-            let key = tab.reference.name
-            var ranks = requests.filter { $0.taskId == id && $0.tab == key }.map(\.kind.rank)
-            if session.state == .needsInput { ranks.append(BroadcastRequest.Kind.permission.rank) }
-            if let rank = ranks.min() { asking.append((rank, place, session)) }
-        }
-        if let first = asking.min(by: { ($0.rank, $0.place) < ($1.rank, $1.place) }) { return first.session }
-        return sessions.first { $0.taskUUID == id && $0.active } ?? tabs[0].session ?? tabs.lazy.compactMap(\.session).first
+        return tabs.compactMap(\.session).first { $0.state == .needsInput }
+            ?? sessions.first { $0.taskUUID == id && $0.active } ?? tabs.first?.session
     }
 
     /// Its worker tabs: its first worker, then each extra tab in the order asked for, all but one the daemon refused.
@@ -164,7 +149,7 @@ public extension TaskItem {
         let worker = firstWorker(in: sessions), conversation = worker?.conversationId ?? firstWorkerConversation?.id
         let first = WorkerTab(key: nil, agent: worker?.agent.agentKind ?? agent, model: model, session: worker,
                               isOpening: conversation == nil && isLaunching(worker, now: now), conversation: conversation)
-        return [first] + (signalTask?.extraTabs ?? operated?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
+        return [first] + (signalTask?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
             let session = sessions.first { $0.taskUUID == id && $0.tabKey == tab.key }
             let opening = session.map { $0.agent.agentKind == nil } ?? (tab.sessionId == nil && tab.launch.openedAt == nil)
             return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
@@ -187,10 +172,7 @@ public extension TaskItem {
         if let signalTask {
             guard signalTask.phase.isActive, !signalTask.takenOver else { return false }
             launch = signalTask.launch
-        } else {
-            guard let operated, operated.state == .working else { return false }
-            launch = operated.launch
-        }
+        } else { return false }
         guard let launch else { return false }
         return now.timeIntervalSince(launch.openedAt ?? launch.requestedAt) < OperatorTiming.firstWorkerOpening
     }

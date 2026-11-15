@@ -274,7 +274,7 @@ import AiTermCore
         }
         try await checkDelivery(for: task, agent: choice.agent)
         var launched = task; launched.agent = choice.agent; launched.model = choice.model; launched.reasoning = choice.reasoning
-        let command = try await command(for: launched, prompt: WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + prompt, slot: key)
+        let command = try await command(for: launched, prompt: WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + prompt, slot: key)
         _ = try require(task)
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
         try await markPending(launched, tab: key, conversation: nil)

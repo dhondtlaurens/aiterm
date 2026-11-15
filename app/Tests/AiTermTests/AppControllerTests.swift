@@ -1377,6 +1377,6 @@ extension ControllerLifecycleTests {
                                             locateAgents: { nil }, setBadge: { _ in }, activateIterm: {}, launchIterm: {},
                                             itermRunning: { true }, backpackPorts: .inert, machineSensor: InertMachineSensor(),
                                             scan: { _, _, _, _, _, _, _ in scan })
-        #expect(controller.operatorController.ports.claudeConfig.directory(home: home) == home.appendingPathComponent("profile"))
+        #expect(controller.signalController.ports.claudeConfig.directory(home: home) == home.appendingPathComponent("profile"))
     }
 }

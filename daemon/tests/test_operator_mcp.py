@@ -1,167 +1,15 @@
-# daemon/tests/test_operator_mcp.py
-"""The operator's MCP server (operator_mcp): the run tokens, the tool catalogue, the MCP methods and
-the forwarding of tool calls to the app, driven directly rather than over HTTP."""
+"""The single Operator's authenticated MCP transport and thirteen tools."""
 import asyncio
 import json
-from pathlib import Path
-from uuid import UUID
-
 import pytest
-
+from uuid import UUID
 from aitermd import delivery, operator_mcp
-from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorRoute, OperatorTokens, well_formed
+from aitermd.operator_mcp import OperatorRoute, SIGNAL_TOOLS as TOOLS
 from aitermd.rpc_server import RpcError
-from tests.conftest import write_token
-
-TOKEN = "ab" * 32
-OTHER = "cd" * 32
-UNKNOWN = "ef" * 32
-
-
-def test_current_tool_schema_matches_the_frozen_operator_contract():
-    fixture = Path(__file__).parent / "fixtures" / "operator-current-tools.json"
-    assert list(TOOLS) == json.loads(fixture.read_text())
-
-
-def test_a_token_opens_its_own_run_only():
-    tokens = OperatorTokens()
-    tokens.register("run-1", TOKEN)
-    tokens.register("run-2", OTHER)
-    assert tokens.run_for(TOKEN) == "run-1" and tokens.run_for(OTHER) == "run-2"
-    assert tokens.run_for(UNKNOWN) is None and tokens.run_for("") is None
-
-
-def test_registering_a_run_again_replaces_its_token():
-    tokens = OperatorTokens()
-    tokens.register("run-1", TOKEN)
-    tokens.register("run-1", OTHER)
-    assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) == "run-1"
-    tokens.register("run-1", OTHER)  # the app registering again after it reattached: no change
-    assert tokens.run_for(OTHER) == "run-1"
-
-
-def test_a_revoked_token_opens_nothing():
-    tokens = OperatorTokens()
-    tokens.register("run-1", TOKEN)
-    tokens.revoke("run-1")
-    tokens.revoke("run-404")
-    assert tokens.run_for(TOKEN) is None
-
-
-@pytest.mark.parametrize("token", ["", "short", "ab" * 16, "AB" * 32 + "a", "xy" * 32])
-def test_a_token_that_is_not_64_hex_characters_is_refused(token):
-    assert not well_formed(token)
-    with pytest.raises(ValueError, match="64 hex"):
-        OperatorTokens().register("run-1", token)
-
-
-def test_one_token_cannot_open_two_runs():
-    tokens = OperatorTokens()
-    tokens.register("run-1", TOKEN)
-    with pytest.raises(ValueError, match="another run"):
-        tokens.register("run-2", TOKEN)
-    assert tokens.run_for(TOKEN) == "run-1"
-
-
-def test_a_token_that_is_not_ascii_is_compared_without_raising():
-    tokens = OperatorTokens()
-    tokens.register("run-1", TOKEN)
-    assert tokens.run_for("é" * 40) is None
-
-
-def test_a_restarted_daemon_knows_the_tokens_in_the_run_folders(tmp_path):
-    write_token(tmp_path, "run-1", TOKEN)
-    write_token(tmp_path, "run-2", OTHER)
-    tokens = OperatorTokens(tmp_path)
-    assert tokens.run_for(TOKEN) == "run-1" and tokens.run_for(OTHER) == "run-2"
-
-
-def test_a_token_file_that_is_not_a_runs_own_is_skipped(tmp_path, caplog):
-    write_token(tmp_path, "readable", TOKEN, mode=0o644)   # others could read it
-    write_token(tmp_path, "malformed", "not a token")
-    (tmp_path / "no-token").mkdir()
-    (tmp_path / "stray-file").write_text(OTHER, encoding="utf-8")
-    tokens = OperatorTokens(tmp_path)
-    assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) is None
-    assert "readable" in caplog.text and "malformed" in caplog.text
-
-
-def test_a_missing_runs_folder_is_no_runs(tmp_path):
-    assert OperatorTokens(tmp_path / "nowhere").run_for(TOKEN) is None
-
-
-def test_an_unknown_well_formed_token_rereads_the_folder_once(tmp_path):
-    tokens = OperatorTokens(tmp_path)
-    write_token(tmp_path, "run-3", TOKEN)  # written by the app after this daemon started
-    assert tokens.run_for(TOKEN) == "run-3"
-
-
-def test_a_malformed_token_never_rereads_the_folder(tmp_path, monkeypatch):
-    tokens = OperatorTokens(tmp_path)
-    reads = []
-    monkeypatch.setattr(tokens, "_load", lambda: reads.append(1))
-    assert tokens.run_for("short") is None and tokens.run_for("é" * 64) is None
-    assert reads == []
-    assert tokens.run_for(UNKNOWN) is None
-    assert reads == [1], "an unknown well-formed token rereads once"
-
-
-def test_revoke_deletes_the_runs_token_file_so_a_reread_cannot_bring_it_back(tmp_path):
-    path = write_token(tmp_path, "run-1", TOKEN)
-    tokens = OperatorTokens(tmp_path)
-    tokens.revoke("run-1")
-    assert not path.exists() and path.parent.is_dir(), "the file goes; the run folder is the app's"
-    assert tokens.run_for(TOKEN) is None
-
-
-def test_revoke_deletes_nothing_outside_the_runs_folder(tmp_path):
-    root = tmp_path / "runs"
-    root.mkdir()
-    outside = write_token(tmp_path, "elsewhere", TOKEN)
-    tokens = OperatorTokens(root)
-    for run_id in ("../elsewhere", "..", ".", "", "a/b"):
-        tokens.revoke(run_id)
-    assert outside.exists()
-
-
-def test_memory_wins_over_a_file(tmp_path):
-    tokens = OperatorTokens(tmp_path)
-    tokens.register("run-1", OTHER)  # rotated, its file not written yet
-    write_token(tmp_path, "run-1", TOKEN)
-    assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) == "run-1"
-
-
-def test_the_tools_are_the_contracts():
-    names = [tool["name"] for tool in TOOLS]
-    assert len(names) == len(set(names))
-    assert set(names) == TOOL_NAMES
-
-
-@pytest.mark.parametrize("tool", TOOLS, ids=lambda tool: tool["name"])
-def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
-    schema = tool["inputSchema"]
-    assert tool["description"].strip()
-    assert schema["type"] == "object" and schema["additionalProperties"] is False
-    assert set(schema.get("required", [])) <= set(schema["properties"])
-    assert schema.get("required", ["x"]), "an empty required list is left out"
-    for name, prop in schema["properties"].items():
-        assert prop.get("description") or prop.get("type") == "integer", name
-    json.dumps(tool)
-
-
-def test_only_the_challenged_tools_take_a_challenge_reply():
-    # relay_question: the Oracle vets a worker's question before it reaches the person (questions plan, C2).
-    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task", "check_goal", "relay_question"}
-    for tool in TOOLS:
-        properties = tool["inputSchema"]["properties"]
-        assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)
-        assert "challengeId" not in tool["inputSchema"].get("required", [])
-        if tool["name"] in CHALLENGED_TOOLS:
-            # Integration decision 3: a pending challenge is called again with its id.
-            assert "pending" in properties["challengeId"]["description"]
-
-
-AUTH = {"authorization": f"Bearer {TOKEN}"}
+TOKEN, OTHER, UNKNOWN = "ab" * 32, "cd" * 32, "ef" * 32
+ID = "E7A1C0DE-0000-4000-8000-000000000042"
+SECOND = "E7A1C0DE-0000-4000-8000-000000000043"
+AUTH = {"authorization": "Bearer " + TOKEN}
 
 
 class App:
@@ -183,7 +31,7 @@ class App:
 def route_for(app=None):
     app = app or App()
     route = OperatorRoute(app.broadcast, app.client_count)
-    route.tokens.register("run-1", TOKEN)
+    route.session_tokens.register(ID, 1, TOKEN)
     return route
 
 
@@ -225,7 +73,7 @@ async def test_without_a_registered_token_nothing_is_answered(headers):
 
 async def test_a_revoked_token_is_refused():
     route = route_for()
-    route.tokens.revoke("run-1")
+    route.session_tokens.revoke(ID, generation=1)
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 401
 
 
@@ -273,7 +121,7 @@ async def test_a_tool_call_is_forwarded_to_the_app_and_its_answer_returned():
     request = await answer_with(app, route, result={"open": True}, error=None)
     status, text = await calling
     assert app.events[0][0] == "operator.request"
-    assert request == {"requestId": request["requestId"], "runId": "run-1", "tool": "ask_you",
+    assert request == {"requestId": request["requestId"], "runId": ID, "generation": 1, "tool": "ask_you",
                        "arguments": {"key": "q1", "question": "Which project?"}}
     reply = json.loads(text)
     assert status == 200 and reply["id"] == 7
@@ -289,36 +137,13 @@ async def test_a_call_without_arguments_forwards_an_empty_object():
     assert json.loads((await calling)[1])["result"]["structuredContent"] == {}
 
 
-@pytest.mark.parametrize("tool,arguments,items", [
-    ("find_user", {"task": "api", "query": "sam"}, [{"username": "sam", "name": None}]),
-    ("jira_search", {"jql": "project = API"}, [{"key": "API-1", "summary": "Fix API"}]),
-    ("find_user", {"task": "api", "query": "nobody"}, []),
-    ("jira_search", {"jql": "project = EMPTY"}, []),
-])
-async def test_list_replies_reach_the_operator_as_structured_items(tool, arguments, items):
-    app = App()
-    route = route_for(app)
-    calling = asyncio.create_task(route.serve("POST", AUTH, call(tool, arguments)))
-    try:
-        await answer_with(app, route, result=items)
-        status, text = await calling
-        result = json.loads(text)["result"]
-        assert status == 200 and result["isError"] is False
-        assert result["structuredContent"] == {"items": items}
-        assert json.loads(result["content"][0]["text"]) == {"items": items}
-    finally:
-        if not calling.done():
-            calling.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await calling
-
-
 async def test_the_token_names_the_run_whatever_the_arguments_say():
     app = App()
     route = route_for(app)
-    route.tokens.register("run-2", OTHER)
-    calling = asyncio.create_task(route.serve("POST", {"authorization": f"Bearer {OTHER}"}, call("run_status", {"runId": "run-1"})))
-    assert (await answer_with(app, route, result={}))["runId"] == "run-2"
+    route.session_tokens.register(SECOND, 1, OTHER)
+    calling = asyncio.create_task(route.serve(
+        "POST", {"authorization": f"Bearer {OTHER}"}, call("run_status", {"runId": ID, "generation": 1})))
+    assert (await answer_with(app, route, result={}))["runId"] == SECOND
     await calling
 
 
@@ -362,11 +187,6 @@ async def test_each_call_gets_its_own_request_id():
     assert json.loads((await second)[1])["result"]["structuredContent"] == {"which": 2}
 
 
-async def _until(predicate):
-    while not predicate():
-        await asyncio.sleep(0.005)
-
-
 @pytest.mark.parametrize("params", [{"name": "merge_everything", "arguments": {}}, {"name": "run_status", "arguments": [1]}, None])
 async def test_a_call_to_no_such_tool_is_a_json_rpc_error(params):
     _status, text = await route_for().serve("POST", AUTH, message("tools/call", 1, params))
@@ -391,9 +211,9 @@ async def test_the_rpc_handlers_refuse_malformed_params(handler, params):
 
 async def test_register_opens_and_revoke_closes_the_route():
     route = OperatorRoute(App().broadcast, lambda: 1)
-    assert await route.register({"runId": "run-9", "token": TOKEN}) == {}
+    assert await route.register({"runId": ID, "generation": 1, "token": TOKEN}) == {}
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 200
-    assert await route.revoke({"runId": "run-9"}) == {}
+    assert await route.revoke({"runId": ID, "generation": 1}) == {}
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 401
 
 
@@ -416,78 +236,13 @@ async def test_restart_drops_old_reply_while_new_call_waits(monkeypatch):
     assert ids[0] != ids[1]
 
 
-def test_failed_token_unlink_does_not_restore_revoked_authority(tmp_path, monkeypatch):
-    path = write_token(tmp_path, "run-1", TOKEN)
-    tokens = OperatorTokens(tmp_path)
-    with monkeypatch.context() as patch:
-        def fail(*args, **kwargs):
-            raise OSError("read-only")
-        patch.setattr(type(path), "unlink", fail)
-        tokens.revoke("run-1")
-    assert path.exists()
-    assert tokens.run_for(TOKEN) is None
-    write_token(tmp_path, "run-2", OTHER)
-    assert tokens.run_for(OTHER) == "run-2"
-    assert tokens.run_for(TOKEN) is None
 
 
-def test_unknown_tokens_do_not_repeatedly_scan_unchanged_run_folders(tmp_path, monkeypatch):
-    write_token(tmp_path, "run-1", TOKEN)
-    now = [0.0]
-    tokens = OperatorTokens(tmp_path, clock=lambda: now[0])
-    scans = []
-    original = type(tmp_path).iterdir
-
-    def counted(path):
-        scans.append(path)
-        return original(path)
-
-    monkeypatch.setattr(type(tmp_path), "iterdir", counted)
-    now[0] = 0.9
-    assert tokens.run_for(UNKNOWN) is None
-    assert tokens.run_for(OTHER) is None
-    assert scans == []
-    now[0] = 1.0
-    assert tokens.run_for(UNKNOWN) is None
-    assert scans == [tmp_path], "a second on, the folder is read again"
 
 
-def finish_task():
-    return next(tool for tool in operator_mcp.TOOLS if tool["name"] == "finish_task")
 
 
-def test_finish_task_takes_one_task() -> None:
-    schema = finish_task()["inputSchema"]
-    assert schema["required"] == ["task"]
-    # The Oracle's verdict on a merge's conditions may answer pending: the call again names it.
-    assert "pending" in schema["properties"]["challengeId"]["description"]
-    assert schema["properties"]["task"]["type"] == "string"
-    assert schema.get("additionalProperties") is False
 
-
-@pytest.mark.parametrize("phrases", [
-    ('draft MR', 'merge', 'commit', 'waitingToMerge', 'blocked', 'accepted commit', 'calling again resumes',
-     'protected'),
-    ('published', 'waitingToMerge', 'blocked', 'refused', 'failed', 'reason', 'mergeRequest', 'pushedSHA', 'merged',
-     'mergedSHA'),
-    ('pipelines', '30 seconds', 'hour', 'may have landed', 'taken over', 'handed back', 'parent'),
-    ('paused', 'stopped', 'offline', 'taken over', 'moved past', 'accepted again', 'cannot say', 'default branch',
-     'never deploys', 'force-pushes'),
-    ('Merge slice', 'mergeLocal', 'never pushes', 'uncommitted', 'Push', 'review threads', 'resolved',
-     "the Oracle's yes", 'marks it ready'),
-])
-def test_finish_task_describes_its_outcomes_and_constraints(phrases):
-    description = finish_task()["description"]
-    assert all(phrase in description for phrase in phrases)
-
-
-def test_finish_task_can_skip_the_push_hooks_on_the_oracles_word() -> None:
-    properties = finish_task()["inputSchema"]["properties"]
-    assert properties["noVerify"] == {
-        "type": "boolean",
-        "description": "Skip the repository's push hooks: only when the hook failed on the environment and your repair "
-                       "didn't work. The Oracle judges it.",
-    }
-    # What was tried goes to the Oracle with the hook's output.
-    assert properties["reason"]["type"] == "string"
-    assert "noVerify" in finish_task()["description"]
+async def _until(predicate):
+    while not predicate():
+        await asyncio.sleep(0.005)

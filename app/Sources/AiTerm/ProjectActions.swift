@@ -238,18 +238,13 @@ final class ProjectActions {
     /// Whether the project has a task, review or terminal row — anything to fold. The live broadcast's
     /// tasks are drawn under it, not here, so a project with only those has none.
     func hasRows(_ project: Project) -> Bool {
-        let held = state.activeRun?.id
-        return state.tasks.contains(where: { $0.projectId == project.id && (held == nil || $0.operated?.runId != held) })
+        return state.tasks.contains(where: { $0.projectId == project.id && ($0.signalTask == nil || $0.signalTask?.takenOver == true) })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
     /// Folds or opens the live broadcast's group, kept with the workspace as a project's fold is
     /// (`AppState.foldedRuns`).
-    func toggleFolded(run id: UUID) {
-        guard canChangeWorkspace, state.activeRun?.id == id else { return }
-        let folded = state.foldedRuns.contains(id)
-        workspace.mutate { $0.setFolded(run: id, !folded) }
-    }
+
 
     /// Stores `layout`'s collapsed states — Focus View's or List View's, a broadcast's group's by its
     /// id among them — in one change to the workspace, which saves only if one changed. Whether it was
@@ -259,11 +254,8 @@ final class ProjectActions {
         guard canChangeWorkspace else { return false }
         workspace.mutate { state in
             for (id, collapsed) in layout {
-                if state.run(id: id) != nil {
-                    if state.foldedRuns.contains(id) != collapsed { state.setFolded(run: id, collapsed) }
-                } else {
-                    state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
-                }
+                if let index = state.signals.firstIndex(where: { $0.id == id }) { state.signals[index].collapsed = collapsed }
+                else { state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } } }
             }
         }
         return true
@@ -285,7 +277,7 @@ final class ProjectActions {
         guard canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
         let tasks = state.tasks.filter { $0.projectId == project.id }
-        let held = state.activeRun.map { run in tasks.filter { $0.operated?.runId == run.id && $0.hasCheckout }.count } ?? 0
+        let held = tasks.filter { $0.signalTask.map { !$0.takenOver } == true && $0.hasCheckout }.count
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
             detail: Self.removalDetail(tasks: tasks.count, archived: state.archived(projectId: project.id), operatorWorktrees: held),
@@ -311,7 +303,7 @@ final class ProjectActions {
         }
         if tasks == 0 { return "Removes the project from AiTerm\(forgets). Files are kept and terminal windows stay open." }
         let kept = archived.isEmpty ? "Files, worktrees and windows are kept." : "Files, branches, worktrees and windows are kept."
-        let held = operatorWorktrees == 0 ? "" : " " + ProjectSection.operatorHelp(worktrees: operatorWorktrees)
+        let held = operatorWorktrees == 0 ? "" : " " + "\(operatorWorktrees) worktrees are run by signals."
         return "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm\(forgets). \(kept)\(held)"
     }
 

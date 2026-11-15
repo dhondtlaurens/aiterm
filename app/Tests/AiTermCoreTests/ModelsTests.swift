@@ -365,7 +365,7 @@ import Foundation
 
     @Test func testTaskItemRoundTripsAReview() throws {
         let mr = MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4")
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
+        var task = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
                             worktreePath: "/tmp/wt", baseBranch: "main", jira: nil, kind: .review, mr: mr,
                             agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: false,
                             createdAt: Date(), windowId: nil)
@@ -397,19 +397,19 @@ import Foundation
     /// `TaskItem`'s `Codable` is written by hand, so nothing but this keeps a field from being left
     /// out of one half: every field set, each is written under its own key and read back as it was.
     @Test func aTaskWithEveryFieldSetRoundTripsWhole() throws {
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
+        var task = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
                             worktreePath: "/tmp/wt", baseBranch: "develop",
                             jira: JiraRef(key: "SHOP-1", summary: "Gift card", url: "https://x.atlassian.net/browse/SHOP-1"),
                             kind: .review, mr: MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4"),
                             agent: .codex, model: "gpt-5.6", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
-                            conversations: [TaskConversation(agent: .codex, id: "t-1"), TaskConversation(agent: .claude, id: "c-2")],
-                            operated: OperatedTask(runId: UUID(), key: "SHOP-1", state: .working, brief: "Do it", revision: 1))
+                            conversations: [TaskConversation(agent: .codex, id: "t-1"), TaskConversation(agent: .claude, id: "c-2")])
+        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         #expect(Set(keys) == ["id", "projectId", "title", "branch", "worktreePath", "baseBranch", "jira", "kind", "mr", "agent",
                               "model", "reasoning", "firstPrompt", "appendTicket", "createdAt", "windowId", "conversations",
-                              "operated"])
+                              "signalTask"])
         #expect(try JSONDecoder().decode(TaskItem.self, from: data) == task)
     }
 

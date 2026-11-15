@@ -61,7 +61,7 @@ import AiTermCore
                 guard workspace.flush() else { return }
             }
             guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return }
-            let prompt = WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
+            let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
             let window = try await ports.launch(task, prompt)
             guard holds(claim, generation: launchGeneration) else { return }
             let at = now()

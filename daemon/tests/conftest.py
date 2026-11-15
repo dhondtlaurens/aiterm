@@ -130,7 +130,7 @@ async def make_service(tmp_path, sock_dir):
             supervisor = ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count, **options)
         arguments = {"hooks": HookServer(on_post=None, port=0), "claude_files": ClaudeSessionFiles(tmp_path / "claude-sessions"),
                      "clock": lambda: 1000, "codex_files": CodexSessionFiles(tmp_path / "codex-sessions"),
-                     "operator_runs": tmp_path / "operator-runs", **overrides}
+                     "operator_folder": tmp_path / "operator-runs", **overrides}
         arguments.setdefault("test_activity", TestActivityReader(tmp_path / "test-runs", clock=arguments["clock"]))
         built.append(Service(iterm=iterm, rpc=rpc, supervisor=supervisor, **arguments))
         return built[-1]

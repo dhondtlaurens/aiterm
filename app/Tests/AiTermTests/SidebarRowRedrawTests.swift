@@ -151,24 +151,7 @@ import Testing
 
     /// A driven task the Operator acts on decodes its words in their own view: its row's body is not run
     /// again frame by frame while its words decode.
-    @Test func anActingRowIsNotRedrawnPerFrame() throws {
-        // The retired row's decode remains covered directly until its replacement's row-state step.
-        let controller = AppController(preferences: .scratch())
-        try controller.workspace.load()
-        let project = OperatorUIFixtures.project("shop"), run = OperatorUIFixtures.run()
-        var state = AppState(); state.append(project: project); state.runs = [run]
-        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working, worktree: "/synthetic/work")
-        state.tasks = [task]; controller.workspace.mutate { $0 = state }
-        let acting = OperatorActs(tasks: [task.id: .answering])
-        let section = try #require(SidebarModel.broadcastSection(state: state, sessions: [], branchByCwd: [:], acting: acting))
-        let row = try #require(section.tasks.first), counter = RowBodyCounter()
-        let host = testHost(TaskRowView(row: row, task: task, controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: 420, height: 100))
-        let window = testWindow(hosting: host); defer { window.orderOut(nil) }
-        settle(host)
-        #expect(host.firstDescendant(DecodeWordsView.self) != nil)
-        counter.reset(); settle(host, for: 0.5)
-        #expect(counter.counts[task.id] == nil)
-    }
+
     /// Baseline 1, final 0: a status the expanded header does not draw.
     @Test func anExpandedProjectHeaderDoesNotRedrawForItsTasksStatus() throws {
         let sidebar = try hostedSidebar()

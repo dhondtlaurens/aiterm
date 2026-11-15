@@ -34,9 +34,9 @@ extension AppController {
                     let links = await controller.connections()
                     guard let connection = links.jira else { return [] }
                     return try await JiraClient(config: connection, session: links.session).signalUsers(query: query)
-                }, ready: { [weak self] in self?.broadcastReadiness == .ready }, save: { value in try await controller.save(value) })
-            model.readinessLines = { [weak self] in self?.broadcastReadiness.lines ?? [] }
-            model.checkReadiness = { [weak self] in await self?.checkBroadcastReadiness() }
+                }, ready: { [weak self] in self?.signalReadiness == .ready }, save: { value in try await controller.save(value) })
+            model.readinessLines = { [weak self] in self?.signalReadiness.lines ?? [] }
+            model.checkReadiness = { [weak self] in await self?.checkSignalReadiness() }
             model.loadCompletions = { [weak model] in
                 let found = await BackgroundWork.run {
                     OperatorSkills.listed(at: paths.isEmpty ? [nil] : paths.map(Optional.some)) {

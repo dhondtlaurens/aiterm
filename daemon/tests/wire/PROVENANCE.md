@@ -14,3 +14,8 @@ Activation adds `session.closeIdle`, a generation- and conversation-checked idle
 Only its new reply frame and the method manifest were captured; existing frames are unchanged.
 The scripted reply refuses unsent input. Delivery adapter tests separately prove safe closure,
 sibling preservation and refusal for work, ownership, conversation, typing and permission changes.
+
+On 15 Nov 2026 the Signal activation/deletion deliberately added `generation: 1` to the
+`operator.request` event. Register and revoke now require the single Operator's generation;
+per-run tokens are retired. The existing capture driver produced this frame through the real
+socket and HTTP route. Every other previously captured frame stayed byte-for-byte unchanged.

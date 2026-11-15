@@ -69,10 +69,10 @@ import Testing
     }
 
     @Test func theOperatorsContextBelongsToItsOwnRow() {
-        let run = OperatorFixtures.run()
-        let row = OperatorRow.id(of: run.id)
+        let run = OperatorSession(createdAt: Date())
+        let row = OperatorRow.id(of: OperatorSession.rowID)
         var state = AppState.empty
-        state.runs = [run]
+        state.operatorSession = run
         var session = tab("operator", window: "operator-window", agent: .claude, active: true, context: 42)
         session.taskId = run.id.uuidString
         var contexts = SessionContexts()
@@ -86,7 +86,7 @@ import Testing
         contexts.prune(keeping: state)
         #expect(contexts.percents(forRow: row) == [.claude: 12])
 
-        state.runs = []
+        state.operatorSession = nil
         contexts.prune(keeping: state)
         #expect(contexts == SessionContexts())
     }

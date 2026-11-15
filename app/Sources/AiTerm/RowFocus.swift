@@ -138,7 +138,7 @@ final class RowFocus {
     /// controller's, every other row's the reconciler's; a row on its way out gets none.
     private func owedRestore(_ row: RowSelection) -> Task<Void, Never>? {
         if isRemoving(row.id) { return nil }
-        if case .task(let id) = row, (workspace.state.task(id: id)?.operated != nil || workspace.state.task(id: id)?.signalTask != nil) { return operatedTaskOwed?(id) }
+        if case .task(let id) = row, workspace.state.task(id: id)?.signalTask != nil { return operatedTaskOwed?(id) }
         return restoreOwed?(row)
     }
 
@@ -169,7 +169,6 @@ final class RowFocus {
         if state.terminal(id: id) != nil { return .terminal(id) }
         if state.project(id: id) != nil { return .project(id) }
         if OperatorRow.id(of: OperatorSession.rowID) == id { return .operation(OperatorSession.rowID) }
-        if let run = state.activeRun, OperatorRow.id(of: run.id) == id { return .operation(run.id) }
         return nil
     }
 
@@ -205,7 +204,7 @@ final class RowFocus {
         case .project:
             browse(row)
             return nil
-        case .task(let id) where workspace.state.task(id: id)?.isQueuedByOperator == true:
+        case .task(let id) where workspace.state.task(id: id).map({ $0.signalTask?.phase == .launching && !$0.hasCheckout }) == true:
             browse(row)
             return nil
         default:
@@ -313,8 +312,6 @@ final class RowFocus {
             browse(.terminal(terminal.id))
         } else if state.operatorSession?.window == windowId {
             browse(.operation(OperatorSession.rowID))
-        } else if let run = state.activeRun, run.operatorWindowId == windowId {
-            browse(.operation(run.id))
         }
     }
 
@@ -335,7 +332,7 @@ final class RowFocus {
         case .task(let id): state.task(id: id)?.windowId
         case .terminal(let id): state.terminal(id: id)?.windowId
         case .operation(let id) where id == OperatorSession.rowID: state.operatorSession?.window
-        case .operation(let id): state.runs.first { $0.id == id }?.operatorWindowId
+        case .operation: nil
         }
     }
 }

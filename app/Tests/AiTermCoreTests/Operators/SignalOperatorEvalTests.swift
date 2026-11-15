@@ -6,34 +6,34 @@ import Testing
 /// Capped before/after runs, using each contract's representation of the same situations. A
 /// changed behavior is reported separately from kept behavior; no real host or app is contacted.
 @Suite(.blocking, .enabled(if: ProcessInfo.processInfo.environment["AITERM_LIVE_OPERATOR"] == "1"))
-struct SignalOperatorEvalTests {
+struct SignalOperatorEvalRunner {
     @Test func bothBriefsFaceTheSameJudgmentsOnTheSameModelAndEffort() async throws {
         guard let claude = HarnessCommandRunner.live.locate("claude") else { try Test.cancel("Claude is not installed.") }
         let env = ProcessInfo.processInfo.environment
         let out = env["AITERM_EVAL_OUT"].map { URL(fileURLWithPath: $0) }
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-signal-eval-\(Int(Date().timeIntervalSince1970))")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let root = OperatorEvalTests.root
-        let baseline = OperatorEvalTests.Brief(name: "baseline",
+        let root = OperatorEvalRunner.root
+        let baseline = OperatorEvalRunner.Brief(name: "baseline",
             brief: root.appendingPathComponent("app/Tests/AiTermCoreTests/Operators/Fixtures/operator-current/eval-brief.md"),
             tools: root.appendingPathComponent("daemon/tests/fixtures/operator-current-tools.json"))
         let signals = root.appendingPathComponent("app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals")
-        let current = OperatorEvalTests.Brief(name: "signals", brief: signals.appendingPathComponent("brief.md"), tools: signals.appendingPathComponent("tools.json"))
-        let configured = OperatorEvalTests.model(env.filter { $0.key != "AITERM_EVAL_MODEL" })
+        let current = OperatorEvalRunner.Brief(name: "signals", brief: signals.appendingPathComponent("brief.md"), tools: signals.appendingPathComponent("tools.json"))
+        let configured = OperatorEvalRunner.model(env.filter { $0.key != "AITERM_EVAL_MODEL" })
         let model = env["AITERM_EVAL_MODEL"] ?? configured.model
         let effort = env["AITERM_EVAL_EFFORT"] ?? configured.effort
         let words = Array(AgentKind.claude.harness.launchWords(model: model, reasoning: effort).dropFirst())
         let jobs = [baseline, current].flatMap { brief in
             SignalEvalGrading.scenarios(signals: brief.name == "signals").flatMap { scenario in
-                (1...3).map { OperatorEvalTests.Job(scenario: scenario, brief: brief, number: $0, stream: true) }
+                (1...3).map { OperatorEvalRunner.Job(scenario: scenario, brief: brief, number: $0, stream: true) }
             }
         }
         print("SIGNAL EVAL: \(model), effort \(effort ?? "default"); max 12 turns, 600 seconds; \(out.path)")
-        let outcomes = await withTaskGroup(of: OperatorEvalTests.Outcome.self) { group in
-            var pending = jobs[...], done: [OperatorEvalTests.Outcome] = []
+        let outcomes = await withTaskGroup(of: OperatorEvalRunner.Outcome.self) { group in
+            var pending = jobs[...], done: [OperatorEvalRunner.Outcome] = []
             func next() {
                 guard let job = pending.popFirst() else { return }
-                group.addTask { OperatorEvalTests.run(job, claude: claude, words: words, in: out) }
+                group.addTask { OperatorEvalRunner.run(job, claude: claude, words: words, in: out) }
             }
             for _ in 0..<3 { next() }
             for await result in group { done.append(result); print("SIGNAL EVAL \(result.scenario) \(result.brief) #\(result.number): \(result.failures)"); next() }
@@ -52,7 +52,7 @@ struct SignalOperatorEvalTests {
 enum SignalEvalGrading {
     static let id = OperatorEvalGrading.pay14.uuidString
     static func scenarios(signals: Bool) -> [EvalScenario] {
-        let oldStatus = OperatorEvalGrading.status([OperatorEvalGrading.pay14(live: .idle)])
+        let oldStatus = try! JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: OperatorEvalRunner.root.appendingPathComponent("app/Tests/AiTermCoreTests/Operators/Fixtures/operator-current/eval-status.json")))
         let status: JSONValue = signals ? ["schema": 1, "oracleOn": false, "signals": [],
             "tasks": [["id": .string(id), "stage": 1, "ownership": 0, "phase": ["kind": "working"],
                        "branch": "feat/pay-14-download-button", "blockedReason": nil, "pending": [],
@@ -113,7 +113,7 @@ enum SignalEvalGrading {
     @Test func chatWrittenBeforeAToolIsPartOfTheEvaluation() {
         let stream = #"{"type":"assistant","message":{"content":[{"type":"text","text":"Which scope?"},{"type":"tool_use","name":"ask_you"}]}}"#
             + "\n" + #"{"type":"result","result":"Recorded.","is_error":false}"#
-        let output = OperatorEvalTests.output(stream, stream: true)
+        let output = OperatorEvalRunner.output(stream, stream: true)
         #expect(output.chat == "Which scope?")
         #expect(output.answer?["result"] == "Recorded.")
     }

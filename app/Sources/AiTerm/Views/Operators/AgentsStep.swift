@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Broadcast's Agents step (broadcast setup v2, design 1A): the combinations the Operator may start workers, tabs and
+/// New Signal's Agents step (broadcast setup v2, design 1A): the combinations the Operator may start workers, tabs and
 /// reviewers on, a row each of an Agent `Select`, an unlabelled `ModelReasoningFields` and a ✕, the column labels once
 /// above them, then “Add an agent” in the link's ink and the step's help. A row's models and reasoning levels are its
 /// agent's own, as Settings › Agents lists them; picking an agent takes its default there, and a model keeps the
@@ -18,11 +18,7 @@ struct AgentsStep: View {
     let setReasoning: (String?, UUID) -> Void
     let help: String
 
-    init(model: NewBroadcastModel) {
-        rows = model.agentRows; offeredAgents = model.offeredAgents; models = model.models(for:)
-        addAgent = model.addAgent; removeAgent = model.removeAgent; setAgent = model.setAgent(_:of:)
-        setModel = model.setModel(_:of:); setReasoning = model.setReasoning(_:of:); help = NewBroadcastModel.agentsHelp
-    }
+
     init(model: SignalModel) {
         rows = model.agentRows; offeredAgents = model.offeredAgents; models = model.models(for:)
         addAgent = model.addAgent; removeAgent = model.removeAgent; setAgent = model.setAgent(_:of:)

@@ -3,14 +3,10 @@ serves, and the `/operator` route that forwards every tool call to the app."""
 from __future__ import annotations
 
 import asyncio
-import hmac
 import itertools
 import uuid
 import json
 import logging
-import os
-import stat
-import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -27,9 +23,8 @@ log = logging.getLogger(__name__)
 NOT_OPEN = "AiTerm isn't open"
 NOT_ANSWERING = "AiTerm isn't answering"
 # Where the app keeps each run's folder, named by its id: brief.md, mcp.json and `token` (spec §5.1).
-RUNS_ROOT = support_dir() / "operators" / "runs"
+SINGLE_ROOT = support_dir() / "operators" / "operator"
 # A run's token: the app's 32 random bytes, as hex.
-SINGLE_ROOT = RUNS_ROOT.parent / "operator"
 SIGNAL_TOOLS: tuple[dict[str, Any], ...] = tuple(json.loads(Path(__file__).with_name("signal_tools.json").read_text()))
 SIGNAL_TOOL_NAMES = frozenset(tool["name"] for tool in SIGNAL_TOOLS)
 
@@ -50,594 +45,6 @@ class ToolError(Exception):
     isError, as MCP has a tool's own failures, never as a protocol error."""
 
 
-def _run_folder_name(run_id: str) -> bool:
-    """Whether `run_id` names one folder inside the runs root, and nothing above or beside it."""
-    return bool(run_id) and run_id not in (".", "..") and os.sep not in run_id and "/" not in run_id
-
-
-class OperatorTokens:
-    """Each run's token, the only thing that opens /operator, and the run it names (spec §5.2). The
-    app writes each run's `token` file (mode 0600) and registers it; the daemon loads every one at
-    start and reads the folder again when a well-formed token it does not know arrives, so a daemon
-    restart costs the operator nothing (spec §11). It stops a worker from acting as an operator by
-    accident or because a ticket told it to; it is no wall against a process of the same user, which
-    can read the run folder. With no runs root, tokens live in memory only."""
-
-    # How long an unknown token waits before another read of an unchanged runs folder.
-    RELOAD_SECONDS = 1.0
-
-    def __init__(self, runs_root: Path | None = None, clock: Callable[[], float] = time.monotonic) -> None:
-        self._root, self._clock = runs_root, clock
-        self._runs: dict[str, str] = {}    # token -> run id
-        self._tokens: dict[str, str] = {}  # run id -> token
-        self._revoked: set[str] = set()
-        self._loaded_at = float("-inf")
-        self._root_stamp: int | None = None
-        self._load()
-
-    def register(self, run_id: str, token: str) -> None:
-        """Opens /operator to `token` for `run_id`, in place of any token the run had. In memory:
-        the file is the app's to write."""
-        if not well_formed(token):
-            raise ValueError("a run token is 64 hex characters")
-        if (owner := self._runs.get(token)) is not None and owner != run_id:
-            raise ValueError("that token belongs to another run")
-        self._forget(run_id)
-        self._revoked.discard(run_id)
-        self._runs[token], self._tokens[run_id] = run_id, token
-
-    def revoke(self, run_id: str) -> None:
-        """Closes /operator to the run for good: its token leaves memory, and its file goes, so no
-        later read of the folder brings it back. The run folder itself is the app's."""
-        self._forget(run_id)
-        self._revoked.add(run_id)
-        if self._root is not None and _run_folder_name(run_id):
-            try:
-                (self._root / run_id / "token").unlink(missing_ok=True)
-            except OSError:
-                log.exception("could not delete the token file of run %s", run_id)
-
-    def _forget(self, run_id: str) -> None:
-        if (token := self._tokens.pop(run_id, None)) is not None:
-            self._runs.pop(token, None)
-
-    def run_for(self, token: str) -> str | None:
-        """The run `token` opens, if any. An unknown well-formed token reads the folder once more
-        first: the app may have written a run's file since this daemon looked."""
-        if (run := self._known(token)) is not None or not well_formed(token):
-            return run
-        self._load()
-        return self._known(token)
-
-    def _known(self, token: str) -> str | None:
-        """Compared in constant time, as bytes: a str compare_digest raises on anything but ASCII,
-        and a header can carry anything."""
-        offered = token.encode("utf-8", "replace")
-        return next((run for known, run in self._runs.items() if hmac.compare_digest(known.encode(), offered)), None)
-
-    def _load(self) -> None:
-        """Adopts every run folder's token that memory does not contradict: memory wins, as it holds
-        what the app registered last. AiTerm's own folder, a few small files: read on the loop."""
-        if self._root is None:
-            return
-        try:
-            stamp = self._root.stat().st_mtime_ns
-            now = self._clock()
-            if stamp == self._root_stamp and now - self._loaded_at < self.RELOAD_SECONDS:
-                return
-            self._root_stamp, self._loaded_at = stamp, now
-            folders = [path for path in self._root.iterdir() if path.is_dir()]
-        except OSError:
-            return  # no runs yet
-        for folder in folders:
-            if folder.name in self._revoked:
-                continue
-            path = folder / "token"
-            try:
-                if not path.is_file():
-                    continue
-                if stat.S_IMODE(path.stat().st_mode) & 0o077:
-                    log.warning("skipped the token of run %s: others can read %s", folder.name, path)
-                    continue
-                token = path.read_text(encoding="utf-8").strip()
-            except (OSError, ValueError):
-                log.warning("skipped the token of run %s: it cannot be read", folder.name)
-                continue
-            if not well_formed(token):
-                log.warning("skipped the token of run %s: it is malformed", folder.name)
-                continue
-            if folder.name not in self._tokens and token not in self._runs:
-                self._runs[token], self._tokens[folder.name] = folder.name, token
-
-
-def _text(description: str) -> dict[str, Any]:
-    return {"type": "string", "description": description}
-
-
-def _choice(description: str, *values: str) -> dict[str, Any]:
-    return {"type": "string", "enum": list(values), "description": description}
-
-
-_TASK = _text("The task: its key as you gave it to create_task, or its id from run_status.")
-_KEY = _text("Your idempotency key for this act: the same key again returns what the first call did.")
-_AGENT = _choice("The agent that works the task, among those installed.", "claude", "codex")
-_END = _choice("Where the task ends, from the broadcast's Done when: commit; draftMR, push and open a draft merge request; "
-               "merge, push, open a merge request and merge it once the host says it can be; or mergeLocal, merge the "
-               "accepted commit into the project's own default branch, with nothing pushed. A merge needs the broadcast's "
-               "Merge slice. Left out, a task ends at a draftMR, or at a commit when the Done says a commit. In a broadcast "
-               "whose run_status shows taskSettings, every task ends at its end and this is refused with: Every task ends at "
-               "<end>, which only the person changes.",
-               "commit", "draftMR", "merge", "mergeLocal")
-_MODEL = _text("A model id from the agent's own list, as run_status shows it under agents. Left out, the agent's default. "
-               "A model not in that list is refused. In a broadcast whose run_status lists rows under agents.allowed, only a "
-               "row's model, and left out, the agent's first row.")
-# Said first by each argument that is the Agents and Task steps' alone.
-_STEPS_ONLY = "Only in a broadcast started with the Agents and Task steps, whose run_status shows taskSettings"
-_REASONING = _text("The model's reasoning level, as Settings › Agents lists it. Explicit reasoning wins. Left out, the "
-                   "configured default model keeps its configured reasoning, even when named explicitly; another model "
-                   "takes its catalogue fallback. In a broadcast with taskSettings, the agent, model and reasoning must "
-                   "be a row under agents.allowed: anything else is refused, naming the rows. Ask the person with ask_you "
-                   "about a combination outside those rows.")
-_DEPENDS_ON: dict[str, Any] = {
-    "type": "array",
-    "description": "What the task waits for. An order dependency waits until the other task is accepted or needs no change; "
-                   "a code dependency also builds on its accepted commit, in the same project. At most one code dependency.",
-    "items": {"type": "object", "additionalProperties": False, "required": ["task", "kind"],
-              "properties": {"task": _TASK, "kind": _choice("order or code.", "order", "code")}},
-}
-_CHALLENGE = {
-    "challengeId": _text("The challengeId a challenged call returned: send it with your revised arguments, or with "
-                         "challengeReply. A reply that says pending has no answer yet: call again with its challengeId "
-                         "and the same arguments. For create_task, finish_task and check_goal, the call again acts only on "
-                         "the Oracle's yes. The same "
-                         "challengeId again, once answered, returns the recorded result."),
-    "challengeReply": _text("Your answer to each point of the second opinion's critique, when you keep the act as it was."),
-}
-# The tools the Oracle can challenge (spec §8): the first call returns a critique, and only the call
-# that answers it, with its challengeId, takes effect. An Oracle not back within the app's 20 s answers
-# {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the operator calls
-# again with that challengeId (integration decision 3). Whether a call is challenged follows the
-# broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold, a
-# finish_task that would merge, and a check_goal get the Oracle's yes or no the same way: it may answer pending, and only
-# a yes acts.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task", "check_goal", "relay_question")
-
-
-def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
-    """One tool as MCP's tools/list serves it. A closed schema: the Operator's model shapes its calls
-    by it. The daemon checks no argument; the app does."""
-    properties = dict(properties or {})
-    if name in CHALLENGED_TOOLS:
-        properties |= _CHALLENGE
-    schema: dict[str, Any] = {"type": "object", "properties": properties, "additionalProperties": False}
-    if required:
-        schema["required"] = list(required)
-    return {"name": name, "description": description, "inputSchema": schema}
-
-
-# The operator's tools (spec §6), served by /operator and answered by the app's OperatorToolHandler.
-# Every one that changes something is safe to repeat: the repeat returns the recorded result.
-TOOLS: tuple[dict[str, Any], ...] = (
-    _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status and branch, "
-          "and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
-          "worker's terminal), tasks ready to accept, "
-          "tasks one of whose workers ended its turn with work still running in the background, even while another of its "
-          "tabs works (under background; each task's "
-          "background lists the commands, and the worker wakes on its own when they end, so it is not ready yet; a worker whose "
-          "turn ended while its subagent works stays working, its task's background naming the subagent by its description), "
-          "tasks possibly stalled, anything uncertain. A worker whose live reads working? says working but neither its transcript "
-          "nor its subagents' has grown for two minutes, and no tool call it started is still running (one counts for up to 30 "
-          "minutes from its start), so the flag may be stuck: it is listed under uncertain, so look at the worker before "
-          "trusting it. A task whose first worker was launched a moment ago and has not named its conversation yet says "
-          "opening: it is still starting and counts as at work, whatever its live says (Codex reads idle for about half a "
-          "minute). A task whose worker the person is driving, by a prompt they typed "
-          "into its window themselves, says youAreDriving with yourPrompt, its first line, until that turn ends: leave that "
-          "worker alone meanwhile, and read its result afterwards as you would one of your own. "
-          "A task one of whose workers stopped short of finishing on an API error says why under stoppedOn, and is neither "
-          "ready nor finished without a commit: its usage limit, with when it resets (Claude Code may carry on by itself "
-          "then, so wait or move the work elsewhere), or a billing or sign-in failure, which won't clear by itself: tell "
-          "the person. "
-          "Each task keeps model, the one it was planned on; a Claude worker adds liveModel and liveReasoning, the model "
-          "and effort Claude Code says it runs now, which change once a /model or /effort has run, never on delivery. "
-          "A slash command you sent with message_task is listed under slashCommands with what became of it: delivered "
-          "(typed, nothing in its transcript yet), queued (Claude Code queued it at seenAt and has taken nothing from its "
-          "queue since), ran (its transcript recorded it at seenAt, with a local command's output), or unknown: nothing "
-          "of it in its transcript within a minute, or no transcript to read; something left the queue after it was "
-          "queued; or an hour passed without its run. Within that hour an unknown command can still become ran, as one "
-          "waiting on a dialog does once the person answers, but not one a remove, popAll or popOne named, nor one "
-          "never queued once you sent the same text again. A /model or /effort run mid-turn takes effect "
-          "without a record, so it reads unknown: check liveModel and liveReasoning. "
-          "A task with tabs added by open_tab lists every worker tab under tabs, "
-          "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
-          "named task/tab, and a tab that was closed is marked closed and never opened again. "
-          "Under run it also shows the off-brief finds, the snags you recorded with report_snag (so you don't record one "
-          "twice after a restart), each agent's weekly use, and under agents each installed agent's models with its default "
-          "model and, under delivery, whether its workers can be messaged. A task with a merge request shows what the host "
-          "says of it under mergeRequest (draft, pipeline, mergeable, approvedBy, head), or why it could not be read "
-          "under mergeRequestNote. "
-          "A broadcast set up with the Agents, Task and Done steps also shows under run: agents.allowed, its Agents rows "
-          "(agent, model, reasoning), the only combinations it may start workers, tabs and reviewers on; taskSettings, what "
-          "every task follows (review, the review prompt; end; closeWhenDone and deleteMergedBranch, its closing at the "
-          "broadcast's end); goal, with its text and extraRounds; goalCheckDue, true once every task is done and the goal "
-          "is still to check with check_goal; and roundsUsed. Each task lists reviewVerdicts, the verdicts record_review "
-          "kept, and finished lists the tasks closed and removed at the broadcast's end, as their records keep them. "
-          "Call it first after any restart or compaction."),
-    _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
-          {"jql": _text("The JQL query.")}, ("jql",)),
-    _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
-          "is on, and outside its Jira projects; AiTerm then leaves it for the person. The same key returns the ticket "
-          "the first call made, so call again with it after a lost reply.",
-          {"key": _KEY, "project": _text("The Jira project's key, one of the broadcast's."),
-           "type": _text("The issue type, such as Task, Bug or Story."),
-           "summary": _text("The ticket's title."), "description": _text("What the ticket says, in plain text."),
-           "parent": _text("The key of the epic or parent ticket it belongs under, if any.")},
-          ("key", "project", "type", "summary", "description")),
-    _tool("jira_move", "Moves a Jira ticket to the status of that name, by the transition that leads there. Refused unless the "
-          "broadcast's Jira slice is on, and outside its Jira projects. A status the ticket cannot reach from where it is "
-          "is refused with the statuses it can reach.",
-          {"key": _text("The ticket's key, such as PAY-231."), "status": _text("The status to move it to, such as In Review or Done.")},
-          ("key", "status")),
-    _tool("jira_link", "Links two Jira tickets, read from the first: the first blocks, relates to or duplicates the second. "
-          "Refused unless the broadcast's Jira slice is on, and when either is outside its Jira projects.",
-          {"key": _text("The ticket the link is read from."), "to": _text("The ticket it points to."),
-           "type": _text("The Jira link type's name, such as Blocks, Relates or Duplicate.")},
-          ("key", "to", "type")),
-    _tool("jira_board", "Reads the Jira boards of each of the broadcast's Jira projects: for each board its id, name and type, "
-          "its active and future sprints (id, name, state, dates; only a scrum board has any) and its columns with the "
-          "statuses in each. Read-only; needs no slice. Use a sprint's id with jira_sprint, and a column's status names "
-          "with jira_move."),
-    _tool("jira_sprint", "Puts Jira tickets in an active or future sprint, or back on the backlog. The tickets must be in "
-          "the broadcast's Jira projects, and a sprint must be on one of their boards (jira_board lists them). Refused "
-          "unless the broadcast's Jira slice is on; AiTerm then leaves it for the person. The same key again moves "
-          "nothing, so call again with it after a lost reply.",
-          {"key": _KEY, "tickets": {"type": "array", "items": {"type": "string"},
-                                    "description": "The tickets' keys, such as PAY-231; at most 50."},
-           "sprint": {"type": ["integer", "string"],
-                      "description": "The sprint's id from jira_board, or backlog to take the tickets out of their sprints."}},
-          ("key", "tickets", "sprint")),
-    _tool("jira_edit", "Edits a ticket of one of the broadcast's Jira projects: its summary, description, labels (added and "
-          "removed, the others stay), priority, fix versions or assignee. Name at least one. Refused unless the broadcast's "
-          "Jira slice is on, and outside its Jira projects; AiTerm then leaves it for the person. Setting the same values "
-          "again changes nothing, so call again after a lost reply.",
-          {"ticket": _text("The ticket's key, such as PAY-231."),
-           "summary": _text("The new title."),
-           "description": _text("The new description, in plain text; it replaces the old one, and an empty one clears it."),
-           "labelsAdd": {"type": "array", "items": {"type": "string"}, "description": "Labels to add."},
-           "labelsRemove": {"type": "array", "items": {"type": "string"}, "description": "Labels to remove."},
-           "priority": _text("The priority's name, such as High."),
-           "fixVersions": {"type": "array", "items": {"type": "string"},
-                           "description": "The version names the ticket ends with, replacing its fix versions; empty clears them."},
-           "assignee": _text("me, none, or a name or email that matches exactly one person Jira can assign the ticket to; "
-                             "several matches are refused with their names.")},
-          ("ticket",)),
-    _tool("jira_comment", "Comments on a ticket of one of the broadcast's Jira projects. A comment reaches the ticket's "
-          "watchers, so write it for them. Refused unless the broadcast's Jira slice is on, and outside its Jira projects; "
-          "AiTerm then leaves it for the person. The same key again posts nothing: after a lost reply call again with it, and "
-          "AiTerm looks for the comment on the ticket before it posts anything.",
-          {"key": _KEY, "ticket": _text("The ticket's key, such as PAY-231."), "body": _text("The comment, in plain text.")},
-          ("key", "ticket", "body")),
-    _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
-          "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
-          "size need the Oracle's yes. One the Oracle refuses, or any past that limit with the Oracle off, is refused and "
-          "noted for the summary by AiTerm.",
-          {"key": _KEY, "title": _text("The task's title, as its row shows it."),
-           "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
-           "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
-           "ticket": _text("The Jira key it works, if any."),
-           "issueType": _text("The Jira issue type, or feat, fix or chore. Sets the branch prefix."),
-           "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
-           "modelReason": _text("Why this agent and model, in one line, as the task's card and the summary show it."),
-           "agentPinned": {"type": "boolean", "description": "True when the person's words named this task's agent: it then "
-                                                             "starts on that agent whatever its weekly use."},
-           "end": _END, "dependsOn": _DEPENDS_ON},
-          ("key", "title", "brief", "project", "agent", "modelReason")),
-    _tool("update_task", "Changes an unstarted task's brief, agent, model, reasoning, end or dependencies. In a broadcast started "
-          "with the Agents and Task steps, combinations stay within its Agents rows. Steer a started task with message_task instead.",
-          {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
-           "end": _END, "dependsOn": _DEPENDS_ON}, ("task",)),
-    _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
-          "Submitting the same revision again returns the earlier result.",
-          {"revision": {"type": "integer", "description": "The revision run_status shows open."}}, ("revision",)),
-    _tool("read_task", "Reads a task: its worker's last message, its diff, the prompt open in its session, or its review: the "
-          "agent review's findings, and for a task whose request people review, its threads with their ids, who approved "
-          "and who was asked. A task with tabs added by open_tab: tab names the one whose last message or prompt to read. "
-          "A key the task has no tab for is refused with its tabs.",
-          {"task": _TASK, "what": _choice("lastMessage, diff, prompt or review.", "lastMessage", "diff", "prompt", "review"),
-           "tab": _text("For lastMessage and prompt, the key of the tab to read, as run_status lists it. Left out, or main, "
-                        "the first worker.")},
-          ("task", "what")),
-    _tool("review_task", "Starts an agent review of a working task's branch, or its accepted commit while inReview: another agent "
-          "reads its commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
-          "The reviewer reads files only: it runs no commands and dispatches no subagents, so it can't run git or a skill's "
-          "subagent, and says on its first line which steps of a named skill it skipped. When the person's Review requires a "
-          "skill's exact workflow and that needs commands or subagents, run it in a worker tab instead: open_tab with a "
-          "read-only brief. That tab's review is not recorded as this task's agent review. "
-          "Nobody is notified, so it needs no slice. It answers started at once; AiTerm wakes you when the findings are in, "
-          "and read_task with what: review reads them. Have the task's agent fix them with message_task. A review running "
-          "already, or the same review of the same commit, is not started again. In a broadcast whose run_status shows "
-          "taskSettings it is refused with: Run the review in a tab: open_tab with role review, then record_review.",
-          {"task": _TASK, "instructions": _text("What the review checks and how, from the broadcast's Review, such as "
-                                                "an adversarial review with /review-skill."),
-           "agent": _choice("Who reviews: claude, codex or pi. Left out, the other of Claude and Codex from the task's own agent.",
-                            "claude", "codex", "pi")},
-          ("task", "instructions")),
-    _tool("request_review", "Marks a task's merge request ready and asks people to review it. Refused unless the broadcast's "
-          "Review slice is on; AiTerm then leaves it for the person. The same reviewers again change nothing.",
-          {"task": _TASK, "reviewers": {"type": "array", "items": {"type": "string"},
-                                        "description": "The usernames to ask, as find_user gives them."}},
-          ("task", "reviewers")),
-    _tool("reply_thread", "Replies in a review thread on a task's merge request, by the thread's id from read_task with what: "
-          "review. Refused unless the broadcast's Review slice is on. The same key posts once.",
-          {"task": _TASK, "key": _KEY, "thread": _text("The thread's id."), "body": _text("The reply, in plain text.")},
-          ("task", "key", "thread", "body")),
-    _tool("resolve_thread", "Resolves a review thread on a task's merge request, by the thread's id from read_task with what: "
-          "review, once its point is fixed or answered: reply first with reply_thread when a reply is due. Refused unless the "
-          "broadcast's Review slice is on, for a thread that isn't on the task's own request, when the task was taken over, or "
-          "while the broadcast is paused or ended. A thread resolved already is left as it is.",
-          {"task": _TASK, "thread": _text("The thread's id.")}, ("task", "thread")),
-    _tool("critique_thread", "Asks the Oracle for its critique of one review thread on a task's merge request, by the thread's "
-          "id from read_task with what: review: whether its point is right for this change, and whether the worker should fix "
-          "it or you should push back. The Oracle reads the code in the task's worktree. It writes nothing on the host, so it "
-          "needs no slice; it needs the Oracle on. The critique is recorded on the task, and read_task with what: review shows "
-          "it beside its thread. The same thread with the same last note on the same commit answers the recorded critique and "
-          "asks the Oracle nothing; a new note, or a branch that moved since, asks again. An Oracle not back in time answers "
-          "pending: call again for it. Refused for a thread that isn't on the task's own request, when the task was taken over, "
-          "or while the broadcast is paused or ended.",
-          {"task": _TASK, "thread": _text("The thread's id.")}, ("task", "thread")),
-    _tool("find_user", "Finds people on the code host of a task's project who may review there, by username or name. It only "
-          "reads, so it needs no slice.",
-          {"task": _TASK, "query": _text("A username or a name, or part of one.")}, ("task", "query")),
-    _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
-          "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried. Delivered is "
-          "typed and entered, not run: what became of a slash command sent to a Claude worker shows in run_status, "
-          "under its task's slashCommands for the first worker and under that tab's tabs[].slashCommands for a tab "
-          "added by open_tab. Claude Code saves a /model or /effort that runs as the person's default for new sessions. "
-          "A task with tabs "
-          "added by open_tab: tab names the one to message. A key the task has no tab for is refused with its tabs. "
-          "Messaging an accepted task that isn't published yet sends it back to working; accept its new commit again. That is "
-          "an accepted task whose commit isn't pushed yet, or one whose merge request is still open on the host and not "
-          "merged, such as a merge waiting on a conflict: finish_task then pushes the new commit to the same request. "
-          "No merge of it runs while the message is on its way; one refused while finish_task publishes it.",
-          {"task": _TASK, "text": _text("The message."),
-           "tab": _text("The key of the tab to message, as run_status lists it. Left out, or main, the first worker.")},
-          ("task", "text")),
-    _tool("open_tab", "Adds a worker tab to a task that is working or in review, or accepted and open to steering as "
-          "message_task says, which sends it back to working: another agent in the task's window, on the "
-          "same worktree and branch, for more work on that task. It is part of the task: one card, one branch, accepted once. "
-          "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "
-          "behind the person's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
-          "key with other arguments is refused. Returns the tab's key, agent, model, and opened or opening.",
-          {"task": _TASK, "key": _KEY, "agent": _AGENT, "model": _MODEL, "reasoning": _REASONING,
-           "modelReason": _text("Why this agent and model, in one line."),
-           "agentPinned": {"type": "boolean", "description": "True when the person's words named this agent: an agent whose "
-                                                             "workers can't be messaged is then not refused."},
-           "brief": _text("The tab's first prompt: what this worker does, since it sees nothing else. Needed for a work tab, "
-                          "and for every tab of a broadcast started before the Agents and Task steps; optional for a review "
-                          "tab, whose first prompt is the broadcast's review prompt with AiTerm's lines, and what you write "
-                          "is added after it."),
-           "role": _choice(f"{_STEPS_ONLY}; a broadcast started before them doesn't take it. work, more work on the task; or "
-                           "review, a reviewer of the task's branch head as the tab opens, which only reviews and ends with a "
-                           "verdict: read it once its turn ends and call record_review. Run each review this way, on a row of "
-                           "agents.allowed, another agent than the task's worker where the rows have one. Left out, work.",
-                           "work", "review")},
-          ("task", "key", "agent", "modelReason")),
-    _tool("record_review", "Records a review tab's verdict on a task, once its turn ended and you read it: the commit it reviewed, "
-          "whether it passed by the review prompt's own words, its findings counted, and its fix round. sha must be on the "
-          "task's branch and tab one of its review tabs (open_tab with role review). The same key returns the first answer. "
-          "It answers the task's verdicts and how many failed. You decide when to accept: AiTerm doesn't refuse an "
-          "acceptance without a passing verdict. When the rounds the prompt names are used up, ask the person with ask_you "
-          "on the task, about fixRounds.",
-          {"task": _TASK, "tab": _text("The review tab's key."), "sha": _text("The commit it reviewed, as its first prompt named it."),
-           "passed": {"type": "boolean", "description": "Whether it passed, by the review prompt's own words."},
-           "critical": {"type": "integer", "description": "How many critical findings it reported."},
-           "important": {"type": "integer", "description": "How many important findings it reported."},
-           "minor": {"type": "integer", "description": "How many minor findings it reported."},
-           "summary": _text("Its verdict in one line."),
-           "round": {"type": "integer", "description": "The fix round this review closes, counted by you from 1."},
-           "rounds": {"type": "integer", "description": "The rounds of fixes the review prompt allows, when it names a number."},
-           "key": _KEY},
-          ("task", "tab", "sha", "passed", "critical", "important", "minor", "summary", "round", "key")),
-    _tool("check_goal", "Answers the broadcast's goal once every task is done: refused unless run_status shows goalCheckDue, "
-          "when AiTerm wakes you for it. Say whether the goal is met, with evidence from each task's result, and when not, "
-          "what is still missing, one line each. With the Oracle on it needs the Oracle's yes that your verdict is right; "
-          "without its answer it acts unchallenged. It answers complete, the broadcast done and its summary asked for; "
-          "planMore, with the rounds left: plan only what missing names (create_task, then submit_plan), and if nothing can "
-          "be planned call check_goal again before submitting anything; or stopped, with what went to leftForYou: not met "
-          "with no rounds left, or not met again when nothing could be planned after planMore, rounds left or not.",
-          {"met": {"type": "boolean", "description": "Whether the goal is met."},
-           "evidence": _text("Why, from each task's result: its accepted commit, its merge and its verdicts."),
-           "missing": {"type": "array", "items": {"type": "string"},
-                       "description": "When not met: what is still to do, one line each."}},
-          ("met", "evidence")),
-    _tool("mark_task", "Records a working task's outcome: accepted, with the result commit on its branch and the worker's check "
-          "output; noChange; blocked or failed, with the reason in note. Identical evidence for the same commit returns the earlier "
-          "result. Fresh checkOutput or note refreshes evidence only after verifying the same current branch head, and invalidates "
-          "the previous merge verdict. After an obsolete merge refusal, refresh with mark_task then start a fresh finish_task call. "
-          "run_status exposes acceptanceEvidence with commit, output and time.",
-          {"task": _TASK, "outcome": _choice("accepted, noChange, blocked or failed.", "accepted", "noChange", "blocked", "failed"),
-           "sha": _text("The accepted commit, unmoved on the task's branch."),
-           "checkOutput": _text("The worker's check output: tests, lint, build."), "note": _text("Why, for blocked and failed.")},
-          ("task", "outcome")),
-    _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues. "
-          "AiTerm blocks after 90 minutes of work without a new task-branch commit or 4 hours of total work since starting "
-          "or the last resume. Any worker tab's commit resets only the no-commit clock. "
-          "A task ready for acceptance is never blocked on runtime. "
-          "Inspect before resuming; resume_task resets both clocks.",
-          {"task": _TASK}, ("task",)),
-    _tool("retry_task",
-          "Queues a failed task again, if it has retries left, and starts its worker: "
-          "the answer's launch says whether it started, or why it couldn't.",
-          {"task": _TASK}, ("task",)),
-    _tool("finish_task",
-          "Carries out an accepted task's end from the plan, for its accepted commit only. "
-          "draft MR: pushes the task's own branch and opens a draft merge request; a stacked task's targets "
-          "its parent's branch, so finish the parent first. "
-          "merge: pushes, opens a merge request and merges it at the accepted commit, once the host calls it "
-          "mergeable with its pipelines green, read twice at least 30 seconds apart. A stacked task waits for its "
-          "parent's merge, then retargets to the default branch. While it waits this answers waitingToMerge, and "
-          "AiTerm wakes you when it merged or is blocked; after about an hour of waiting it answers blocked. A failed "
-          "pipeline or a conflict blocks it: have the worker fix it, accept the new commit, and call finish_task "
-          "again. A task that ends in a commit has nothing to finish. "
-          "The task goes into review instead when the Review slice is on and its review is written: the broadcast's "
-          "Review, or, in a broadcast started with the Agents and Task steps, the task's review prompt. Its request then "
-          "opens as a draft and this answers inReview: AiTerm wakes you on people's feedback, and the next finish_task "
-          "after the last fix ends the review, a draft end published, a merge end going on to merge. "
-          "A merge, through the request or local, is refused unless the broadcast's Merge slice is on; AiTerm then "
-          "leaves it for the person. Before it merges a request that is still a draft, AiTerm marks it ready, only to "
-          "merge it, and it merges only with every one of its review threads resolved. "
-          "mergeLocal: merges the accepted commit into the project's own checkout's default branch and never pushes; "
-          "that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, "
-          "as \"Push main in <project>: merged locally.\" "
-          "A merge or mergeLocal end whose accepted commit is already in its default branch, merged outside finish_task by "
-          "the person or a worker, is recorded as merged: nothing is pushed or merged, AiTerm never writes to the host, and "
-          "the Oracle isn't asked, so call finish_task for such work, even after a refused merge or one left for the person. "
-          "AiTerm leaves pushing a default branch that has it only locally, and closing a request still open from the "
-          "task's branch, for the person. "
-          "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the merge conditions hold: "
-          "those written in the broadcast's Review and Done, or, in a broadcast started with the Agents and Task steps, the "
-          "task's review prompt, its verdicts and the person's answers to its fix-rounds questions; a no is recorded on the "
-          "task and refuses the merge. Before it decides that the accepted commit is already merged, or asks the Oracle "
-          "about a merge, AiTerm fetches the default branch from origin; when that fetch fails it says so and does "
-          "nothing. A call that only waits for or answers an earlier finish_task is never judged. "
-          "A push the repository's pre-push hook refused fails with the hook's output as its reason. noVerify pushes past "
-          "the hook, and only after such a refusal; with the Oracle on it first needs the Oracle's yes that the hook failed "
-          "on the environment, not the code, judged from that output and your reason. A call that also merges asks both at "
-          "once, and only a yes to both acts. "
-          "It answers result: published, inReview, waitingToMerge, blocked, refused, failed or running, with reason, mergeRequest, "
-          "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
-          "done. draftNote says what this call did to the request's draft state (opened as a draft, opened ready, "
-          "left as a draft, marked ready), or that the request couldn't be assigned, and is left out when it did nothing. "
-          "A request AiTerm opens takes your title, description and assignee; without them its title is the ticket key, a "
-          "colon and the task's title, its description the checks the worker ran (never the worker's brief), and it is "
-          "assigned to the person AiTerm acts as on the host. A request already open keeps what it says: change it with "
-          "update_request. "
-          "Each step is recorded and calling again resumes at the next step: it never pushes or opens a request "
-          "twice, and on a task that is done it answers what was done. A push that timed out may have landed: call "
-          "finish_task again. A publication that takes longer than about 20 seconds answers running, with pushedSHA and "
-          "mergeRequest as far as they are done; it goes on, AiTerm wakes you when it ends, and the next finish_task "
-          "answers what it did. A finish_task while it runs waits for it again. "
-          "A takeover stops a merge's waiting: call finish_task again once the task is handed "
-          "back. "
-          "Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit (unless "
-          "that commit is already in the default branch), "
-          "its parent was accepted again, the broadcast is paused, stopped or offline, the host protects its branch "
-          "or cannot say whether it does, or it is the default branch. "
-          "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
-          {"task": _TASK,
-           "noVerify": {"type": "boolean", "description": "Skip the repository's push hooks: only when the hook failed on the "
-                        "environment and your repair didn't work. The Oracle judges it."},
-           "reason": _text("With noVerify: what you tried to repair the environment, for the Oracle. Left out, it reads your "
-                           "last shell commands in the task's worktree."),
-           "title": _text("The request's title, as the project's workflow asks for it."),
-           "description": _text("The request's description, from the project's merge request template when it has one: for "
-                                "its reviewers, without your instructions to the worker or paths on this Mac."),
-           "assignee": _text("The username on the code host to assign the request to, as find_user gives it.")},
-          ("task",)),
-    _tool("update_request",
-          "Changes the title, description or assignee of the merge request finish_task opened for a task; what you leave out "
-          "stays as it is, and an assignee replaces the one it has. A draft stays a draft. It needs no slice and the Oracle "
-          "isn't asked; the same change again changes nothing. Refused while the task has no request, once the request is "
-          "merged or closed, when the task was taken over, or while the broadcast is paused or ended.",
-          {"task": _TASK, "title": _text("The new title."), "description": _text("The new description."),
-           "assignee": _text("The username on the code host to assign it to, as find_user gives it.")},
-          ("task",)),
-    _tool("retry_pipeline",
-          "Reruns the failed pipeline of the merge request finish_task opened for a task, when it failed on the environment "
-          "(a runner timeout, an image pull), not the code: on GitLab its head pipeline's failed jobs, on GitHub the failed "
-          "jobs of each workflow's latest Actions run on its head. It changes no code, so it needs no slice and the Oracle "
-          "isn't asked. Refused while the task has no request, once it is merged or not open, for a request that isn't from "
-          "the task's own branch, for a pipeline that didn't fail (called again, a retried one is running), when the task was "
-          "taken over, or while the broadcast is paused or ended. A pipeline that fails on the code needs a fix by the worker "
-          "instead.",
-          {"task": _TASK}, ("task",)),
-    _tool("ask_you", "Asks the person: AiTerm lists the question under Waiting on you, where they answer it, and notifies them. "
-          "Don't ask it in your chat too: write one line there, starting \"Asked you in AiTerm:\", saying what it is about. "
-          "They may still answer in this chat. When run_status shows answeredHere, act on it, then close the question with "
-          "resolve_question. The same key returns the open question.",
-          {"key": _KEY, "question": _text("The question, complete on its own."),
-           "task": _text("The task the question is about, by its key or its id from run_status: its card shows the question. "
-                         "Other questions about your own next step, such as a reviewer's username or a merge decision, go on no task."),
-           "holds": {"type": "boolean",
-                     "description": "False when the task can go on without the answer: the question shows on its card and in the "
-                                    "list, and the task stays ready to accept and watched. Left out, it holds: your row shows "
-                                    "waiting on the person, "
-                                    "naming the task, and the task isn't ready to accept and isn't watched for stalls until you "
-                                    "resolve the question. Hold only when its worker is itself stopped on the answer or when its fix "
-                                    "rounds are used up (about: fixRounds), which always hold."},
-           "choices": {"type": "array", "items": {"type": "string"},
-                       "description": "Two to four short answers, each one line of 60 characters at most, when the answers are few "
-                                      "and known. Left out for an open question, and for about: fixRounds, whose answers are fixed."},
-           "about": _choice("What the question is about, when its task's card answers it: fixRounds, a task whose review "
-                            "used up its fix rounds, asked on that task. Its card then offers One More Round and Accept As "
-                            "It Is. Left out for any other question.", "fixRounds")},
-          ("key", "question")),
-    _tool("relay_question", "Passes a worker's question on to the person, in the worker's own words: AiTerm reads them from "
-          "the worker's last message, lists the question under Waiting on you and notifies the person. A worker's question is "
-          "yours first: answer it with message_task when the brief, the plan or the code answers it, and relay it only when "
-          "the person must decide. The Oracle looks first, as the broadcast's Worker questions setting says: when it thinks "
-          "you can answer, its critique comes back; answer the worker with message_task, or reply to each point in "
-          "challengeReply and call again with its challengeId. Write one line in your reply, starting \"Asked you in "
-          "AiTerm:\". The same key, or another key for the same worker turn, returns the one question.",
-          {"key": _KEY,
-           "task": _text("The task whose worker asks, by its key or its id from run_status."),
-           "tab": _text("The worker tab that asks, by its key from run_status. Left out, the first worker, main."),
-           "holds": {"type": "boolean",
-                     "description": "False when the task can go on without the answer. Left out, it holds: the task isn't ready "
-                                    "to accept and isn't watched for stalls until you resolve the question."},
-           "choices": {"type": "array", "items": {"type": "string"},
-                       "description": "Two to four short answers, each one line of 60 characters at most, when the worker's "
-                                      "question offers them. Left out for an open question."}},
-          ("key", "task")),
-    _tool("resolve_question", "Closes a question: answered by the person, or withdrawn by you when it became moot. "
-          "Record the answer in summary for a question you asked with ask_you, or AiTerm's question about a merge on "
-          "the host, which only the person decides. Call it at "
-          "once when they answer in your chat. answeredHere is the person's answer in AiTerm: act on it, then resolve with it. "
-          "A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
-          "the prompt. A gate- question, opened when your shell's command needs the person's word, is answered with allow "
-          "true or false, from what the person said in this chat. If your own question or a gate- command became moot, "
-          "set withdrawn true with a one-line reason in summary, and tell the person you withdrew it and why. Withdrawal "
-          "grants nothing; allow true must be left out. Host-merge questions cannot be withdrawn. "
-          "An already resolved question returns its recorded outcome unchanged; answeredInWindow must be checked and "
-          "resolved as an answer, not withdrawn.",
-          {"key": _text("The question's key."), "summary": _text("The answer or withdrawal reason, in one line."),
-           "withdrawn": {"type": "boolean", "description": "Withdraw your own moot question or gate command, without granting permission."},
-           "allow": {"type": "boolean", "description": "For a gate- question only: whether the person allowed the command."}},
-          ("key", "summary")),
-    _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
-          "worked on, and the summary may mention it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "
-          "Task in the first of its Jira projects and answers the ticket's key, or why it could not. The same key is recorded once.",
-          {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
-          ("key", "title", "why")),
-    _tool("report_snag", "Records that AiTerm itself showed you something wrong and you worked around it: a state that was not "
-          "true, a prompt it missed, a tab it lost. After you checked the real source (the tab, git, the host), say what AiTerm "
-          "showed, what was true, and how you got unstuck. AiTerm keeps it beside the summary, and the person can start an "
-          "AiTerm task from it to fix the bug. A find (report_find) is about the project's code; a snag is about AiTerm itself. "
-          "It needs no slice, and nothing is filed or sent. The same key is recorded once.",
-          {"key": _KEY, "title": _text("The snag, in a few words."),
-           "showed": _text("What AiTerm showed, such as a status or a count, in one sentence."),
-           "actual": _text("What was true, and how you checked it, in one sentence."),
-           "workaround": _text("What you did to carry on, in one sentence."),
-           "evidence": _text("Optional: the exact text, state or output that shows it, such as a line from the tab."),
-           "task": _text("The task it happened on, by its key or its id from run_status. Left out when it is not about a task.")},
-          ("key", "title", "showed", "actual", "workaround")),
-    _tool("leave_for_you", "Records what a slice kept you from doing, naming what is left and why. "
-          "It changes no task and sends nothing. The same key is recorded once.",
-          {"key": _KEY, "text": _text("What is left for the person and why, in one sentence.")}, ("key", "text")),
-    _tool("log_decision", "Writes a decision you took on your own to the broadcast's log, for the summary. The same key is "
-          "written once.",
-          {"key": _KEY, "text": _text("The decision, in a few words."), "task": _TASK,
-           "why": _text("Why you decided it, in one sentence."),
-           "objection": _text("The Oracle's objection, when you decided against it.")}, ("key", "text")),
-    _tool("write_summary", "When the broadcast is complete, write its summary with write_summary: a few short paragraphs, in "
-          "plain prose, no lists or headings. Say what was done and how it went, honestly: what went wrong and how it was "
-          "handled, not only what succeeded. Fold in what you decided on your own and what you found along the way. Keep it "
-          "short enough to read in a minute. Refused until the broadcast is complete; calling it again replaces the summary.",
-          {"text": _text("The summary: a few short paragraphs of plain prose.")}, ("text",)),
-)
-TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
-
-
-
 class OperatorRoute:
     """The operator's MCP server, on the hook server's /operator route (spec §5): MCP's streamable
     HTTP transport answered with plain JSON, one POST per message, as the Codex hook MCP is. A request
@@ -647,9 +54,8 @@ class OperatorRoute:
     named."""
 
     def __init__(self, broadcast: Callable[[str, Any], Awaitable[None]], client_count: Callable[[], int],
-                 tokens: OperatorTokens | None = None, session_tokens: OperatorSessionTokens | None = None):
+                 session_tokens: OperatorSessionTokens | None = None):
         self.broadcast, self.client_count = broadcast, client_count
-        self.tokens = tokens if tokens is not None else OperatorTokens()
         self.session_tokens = session_tokens if session_tokens is not None else OperatorSessionTokens()
         # The tool calls waiting for the app's answer, by the request id the event carried. Ids are
         # unique across route lifetimes; an answer from before a restart finds nothing and is dropped.
@@ -657,14 +63,10 @@ class OperatorRoute:
         self._ids = itertools.count(1)
         self._prefix = uuid.uuid4().hex
 
-    def _run(self, headers: dict[str, str]) -> str | None:
-        token = mcp.bearer(headers.get("authorization", ""))
-        return self.tokens.run_for(token) if token else None
-
     async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
         token = mcp.bearer(headers.get("authorization", ""))
         owner = self.session_tokens.owner_for(token) if token else None
-        run_id, generation = owner if owner else (self._run(headers), None)
+        run_id, generation = owner if owner else (None, None)
         if run_id is None:
             return 401, json.dumps({"error": "a registered Operator token is required"})
         if method != "POST":
@@ -673,14 +75,14 @@ class OperatorRoute:
         async def call(request: dict[str, Any]) -> dict[str, Any]:
             return await self._call(run_id, request.get("id"), request.get("params"), generation=generation)
 
-        return await mcp.serve(body, SIGNAL_TOOLS if generation is not None else TOOLS, "aiterm", call)
+        return await mcp.serve(body, SIGNAL_TOOLS, "aiterm", call)
 
     async def _call(self, run_id: str, request_id: Any, params: Any, generation: int | None = None) -> dict[str, Any]:
         tool = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments") if isinstance(params, dict) else None
         if arguments is None:
             arguments = {}
-        names = SIGNAL_TOOL_NAMES if generation is not None else TOOL_NAMES
+        names = SIGNAL_TOOL_NAMES
         if not isinstance(tool, str) or tool not in names or not isinstance(arguments, dict):
             return mcp.error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
         try:
@@ -727,9 +129,9 @@ class OperatorRoute:
         ran unchallenged. A missing or revoked token always denies, including revocation while waiting."""
         token = mcp.bearer(headers.get("authorization", ""))
         owner = self.session_tokens.owner_for(token) if token else None
-        run_id, generation = owner if owner else (self._run(headers), None)
+        run_id, generation = owner if owner else (None, None)
         def revoked() -> bool:
-            return self.session_tokens.owner_for(token) != owner if owner is not None and token else self._run(headers) != run_id
+            return self.session_tokens.owner_for(token) != owner if token else True
         if run_id is None:
             return 200, _gate_denied("This Operator token is missing or revoked.")
         try:
@@ -764,15 +166,8 @@ class OperatorRoute:
         run starts, beside the token file it writes, which is what a restarted daemon reads."""
         run_id, token = param(p, "runId", str), param(p, "token", str)
         try:
-            generation = optional_param(p, "generation", int)
-            if generation is not None:
-                if self.tokens.run_for(token) is not None:
-                    raise ValueError("that token belongs to a broadcast")
-                self.session_tokens.register(run_id, generation, token)
-            else:
-                if self.session_tokens.owner_for(token) is not None:
-                    raise ValueError("that token belongs to the Operator")
-                self.tokens.register(run_id, token)
+            generation = param(p, "generation", int)
+            self.session_tokens.register(run_id, generation, token)
         except ValueError as exc:
             raise RpcError(protocol.BAD_PARAMS, str(exc)) from exc
         return {}
@@ -782,10 +177,9 @@ class OperatorRoute:
         deletes its token file, so no restart brings it back."""
         run_id = param(p, "runId", str)
         try:
-            self.session_tokens.revoke(run_id, generation=optional_param(p, "generation", int))
-        except ValueError:
-            pass  # Per-run ids have not always been UUIDs.
-        self.tokens.revoke(run_id)
+            self.session_tokens.revoke(run_id, generation=param(p, "generation", int))
+        except ValueError as exc:
+            raise RpcError(protocol.BAD_PARAMS, str(exc)) from exc
         return {}
 
     async def reply(self, p: Any) -> dict[str, Any]:

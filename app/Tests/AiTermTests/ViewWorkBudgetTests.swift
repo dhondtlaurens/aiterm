@@ -8,54 +8,21 @@ import AiTermUI
 @testable import AiTermTestSupport
 
 @MainActor @Suite(.serialized) struct ViewWorkBudgetTests {
-    private func entry(_ index: Int) -> ActivityEntry {
-        ActivityEntry(at: Snapshots.clock.now.addingTimeInterval(-Double(index) * 60), tool: "mark_task", task: nil,
-                      taskLabel: nil, arguments: [:], outcome: .ok, result: "ok", line: "Entry \(index)", reason: nil)
-    }
 
-    @Test func activityGroupingAndHeadingsAreBuiltOncePerAppend() {
-        let presentation = ActivityPresentation(), meter = WorkMeter()
-        var entries: [ActivityEntry] = []
-        WorkMeter.$current.withValue(meter) {
-            for index in 0..<3 {
-                entries.insert(entry(index), at: 0)
-                let first = presentation.layout(entries, now: Snapshots.clock.now, calendar: Snapshots.clock.calendar)
-                let expanded = presentation.layout(entries, now: Snapshots.clock.now, calendar: Snapshots.clock.calendar)
-                #expect(first.flatMap(\.entries) == entries && expanded.flatMap(\.entries) == entries)
-                #expect(first.map(\.title) == ["Today"])
-            }
-        }
-        print("Activity grouping / day titles: \(meter[.activityDays]) / \(meter[.activityDayTitle])")
-        #expect(meter[.activityDays] == 3, "baseline 6; final 3 for three appends and a row expansion after each")
-        #expect(meter[.activityDayTitle] == 3, "baseline 6; final 3")
-    }
 
-    @Test func activityValuesFollowReplacementCalendarAndMidnight() {
-        let presentation = ActivityPresentation(), clock = Snapshots.clock
-        let first = entry(0)
-        #expect(presentation.layout([first], now: clock.now, calendar: clock.calendar).first?.title == "Today")
-        var edited = first; edited.line = "Entry X"
-        #expect(presentation.layout([edited], now: clock.now, calendar: clock.calendar).first?.entries == [edited])
-        edited.arguments = ["changed": .bool(true)]
-        #expect(presentation.layout([edited], now: clock.now, calendar: clock.calendar).first?.entries == [edited])
-        var replaced = edited; replaced.at = clock.now.addingTimeInterval(-86_400)
-        let changed = presentation.layout([replaced], now: clock.now, calendar: clock.calendar)
-        #expect(changed.first?.entries == [replaced] && changed.first?.title != "Today")
-        #expect(presentation.layout([first], now: clock.now.addingTimeInterval(86_400), calendar: clock.calendar).first?.title != "Today")
-        var calendar = clock.calendar; calendar.timeZone = TimeZone(secondsFromGMT: -12 * 3600)!
-        let shifted = presentation.layout([first], now: clock.now, calendar: calendar)
-        #expect(shifted.first?.start == calendar.startOfDay(for: first.at))
-        var french = clock.calendar; french.locale = Locale(identifier: "fr_FR")
-        let localized = presentation.layout([replaced], now: clock.now, calendar: french)
-        #expect(localized.first?.title == BroadcastActivityView.dayTitle(replaced.at, now: clock.now, calendar: french))
-        #expect(localized.first?.title != changed.first?.title)
-        #expect(presentation.layout([], now: clock.now, calendar: calendar).isEmpty)
+
+
+
+
+    private func archivedRow(_ title: String, id: UUID = UUID(), at: Date) -> ShelfRow {
+        let project = Project.make(id: UUID(uuidString: "E7A1C0DE-0000-4000-8000-000000000001")!, name: "Shop")
+        let task = TaskItem.make(id: id, project: project.id, title: title)
+        return .task(.init(archived: ArchivedTask(task: task, archivedAt: at), projectName: project.name, provider: .git))
     }
 
     @Test func movingTheShelfHighlightDoesNotRankAgain() {
-        let rows = (0..<3).map { ShelfRow.broadcast(ShelvedBroadcast(runId: UUID(), name: "Run \($0)", asked: "Work",
-                                                                   endedAt: Snapshots.clock.now.addingTimeInterval(-Double($0)))) }
-        let model = ArchiveSheetModel(entries: { rows }, restore: { _ in }, open: { _ in }, remove: { _ in })
+        let rows = (0..<3).map { archivedRow("Task \($0)", at: Snapshots.clock.now.addingTimeInterval(-Double($0))) }
+        let model = ArchiveSheetModel(entries: { rows }, restore: { _ in }, remove: { _ in })
         let meter = WorkMeter()
         WorkMeter.$current.withValue(meter) {
             _ = model.projection
@@ -73,10 +40,10 @@ import AiTermUI
 
     @Test func theShelfRankingFollowsLiveReplacementRemovalAndQueryChanges() {
         let id = UUID(), now = Snapshots.clock.now
-        let old = ShelfRow.broadcast(ShelvedBroadcast(runId: id, name: "Old", asked: "Work", endedAt: now))
-        let renamed = ShelfRow.broadcast(ShelvedBroadcast(runId: id, name: "Renamed", asked: "Work", endedAt: now))
+        let old = archivedRow("Old", id: id, at: now)
+        let renamed = archivedRow("Renamed", id: id, at: now)
         let source = ShelfSource([old])
-        let model = ArchiveSheetModel(entries: { source.rows }, restore: { _ in }, open: { _ in }, remove: { _ in })
+        let model = ArchiveSheetModel(entries: { source.rows }, restore: { _ in }, remove: { _ in })
         #expect(model.projection.rows == [old])
         #expect(invalidates({ _ = model.projection }, by: { source.rows = [renamed] }), "a cache hit still observes the source")
         model.query = "renamed"
@@ -89,78 +56,22 @@ import AiTermUI
         #expect(model.projection.rows == [old])
     }
 
-    final class Jump: ObservableObject { @Published var target: UUID? }
-    struct ActivityList: View {
-        let entries: [ActivityEntry]
-        @ObservedObject var jump: Jump
-        var body: some View {
-            ScrollViewReader { scroll in
-                ScrollView { BroadcastActivityView(entries: entries) }
-                    .onChange(of: jump.target) { _, id in if let id { scroll.scrollTo(id) } }
-            }
-        }
-    }
 
-    @Test func theActivityListMaterializesItsViewportAndStillReachesTheLastEntry() throws {
-        let entries = (0..<100).map(entry), jump = Jump(), counter = RowBodyCounter()
-        let host = testHost(ActivityList(entries: entries, jump: jump)
-            .environment(\.rowBodyCounter, counter).environment(\.footerClock, Snapshots.clock),
-                            size: CGSize(width: 560, height: 200))
-        let window = testWindow(hosting: host, styleMask: [])
-        defer { window.orderOut(nil) }
-        settle(host, describing: "the Activity rows") { !counter.counts.isEmpty }
-        let initial = counter.counts.count
-        print("Activity initial materialized rows: \(initial) of 100")
-        #expect(initial == 7, "baseline 100; final 7 Activity rows in the 200-point viewport")
-        let scroll = try #require(host.firstDescendant(NSScrollView.self))
-        jump.target = entries.last?.id
-        settle(host, describing: "the last Activity entry at the bottom") {
-            counter.counts[entries.last!.id] != nil && scroll.documentVisibleRect.minY > 0
-                && abs((scroll.documentView?.bounds.maxY ?? 0) - scroll.documentVisibleRect.maxY) <= 32
-        }
-        #expect(counter.counts[entries.last!.id] != nil)
-    }
 
-    @Test func theActivityListMaterializesTheBoardSheetViewportAndStillReachesTheLastEntry() throws {
-        let entries = (0..<100).map(entry), entryIDs = Set(entries.map(\.id)), counter = RowBodyCounter()
-        let run = OperatorUIFixtures.run(taskSettings: OperatorUIFixtures.taskSettings, goal: OperatorUIFixtures.goal)
-        var state = AppState.empty
-        state.runs = [run]
-        let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
-        let sheet = BroadcastBoardSheet(board: board, reopenFailed: false, actions: BoardActions(), activity: nil)
-            .seeded(tab: .activity, entries: entries)
-        let host = testHost(sheet.environment(\.rowBodyCounter, counter).environment(\.footerClock, Snapshots.clock),
-                            size: CGSize(width: Sheet.width, height: Sheet.boardHeight), appearance: NSAppearance(named: .darkAqua))
-        let window = testWindow(hosting: host, styleMask: [])
-        defer { window.orderOut(nil) }
-        settle(host, describing: "the board sheet's Activity rows") { !entryIDs.isDisjoint(with: counter.counts.keys) }
-        let initial = entryIDs.intersection(counter.counts.keys).count
-        print("Board sheet Activity initial materialized rows: \(initial) of 100")
-        // 16 rows fill the viewport since the sheet is `Sheet.boardHeight` tall and its header one line of the brief
-        // (14 Nov 2026; 11 before, in a `Sheet.height` sheet under three). Still a viewport, not all 100.
-        #expect(initial == 16, "baseline 100; final 16 Activity rows in the real board sheet")
-        let scroll = try #require(host.firstDescendant(NSScrollView.self))
-        let document = try #require(scroll.documentView)
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: document.bounds.maxY - scroll.contentView.bounds.height))
-        scroll.reflectScrolledClipView(scroll.contentView)
-        settle(host, describing: "the last Activity entry at the board sheet's bottom") {
-            counter.counts[entries.last!.id] != nil && scroll.documentVisibleRect.minY > 0
-                && abs((scroll.documentView?.bounds.maxY ?? 0) - scroll.documentVisibleRect.maxY) <= 32
-        }
-        #expect(counter.counts[entries.last!.id] != nil)
-    }
+
+
+
+
 
     @Test func theShelfMaterializesItsViewportAndKeepsHighlightScrolling() throws {
         let project = Project.make()
         let rows: [ShelfRow] = (0..<100).map { index in
             let date = Snapshots.clock.now.addingTimeInterval(-Double(index) * 60)
-            if index.isMultiple(of: 2) {
-                return .broadcast(ShelvedBroadcast(runId: UUID(), name: "Run \(index)", asked: "Work", endedAt: date))
-            }
+
             let task = TaskItem.make(project: project.id, title: "Task \(index)")
             return .task(.init(archived: ArchivedTask(task: task, archivedAt: date), projectName: project.name, provider: .git))
         }
-        let model = ArchiveSheetModel(entries: { rows }, restore: { _ in }, open: { _ in }, remove: { _ in })
+        let model = ArchiveSheetModel(entries: { rows }, restore: { _ in }, remove: { _ in })
         model.now = { Snapshots.clock.now }
         let counter = RowBodyCounter()
         let host = testHost(ArchiveSheet(model: model).environment(\.rowBodyCounter, counter).environment(\.footerClock, Snapshots.clock),

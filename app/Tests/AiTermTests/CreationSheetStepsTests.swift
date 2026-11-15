@@ -29,8 +29,8 @@ struct CreationSheetStepsTests {
     @Test func broadcastCreatesOnStepFive() {
         let steps = CreationSteps.broadcast
         #expect(steps == CreationSteps(count: 5, agentStep: nil, agentsListStep: 3))
-        #expect((1...5).map { steps.primaryTitle(onStep: $0, createLabel: "Start Broadcast") }
-                == ["Continue", "Continue", "Continue", "Continue", "Start Broadcast"])
+        #expect((1...5).map { steps.primaryTitle(onStep: $0, createLabel: "Create") }
+                == ["Continue", "Continue", "Continue", "Continue", "Create"])
         #expect((1...5).map(steps.secondaryTitle(onStep:)) == ["Cancel", "Back", "Back", "Back", "Back"])
         #expect((1...5).map(steps.creates(onStep:)) == [false, false, false, false, true])
         #expect((1...5).map(steps.showsDestination(onStep:)) == [true, false, false, false, true])

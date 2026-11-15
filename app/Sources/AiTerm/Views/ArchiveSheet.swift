@@ -45,7 +45,6 @@ struct ArchiveSheet: View {
                             Group {
                                 switch row {
                                 case .task(let entry): ArchiveRow(entry: entry, date: date)
-                                case .broadcast(let broadcast): ShelvedBroadcastRow(broadcast: broadcast, date: date)
                                 }
                             }
                             .modifier(RowPill(selected: row.id == highlighted, ground: .sheet))
@@ -71,7 +70,7 @@ struct ArchiveSheet: View {
     /// Restore closes the sheet; Open puts the broadcast's sheet in its slot, which closes it already — a
     /// dismiss after would close the broadcast's.
     private func perform() {
-        let opens = if case .broadcast? = model.projection.highlighted { true } else { false }
+        let opens = false
         guard model.performHighlighted(), !opens else { return }
         dismiss.afterThisEvent()
     }
@@ -141,30 +140,3 @@ struct ArchiveRow: View {
 
 /// An ended broadcast on the Archive: the broadcast's glyph, its name, and the day it ended on the
 /// name's line, where a archived task's date sits. Inked from its `Surface`, which the pill around it declares.
-struct ShelvedBroadcastRow: View {
-    let broadcast: ShelvedBroadcast
-    let date: String
-
-    #if DEBUG
-    @Environment(\.rowBodyCounter) private var bodyCounter
-    #endif
-
-    var body: some View {
-        #if DEBUG
-        let _ = bodyCounter?.count(broadcast.runId)
-        #endif
-        HStack(spacing: Space.inset) {
-            ProviderIcon(.symbol(OperatorHeading.glyph))
-            HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
-                RowTitle(broadcast.name)
-                Spacer(minLength: Space.tight)
-                HelpText(date, fixedVerticalSize: false).lineLimit(1).fixedSize()
-            }
-        }
-        .padding(Space.base)
-        .frame(minHeight: Size.row)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .help(broadcast.asked)
-    }
-}

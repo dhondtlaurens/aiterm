@@ -8,7 +8,7 @@ public enum WorkerGuardLaunch {
                                executable: URL, git: any GitRunning, slot: String = "main", publishes: Bool = false) throws -> String {
         var scope = WorkerGuard.Scope(task: task.id, worktree: task.worktreePath, branch: task.branch,
                                       remote: remote ?? ((try? git.run(["remote", "get-url", "origin"], in: task.worktreePath)) ?? ""), allowsPush: publishes)
-        scope.ownership = task.signalTask?.ownership ?? task.operated?.ownership ?? 0
+        scope.ownership = task.signalTask?.ownership ?? 0
         scope.stage = task.signalTask?.stage
         return try prepare(scope: scope, home: home, slot: slot, executable: executable).wrap(command, agent: task.agent)
     }

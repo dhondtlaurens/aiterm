@@ -12,15 +12,14 @@ final class ArchiveSheetModel: Identifiable {
     private var highlightedId: UUID?
     @ObservationIgnored private let entries: @MainActor () -> [ShelfRow]
     @ObservationIgnored private let restore: @MainActor (UUID) -> Void
-    @ObservationIgnored private let open: @MainActor (UUID) -> Void
     @ObservationIgnored private let remove: @MainActor (UUID) -> Void
     /// The clock the rows' dates are read against; the snapshots fix it.
     @ObservationIgnored var now: @MainActor () -> Date = { Date() }
 
     /// `restore` takes a task's or review's id, `open` an ended broadcast's; `remove` either.
     init(entries: @escaping @MainActor () -> [ShelfRow], restore: @escaping @MainActor (UUID) -> Void,
-         open: @escaping @MainActor (UUID) -> Void, remove: @escaping @MainActor (UUID) -> Void) {
-        self.entries = entries; self.restore = restore; self.open = open; self.remove = remove
+         remove: @escaping @MainActor (UUID) -> Void) {
+        self.entries = entries; self.restore = restore; self.remove = remove
     }
 
     /// One render or command's consistent view of the Archive. Ranking is reused only while
@@ -39,7 +38,6 @@ final class ArchiveSheetModel: Identifiable {
     nonisolated static func primaryTitle(of row: ShelfRow) -> String {
         switch row {
         case .task: "Restore"
-        case .broadcast: "Open"
         }
     }
 
@@ -84,7 +82,6 @@ final class ArchiveSheetModel: Identifiable {
     func performHighlighted() -> Bool {
         switch projection.highlighted {
         case .task(let entry): restore(entry.archived.id)
-        case .broadcast(let broadcast): open(broadcast.runId)
         case nil: return false
         }
         return true

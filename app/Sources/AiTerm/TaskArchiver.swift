@@ -145,7 +145,7 @@ final class TaskArchiver {
         guard !preflight.needsRemovalConfirmation else { throw ActionUnavailable("Git no longer lists its folder. Archive it yourself once it is safe.") }
         if preflight.head == .detached { throw ActionUnavailable("Its worktree is detached, so it was kept.") }
         if case .branch(let branch) = preflight.head, branch != task.branch { throw ActionUnavailable("Its worktree is no longer on its task branch.") }
-        if try await workflow.hasUnsavedWork(task: task, project: project) { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
+        if try await workflow.hasUnsavedWork(task: task, project: project) { throw ActionUnavailable(AutomaticCleanup.unsavedWork) }
         guard allowed() else { throw ActionUnavailable("The stage changed while its worktree was checked.") }
         try remover.requireIdleForAutomaticCleanup(task)
         do {

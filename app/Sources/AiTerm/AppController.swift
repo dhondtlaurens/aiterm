@@ -96,7 +96,6 @@ final class AppController {
     let archiver: TaskArchiver
     /// The operations: their runs, their operators' tabs and tokens, and the services under them.
     let signalController: SignalOperatorController
-    let operatorController: OperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
     /// Nothing here has a default: every dependency that reaches outside the process is one of `ports`, named by whoever
@@ -179,9 +178,6 @@ final class AppController {
         }
         self.messaging = messaging
         // After the live sessions and the window lock: the operators read the operator's tab from the sessions.
-        let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
-                                                    taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
-        self.operatorController = operatorController
         let signalController = SignalOperatorController(workspace: workspace, live: live, work: work, ports: operatorPorts,
                                                         daemon: daemon, frame: { tiling.taskFrame() })
         self.signalController = signalController
@@ -216,12 +212,6 @@ final class AppController {
         // The rows are derived again whenever something they are made of may have changed, and the
         // Dock badge recounted when they did or a removal moved.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
-        // What a Claude worker runs now is in no row's tabs, but the board's tooltips say it: while the board shows, any
-        // session event may have moved it.
-        live.onSessionsChanged { [weak self] _ in
-            guard let self, self.rows.boardShown() else { return }
-            self.refreshRows()
-        }
         checkouts.onRowsChanged { [weak self] in self?.refreshRows() }
         remover.onRemovalsChanged { [weak self] in self?.updateDockBadge() }
         // What a change to the workspace sets off, once per change, in this order: whatever named a
@@ -249,20 +239,6 @@ final class AppController {
         }
         // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
-        let operators = operatorController
-        rows.actingSource = { [weak operators] in operators?.acting ?? .none }
-        operators.onChange { [weak self] in self?.refreshRows() }
-        signalController.onChange { [weak self] in self?.refreshRows() }
-        // The board is derived only while its sheet shows: opening it derives the rows with it. The Shelf's sheet derives
-        // no board, but its cards name models by the same labels.
-        rows.boardShown = { [weak sheets] in if case .broadcastBoard? = sheets?.sheet { true } else { false } }
-        rows.labelsWanted = { [weak sheets] in if case .shelvedBroadcast? = sheets?.sheet { true } else { false } }
-        // Its cards name each worker's model as Settings › Agents lists it, for the agents a worker can run on.
-        rows.modelLabelSource = { [catalogue = agents.catalogue] in
-            Dictionary(uniqueKeysWithValues: DeliveryCheck.agents.map { agent in
-                (agent, Dictionary(((try? catalogue.models(for: agent)) ?? []).map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first }))
-            })
-        }
         sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
@@ -323,7 +299,6 @@ final class AppController {
         focus.cancel()
         windows.stop()
         signalController.stop()
-        operatorController.stop()
         helper.shutdown()
     }
 
@@ -351,7 +326,7 @@ final class AppController {
     /// moved — a section changed, a removal started or ended — and the label almost never changes.
     /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let label = DockBadge.label(for: rows.sections, broadcast: rows.broadcast, skippingTasks: remover.leavingTasks)
+        let label = DockBadge.label(for: rows.sections, skippingTasks: remover.leavingTasks)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         setBadge(label)
@@ -360,10 +335,10 @@ final class AppController {
     // -- Focus View and List View -----------------------------------------------------
     /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
     /// would otherwise land, and with no project that has rows and no broadcast (`SidebarModel.focusView`).
-    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections, broadcast: rows.broadcast)) }
+    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections)) }
     /// Whether List View would do anything: off behind a sheet, as Focus View, and with no project
     /// that has rows to open and no broadcast.
-    var canShowListView: Bool { canApplyView(SidebarModel.listView(rows.sections, broadcast: rows.broadcast)) }
+    var canShowListView: Bool { canApplyView(SidebarModel.listView(rows.sections)) }
 
     /// ⌘F: opens every project with a done or needs-input row, and the broadcast's group while something
     /// in it needs you, and folds the rest — all of them when nothing is waiting — in one save, then peeks
@@ -372,16 +347,16 @@ final class AppController {
     /// is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
-        let sections = rows.sections, broadcast = rows.broadcast
-        guard applyView(SidebarModel.focusView(sections, broadcast: broadcast)) else { return nil }
+        let sections = rows.sections
+        guard applyView(SidebarModel.focusView(sections)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = SidebarModel.firstNeedingAttention(sections, broadcast: broadcast, skippingTasks: remover.leavingTasks)
+        guard let first = SidebarModel.firstNeedingAttention(sections, skippingTasks: remover.leavingTasks)
         else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
     /// ⌘L: opens every project with rows, and the broadcast's group, in one save.
-    func showListView() { applyView(SidebarModel.listView(rows.sections, broadcast: rows.broadcast)) }
+    func showListView() { applyView(SidebarModel.listView(rows.sections)) }
 
     private func canApplyView(_ layout: [UUID: Bool]) -> Bool {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
@@ -405,14 +380,13 @@ final class AppController {
         sheets.presentArchive(ArchiveSheetModel(
             entries: { [weak self] in self?.state.shelfRows ?? [] },
             restore: { [weak self] in self?.archiver.restore($0) },
-            open: { [weak self] in self?.presentShelved(run: $0) },
             // A turn later, never inside the key handler that asked (`Prompter`).
             remove: { [weak self] id in Task { await self?.removeFromShelf(id) } }))
     }
 
     /// Remove on the Shelf: an ended broadcast's own question, or a shelved task's or review's.
     func removeFromShelf(_ id: UUID) async {
-        if state.run(id: id) != nil { await confirmRemoveShelved(id) } else { await archiver.confirmRemove(archived: id) }
+        await archiver.confirmRemove(archived: id)
     }
 
     // -- the banner ------------------------------------------------------------------
@@ -484,17 +458,13 @@ final class AppController {
     /// AiTerm posted, the task whose prompt waits on you, its tab that asks in front (`choose(task:)`).
     func openNote(_ target: OperatorNote.Target) {
         switch target {
-        case .board(let id): operatorController.presentBoard = id
-        case .question(let run, let key): showQuestion(key, run: run)
+        case .board, .question: Task { await signalController.openOperator() }
         case .task(let id): choose(task: id)
         }
     }
 
     /// The board of `run`, presented if it isn't up, at the block of its question `key` (`BoardFocus`).
-    func showQuestion(_ key: String, run: UUID) {
-        operatorController.boardFocus = BoardFocus(run: run, key: key)
-        operatorController.presentBoard = run
-    }
+
 
     /// A prompt's block's Open its window: its own tab in front, by its key, as a tab line on a card brings it; with that
     /// tab not listed, the task as its row's click chooses it.
@@ -528,7 +498,7 @@ final class AppController {
         guard let selection = focus.selection else { return nil }
         switch selection {
         case .task(let id) where state.task(id: id) != nil: return choose(selection)
-        case .operation(let id) where rows.broadcast?.operatorRow.runId == id: return choose(selection)
+        case .operation: return choose(selection)
         default: return focus.row(id: selection.id) != nil ? choose(selection) : nil
         }
     }
@@ -543,7 +513,7 @@ final class AppController {
         case .task(let id):
             return choose(task: id)
         case .operation(let id):
-            if let operatorRow = rows.broadcast?.operatorRow, operatorRow.runId == id { return chooseOperatorRow(operatorRow) }
+            if id == OperatorSession.rowID { return focus.select(.operation(id)) }
             return focus.select(row)
         case .terminal, .project:
             return focus.select(row)
@@ -558,17 +528,8 @@ final class AppController {
     /// `RowFocus.select` as they are.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
-        if let task = state.task(id: id), let operated = task.operated, !operated.takenOver, !task.isQueuedByOperator,
-           let run = state.activeRun, run.id == operated.runId, remover.removal(of: id)?.inProgress != true {
-            let requests = OperatorRequests.open(run: run, state: state)
-            let first = requests.filter { $0.taskId == id }.min { $0.kind.rank < $1.kind.rank }
-            if first?.kind == .question, !task.workerTabs(in: live.sessions).contains(where: { $0.status == .needsInput }) {
-                return focus.select(.operation(run.id))
-            }
-            if let tab = task.tabToBring(sessions: live.sessions, requests: requests) {
-                return bringTab(task: id, sessionId: tab.sessionId)
-            }
-        }
+        if let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
+           let tab = task.tabToBring(sessions: live.sessions) { return bringTab(task: id, sessionId: tab.sessionId) }
         return focus.select(.task(id))
     }
 

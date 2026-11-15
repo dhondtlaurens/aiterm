@@ -55,7 +55,12 @@ import AiTermCore
             }
             for decision in decisions {
                 switch decision {
-                case .skip(let match, let reason): seen(match.signal, match.item, .skipped, reason: reason)
+                case .skip(let match, let reason):
+                    let old = state.signalSeen.first { $0.signal == match.signal && $0.item.identity == match.item.identity }
+                    seen(match.signal, match.item, .skipped, reason: reason)
+                    if old?.disposition != .skipped || old?.reason != reason || old?.isMatching != true {
+                        events.append((match.signal, "Skipped " + (match.item.identity ?? "unknown item") + ": " + reason))
+                    }
                 case .start(let match, let pending):
                     guard let signal = state.signal(id: match.signal), let project = match.project,
                           let item = match.item.identity.flatMap({ items[$0] }) else { continue }

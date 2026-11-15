@@ -119,9 +119,8 @@ import AiTermCore
                   case .merged(_, let head, _) = try await host.readiness(of: request.iid), !head.isEmpty,
                   task.branch != (try await host.defaultBranch()),
                   !workspace.state.tasks.contains(where: { $0.projectId == task.projectId && $0.branch == task.branch }) else { return }
-            let publication = TaskPublication(merged: true, mergedHead: head)
-            _ = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: head, end: .merge,
-                publication: publication, kind: task.kind, path: project.path, git: git, saveDeletion: { [workspace] in
+            _ = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: head, mergedHead: head,
+                kind: task.kind, path: project.path, git: git, saveDeletion: { [workspace] in
                     workspace.canChangeWorkspace && workspace.state.signalItem(id: task.id) == nil && workspace.flush()
                 })
         } catch { /* An unavailable merge proof keeps the branch. */ }

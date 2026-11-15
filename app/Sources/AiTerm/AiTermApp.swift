@@ -203,7 +203,6 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func newReview() { if let project = controller.targetProject { controller.sheets.presentNewReview(project: project) } }
     @objc func newTerminal() { if let project = controller.targetProject { controller.sheets.presentNewTerminal(project: project) } }
     @objc func newSignal() { controller.presentNewSignal() }
-    @objc func newBroadcast() { controller.presentNewBroadcast() }
     @objc func addProject() { Task { await controller.projects.addProject() } }
     @objc func addDivider() { controller.sheets.presentNewDivider() }
     @objc func zoomIn() { changeInterfaceSize(to: controller.preferences.interfaceSize.bigger) }
@@ -234,7 +233,6 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(newTask), #selector(newReview): return controller.canCreateTask
         case #selector(newTerminal): return controller.canCreateTerminal
         case #selector(newSignal): return controller.canPresentNewSignal
-        case #selector(newBroadcast): return controller.canPresentNewBroadcast
         case #selector(addProject), #selector(addDivider): return controller.canUseFileMenu
         case #selector(zoomIn): return zoomable && controller.preferences.interfaceSize.bigger != nil
         case #selector(zoomOut): return zoomable && controller.preferences.interfaceSize.smaller != nil

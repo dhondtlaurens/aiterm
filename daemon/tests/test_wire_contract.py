@@ -204,7 +204,7 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["delivery.policy"] = await app.call("delivery.policy")
 
         # The operator asks for run_status over /operator; the app answers the request it is sent.
-        replies["operator.register"] = await app.call("operator.register", {"runId": RUN_ID, "token": RUN_TOKEN})
+        replies["operator.register"] = await app.call("operator.register", {"runId": RUN_ID, "generation": 1, "token": RUN_TOKEN})
         mark = app.mark()
         calling = asyncio.ensure_future(operator_post(svc.hooks.port, {
             "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "run_status", "arguments": {}}}, token=RUN_TOKEN))
@@ -212,7 +212,7 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["operator.reply"] = await app.call("operator.reply", {
             "requestId": events[protocol.OPERATOR_REQUEST]["payload"]["requestId"], "result": {"revision": 3}, "error": None})
         assert (await calling)[1]["result"]["structuredContent"] == {"revision": 3}
-        replies["operator.revoke"] = await app.call("operator.revoke", {"runId": RUN_ID})
+        replies["operator.revoke"] = await app.call("operator.revoke", {"runId": RUN_ID, "generation": 1})
         replies["interface.setMatchItermBackground"] = await app.call("interface.setMatchItermBackground", {"matchItermBackground": True})
         # The Claude worker's turn ended on its usage limit, whose reset its transcript gave (the tick reads it there):
         # its session says so until it works again.

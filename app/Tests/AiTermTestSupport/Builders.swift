@@ -28,10 +28,10 @@ extension TaskItem {
     static func make(id: UUID = UUID(), project: UUID, title: String = "Work", branch: String = "feat/work",
                      worktreePath: String = "", baseBranch: String = "main", jira: JiraRef? = nil, kind: TaskKind = .task,
                      agent: AgentKind = .claude, model: String = "m", reasoning: String? = nil, firstPrompt: String? = nil,
-                     createdAt: Date = Build.epoch, windowId: String? = nil, operated: OperatedTask? = nil) -> TaskItem {
+                     createdAt: Date = Build.epoch, windowId: String? = nil) -> TaskItem {
         TaskItem(id: id, projectId: project, title: title, branch: branch, worktreePath: worktreePath, baseBranch: baseBranch,
                  jira: jira, kind: kind, agent: agent, model: model, reasoning: reasoning, firstPrompt: firstPrompt,
-                 appendTicket: false, createdAt: createdAt, windowId: windowId, operated: operated)
+                 appendTicket: false, createdAt: createdAt, windowId: windowId)
     }
 }
 
@@ -45,33 +45,5 @@ extension SessionInfo {
                                   tabKey: tabKey)
         session.conversationId = conversation
         return session
-    }
-}
-
-extension OperatedTask {
-    /// What an Operator adds to a task of `run`. A `code` dependency stacks it on that parent, and `launched` gives it
-    /// the one launch a task past `queued` has had.
-    static func make(run: UUID, key: String, state: OperatedState = .queued, end: TaskEnd = .commit, brief: String? = nil,
-                     dependsOn: [TaskDependency] = [], revision: Int = 1, acceptance: TaskAcceptance? = nil,
-                     takenOver: Bool = false, launched: Bool = false, launchedAt: Date = Build.epoch,
-                     blockedReason: String? = nil, flags: Set<OperatedFlag> = []) -> OperatedTask {
-        OperatedTask(runId: run, key: key, state: state, end: end, brief: brief ?? "Do \(key).", dependsOn: dependsOn,
-                     stackedOn: dependsOn.first { $0.kind == .code }?.task, revision: revision, acceptance: acceptance,
-                     takenOver: takenOver, launch: launched ? LaunchAttempt(number: 1, requestedAt: launchedAt) : nil,
-                     blockedReason: blockedReason, flags: flags)
-    }
-}
-
-extension OperatorRun {
-    /// A broadcast set up with the Agents, Task and Done steps: every task ends at a commit and none is closed, unless said.
-    static func make(id: UUID = UUID(), name: String = "Sprint 42", profile: OperatorProfile, projects: [UUID] = [],
-                     prompt: String = "Implement the sprint.", state: OperatorRunState = .active, planRevision: Int = 1,
-                     questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], windowId: String? = nil,
-                     createdAt: Date = Build.epoch, agents: [AgentChoice] = Build.agents,
-                     taskSettings: TaskSettings = TaskSettings(review: nil, end: .commit, closeWhenDone: false),
-                     goal: BroadcastGoal? = nil) -> OperatorRun {
-        OperatorRun(id: id, name: name, profile: profile, projectIds: projects, prompt: prompt, state: state,
-                    planRevision: planRevision, questions: questions, decisions: decisions, operatorWindowId: windowId,
-                    createdAt: createdAt, agents: agents, taskSettings: taskSettings, goal: goal)
     }
 }

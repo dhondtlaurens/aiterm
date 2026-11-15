@@ -16,7 +16,7 @@ struct SignalSheet: View {
             CreationFooter(step: step, steps: SignalModel.steps, error: model.error, availableAgents: [],
                            createLabel: model.createLabel, creating: model.starting, canAdvance: model.canAdvance(step: step),
                            closeList: closeOpenList, back: back, advance: advance, recover: {},
-                           waiting: (BroadcastReadiness.title, model.readinessLines()))
+                           waiting: (SignalReadiness.title, model.readinessLines()))
         }
         .task(id: model.sourceKey) {
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }

@@ -218,7 +218,7 @@ final class TaskRemover: CheckoutRemovals {
             // Unsaved work is what git status lists, uncommitted or untracked changes. Git-ignored files such as .env
             // are not: they go with the worktree, as with the person's Remove (plain git worktree remove, never forced).
             if try await workflow.hasUnsavedWork(task: task, project: project) {
-                throw ActionUnavailable(TaskAutoCloser.unsavedWork)
+                throw ActionUnavailable(AutomaticCleanup.unsavedWork)
             }
             if await hasWorktreeFolder(task) {
                 guard try await workflow.head(of: task, in: project) == .branch(task.branch) else {
@@ -245,7 +245,7 @@ final class TaskRemover: CheckoutRemovals {
             let removed: TaskWorkflow.Removed
             do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false,
                                                      preserveBranch: task.signalTask != nil) }
-            catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
+            catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(AutomaticCleanup.unsavedWork) }
             // A signal may have queued another stage while git removed the checkout. Keep the
             // row and put its branch back in a worktree before the new stage can continue.
             guard stillAllowed() else {
@@ -256,24 +256,12 @@ final class TaskRemover: CheckoutRemovals {
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
             }
-        } catch let waiting as ClosingWait {
-            workspace.mutate { $0.updateOperated(task.id) { $0.closingWait = waiting } }
-            throw waiting
-        } catch {
-            // A removal that stopped after its worktree went has left the row its own note, with the retry the person's
-            // Remove offers there; its card says the same.
-            let reason = if case .stopped(let note, _)? = outcomes[task.id] {
-                TaskAutoCloser.failureReason(ActionUnavailable(note))
-            } else {
-                TaskAutoCloser.failureReason(error)
-            }
-            workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason; $0.closingWait = nil } }
-            throw error
-        }
+        } catch let waiting as ClosingWait { throw waiting }
+        catch { throw error }
     }
 
     func requireIdleForAutomaticCleanup(_ task: TaskItem) throws(ClosingWait) {
-        guard !TaskAutoCloser.isDriving(task, in: live) else { throw .turn }
+        guard !AutomaticCleanup.isDriving(task, in: live) else { throw .turn }
         guard !Self.turnInFlight(task.id, in: live) else { throw .agentTurn }
     }
 

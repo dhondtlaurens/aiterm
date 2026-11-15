@@ -7,7 +7,7 @@ import Foundation
 /// order from wherever the reader stopped.
 @Suite struct ActivityLogTests {
 
-    private func entry(_ n: Int = 0, tool: String = "mark_task") -> ActivityEntry {
+    private func entry(_ n: Int = 0, tool: String = "note") -> ActivityEntry {
         ActivityEntry(id: UUID(), at: Date(timeIntervalSince1970: 1_800_000_000 + Double(n)), tool: tool, task: nil,
                       taskLabel: nil, arguments: ["n": .int(n)], outcome: .ok, result: "done \(n)", line: "Line \(n)", reason: nil)
     }
@@ -35,17 +35,16 @@ import Foundation
             entry.outcome = outcome
             return entry.showsAmongChanges
         }
-        for tool in ["mark_task", "message_task", "finish_task", "ask_you", "log_decision", "create_task", "jira_move", "write_summary"] {
+        for tool in SignalOperatorTool.allCases.filter(\.mutating).map(\.rawValue) {
             #expect(shows(tool), "\(tool) changes something")
         }
-        for tool in ["run_status", "read_task", "jira_search", "jira_board", "find_user", "shell_read", "shell"] {
+        for tool in ["run_status", "read_task", "jira_search", "shell_read", "shell"] {
             #expect(!shows(tool), "\(tool) only looks")
             #expect(!shows(tool, .repeated))
             for outcome in [ActivityEntry.Outcome.refused, .challenged, .failed] {
                 #expect(shows(tool, outcome), "\(tool) \(outcome.rawValue): what did not go through always shows")
             }
         }
-        #expect(ActivityLine.looks == ActivityLine.reads.union(["shell"]))
     }
 
     @Test func appendsAndReadsInOrder() throws {

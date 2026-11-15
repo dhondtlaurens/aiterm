@@ -137,10 +137,7 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
-    func presentRename(run: OperatorRun) {
-        guard canChangeWorkspace, let current = state.runs.first(where: { $0.id == run.id }) else { return }
-        present(.rename(.broadcast(current)))
-    }
+
 
     /// Unplugged's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘U and the footer's Mac rows reach it while one may be up, and it refuses rather than
@@ -181,33 +178,8 @@ final class SheetCoordinator {
         }
     }
 
-    /// New Broadcast…, on the sidebar's projects, with what `context` read as it opened: Settings › Operator's slices
-    /// and Oracle, the profile the operator controller freezes as it starts the broadcast (`startBroadcast`), and what
-    /// its Agents step offers. `/` lists both agents' skills from the person's home; `@` the files
-    /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
-    /// the Jira projects sheet fetches them; Start waits for `readiness`, which `checkReadiness` reads
-    /// while the sheet is open; the Task step dims the ends a chosen project's code host can't take (`hasCodeHost`). Not
-    /// over another sheet.
-    func presentNewBroadcast(context: NewBroadcastContext, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
-                             readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
-                             checkReadiness: @escaping @MainActor () async -> Void = {},
-                             hasCodeHost: (@Sendable (Project) async -> Bool)? = nil,
-                             start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
-        guard canChangeWorkspace, sheet == nil else { return }
-        preparingSheet?.cancel()
-        let home = harnessHome, claudeConfig = agents.claudeConfig, git = self.git, workspace = workspace
-        sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, context: context,
-                                                skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: claudeConfig) },
-                                                files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
-                                                canChangeWorkspace: { workspace.canChangeWorkspace },
-                                                readiness: readiness, checkReadiness: checkReadiness, hasCodeHost: hasCodeHost,
-                                                start: start))
-    }
-
     /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
-    func present(operatorSheet kind: SheetKind) {
-        present(kind)
-    }
+
 
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
     /// terminal opens in the project folder and starts no agent. The branch the destination line
