@@ -6,7 +6,8 @@ public enum SignalTransitions {
         guard !task.takenOver || action == .takeOver else { throw SignalTransitionError.takenOver }
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
-            next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.startedAt = at
+            next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.ownership += 1; next.startedAt = at
+            next.configuration = stage.configuration; next.prompt = stage.prompt; next.thenApplied = nil
             next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil
         }
         func startPending() {
@@ -36,7 +37,7 @@ public enum SignalTransitions {
             next.phase = .blocked; next.blockedReason = reason
         case .resume:
             guard task.phase == .blocked else { throw SignalTransitionError.invalidEdge }
-            next.phase = task.launch == nil ? .launching : .working; next.blockedReason = nil
+            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.currentAct = nil
         case .archive:
             guard task.canRunThen else { throw SignalTransitionError.invalidEdge }
             next.phase = .archived

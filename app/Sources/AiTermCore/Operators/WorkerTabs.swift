@@ -104,7 +104,7 @@ public extension TaskItem {
     /// The conversation its first worker last named, as its window last showed it (`conversations`): the first of its own
     /// agent's that none of its extra tabs named (`ExtraTab.conversation`), wherever that tab stood in the window.
     var firstWorkerConversation: TaskConversation? {
-        let extra = Set((operated?.extraTabs ?? []).compactMap(\.conversation))
+        let extra = Set((signalTask?.extraTabs ?? operated?.extraTabs ?? []).compactMap(\.conversation))
         return conversations.first { $0.agent == agent && !extra.contains($0.id) }
     }
 
@@ -164,7 +164,7 @@ public extension TaskItem {
         let worker = firstWorker(in: sessions), conversation = worker?.conversationId ?? firstWorkerConversation?.id
         let first = WorkerTab(key: nil, agent: worker?.agent.agentKind ?? agent, model: model, session: worker,
                               isOpening: conversation == nil && isLaunching(worker, now: now), conversation: conversation)
-        return [first] + (operated?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
+        return [first] + (signalTask?.extraTabs ?? operated?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
             let session = sessions.first { $0.taskUUID == id && $0.tabKey == tab.key }
             let opening = session.map { $0.agent.agentKind == nil } ?? (tab.sessionId == nil && tab.launch.openedAt == nil)
             return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
@@ -182,8 +182,16 @@ public extension TaskItem {
     /// than `OperatorTiming.firstWorkerOpening` ago, its worker not listed yet or not at work or asking. Bounded so a launch
     /// that failed is not starting forever; one that never starts is still caught as possibly stalled.
     private func isLaunching(_ worker: SessionInfo?, now: Date?) -> Bool {
-        guard let now, let operated, operated.state == .working, let launch = operated.launch,
-              worker.map({ $0.state.turnEnded }) ?? true else { return false }
+        guard let now, worker.map({ $0.state.turnEnded }) ?? true else { return false }
+        let launch: LaunchAttempt?
+        if let signalTask {
+            guard signalTask.phase.isActive, !signalTask.takenOver else { return false }
+            launch = signalTask.launch
+        } else {
+            guard let operated, operated.state == .working else { return false }
+            launch = operated.launch
+        }
+        guard let launch else { return false }
         return now.timeIntervalSince(launch.openedAt ?? launch.requestedAt) < OperatorTiming.firstWorkerOpening
     }
 }

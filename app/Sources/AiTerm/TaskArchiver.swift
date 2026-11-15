@@ -124,6 +124,50 @@ final class TaskArchiver {
         if workspace.persistenceError == nil { notices.showToast("\(task.kindName) archived.", symbol: "tray.and.arrow.down") }
     }
 
+    /// Then’s Archive: no questions and no permission to discard changes. The caller’s stage
+    /// predicate is checked again after every preflight await and after the window closes.
+    func archiveAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
+        guard workspace.canChangeWorkspace, workspace.state.task(id: task.id) == task,
+              let project = workspace.state.project(id: task.projectId),
+              remover.removals[task.id]?.awaitsRetry != true,
+              let token = work.begin(.archiving(windowLetGo: false), onTask: task.id) else {
+            throw ActionUnavailable("The task changed or is busy.")
+        }
+        defer { work.end(token) }
+        func allowed() -> Bool {
+            guard workspace.canChangeWorkspace, !Task.isCancelled, starting(),
+                  let current = workspace.state.task(id: task.id) else { return false }
+            return current.projectId == task.projectId && current.worktreePath == task.worktreePath && current.branch == task.branch
+        }
+        try remover.requireIdleForAutomaticCleanup(task)
+        let preflight = try await workflow.preflight(task: task, project: project)
+        guard allowed() else { throw ActionUnavailable("The stage changed before archiving.") }
+        guard !preflight.needsRemovalConfirmation else { throw ActionUnavailable("Git no longer lists its folder. Archive it yourself once it is safe.") }
+        if preflight.head == .detached { throw ActionUnavailable("Its worktree is detached, so it was kept.") }
+        if case .branch(let branch) = preflight.head, branch != task.branch { throw ActionUnavailable("Its worktree is no longer on its task branch.") }
+        if try await workflow.hasUnsavedWork(task: task, project: project) { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
+        guard allowed() else { throw ActionUnavailable("The stage changed while its worktree was checked.") }
+        try remover.requireIdleForAutomaticCleanup(task)
+        do {
+            try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true, operation: { .archiving(windowLetGo: $0) })
+        } catch TeardownStop.noDaemon { throw ClosingWait.helper }
+        guard allowed() else { throw ActionUnavailable("The stage changed while its window closed.") }
+        let head = try await workflow.head(of: task, in: project)
+        guard allowed(), head == .missing || head == .branch(task.branch) else { throw ActionUnavailable("Its stage or branch changed while its window closed.") }
+        try remover.requireIdleForAutomaticCleanup(task)
+        workspace.mutate { $0.moveToArchive(taskId: task.id, branch: task.branch, at: now()) }
+        guard workspace.flush() else {
+            workspace.mutate { $0.moveFromArchive(id: task.id) }
+            throw ActionUnavailable("Its archived row couldn’t be saved, so its checkout was kept.")
+        }
+        do { try await workflow.archive(task: task, project: project, force: false) }
+        catch {
+            workspace.mutate { $0.moveFromArchive(id: task.id) }; workspace.flush()
+            throw error
+        }
+        checkouts.forget(task: task.id); checkouts.dropDiff(for: task.id); checkouts.refresh()
+    }
+
     // -- restore ------------------------------------------------------------------------
     /// Archived row `id`'s worktree back at its own path, then the row back in the sidebar — saved —
     /// its project opened, and the row chosen as a click chooses it: the window lock reopens its

@@ -222,7 +222,7 @@ import Testing
         task = try SignalTransitions.apply(.stop, to: task, at: now)
         #expect(task.phase == .stopped)
         task = try SignalTransitions.apply(.takeOver, to: task, at: now)
-        #expect(task.takenOver && task.ownership == 1 && !task.needsWorkerReads)
+        #expect(task.takenOver && task.ownership == 2 && !task.needsWorkerReads)
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.resume, to: task, at: now) }
     }
 

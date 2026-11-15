@@ -3,6 +3,9 @@ import Foundation
 public struct SignalTask: Codable, Equatable, Sendable {
     public var signal: UUID
     public var item: ItemRef
+    public var configuration: Signal?
+    public var prompt: String?
+    public var candidateProjects: [UUID]?
     public var phase: TaskPhase = .launching
     public var stage: Int = 1
     public var startedAt: Date
@@ -11,6 +14,7 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var extraTabs: [ExtraTab] = []
     public var peopleReview: PeopleReview?
     public var watchedRequest: SignalRequestRef?
+    public var thenApplied: Bool?
     public var currentAct: String?
     public var takenOver = false
     public var ownership = 0

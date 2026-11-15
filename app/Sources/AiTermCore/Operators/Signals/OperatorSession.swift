@@ -7,15 +7,21 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         public var text: String
         public var openedAt: Date
         public var resolvedAt: Date?
+        public var answer: String?
+        public var stage: Int?
+        public var ownership: Int?
+        public var tab: String?
+        public var workerQuestion: String?
         public init(id: String, task: UUID?, text: String, openedAt: Date, resolvedAt: Date? = nil) {
             self.id = id; self.task = task; self.text = text; self.openedAt = openedAt; self.resolvedAt = resolvedAt
         }
     }
     public struct LedgerEntry: Codable, Equatable, Sendable {
         public var key: String
+        public var arguments: String?
         public var result: JSONValue
         public var at: Date
-        public init(key: String, result: JSONValue, at: Date) { self.key = key; self.result = result; self.at = at }
+        public init(key: String, result: JSONValue, at: Date, arguments: String? = nil) { self.key = key; self.result = result; self.at = at; self.arguments = arguments }
     }
     public var id: UUID
     public var generation = 1
@@ -25,6 +31,7 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var session: String?
     public var paused = false
     public var startingFresh = false
+    public var handover: OperatorHandover?
     public var questions: [Question] = []
     public var oracleRounds: [ChallengeRecord] = []
     public var ledger: [LedgerEntry] = []
@@ -37,9 +44,9 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         let entry = ledger.remove(at: index); ledger.append(entry)
         return entry.result
     }
-    public mutating func remember(key: String, result: JSONValue, at: Date) {
+    public mutating func remember(key: String, result: JSONValue, at: Date, arguments: String? = nil) {
         ledger.removeAll { $0.key == key || at.timeIntervalSince($0.at) > 7 * 86400 }
-        ledger.append(LedgerEntry(key: key, result: result, at: at))
+        ledger.append(LedgerEntry(key: key, result: result, at: at, arguments: arguments))
         ledger = Array(ledger.suffix(500))
     }
     public mutating func prune() {

@@ -201,7 +201,8 @@ final class TaskRemover: CheckoutRemovals {
     /// task's finished record once nothing is left to keep the task, just before its window closes; false stops it.
     /// Why it stopped is saved on the task for its card (`OperatedTask.keptReason`), or what it waits for when it is to be
     /// tried again (`closingWait`). The caller deletes a merged branch once the row is gone.
-    func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
+    func removeAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool,
+                             stillAllowed: @MainActor () -> Bool = { true }) async throws {
         guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
               let project = workspace.state.project(id: task.projectId),
               let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else {
@@ -211,10 +212,7 @@ final class TaskRemover: CheckoutRemovals {
         outcomes[task.id] = nil
         // A turn under way is waited for: checked first, so a task you are driving with edits waits rather than reads as
         // unsaved work, and again after the worktree checks, since a turn can start while they run.
-        func waitForTurns() throws(ClosingWait) {
-            guard !TaskAutoCloser.isDriving(task, in: live) else { throw .turn }
-            guard !Self.turnInFlight(task.id, in: live) else { throw .agentTurn }
-        }
+        func waitForTurns() throws(ClosingWait) { try requireIdleForAutomaticCleanup(task) }
         do {
             try waitForTurns()
             // Unsaved work is what git status lists, uncommitted or untracked changes. Git-ignored files such as .env
@@ -245,8 +243,15 @@ final class TaskRemover: CheckoutRemovals {
             }
             // Never forced, so changes made while the window closed are git's to refuse.
             let removed: TaskWorkflow.Removed
-            do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false) }
+            do { removed = try await workflow.remove(task: task, project: project, deleteBranch: false, force: false,
+                                                     preserveBranch: task.signalTask != nil) }
             catch let error as GitError where error.refusedForUnsavedWork { throw ActionUnavailable(TaskAutoCloser.unsavedWork) }
+            // A signal may have queued another stage while git removed the checkout. Keep the
+            // row and put its branch back in a worktree before the new stage can continue.
+            guard stillAllowed() else {
+                _ = try await workflow.restore(task, project: project)
+                throw ActionUnavailable("A new stage waits, so its checkout was restored and the task was kept.")
+            }
             await finishRemoval(of: task, after: removed)
             guard workspace.state.task(id: task.id) == nil, workspace.persistenceError == nil else {
                 throw ActionUnavailable("Its removal could not be completed or saved.")
@@ -265,6 +270,11 @@ final class TaskRemover: CheckoutRemovals {
             workspace.mutate { $0.updateOperated(task.id) { $0.keptReason = reason; $0.closingWait = nil } }
             throw error
         }
+    }
+
+    func requireIdleForAutomaticCleanup(_ task: TaskItem) throws(ClosingWait) {
+        guard !TaskAutoCloser.isDriving(task, in: live) else { throw .turn }
+        guard !Self.turnInFlight(task.id, in: live) else { throw .agentTurn }
     }
 
     /// Whether the task's worktree folder is there (`FolderCheck`).

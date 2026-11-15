@@ -21,6 +21,9 @@ public enum MatchDecision: Equatable, Sendable {
             let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt)
             if let task = tasks.first(where: { candidate in
                 if matchesItem(match.item, task: candidate) { return true }
+                if let branch = match.branch, branch == candidate.branch,
+                   case .mergeRequest(let request) = match.item,
+                   projects.contains(where: { $0.id == candidate.projectId && $0.remoteUrl.flatMap(ItemRef.repository) == ItemRef.repository(request.remote) }) { return true }
                 if case .branch(let branch) = match.item {
                     return candidate.branch == branch.name && projects.contains {
                         $0.id == candidate.projectId && $0.remoteUrl.flatMap(ItemRef.repository) == ItemRef.repository(branch.remote)

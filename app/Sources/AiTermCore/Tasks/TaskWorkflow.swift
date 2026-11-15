@@ -146,11 +146,11 @@ public struct TaskWorkflow: Sendable {
     /// `allowUnlisted` is the person's consent to delete a folder git no longer lists
     /// (`Preflight.needsRemovalConfirmation`).
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool,
-                       allowUnlisted: Bool = false) async throws -> Removed {
+                       allowUnlisted: Bool = false, preserveBranch: Bool = false) async throws -> Removed {
         let git = git, attempts = removalAttempts
         return try await BackgroundWork.run(on: Self.lane(of: project)) {
             try Self.takeWorktree(of: task, from: project, force: force, git: git, allowUnlisted: allowUnlisted, attempts: attempts)
-            let result = Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
+            let result = preserveBranch ? Removed(branchRefusal: nil) : Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
             if result.branchRefusal == nil { attempts.paths.withLock { _ = $0.removeValue(forKey: task.id) } }
             return result
         }

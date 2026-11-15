@@ -426,7 +426,7 @@ Each step leaves the package building and the gate green.
 - [x] The creation-sheet family as picked, on today's sheets (New Task, New Review, Add Project with
       Edit Project, New Terminal, Add Divider): shared steps, agent row and copy; the Shelf renamed
       the Archive, on ⌘A outside text fields. New Broadcast untouched yet.
-- [ ] The engine owners beside today's controller, not wired into it: `ItemRouter`, `StageRunner`,
+- [x] The engine owners beside today's controller, not wired into it: `ItemRouter`, `StageRunner`,
       `RequestWatch`, `ThenRunner` (with `TaskArchiver.archiveAutomatically`), `QuestionRounds`,
       `OperatorSessionKeeper`, the act; each proven in `SignalWorld` with fakes.
 - [ ] The new tool set and the brief as a second handler and brief generator, not served yet; their
@@ -593,3 +593,15 @@ for this to-do.
   ImageRenderer also checked the static chrome where native offscreen captures omit a title.
   Final local images are in `build/operator-signals-creation-final/`. No contract goldens were
   regenerated and no live app was launched. Design-page synchronization remains its later to-do.
+
+- **Engine:** added the router, stage runner, request watch, question rounds, automatic Then
+  actions and session keeper beside the current controller. Launch and cleanup intents are saved
+  before effects; authority is checked after suspension. Pending stages outrank cleanup, archived
+  tasks restore with the same identity, and automatic cleanup keeps unsaved work. Question
+  ownership prevents parallel answers and preserves the three-round limit across tool keys;
+  human questions are counted only when recorded in chat. Fresh starts close before revoking.
+- **Engine proof:** fake-world and scratch-repository tests cover stage ordering, ambiguous project
+  and agent choice, retries, takeover and stop races, merge floors, question replay after reload,
+  cleanup interrupted by pending work, and interrupted token handover. Plain `scripts/test.sh`
+  passed: 2,195 Core, 2,047 app, 123 UI and 5 snapshot tests, with existing labelled known issues.
+  The engine remains unwired; no live app or contract goldens were changed.

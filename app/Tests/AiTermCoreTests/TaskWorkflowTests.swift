@@ -274,6 +274,16 @@ import Testing
         #expect(result.branchRefusal == nil && result.keptBranch == nil)
     }
 
+    @Test func aSignalCleanupCanKeepAReviewsBranchForAPendingStage() async throws {
+        let fixture = try ReviewRemovalFixture(withOrigin: true)
+        defer { fixture.cleanUp() }
+        _ = try await TaskWorkflow(git: .hermetic()).remove(task: fixture.review, project: fixture.project,
+                                                          deleteBranch: false, force: false, preserveBranch: true)
+        #expect(try fixture.hasLocalBranch())
+        let restored = try await TaskWorkflow(git: .hermetic()).restore(fixture.review, project: fixture.project)
+        #expect(FileManager.default.fileExists(atPath: restored.task.worktreePath))
+    }
+
     /// Pushed, the local copy is deleted; unpushed fixes keep it, and the removal says so — as a
     /// note, not a warning: the review is gone either way, there is nothing to retry.
     @Test func testRemovingAReviewReleasesItsBranchOnlyWhenPushed() async throws {
