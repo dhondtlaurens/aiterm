@@ -77,14 +77,14 @@ import Testing
         #expect(controller.focus.row(id: OperatorRow.id(of: OperatorSession.rowID)) == .operation(OperatorSession.rowID))
         #expect(controller.rows.signalSections.isEmpty)
     }
-    @Test func thePermanentRowAndSignalHeadersLeaveProjectsVisible() throws {
+    @Test func theOperatorRowAndSignalHeadersLeaveProjectsVisible() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 420, height: 600))
         defer { window.orderOut(nil) }
-        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 4 }
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 3 }
         let list = try #require(host.firstDescendant(NSTableView.self))
-        #expect(list.numberOfRows == 4, "Operator heading, permanent row, Projects heading and empty state")
+        #expect(list.numberOfRows == 3, "Operator heading, Projects heading and empty state: no signal, no Operator row")
         var world = SignalWorld(); _ = world.signal(); _ = world.workingTask(signal: world.state.signals[0].id)
         controller.workspace.mutate { $0 = world.state }
         settle(host) { list.numberOfRows == 6 }
@@ -132,6 +132,19 @@ import Testing
         let session = SessionInfo(sessionId: "shell", windowId: "window", tabIndex: 0, taskId: nil,
             projectId: nil, agent: .claude, model: nil, state: .needsInput, title: "", cwd: "/")
         #expect(SignalOperatorRowValue.make(state: AppState(), sessions: [session]) == .empty)
+    }
+    /// With no signal configured the Operator has nothing to watch, so its row is left out; a
+    /// signal, a task it still drives, or the Operator needing you brings it back.
+    @Test func theOperatorRowIsLeftOutWhileItHasNothingToWatch() throws {
+        #expect(!SignalOperatorRowValue.make(state: AppState(), sessions: []).shown)
+        var paused = AppState(); var session = OperatorSession(createdAt: Date()); session.paused = true; paused.operatorSession = session
+        #expect(!SignalOperatorRowValue.make(state: paused, sessions: []).shown, "paused with nothing to watch")
+        #expect(SignalOperatorRowValue.make(state: AppState(), sessions: [], issue: "The Operator could not sign in.").shown)
+
+        var world = SignalWorld(); let signal = world.signal()
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a signal with no task yet")
+        _ = world.workingTask(signal: signal); world.state.signals = []
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a task left from a removed signal")
     }
     @Test func theOperatorNamesItsActAndCountsTheSignalsStillHoldingTasks() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)

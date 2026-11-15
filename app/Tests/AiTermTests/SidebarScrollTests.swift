@@ -34,7 +34,7 @@ struct SidebarScrollTests {
         window.orderFront(nil)
         defer { window.orderOut(nil) }
         // OPERATOR, PROJECTS and the 20 projects.
-        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 23 }
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 22 }
         let table = try #require(host.firstDescendant(NSTableView.self))
         let scroll = try #require(table.enclosingScrollView)
         let controls = try #require(window.standardWindowButton(.closeButton)?.superview)
@@ -47,7 +47,7 @@ struct SidebarScrollTests {
 
         // Bring the selected first project right against the viewport's upper edge, then inspect the
         // band's pixels as well as its geometry: neither text nor the selection fill may reach it.
-        scroll.contentView.scroll(to: CGPoint(x: 0, y: table.rect(ofRow: 2).minY))
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: table.rect(ofRow: 1).minY))
         scroll.reflectScrolledClipView(scroll.contentView)
         settle(host, for: 0.1)
         for active in [false, true] {
@@ -100,12 +100,12 @@ struct SidebarScrollTests {
         controller.workspace.mutate { $0.updateProject(id: last.projectId) { $0.collapsed = false } }
         controller.focus.browse(.terminal(last.id))
         settle(host, describing: "the last terminal's row scrolled into view") {
-            list.numberOfRows == 43 && list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1))
+            list.numberOfRows == 42 && list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1))
         }
 
         // The last terminal is the last row. Not `selectedRow`: a selection set from the model
         // reaches the table's own `selectedRow` only later, if at all.
-        #expect(list.numberOfRows == 43)
+        #expect(list.numberOfRows == 42)
         #expect(list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1)))
     }
 }

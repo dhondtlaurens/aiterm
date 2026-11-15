@@ -24,7 +24,7 @@ struct SidebarInteractionTests {
         let (host, window) = HostedSidebar.make(controller, key: true)
         defer { window.orderOut(nil) }
         settle(host, describing: "the terminal row") {
-            host.firstDescendant(NSTableView.self)?.numberOfRows == 5
+            host.firstDescendant(NSTableView.self)?.numberOfRows == 4
         }
         let list = try #require(host.firstDescendant(NSTableView.self))
         var reference: [Data] = []
@@ -37,9 +37,9 @@ struct SidebarInteractionTests {
             case "chooser":
                 await controller.choose(.terminal(terminal.id))?.value
             case "click":
-                list.scrollRowToVisible(4)
+                list.scrollRowToVisible(3)
                 host.layoutSubtreeIfNeeded()
-                let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: 4).midY), to: nil)
+                let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: 3).midY), to: nil)
                 for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
                     let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                         timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1,
@@ -89,7 +89,7 @@ struct SidebarInteractionTests {
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         #expect(!sidebar.isKeyWindow)
         let list = try #require(host.firstDescendant(NSTableView.self))
-        #expect(list.numberOfRows == 7)
+        #expect(list.numberOfRows == 6)
         func click(row: Int, eventNumber: Int) throws {
             // The fixed chrome/footer reduce the viewport. Click a visible row, as a person does.
             list.scrollRowToVisible(row)
@@ -106,14 +106,15 @@ struct SidebarInteractionTests {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
 
-        // OPERATORS, header, project, terminal, first task, second task — the same type order as the create menu.
-        try click(row: 4, eventNumber: 1)
+        // OPERATOR heading (no signal, so no Operator row), header, project, terminal, first task, second
+        // task — the same type order as the create menu.
+        try click(row: 3, eventNumber: 1)
         #expect(controller.focus.selectedTerminalId == terminal.id)
 
         other.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         #expect(!sidebar.isKeyWindow)
-        try click(row: 6, eventNumber: 2)
+        try click(row: 5, eventNumber: 2)
         #expect(controller.focus.selectedTaskId == tasks[1].id)
     }
 
@@ -360,8 +361,8 @@ struct SidebarInteractionTests {
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
-        // OPERATORS, header, project a, the divider, project b. Both projects are collapsed, so nothing else.
-        #expect(list.numberOfRows == 6)
+        // OPERATOR heading, header, project a, the divider, project b. Both projects are collapsed, so nothing else.
+        #expect(list.numberOfRows == 5)
     }
 
     /// With no project, a block under PROJECTS says what to add and offers the header's own action;
@@ -377,14 +378,14 @@ struct SidebarInteractionTests {
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
-        // OPERATORS, header, the block, the divider.
-        #expect(list.numberOfRows == 5)
+        // OPERATOR heading, header, the block, the divider.
+        #expect(list.numberOfRows == 4)
 
         controller.workspace.mutate { $0.append(project: Project(id: UUID(), name: "a", path: "/a", provider: .git, remoteUrl: nil,
                                                                   addedAt: Date(), collapsed: true)) }
         settle(host, for: 0.05) // Absence: the row count is the same before and after.
-        // OPERATORS, header, the divider, project a.
-        #expect(list.numberOfRows == 5)
+        // OPERATOR heading, header, the divider, project a.
+        #expect(list.numberOfRows == 4)
         #expect(controller.state.projects.count == 1)
     }
 

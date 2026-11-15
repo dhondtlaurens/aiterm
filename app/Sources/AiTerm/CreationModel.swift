@@ -120,8 +120,9 @@ protocol CreationKind {
 }
 
 extension CreationKind {
-    /// New Task and New Review: three steps, the agent second.
-    static var steps: CreationSteps { CreationSteps(count: 4, agentStep: 4, promptSteps: [3], summarizesOnlyOnLast: true) }
+    /// New Task and New Review: three steps — what and where from, the prompt, the agent — the
+    /// destination and command summed up only on the last.
+    static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 3, promptSteps: [2], summarizesOnlyOnLast: true) }
 
     /// The person's text, trimmed. New Task appends its ticket.
     func composedPrompt(_ text: String, draft: Draft) -> String? {
@@ -138,7 +139,7 @@ extension CreationKind {
 
 /// What a creation sheet's steps decide about its frame, in one place: the footer's buttons, where
 /// the destination line and the command preview are drawn, and which steps are prompt editors. New
-/// Task and New Review have three steps, the agent second (`CreationKind`'s defaults); New Broadcast
+/// Task and New Review have three steps, the agent last (`CreationKind`'s defaults); New Broadcast
 /// has five, its Agents list third and no agent step (`broadcast`). The last step creates; the first
 /// has Cancel, every other Back.
 struct CreationSteps: Equatable {

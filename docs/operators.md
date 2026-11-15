@@ -98,7 +98,9 @@ Select All.
 
 ## Pause, switch off and take over
 
-Use **Pause** on the Operator row to pause all signals. Existing workers receive a note to finish
+Use **Pause** on the Operator row to pause all signals. The row shows while there is a signal, a
+task the Operator still drives, or something it needs from you; with no signal configured only the
+OPERATOR heading and its + remain. Existing workers receive a note to finish
 their current turn and wait. **Resume** carries them on before stages advance. A signal's menu
 has **Switch Off** and **Switch On (starts n)**; switching it off pauses only its workers and source
 polling. Removing a signal leaves its existing tasks running with their saved instructions under

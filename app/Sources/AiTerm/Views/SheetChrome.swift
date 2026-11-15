@@ -306,8 +306,8 @@ struct SheetFooter<Status: View>: View {
 /// it failed as the description.
 struct CreationFooter: View {
     let step: Int
-    /// How many steps there are and which picks the agent: New Task's and New Review's three unless told.
-    var steps = CreationSteps(count: 3, agentStep: 2)
+    /// How many steps there are and which picks the agent: New Task's and New Review's unless told.
+    var steps = TaskCreation.steps
     let error: CreationFailure?
     let availableAgents: Set<AgentKind>
     let createLabel: String
