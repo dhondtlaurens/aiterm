@@ -169,3 +169,7 @@ Keychain.
 The helper listens on `127.0.0.1:47821` for hook telemetry. The
 [data ownership reference](architecture.md#what-aiterm-writes-and-where) lists the files and local
 transports AiTerm uses. Agent requests use the selected provider's services and configuration.
+
+While signals can start work, Unplugged cannot stop merely because agent turns ended. Pause the
+Operator before choosing “until agents are done”; pending workers still
+finish their current turn. This keeps source polling from starting new work after automatic sleep.

@@ -6,9 +6,10 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct KeyboardSettingsTests {
-    @Test func theListDescribesTheBoardAndShelfKeys() throws {
+    @Test func theListDescribesCreationNavigationAndArchiveWithoutRetiredBoardKeys() throws {
         let sheets = try #require(KeyBindings.all.first { $0.title == "Sheets" })
-        #expect(sheets.bindings.contains { $0.keys == ["⌘", "1–3"] && $0.action.contains("board") })
+        #expect(sheets.bindings.contains { $0.keys == ["⌘", "1–4"] && $0.action.contains("completed creation step") })
+        #expect(!sheets.bindings.contains { $0.action.contains("board") })
         #expect(sheets.bindings.contains { $0.keys == ["⌘", "⌫"] && $0.action.contains("Archive") })
     }
 
@@ -210,6 +211,6 @@ import Testing
         let items = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).flatMap(\.items)
         #expect(items.filter { $0.keyEquivalent.lowercased() == "i" }.isEmpty)
         let sidebar = try #require(KeyBindings.all.first { $0.title == "Sidebar" })
-        #expect(sidebar.bindings.contains { $0.action.contains("broadcast") }, "↩ names what it does on the broadcast's header")
+        #expect(sidebar.bindings.contains { $0.action.contains("signal") }, "↩ names what it does on a signal header")
     }
 }

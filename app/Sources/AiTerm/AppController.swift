@@ -205,7 +205,7 @@ final class AppController {
         backpack = BackpackController(ports: backpackPorts,
                                       settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
                                       agentsWorking: { live.sessions.contains { $0.state == .working } },
-                                      broadcastRunning: { workspace.state.signals.contains(where: \.enabled) && workspace.state.operatorSession?.paused != true },
+                                      operatorCanStartWork: { workspace.state.operatorMayStartWork },
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)

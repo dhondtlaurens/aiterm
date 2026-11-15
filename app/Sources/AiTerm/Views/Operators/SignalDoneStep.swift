@@ -38,13 +38,14 @@ struct SignalDoneStep: View {
     }
     private var thenHelp: String {
         switch model.then {
+        case .unknown: "Choose a supported finish for this version."
         case .keep: "It stays under the signal, with its window and worktree."
         case .archive: "Its window and worktree close. Branch and conversation stay in the Archive. Unsaved work keeps the worktree."
         case .remove: "The task and its worktree go. Unsaved work keeps the worktree."
         }
     }
     private static func thenLabel(_ then: SignalFinish.Then) -> String {
-        switch then { case .keep: "Keep the task"; case .archive: "Archive it"; case .remove: "Remove it" }
+        switch then { case .unknown: "Not supported by this version"; case .keep: "Keep the task"; case .archive: "Archive it"; case .remove: "Remove it" }
     }
     private var statusChoices: [String] {
         Array(Set(model.metadata.statuses.map(\.name) + (model.status.isEmpty ? [] : [model.status]))).sorted()
@@ -53,6 +54,7 @@ struct SignalDoneStep: View {
         let what = model.sourceKind == .jira ? "ticket that matches" : model.event == .reviewRequested ? "review you’re asked for" : "merge request of yours that needs you"
         let agents = ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }.map(\.displayName).joined(separator: " or ")
         let ending = switch model.then {
+        case .unknown: "this version cannot finish it"
         case .keep: "the task is kept"
         case .archive: "it’s archived"
         case .remove: model.deleteMergedBranch ? "it’s removed, and its branch deleted only if it’s merged and unchanged" : "it’s removed"

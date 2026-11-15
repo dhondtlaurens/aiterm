@@ -20,6 +20,7 @@ final class RecordingDaemon: DaemonCommands {
     var failing: [String: DaemonError.Code]
     /// What `session.deliver` answers, in order, the last one repeated; delivered when empty.
     var deliveries: [Delivery] = []
+    var idleClosures: [Delivery] = []
     /// What `session.prompt` answers for each session; none open when absent.
     var prompts: [String: PromptKind] = [:]
     /// The sessions whose startup dialog `session.dismissStartup` declines (an update offer); others answer false.
@@ -141,7 +142,9 @@ final class RecordingDaemon: DaemonCommands {
 
     func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
         try await answer("session.closeIdle", ["sessionId": sessionId, "ownership": ownership, "conversation": conversation])
-        return Delivery(result: .delivered, reason: nil)
+        guard let first = idleClosures.first else { return Delivery(result: .delivered, reason: nil) }
+        if idleClosures.count > 1 { idleClosures.removeFirst() }
+        return first
     }
     func prompt(sessionId: String) async throws -> PromptKind? {
         try await answer("session.prompt", ["sessionId": sessionId])

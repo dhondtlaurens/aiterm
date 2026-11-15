@@ -598,25 +598,25 @@ import Testing
         #expect(model.backpack.state.until == .agentsStop)
     }
 
-    /// A broadcast starting after Unplugged was enabled must also bridge quiet turns. The cutoff
-    /// still wins, and after the broadcast ends the normal idle grace resumes.
+    /// Signals enabled after Unplugged started must also bridge quiet turns. The cutoff
+    /// still wins, and after the Operator pauses the normal idle grace resumes.
     @Test(arguments: [false, true])
-    func aBroadcastHoldsUnpluggedAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
+    func signalsHoldUnpluggedAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
         let fake = FakeBackpack(), clock = TestClock()
         fake.lidSensor.closed = true
-        let broadcasting = Mutex(false)
+        let operating = Mutex(false)
         let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
                                           now: { clock.now }, agentsWorking: { false },
-                                          broadcastRunning: { broadcasting.withLock { $0 } }, toast: { _ in })
+                                          operatorCanStartWork: { operating.withLock { $0 } }, toast: { _ in })
         await backpack.connect(network: "Phone", password: nil, until: .agentsStop)
-        broadcasting.withLock { $0 = true }
+        operating.withLock { $0 = true }
         clock.advance(by: 3600)
         await backpack.tick()
         #expect(backpack.isOn)
         if cutoff {
             fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
         } else {
-            broadcasting.withLock { $0 = false }
+            operating.withLock { $0 = false }
             clock.advance(by: BackpackMode.idleGrace)
         }
         await backpack.tick()

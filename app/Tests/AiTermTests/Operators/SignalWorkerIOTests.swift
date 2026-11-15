@@ -5,6 +5,78 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalWorkerIOTests {
+    @Test func aNativeStageCanStartANewTaskBeforeItsFirstHookArrives() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .launching }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalItem(id) { $0.worktreePath = h.folder.path; $0.windowId = nil } }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: io.busy, prepare: { task, _ in task }, launch: io.launch, restore: { $0 }))
+        await stages.run(id)
+        #expect(daemon.requests("window.createTask").count == 1)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
+        #expect(io.busy(id), "After the RPC, the first hook must arrive before finish or Then.")
+        await stages.run(id)
+        #expect(daemon.requests("window.createTask").count == 1)
+    }
+    @Test func aRefusedFinishIsWokenWhenAnUnkeyedCompanionBecomesIdle() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        var companion = OperatorServiceFixtures.session("companion", tag: id, state: .working)
+        companion.agent = .codex; companion.tabIndex = 1
+        live.sessions = [OperatorServiceFixtures.session("primary", tag: id, state: .done), companion]
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        var wakes: [UUID] = []; io.onTurn = { wakes.append($0) }
+        let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: io.busy, prepare: { task, _ in task }, launch: { _, _ in "worker" }, restore: { $0 }))
+        await #expect(throws: SignalTransitionError.self) { try await stages.finish(id, action: .finish(.operatorJudges), judged: true) }
+        #expect(wakes.isEmpty && h.workspace.state.task(id: id)?.signalTask?.phase == .working)
+        // The refusal can occur between reconciliations: no earlier refresh observed this turn.
+        live.sessions[1].state = .done
+        await io.refreshTurns()
+        #expect(wakes == [id])
+        await io.refreshTurns()
+        #expect(wakes == [id])
+        try await stages.finish(id, action: .finish(.operatorJudges), judged: true)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .done)
+    }
+    enum ActiveWorker: CaseIterable { case primary, companion, companionPrompt }
+    @Test(arguments: ActiveWorker.allCases) func aSignalWaitsForAnOrdinaryTasksTurnThenContinuesItsConversation(active: ActiveWorker) async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.tasks[0].signalTask = nil
+        world.state.tasks[0].jira = JiraRef(key: "PAY-1", summary: "Retries", url: "https://jira.example/browse/PAY-1")
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalItem(id) { $0.worktreePath = h.folder.path } }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("manual-worker", tag: id, state: active == .primary ? .working : .done, conversation: "manual-conversation")]
+        if active != .primary {
+            var companion = OperatorServiceFixtures.session("manual-companion", tag: id, state: active == .companionPrompt ? .needsInput : .working, conversation: "companion-conversation")
+            companion.agent = .codex; companion.tabIndex = 1; live.sessions.append(companion)
+        }
+        let native = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let router = ItemRouter(workspace: h.workspace, now: { world.now }, workerIsWorking: native.busy)
+        _ = router.apply(signals: [signal], read: SignalRead(items: [world.ticket()], complete: true))
+        let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: native.busy, prepare: native.prepare, launch: native.launch, restore: native.restore))
+        await stages.run(id)
+        #expect(daemon.requests("session.closeIdle").isEmpty && daemon.requests("window.createTask").isEmpty && daemon.requests("tab.create").isEmpty)
+        for index in live.sessions.indices { live.sessions[index].state = .done }
+        await stages.run(id)
+        #expect(daemon.requests("session.closeIdle").count == 1)
+        let opened = daemon.requests("window.createTask") + daemon.requests("tab.create")
+        let command = try #require(opened.first?.params["agentCommand"] as? String)
+        #expect(try guardedWorkerCommand(command)?.contains("manual-conversation") == true)
+        #expect(h.workspace.state.tasks.count == 1 && h.workspace.state.tasks[0].id == id)
+    }
     @Test(arguments: [false, true]) func steeringAWatchingTaskResumesWorkerObservation(extraTab: Bool) async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
@@ -94,6 +166,7 @@ import Testing
         #expect(worker.contains("AskUserQuestion"))
         #expect(!worker.contains("Bash(git push:*"))
         #expect(harness.workspace.state.task(id: id)?.signalTask?.pendingReplies?["main"] != nil)
+        #expect(io.busy(id), "A successful window RPC before the first CLI hook must hold finish/Then.")
         try? FileManager.default.removeItem(at: io.ports.home)
     }
     @Test func takeoverBeforeLaunchCannotOpenAWorker() async throws {

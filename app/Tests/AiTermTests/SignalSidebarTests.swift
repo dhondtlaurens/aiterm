@@ -7,6 +7,27 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test func unsupportedSavedSignalsExplainWhyTheyCannotRunInTheirHeading() {
+        var world = SignalWorld(); _ = world.signal()
+        world.state.signals[0].source = .gitHub(RequestConditions(event: .unknown("future")))
+        let sidebar = SignalSidebar(state: world.state, entries: [])
+        #expect(SignalHeadingValue(sidebar.signals[0]).help.contains("cannot run"))
+    }
+    @Test func unpluggedWaitsForOrphanedStagesButNotUnsupportedSources() throws {
+        let controller = AppController(preferences: .scratch()); try controller.workspace.load()
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
+        world.state.signals = []
+        controller.workspace.mutate { $0 = world.state }
+        #expect(controller.backpack.operatorCanStartWork, "A removed source's current stage still carries on.")
+        controller.workspace.mutate { $0.operatorSession?.paused = true }
+        #expect(!controller.backpack.operatorCanStartWork)
+        world.state.tasks = []; _ = world.signal()
+        world.state.signals[0].source = .gitHub(RequestConditions(event: .reviewRequested))
+        world.state.signals[0].finish = SignalFinish(doneWhen: .approved, mergesWhenReady: true)
+        controller.workspace.mutate { $0 = world.state }
+        #expect(!controller.backpack.operatorCanStartWork, "An unsupported saved signal cannot start work.")
+    }
     @Test func theOperatorsOwnPermissionPromptOutranksItsTaskAct() {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.updateSignalTask(id) { $0.currentAct = "consulting the Oracle" }

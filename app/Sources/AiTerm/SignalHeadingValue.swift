@@ -18,13 +18,16 @@ struct SignalHeadingValue: Equatable, Identifiable {
         collapsed = section.collapsed; empty = section.tasks.isEmpty; removed = section.removed
         counts = collapsed ? SidebarModel.statusCounts(tasks: section.tasks) : []
         let conditions: String
-        switch source {
-        case .jira(let query): conditions = JQL.compile(query)
-        case .gitLab(let query), .gitHub(let query):
-            conditions = query.event == .reviewRequested ? "When you are asked to review" : "Your requests waiting on your reply or sent back to you"
-        case .unknown: conditions = "This version cannot run this signal."
+        if !source.isSupported { conditions = "This version cannot run this signal." }
+        else {
+            switch source {
+            case .jira(let query): conditions = JQL.compile(query)
+            case .gitLab(let query), .gitHub(let query):
+                conditions = query.event == .reviewRequested ? "When you are asked to review" : "Your requests waiting on your reply or sent back to you"
+            case .unknown: conditions = "This version cannot run this signal."
+            }
         }
-        help = ([conditions] + (removed ? ["This signal was removed. Its existing tasks carry on with their saved instructions."] : [])
+        help = ([conditions] + (source.isSupported && !signal.finish.isValid(for: source) ? ["This version cannot run these finish settings."] : []) + (removed ? ["This signal was removed. Its existing tasks carry on with their saved instructions."] : [])
                 + section.skipped + [section.failure].compactMap { $0 }).joined(separator: "\n")
     }
 }

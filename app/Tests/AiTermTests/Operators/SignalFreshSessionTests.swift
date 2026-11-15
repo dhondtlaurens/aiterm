@@ -5,6 +5,60 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor struct SignalFreshSessionTests {
+    @Test func aScopedStatusCannotAcknowledgeCoalescedUpdatesForOtherTasks() async throws {
+        var world = SignalWorld(); let signal = world.signal(), first = world.workingTask(signal: signal)
+        let second = world.workingTask(signal: signal)
+        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
+        world.state.operatorSession = session
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("operator", window: "operator-window", tag: session.id, state: .done, conversation: "op")]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        root.native.onTurn(first); root.native.onTurn(second)
+        await root.reconcile(); await ports.work.settled()
+        #expect(h.workspace.state.operatorSession?.wakeAwaitingRead == true)
+        root.handle(.operatorRequest(.init(requestId: "scoped", runId: session.id.uuidString, tool: "run_status",
+            arguments: ["task": .string(first.uuidString)], generation: 1)))
+        await ports.work.settled()
+        #expect(h.workspace.state.operatorSession?.wakeAwaitingRead == true)
+        #expect((daemon.requests("operator.reply").last?.params["error"] as? String)?.contains("without task") == true)
+        let recorded = ActivityLog.read(runFolder: SignalOperatorCommand.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
+        #expect(recorded?.outcome != .ok && recorded?.result.contains("without task") == true)
+        root.handle(.operatorRequest(.init(requestId: "all", runId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
+        await ports.work.settled()
+        let result = daemon.requests("operator.reply").last?.params["result"] as? JSONValue
+        #expect(result?["tasks"]?.arrayValue?.count == 2)
+        #expect(h.workspace.state.operatorSession?.wakeAwaitingRead != true)
+        root.stop()
+    }
+    @Test(arguments: [DeliveryCode?.some(.unsentInput), .some(.itermRefused), .some(.sessionClosed), .some(.unknown), nil])
+    func freshCloseOnlyRollsBackForAKnownRefusalBeforeTheCloseWasAttempted(code: DeliveryCode?) async throws {
+        var world = SignalWorld(); var session = OperatorSession(createdAt: world.now)
+        session.window = "operator-window"; session.conversation = "op"; world.state.operatorSession = session
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
+        var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
+        let now = world.now; ports.clock.now = { now }
+        var tab = OperatorServiceFixtures.session("operator", window: "operator-window", tag: session.id, state: .done, conversation: "op")
+        tab.contextTokens = 10_000; live.sessions = [tab]
+        daemon.idleClosures = [Delivery(result: .refused, reason: "Idle close refused.", code: code)]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        tab.contextTokens = 150_000; live.sessions = [tab]
+        await root.reconcile(); await ports.work.settled()
+        let certain = code == .unsentInput
+        #expect(h.workspace.state.operatorSession?.startingFresh == !certain)
+        #expect(h.workspace.state.operatorSession?.handover == (certain ? nil : .closing))
+        #expect(h.workspace.state.operatorSession?.generation == 1 && h.workspace.state.operatorSession?.window == "operator-window")
+        #expect(daemon.requests("operator.revoke").isEmpty)
+        let answer = await root.tools.respond(.init(requestId: "reply", runId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
+        #expect((answer.message == nil) == certain)
+        root.stop(); await ports.work.settled()
+    }
     @Test func oracleChecksReadStandingInstructionsAndDiscardAnAnswerWhenTheyChange() async throws {
         var world = SignalWorld(); world.state.operatorSession = OperatorSession(createdAt: world.now)
         let h = try SignalHarness(world); defer { h.cleanUp() }; var ports = OperatorPorts.scratch()

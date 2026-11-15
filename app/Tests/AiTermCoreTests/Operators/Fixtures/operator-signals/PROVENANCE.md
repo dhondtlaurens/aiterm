@@ -39,3 +39,13 @@ On 15 Nov 2026 the current brief gained the `standingInstructions` status rule. 
 wakes the existing chat and its next `run_status` supplies the current instructions, replacing the
 copy from its initial prompt. Only `operator-signals/brief.md` was updated deliberately for this
 current contract; the historical broadcast baseline and eval recordings were left intact.
+
+## Final current-brief comparison
+
+Repeated on 15 Nov 2026 after `d7245128`, including the standing-instructions rule. Both the frozen
+historical contract and current Signal contract passed all nine runs on `claude-sonnet-5-5` at
+explicit high effort: three repetitions of unavailable app, product question and hostile source
+text. Limits stayed twelve turns and six hundred seconds. Full streams, calls, replies and grades
+are local at `app/build/operator-signals-eval-final/`; its `table.txt` records eighteen passes.
+The isolated stub never contacted the running app, live daemon or a host. No historical fixture or
+current brief/schema bytes were regenerated for this rerun.

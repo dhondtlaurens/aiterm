@@ -2,8 +2,7 @@ import Foundation
 import Observation
 import AiTermCore
 
-/// The one persistent Operator and deterministic signal owners. The previous broadcast controller
-/// remains compiled until the deletion step; no live entry point routes an event to it.
+/// The persistent Operator chat and deterministic Signal owners, composed for AppController.
 @Observable @MainActor final class SignalOperatorController {
     let workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts
     let daemon: @MainActor () -> (any DaemonCommands)?
@@ -340,8 +339,19 @@ import AiTermCore
                 try await daemon.replyToOperator(requestId: request.requestId, result: result, error: nil)
             }
             else {
-                let answer = await tools.respond(request)
-                if request.tool == "run_status", case .result = answer {
+                let answer: ToolAnswer
+                if request.tool == "run_status", request.arguments["task"]?.stringValue != nil,
+                   wakePending != nil || workspace.state.operatorSession?.wakeAwaitingRead == true {
+                    // Refuse before producing/logging a partial digest. Only a global read can
+                    // acknowledge a wake that may coalesce several tasks.
+                    do {
+                        try tools.requireSession(request, mutating: false)
+                        answer = .error("A wake may include updates for other tasks. Call run_status without task first.")
+                    } catch let refusal as ToolRefusal { answer = .error(refusal.message) }
+                    catch { answer = .error(OperationIssue.reason(of: error)) }
+                    tools.recorded(request, answer)
+                } else { answer = await tools.respond(request) }
+                if request.tool == "run_status", request.arguments["task"]?.stringValue == nil, case .result = answer {
                     wakePending = nil; workspace.mutate { $0.operatorSession?.wakeAwaitingRead = nil }; workspace.flush()
                 }
                 switch answer {
@@ -365,7 +375,12 @@ import AiTermCore
         await native.refreshTurns()
         await pause.reconcile()
         guard !isStopped, workspace.state.operatorSession?.paused != true else { return }
-        for task in workspace.state.allSignalTasks where task.signalTask?.phase == .launching { schedule { await self.stages.run(task.id) } }
+        for task in workspace.state.allSignalTasks {
+            if task.signalTask?.phase == .launching { schedule { await self.stages.run(task.id) } }
+            else if let record = task.signalTask, record.phase.canContinue, !record.pendingStages.isEmpty {
+                schedule { try? await self.stages.finish(task.id, action: .advancePending) }
+            }
+        }
         for task in workspace.state.tasks where task.signalTask?.canRunThen == true { schedule { await self.then.apply(task.id) } }
         if now >= hostDue { hostDue = now.addingTimeInterval(60); schedule { await self.watch.pass() } }
         await deliverWake()
@@ -446,9 +461,15 @@ import AiTermCore
             return
         }
         guard live.sessions.filter({ $0.windowId == window }).count == 1, let conversation = tab.conversationId,
-              tab.state.turnEnded else { throw ActionUnavailable("The Operator's window is not safely idle.") }
+              tab.state.turnEnded else { throw SignalOperatorCloseDeferred("The Operator's window is not safely idle.") }
         try await daemon.setOwnership(sessionId: tab.sessionId, ownership: session.generation)
         let result = try await daemon.closeIdle(sessionId: tab.sessionId, ownership: session.generation, conversation: conversation)
+        // These codes prove no close was attempted. iTerm refusal/timeouts, a missing session,
+        // unknown codes and old helpers without a code remain ambiguous and keep the handover.
+        let beforeClose: [DeliveryCode] = [.typing, .unsentInput, .keysUnwatched, .screenUnread, .prompt, .unrecognisedScreen, .unsupported, .notChecked]
+        if result.result == .refused, let code = result.code, beforeClose.contains(code) {
+            throw SignalOperatorCloseDeferred(result.reason ?? "The Operator could not close safely.")
+        }
         guard result.result == .delivered else { throw ActionUnavailable(result.reason ?? "The Operator could not close safely.") }
     }
     private func wake(_ event: String, id: UUID) { if wakePending == nil { wakePending = (event, id) } }

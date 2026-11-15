@@ -10,8 +10,10 @@ public enum MatchDecision: Equatable, Sendable {
         let enabled = signals.filter(\.isRunnable).sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
         let ranks = Dictionary(uniqueKeysWithValues: enabled.enumerated().map { ($0.element.id, $0.offset) })
         let ordered = matches.filter { match in
-            ranks[match.signal] != nil && match.item.identity != nil && !seen.contains {
-                $0.signal == match.signal && $0.item.identity == match.item.identity && $0.disposition == .started && $0.isMatching
+            ranks[match.signal] != nil && match.item.identity != nil && !seen.contains { prior in
+                guard prior.signal == match.signal && prior.item.identity == match.item.identity else { return false }
+                if case .unknown = prior.disposition { return true }
+                return prior.disposition == .started && prior.isMatching
             }
         }.sorted { ranks[$0.signal, default: .max] < ranks[$1.signal, default: .max] }
         var decisions: [Self] = [], started: [String: Int] = [:], handled = Set<String>()

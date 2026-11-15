@@ -24,8 +24,13 @@ public enum SignalTransitions {
             }
             next.phase = .working; next.operatorJudged = nil; next.thenApplied = nil; next.blockedReason = nil
         case .matched(let stage):
-            if task.phase.canContinue && !workerIsWorking { continueStage(stage) }
-            else if !next.pendingStages.contains(where: { $0.signal == stage.signal }) { next.pendingStages.append(stage) }
+            if task.phase.canContinue && !workerIsWorking {
+                if next.pendingStages.isEmpty { continueStage(stage) }
+                else {
+                    if !next.pendingStages.contains(where: { $0.signal == stage.signal }) { next.pendingStages.append(stage) }
+                    startPending()
+                }
+            } else if !next.pendingStages.contains(where: { $0.signal == stage.signal }) { next.pendingStages.append(stage) }
         case .watch(let condition):
             guard task.phase == .working, !workerIsWorking else { throw SignalTransitionError.workerIsWorking }
             next.phase = .watching(condition); startPending()

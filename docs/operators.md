@@ -42,7 +42,10 @@ to a host or ticket when an item is picked up.
 
 A ticket key, merge request or matching branch identifies existing work. A later signal continues
 that task with the same branch, worktree and conversation, moving its row under the new signal.
-An archived task restores before continuing.
+An archived task restores before continuing. This includes a task you made by hand: once its
+worker ends its turn, the signal resumes its conversation with the new stage prompt. Unsent input,
+background work and permission prompts hold that launch; it does not interrupt a turn. Use Take
+Over to keep a task under your control.
 
 Only one stage launches or works at once. Matches arriving during that stage wait, one per signal,
 in arrival order. They start after the current work ends and never during a worker's turn.
@@ -112,7 +115,9 @@ read the badges. Reduce Motion uses a plain swap. There is no extra status line 
 AiTerm keeps task journals, stages, questions, pending replies and source failures locally. The
 Operator reads status rather than relying on chat memory. When idle, after about 150,000 current
 context tokens or a day, it starts a fresh chat with current status and recent journal entries.
-It waits for active tools, wakes and Oracle jobs; the old window closes before its token is revoked.
+It waits for active tools, wakes and Oracle jobs; a refused close leaves the current chat and its
+tools usable, and the old window closes before its token is revoked. A wake can combine updates
+for several tasks, so read status without a task first before narrowing it.
 Reopening a worker resumes its saved conversation without repeating its stage prompt. Uncertain
 launches and deliveries require inspection rather than a blind duplicate.
 

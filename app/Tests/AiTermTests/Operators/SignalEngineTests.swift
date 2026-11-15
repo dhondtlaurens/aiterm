@@ -5,6 +5,25 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite struct SignalEngineTests {
+    @Test(arguments: [false, true]) func theOldestQueuedStageChoosesItsOwnAgentWhenANewMatchArrives(incomingHasSeveralAgents: Bool) throws {
+        let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        var world = SignalWorld(); let original = world.signal(), id = world.workingTask(signal: original)
+        let first = world.signal(agents: [SignalWorld.agent])
+        let latest = world.signal(agents: incomingHasSeveralAgents ? [codex, SignalWorld.agent] : [codex])
+        world.state.updateSignalTask(id) { $0.phase = .watching(.approved) }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var busy = true
+        let router = ItemRouter(workspace: h.workspace, now: { world.now }, workerIsWorking: { _ in busy })
+        let read = SignalRead(items: [world.ticket()], complete: true)
+        _ = router.apply(signals: [first], read: read)
+        busy = false
+        let launches = router.apply(signals: [latest], read: read)
+        let task = try #require(h.workspace.state.task(id: id))
+        #expect(task.signalTask?.signal == first && task.signalTask?.phase == .launching)
+        #expect(task.agent == SignalWorld.agent.agent && task.model == SignalWorld.agent.model && task.reasoning == SignalWorld.agent.reasoning)
+        #expect(task.signalTask?.pendingStages.map(\.signal) == [latest])
+        #expect(launches == [id])
+    }
     @Test func differentQueriesInOnePassGiveTheSharedItemToTheOldestSignal() throws {
         var world = SignalWorld()
         let oldest = world.signal(age: -10), newer = world.signal(age: 10)

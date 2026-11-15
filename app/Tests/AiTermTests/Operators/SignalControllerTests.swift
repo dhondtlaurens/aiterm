@@ -5,6 +5,50 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalControllerTests {
+    @Test(arguments: [TaskPhase.done, .archived, .watching(.operatorJudges)])
+    func aQueuedStageStartsAfterACompanionsTurnEndsWithoutAnotherMatch(phase: TaskPhase) async throws {
+        var world = SignalWorld(); let original = world.signal(), id = world.workingTask(signal: original)
+        let next = world.signal()
+        world.state.updateSignalTask(id) { $0.phase = phase; $0.thenApplied = true }
+        if phase == .archived { world.state.moveToArchive(taskId: id, branch: "feat/pay-1", at: world.now) }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        var companion = OperatorServiceFixtures.session("companion", tag: id, state: .working, conversation: "companion")
+        companion.agent = .codex; companion.tabIndex = 1
+        live.sessions = [OperatorServiceFixtures.session("primary", tag: id, state: .done, conversation: "primary"), companion]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        var launches = 0
+        root.stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: root.native.busy, prepare: { task, _ in task },
+            launch: { _, _ in launches += 1; return "worker" }, restore: { $0 }))
+        root.tabsKnown = true; root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
+        _ = root.router.apply(signals: [next], read: SignalRead(items: [world.ticket()], complete: true))
+        await root.reconcile(); await ports.work.settled()
+        #expect(launches == 0 && h.workspace.state.signalItem(id: id)?.signalTask?.pendingStages.count == 1)
+        live.sessions[1].state = .done
+        await root.reconcile(); await ports.work.settled()
+        #expect(launches == 1)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.signal == next)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.pendingStages.isEmpty == true)
+        await root.reconcile(); await ports.work.settled()
+        #expect(launches == 1)
+        root.stop()
+    }
+    @Test func unsupportedPersistedSettingsCannotBeCreatedThroughTheSignalSaveBoundary() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        var invalid = world.state.signals[0]
+        invalid.source = .gitHub(RequestConditions(event: .reviewRequested))
+        invalid.finish = SignalFinish(doneWhen: .approved, mergesWhenReady: true)
+        await #expect(throws: ActionUnavailable.self) { try await root.save(invalid) }
+        #expect(h.workspace.state.signals == world.state.signals)
+    }
     @Test func aPausedWorkerThatFailedIsNotSentCarryOnOrLeftBusyForever() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.operatorSession?.pausedWorkers = [PausedWorker(task: id, tab: "main", ownership: 0)]

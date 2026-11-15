@@ -43,8 +43,8 @@ Swift is written.
 
 ## Architecture and verification references
 
-- `docs/architecture.md` maps decision/effect ownership; `docs/operators.md` describes the current
-  structured broadcast workflow. Preserve the frozen current Operator contracts during refactors.
+- `docs/architecture.md` maps decision/effect ownership; `docs/operators.md` describes Signals and the one
+  Operator chat. Preserve the current Signal contracts and historical eval baselines during refactors.
 - `docs/testing.md` defines meaningful coverage, isolation and fixture ownership. Do not regenerate
   contract goldens to accommodate an incidental refactor.
 - Debug snapshot entry precedes live controller construction. `scripts/run-dev.sh` is a deliberate

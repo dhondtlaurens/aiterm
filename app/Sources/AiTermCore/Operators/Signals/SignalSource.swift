@@ -34,5 +34,11 @@ public enum SignalSource: Codable, Equatable, Sendable {
 }
 
 public extension SignalSource {
-    var isSupported: Bool { if case .unknown = self { false } else { true } }
+    var isSupported: Bool {
+        switch self {
+        case .jira: true
+        case .gitLab(let value), .gitHub(let value): value.event == .reviewRequested || value.event == .myRequest
+        case .unknown: false
+        }
+    }
 }

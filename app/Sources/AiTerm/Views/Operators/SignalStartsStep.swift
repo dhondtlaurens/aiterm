@@ -87,7 +87,7 @@ struct SignalMatchPreview: View {
                     }.padding(Space.inset).frame(maxWidth: .infinity, alignment: .leading).fieldBox()
                 }
                 HelpText(count == 0 ? "No items start now. The signal watches for future matches."
-                         : "These start at once. Existing tasks carry on; items without a project are skipped.")
+                         : "Existing tasks, including ones you made, continue with this prompt after their turn.")
             }
         }
     }

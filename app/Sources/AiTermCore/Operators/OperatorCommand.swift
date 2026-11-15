@@ -21,7 +21,7 @@ public enum OperatorCommand {
     /// changes; `AskUserQuestion` is not a Bash tool and is left out, as the Operator has `ask_you`),
     /// plus the changes to a checkout that only a worker's task makes: commits, hard resets, branch
     /// switches and cleans, also through `git -C` and `git -c`, and the other changes to a request on
-    /// the host: closing, editing, reviewing, approving and commenting. Pushes stay with `finish_task`.
+    /// the host: closing, editing, reviewing, approving and commenting. Skills' workers publish their own branches.
     /// The gate refuses the same from the parsed words (`ShellGate.hardDenial`); these are Claude's
     /// backstop, for a command that reaches no gate because AiTerm isn't there.
     public static let shellDenials = ["Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] + [
@@ -31,9 +31,6 @@ public enum OperatorCommand {
         "Bash(gh pr close:*)", "Bash(gh pr reopen:*)", "Bash(gh pr edit:*)", "Bash(gh pr review:*)", "Bash(gh pr comment:*)",
         "Bash(glab mr close:*)", "Bash(glab mr reopen:*)", "Bash(glab mr approve:*)", "Bash(glab mr note:*)", "Bash(glab mr rebase:*)",
     ]
-
-    /// `operators/runs/<run-id>/` in AiTerm's support folder: outside every worktree.
-
 
     /// The command's words, unquoted. Model and effort go as the Claude harness passes them
     /// (`--model`, `--effort`); `resuming` is the conversation `claude --resume` continues (§9).
@@ -115,12 +112,7 @@ public enum OperatorCommand {
 
     /// Writes the run folder — `brief.md`, `mcp.json`, `gate.json` and `token`, the three holding the token
     /// readable by you alone (0600, in a 0700 folder) — and returns the command to run in it.
-    /// A fresh launch also writes the broadcast as `first-message.md`, the operator's first message:
-    /// `firstMessage` when given (`freshStartMessage`), else `firstMessage(for:)`; `resuming` a
-    /// conversation sends none. A command too long to type goes to `launch.sh` (`typed`).
-
-
-    /// Each broadcast runs in a new directory AiTerm created, outside the person's repositories.
+    /// The single Operator uses a private folder outside the person's repositories.
     /// Record trust for that exact folder before Claude opens, without changing tool permissions.
     /// Claude's global-state writer uses a `.lock` directory around its read/merge/atomic write.
     /// Join that lock briefly; never take it from another writer or replace unreadable state.
@@ -151,7 +143,7 @@ public enum OperatorCommand {
             guard code == EEXIST else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        guard acquired else { throw file.refusal("is busy in another Claude session. Try starting the broadcast again") }
+        guard acquired else { throw file.refusal("is busy in another Claude session. Try opening the Operator again") }
         defer { rmdir(lock.path) }
 
         // Re-read under the lock: another session may have saved since the fast-path read.
@@ -188,16 +180,6 @@ public enum OperatorCommand {
         try writePrivate(Data(line.utf8), to: file)
         return "eval \"$(command cat \(launchFile))\""
     }
-
-    /// The first message has a fixed header so a prompt starting with a bullet is not read as a CLI option.
-    /// Append the per-task review and optional broadcast goal.
-
-
-    /// A new Operator session for a broadcast under way (Start Fresh, or a reopening with no conversation
-    /// to resume): the broadcast as `firstMessage(for:)` says it, then where it stands as `run_status`
-    /// shows it (`status`, its JSON) and the decisions logged so far, so it picks the work up rather
-    /// than plans it again.
-
 
     /// `text` trimmed, or nil when nothing is said: the one rule for what a person typed.
     public static func said(_ text: String?) -> String? {

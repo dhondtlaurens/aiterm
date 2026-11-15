@@ -11,6 +11,7 @@ import AiTermCore
     private(set) var inFlight: Set<UUID> = []
     private(set) var replies: [UUID: [String: WorkerTranscript.Reply]] = [:]
     private var reading = false
+    private var awaitingLiveWork: Set<UUID> = []
     var enabled: @MainActor () -> Bool = { true }
     var additionalContext: @MainActor (TaskItem) async throws -> String = { _ in "" }
     var recoveryAllowed: @MainActor (UUID) -> Bool = { _ in true }
@@ -24,8 +25,21 @@ import AiTermCore
     }
     func busy(_ id: UUID) -> Bool {
         guard let task = workspace.state.signalItem(id: id) else { return false }
-        let tabs = task.workerTabs(in: live.sessions, now: ports.now())
-        return workspace.state.operatorSession?.questions.contains { $0.task == id && $0.resolvedAt == nil } == true
+        // StageRunner saves its intent before prepare/launch. Only a sent launch can be
+        // waiting for its first hook; treating the intent as live work would prevent that RPC.
+        let launchNotSent = task.signalTask.map {
+            $0.phase == .launching && $0.launch?.openedAt == nil && $0.pendingReplies?["main"] == nil
+        } ?? false
+        let tabs = task.workerTabs(in: live.sessions, now: ports.now()).map {
+            launchNotSent && $0.key == nil ? $0.asListed : $0
+        }
+        // A person's additional tab need not have an Operator tab key. It still owns live work
+        // in this task, and must finish before a signal starts, merges or cleans up a stage.
+        let anyLiveWork = live.sessions.contains { session in
+            session.taskUUID == id && isLiveWork(session)
+        }
+        if anyLiveWork { awaitingLiveWork.insert(id) }
+        return anyLiveWork || workspace.state.operatorSession?.questions.contains { $0.task == id && $0.resolvedAt == nil } == true
             || workspace.state.operatorSession?.pausedWorkers?.contains { $0.task == id } == true
             || inFlight.contains(id) || (task.signalTask?.phase.isActive == true && !(task.signalTask?.pendingReplies?.isEmpty ?? true))
             || tabs.contains { (task.signalTask?.phase.isActive == true || $0.session?.agent.agentKind != nil) && ($0.isStillAtWork || $0.status == .needsInput) }
@@ -35,6 +49,10 @@ import AiTermCore
                     WorkerTurn.ending(lastMessage: $0.text, commitsAhead: nil) == .asks
                 } == true
             })
+    }
+    private func isLiveWork(_ session: SessionInfo) -> Bool {
+        session.state == .working || session.state == .needsInput
+            || !session.background.isEmpty || session.testActivity?.isActive == true
     }
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard !inFlight.contains(id), workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
@@ -80,6 +98,13 @@ import AiTermCore
     func refreshTurns() async {
         guard !reading else { return }; reading = true; defer { reading = false }
         let tasks = workspace.state.tasks.filter { $0.signalTask?.needsWorkerReads == true }
+        let ids = Set(tasks.map(\.id))
+        let liveWork = Set(live.sessions.filter(isLiveWork).compactMap(\.taskUUID))
+        // Include work observed by a refused action between ticks. Unkeyed companion tabs do
+        // not have transcripts owned by the Operator, but ending their work must release its wait.
+        let ended = awaitingLiveWork.intersection(ids).subtracting(liveWork)
+        awaitingLiveWork = awaitingLiveWork.union(liveWork).intersection(ids).subtracting(ended)
+        for id in ended { onTurn(id) }
         for task in tasks {
             guard let claim = SignalClaim(task) else { continue }
             let workers = task.workerTabs(in: live.sessions)
@@ -137,7 +162,7 @@ import AiTermCore
                 }
             }
         }
-        let ids = Set(tasks.map(\.id)); replies = replies.filter { ids.contains($0.key) }
+        replies = replies.filter { ids.contains($0.key) }
     }
     private func require(_ task: TaskItem) throws -> SignalClaim {
         guard enabled(), workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,

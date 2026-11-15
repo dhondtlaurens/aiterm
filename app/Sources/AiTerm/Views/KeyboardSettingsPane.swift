@@ -61,16 +61,15 @@ enum KeyBindings {
         ]),
         KeyBindingGroup(title: "Sidebar", help: "While the list has the keyboard.", bindings: [
             KeyBinding(action: "Peek at a row’s window", keys: ["↑", "↓"]),
-            KeyBinding(action: "Go to the row’s window, fold or open a project or the broadcast’s group, or open an empty project’s menu", keys: ["↩"]),
+            KeyBinding(action: "Go to the row’s window, fold or open a project or signal, or open an empty project’s menu", keys: ["↩"]),
             KeyBinding(action: "Remove the task, review or terminal", keys: ["⌘", "⌫"]),
         ]),
-        KeyBindingGroup(title: "Sheets", help: "New Task, New Review, New Terminal, Add Project, Edit Project, Add Divider, Rename, Archive, Settings, New Broadcast and a broadcast’s board.", bindings: [
-            KeyBinding(action: "Go to a completed creation step", keys: ["⌘", "1–5"]),
+        KeyBindingGroup(title: "Sheets", help: "New Task, New Review, New Terminal, Add Project, Edit Project, Add Divider, Rename, Archive, Settings and New Signal.", bindings: [
+            KeyBinding(action: "Go to a completed creation step", keys: ["⌘", "1–4"]),
             KeyBinding(action: "Continue, create or save", keys: ["⌘", "↩"]),
             KeyBinding(action: "Back a step, or close", keys: ["⎋"]),
             // One row for the four: the tabs are numbered in the order the tab bar draws them.
             KeyBinding(action: "Switch Settings tabs", keys: ["⌘", "1–4"]),
-            KeyBinding(action: "Switch the broadcast’s board tabs", keys: ["⌘", "1–3"]),
             KeyBinding(action: "Remove the selected Archive item", keys: ["⌘", "⌫"]),
         ]),
         KeyBindingGroup(title: "Lists and the prompt", help: "A picker’s results, and the prompt’s completions.", bindings: [

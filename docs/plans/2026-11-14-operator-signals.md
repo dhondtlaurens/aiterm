@@ -1,7 +1,6 @@
 # The Operator, first class: signals that start and steer tasks
 
-Status: planned 2026-11-14 on `feat/operator-refactor`, to be implemented by any agent (written to
-be read cold, Codex included). Research it adopts: `docs/research/2026-11-14-operator-signals.md`
+Status: implemented 2026-11-15 on `feat/operator-refactor`, one commit per to-do. Research it adopts: `docs/research/2026-11-14-operator-signals.md`
 (the code probe with file and line references, the reuse count, and how other tools handle a
 long-lived supervisor and event triggers); `docs/research/` stays local by the repository's
 `.gitignore`, so it is in this worktree only. Challenged by Codex in three rounds on 14 Nov 2026;
@@ -171,7 +170,8 @@ new feature needs is existing code (see **Reuse**).
   `AgentDelivery`, `ModelChoice`, `OperatedBranch`, `TaskKeyReference`, `OperatorTiming`,
   `ActivityLog` (kept as the on-disk record; no view).
 - **Source-aware finish**: `SignalFinish` is validated against its source (no merge on a review
-  signal; merge-when-ready not offered with "merged" as done-when; each source's done-when cases), so an impossible combination cannot be saved; the
+  signal; merge-when-ready not offered with "merged" as done-when; each source's done-when cases), so creation/editing cannot accept an impossible combination; persistence still round-trips
+  unsupported saved records inertly when opened by an older build. The
   sheet derives what it shows from the same rule. "My review is posted" reads the host's reviews,
   notes and approvals by the account's user since the stage started.
 - **Sources in `AiTermCore/Signals/Sources/`**: `SignalSourceReader` (poll → items, whether the read
@@ -450,7 +450,7 @@ Each step leaves the package building and the gate green.
 - [x] Docs, the README inventory, the design page synced with the proposal removed (the
       `design-system` skill's loop; publishing the page to its artifact is the maintainer's step and
       is not needed to finish).
-- [ ] Gate, review, one commit per step, `scripts/test.sh all`; stop before the merge.
+- [x] Gate, review, one commit per step, `scripts/test.sh all`; stop before the merge.
 
 ## Spike findings · 14 Nov 2026
 
@@ -820,3 +820,49 @@ was synchronized without publishing the external artifact. No live app was repla
 Plain `scripts/test.sh` passed after synchronization: 1,598 daemon (1 skipped), 123 UI,
 1,040 app (1 known issue), 1,683 Core (3 known issues), and the snapshot suite. The protocol guide
 also documents required generations, fixed event/UUID wakes and safe idle-conversation closure.
+
+### Final review and release proof · 15 Nov 2026
+
+All sixteen to-dos are implemented, one commit per step. New logic was exercised red before its
+fix, including native launch, continuation, worker answers, publishing and fresh-session boundaries.
+The research and the named design frames were read before implementation; the creation-sheet picks
+take precedence over the older sidebar frames.
+
+The independent Claude review finished with no findings. Its findings were checked and settled:
+
+- Round one: unsupported saved enum values now round-trip without making the workspace unsavable
+  or runnable; current copy and the unplugged-power guard use Signals. The request to exclude
+  manually created matching tasks was pushed back against decision 3: they intentionally continue,
+  after their current turn. The creation preview and guide now make that behavior explicit.
+- Round two: scoped status cannot acknowledge coalesced updates for other tasks. A definite idle
+  close refusal restores the current chat; uncertain close outcomes retain the durable handover.
+  A reproduced FIFO case also now prevents a new match overtaking queued stages.
+- Round three: a queued stage uses its own permitted agent; only explicit pre-close refusal codes
+  restore a closing chat; refused scoped status is logged with its actual error. Round four
+  accepted those corrections without findings.
+- Round five: queued stages in watching, completed and archived tasks are retried when all workers
+  become idle, without requiring another match. Work observed during a refused finish wakes the
+  Operator once it ends, including unkeyed companion tabs and a refusal between reconciliation
+  ticks. Round six accepted both corrections without findings.
+- Round seven accepted the final native launch correction without findings: saving an unsent
+  launch intent must allow its first RPC, while a sent launch still waits for its first hook.
+  Existing live work, questions, pause, authority and recovery guards remain in force.
+
+No Critical, Important or listed Minor finding remains open. The final focused native/controller
+run passed all 22 tests. The plain project gate passed 1,598 daemon tests (one skipped), 123 UI,
+1,050 app (one existing known issue), 1,686 Core (three existing known issues), and the snapshot
+suite. The signed `build/AiTerm.app` passed resource, dependency and signature verification without
+launching it. Native creation, sidebar and Settings renders were inspected, and the synchronized
+HTML's three tabs and embedded images were checked in isolated headless Chrome.
+
+Both the frozen historical contract and current Signal brief passed all nine isolated runs on
+`claude-sonnet-5-5` at explicit high effort: three each of unavailable app, product question and
+hostile source text (eighteen passes). Each run was capped at twelve turns and six hundred seconds.
+`app/build/operator-signals-eval-final/table.txt` and its local streams/calls/replies/grades retain
+the evidence; fixture provenance records the comparison. No historical fixture was regenerated.
+
+The final step's commit is followed by plain `scripts/test.sh all` on its clean HEAD, with no
+`SWIFT`, `PYTEST` or `AITERM_TEST_PATHS` override. The gate history owns that exact-HEAD release
+proof, so this record does not require a further commit after it. The installed app and running
+sessions were left undisturbed. The real Jira-to-MR flow still requires the maintainer's go for a
+live switch, as agreed; no merge, push, PR or external design-page publication was performed.

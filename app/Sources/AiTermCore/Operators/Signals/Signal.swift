@@ -19,11 +19,7 @@ public struct Signal: Codable, Equatable, Identifiable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case id, name, createdAt, enabled, collapsed, source, work, agents, finish }
     public func encode(to encoder: Encoder) throws {
-        let futureFinish: Bool
-        if case .unknown = finish.doneWhen { futureFinish = true } else { futureFinish = false }
-        if source.isSupported && !futureFinish && !finish.isValid(for: source) {
-            throw EncodingError.invalidValue(finish, .init(codingPath: encoder.codingPath, debugDescription: "Done does not apply to this signal's source."))
-        }
+        // Persistence preserves unsupported records. Creation and effect boundaries validate them.
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encode(name, forKey: .name); try c.encode(createdAt, forKey: .createdAt)
         try c.encode(enabled, forKey: .enabled); try c.encode(collapsed, forKey: .collapsed); try c.encode(source, forKey: .source)

@@ -23,6 +23,17 @@ import Testing
         if case .continueTask = unrelated.first { Issue.record("A matching key on another Jira site is another item.") }
     }
 
+    @Test func anIdleMatchCannotJumpAheadOfStagesQueuedWhileTheWorkerWasBusy() throws {
+        let original = signal(), first = signal("First"), second = signal("Second"), latest = signal("Latest")
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        var task = SignalTask(signal: original.id, item: item, startedAt: now); task.phase = .watching(.approved)
+        for next in [first, second] {
+            task = try SignalTransitions.apply(.matched(SignalStage(signal: next.id, item: item, matchedAt: now)), to: task, at: now, workerIsWorking: true)
+        }
+        task = try SignalTransitions.apply(.matched(SignalStage(signal: latest.id, item: item, matchedAt: now)), to: task, at: now)
+        #expect(task.signal == first.id && task.phase == .launching)
+        #expect(task.pendingStages.map(\.signal) == [second.id, latest.id])
+    }
     @Test func jqlQuotesAllChipsAndManualQueryWins() {
         let conditions = JiraConditions(labels: ["agent\"ready", "back\\log"], inOpenSprints: true,
                                         assignee: "me", statuses: ["In Progress"], projects: ["PAY"])
@@ -172,9 +183,10 @@ import Testing
         #expect(ItemRef.ticket(site: "https://jira.example:8443", key: "PAY-1").identity != ItemRef.ticket(site: "https://jira.example", key: "PAY-1").identity)
     }
 
-    @Test func invalidFinishCannotBeSavedAndUnknownRecordsStayInert() throws {
+    @Test func unsupportedFinishAndUnknownRecordsStayInertAndCanBePersisted() throws {
         var s = signal(); s.finish = SignalFinish(doneWhen: .myReviewPosted)
-        #expect(throws: (any Error).self) { try JSONEncoder().encode(s) }
+        #expect(!s.isRunnable)
+        #expect(try JSONValue(encoding: s).decode(Signal.self) == s)
         s.finish = SignalFinish(doneWhen: .unknown(["kind": "future"]))
         #expect(!s.isRunnable)
         #expect(try JSONValue(encoding: s).decode(Signal.self) == s)

@@ -87,6 +87,7 @@ import AiTermCore
                                                                       workerIsWorking: workerIsWorking(id)) else { continue }
                         record = next
                     }
+                    let startingConfiguration = record.configuration ?? state.signal(id: record.signal)
                     state.updateSignalItem(id) { task in
                         task.signalTask = record
                         if let item = stage.item.identity.flatMap({ items[$0] }) {
@@ -94,7 +95,7 @@ import AiTermCore
                             if task.jira == nil { task.jira = item.ticket.map(JiraRef.init) }
                         }
                         if record.phase == .launching {
-                            if signal.agents.count == 1, let choice = signal.agents.first {
+                            if let configuration = startingConfiguration, configuration.agents.count == 1, let choice = configuration.agents.first {
                                 task.agent = choice.agent; task.model = choice.model; task.reasoning = choice.reasoning
                             } else {
                                 task.signalTask?.phase = .blocked

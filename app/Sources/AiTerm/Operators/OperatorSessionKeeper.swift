@@ -1,6 +1,13 @@
 import Foundation
 import AiTermCore
 
+/// A definite refusal means the old chat is still open. A transport failure remains uncertain.
+struct SignalOperatorCloseDeferred: Error, LocalizedError {
+    let reason: String
+    init(_ reason: String) { self.reason = reason }
+    var errorDescription: String? { reason }
+}
+
 /// One Operator, with a persisted close → revoke → open handover. Retrying an opening uses the
 /// same session generation; its I/O port adopts the window and token already prepared for it.
 @MainActor @Observable final class OperatorSessionKeeper {
@@ -42,7 +49,15 @@ import AiTermCore
                 guard workspace.flush() else { return }
             }
             if session.handover == .closing {
-                if let window = session.window { try await ports.close(window) }
+                do { if let window = session.window { try await ports.close(window) } }
+                catch is SignalOperatorCloseDeferred {
+                    guard holds(session, pass: key, allowPaused: allowPaused),
+                          workspace.state.operatorSession?.handover == .closing,
+                          workspace.state.operatorSession?.window == session.window else { return }
+                    workspace.mutate { $0.operatorSession?.startingFresh = false; $0.operatorSession?.handover = nil }
+                    workspace.flush(); lastError = nil
+                    return
+                }
                 guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                 workspace.mutate { $0.operatorSession?.window = nil; $0.operatorSession?.handover = .revoking }
                 guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current

@@ -72,7 +72,7 @@ enum BackpackSheetPresentation {
 
     /// The card's help, under its rule.
     static func safeHelp(hotspot: String, until: BackpackUntil) -> String {
-        let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents are done and no broadcast is active"
+        let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents are done and the Operator has no work left"
         return "On \(hotspot). Unplugged \(ends), or at \(BackpackSettings.cutoff) % battery."
     }
 
@@ -115,7 +115,7 @@ final class BackpackSheetModel: Identifiable {
     /// The field's text: the remembered hotspot's saved password, filled in as if typed, or what the
     /// person types. Empty sends none, and the saved one is used.
     var password = ""
-    /// A broadcast can keep working across quiet agent turns. While one is active, Never is the
+    /// Signals can schedule work between agent turns. While they can, Never is the
     /// only available choice, including if it starts after this sheet was opened.
     private var selectedUntil: BackpackUntil = .turnedOff
     var until: BackpackUntil {
@@ -124,11 +124,11 @@ final class BackpackSheetModel: Identifiable {
     }
 
     func canSelectUntil(_ until: BackpackUntil) -> Bool {
-        until != .agentsStop || !backpack.broadcastRunning
+        until != .agentsStop || !backpack.operatorCanStartWork
     }
 
     func untilDetail(_ until: BackpackUntil) -> String? {
-        canSelectUntil(until) ? nil : "Unavailable while a broadcast is active."
+        canSelectUntil(until) ? nil : "Pause the Operator before choosing this option."
     }
     /// The Keychain's password, read once: it belongs to the remembered hotspot only.
     private var saved: String?
