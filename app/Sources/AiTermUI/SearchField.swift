@@ -8,10 +8,14 @@ public struct SearchField: NSViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
     let onCommand: (Selector) -> Bool
+    /// A click on the field while it is not being edited: unlike focus, which the window also gives
+    /// the first field of a sheet that has just appeared, only the person clicks.
+    let onClick: (() -> Void)?
 
     public init(placeholder: String, text: Binding<String>, focused: Binding<Bool>,
-                onCommand: @escaping (Selector) -> Bool) {
+                onCommand: @escaping (Selector) -> Bool, onClick: (() -> Void)? = nil) {
         self.placeholder = placeholder; self._text = text; self._focused = focused; self.onCommand = onCommand
+        self.onClick = onClick
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -20,6 +24,7 @@ public struct SearchField: NSViewRepresentable {
         let field = FocusableTextField()
         field.delegate = context.coordinator
         field.onFocus = { [weak coordinator = context.coordinator] in coordinator?.focusBegan() }
+        field.onClick = onClick
         field.wantsFocus = focused
         field.isBezeled = false
         field.drawsBackground = false
@@ -35,6 +40,7 @@ public struct SearchField: NSViewRepresentable {
     public func updateNSView(_ field: FocusableTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.editing.update(field, text: $text, focused: $focused, placeholder: placeholder)
+        field.onClick = onClick
         field.wantsFocus = focused
         field.focusIfNeeded()
     }
@@ -70,6 +76,14 @@ public final class FocusableTextField: NSTextField {
     var wantsFocus = false
     /// Called when the field takes the keyboard, and when it keeps it through the end of an edit.
     var onFocus: (() -> Void)?
+    /// Called on a click that reaches the field itself: one while it is not being edited, since the
+    /// field editor takes the clicks after that.
+    var onClick: (() -> Void)?
+
+    public override func mouseDown(with event: NSEvent) {
+        onClick?()
+        super.mouseDown(with: event)
+    }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

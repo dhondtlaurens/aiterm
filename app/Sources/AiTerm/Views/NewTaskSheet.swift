@@ -2,6 +2,9 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
+/// New Task's three steps: Task, Prompt, Agent. The first holds everything about where the task
+/// comes from and where it lives — an optional ticket, its name, its branch and base — so a new
+/// task opens on its name, not on a ticket search.
 struct NewTaskSheet: View {
     @Bindable var model: TaskCreationModel
     @State private var step = 1
@@ -9,7 +12,7 @@ struct NewTaskSheet: View {
     init(model: TaskCreationModel) { self.model = model }
     var body: some View {
         CreationSheet(model: model, step: $step, title: "New task in \(model.project.name)",
-                      stepNames: ["Ticket", "Name and branch", "Prompt", "Agent"], destination: destination,
+                      stepNames: ["Task", "Prompt", "Agent"], destination: destination,
                       createLabel: "Create Task", canAdvance: Self.canAdvance(step: step, model: model), pickers: [$ticketsOpen]) {
             content
         }
@@ -17,8 +20,7 @@ struct NewTaskSheet: View {
     @ViewBuilder private var content: some View {
         switch step {
         case 1: NewTaskFirstStep(model: model, ticketsOpen: $ticketsOpen)
-        case 2: NewTaskNamingStep(model: model)
-        case 3:
+        case 2:
             PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
                 if model.draft.ticket?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                     DescriptionToggle("Add the ticket’s description", isOn: $model.draft.appendTicket,
@@ -28,9 +30,10 @@ struct NewTaskSheet: View {
         default: AgentStep(model: model)
         }
     }
+    /// Every step needs a name and a branch, which the first step asks for; the agent's step needs
+    /// an agent that can run too.
     static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
         guard !model.creating else { return false }
-        if step == 1 { return true }
         guard TaskCreator.isNamed(model.draft.title), !model.draft.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return step != TaskCreation.steps.agentStep || model.agentIsReady
     }
@@ -48,37 +51,38 @@ extension NewTaskSheet {
 }
 #endif
 
+/// The Task step: the ticket, which fills in the name and branch, then the name, the branch beside
+/// its base, and the worktree's copied files.
 struct NewTaskFirstStep: View {
     @Bindable var model: TaskCreationModel
     @Binding var ticketsOpen: Bool
-    var body: some View {
-        FormField("Ticket (optional)") {
-            TicketPickerField(placeholder: model.ticketPlaceholder,
-                              query: Binding(get: { model.query }, set: { model.setQuery($0) }),
-                              open: $ticketsOpen, items: model.results, selection: model.draft.ticket,
-                              onPick: { model.cancelSearch(); model.draft.apply(ticket: $0) },
-                              onClear: { model.draft.apply(ticket: nil); model.reopenSearch(); ticketsOpen = true })
-            if let error = model.searchError { HelpText(error, tone: .warning) }
-            else { HelpText("A ticket fills in the name and branch. Empty: start without a ticket.") }
-        }
-    }
-}
-
-struct NewTaskNamingStep: View {
-    @Bindable var model: TaskCreationModel
+    /// The base-branch select's column: room for `main`, `develop` or a short release branch in
+    /// monospace, the rest of the row left to the new branch.
+    private static let baseBranchWidth: CGFloat = 190
     var body: some View {
         FrontToBackStack(spacing: Space.block) {
+            FormField("Ticket (optional)") {
+                TicketPickerField(placeholder: model.ticketPlaceholder,
+                                  query: Binding(get: { model.query }, set: { model.setQuery($0) }),
+                                  open: $ticketsOpen, items: model.results, selection: model.draft.ticket,
+                                  onPick: { model.cancelSearch(); model.draft.apply(ticket: $0) },
+                                  onClear: { model.draft.apply(ticket: nil); model.reopenSearch(); ticketsOpen = true })
+                if let error = model.searchError { HelpText(error, tone: .warning) }
+                else if model.draft.ticket == nil { HelpText("A ticket fills in the name and branch.") }
+            }
             FormField("Name") {
                 Input(placeholder: "Describe the task", text: Binding(get: { model.draft.title }, set: { model.draft.setTitle($0) }))
                 HelpText("Its name in the sidebar. The branch follows until you change it.")
             }
-            FormField("Branch") {
-                Input(placeholder: "feat/my-task", text: Binding(get: { model.draft.branch }, set: { model.draft.setFullBranch($0) }), monospaced: true)
-                HelpText("A new branch for the task, in its own worktree.")
-            }
-            FormField("Base branch") {
-                Select(values: choices, selection: $model.draft.baseBranch, label: { $0 }, monospaced: true)
-                HelpText("The branch it starts from.")
+            HStack(alignment: .top, spacing: Space.gap) {
+                FormField("Branch") {
+                    Input(placeholder: "feat/my-task", text: Binding(get: { model.draft.branch }, set: { model.draft.setFullBranch($0) }), monospaced: true)
+                    HelpText("A new branch, in its own worktree.")
+                }
+                FormField("Base branch") {
+                    Select(values: choices, selection: $model.draft.baseBranch, label: { $0 }, monospaced: true)
+                    HelpText("The branch it starts from.")
+                }.frame(width: Self.baseBranchWidth)
             }
             if !model.worktreeIncludes.isEmpty { WorktreeIncludeToggle(files: model.worktreeIncludes, isOn: $model.draft.copiesWorktreeInclude) }
         }

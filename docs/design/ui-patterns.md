@@ -46,8 +46,8 @@ of its current picks.
 
 | Pattern | Decisions in order |
 | --- | --- |
-| `NewTaskSheet` | Ticket → Name and branch → Prompt → Agent. |
-| `NewReviewSheet` | Merge request → Name and branch → Prompt → Agent. |
+| `NewTaskSheet` | Task (ticket, name, branch beside its base) → Prompt → Agent. |
+| `NewReviewSheet` | Review (merge request, ticket, name, branch) → Prompt → Agent. |
 | `SignalSheet` | Signal → Starts when → Prompt → Agents → Done. |
 | `SignalStartsStep`, `SignalConditionPicker` | Jira conditions/JQL or the host event, optional project chips and complete-read preview. |
 | `AgentsStep`, `AgentStep`, `ModelReasoningFields` | Agent/Model/Reasoning as selects; the signal edits a list of permitted rows. |

@@ -49,6 +49,35 @@ import AiTermCore
         #expect(model.draft.ticket?.key == "ML-2")
     }
 
+    /// The Task step's first field is the ticket search, and the window focuses it as the sheet
+    /// appears: focus alone leaves its list closed, so the name and branch under it stay in view
+    /// until the person clicks the field or types.
+    @Test func focusingTheTicketSearchLeavesItsListClosedUntilTyping() throws {
+        let controller = AppController(preferences: .scratch())
+        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,
+                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
+        let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
+        model.results = [JiraTicket(key: "ML-1", summary: "First ticket", description: nil,
+                                    issueType: "Task", status: "To Do", url: "https://example/ML-1")]
+        let host = testHost(NewTaskSheet(model: model).seeded(step: 1), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+
+        let field = try #require(host.descendants(NSTextField.self).first { $0.placeholderString == "Search by key or title" })
+        #expect(host.descendants(NSTextField.self).contains { $0.placeholderString == "Describe the task" }, "the name is on the same step")
+        #expect(window.makeFirstResponder(field))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        let moveDown = { field.delegate?.control?(field, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))) ?? false }
+        #expect(!moveDown(), "focus alone opened the list")
+
+        editor.insertText("ML", replacementRange: NSRange(location: NSNotFound, length: 0))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        #expect(moveDown(), "typing opens it")
+    }
+
     @Test func ticketSearchFieldTakesFocusWhenItsPopupRequestsIt() throws {
         let state = FocusState()
         let host = testHost(TicketFieldHarness(state: state), size: CGSize(width: 500, height: 28))
@@ -85,7 +114,7 @@ import AiTermCore
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
         let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
-        let host = testHost(NewTaskSheet(model: model).seeded(step: 2), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let host = testHost(NewTaskSheet(model: model).seeded(step: 1), size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(hosting: host, styleMask: [])
         defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()

@@ -4,19 +4,21 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The creation frame's steps (`CreationSteps`): New Task and New Review keep their three, with the
-/// agent second, and New Broadcast has five, its Agents list third and no agent step, creating on the fifth.
+/// The creation frame's steps (`CreationSteps`): New Task and New Review keep their three — what and
+/// where from, the prompt, the agent — and New Broadcast has five, its Agents list third and no agent
+/// step, creating on the fifth.
 @MainActor
 struct CreationSheetStepsTests {
-    @Test func taskAndReviewShareFourStepsWithTheAgentLast() {
+    @Test func taskAndReviewShareThreeStepsWithTheAgentLast() {
         #expect(TaskCreation.steps == ReviewCreation.steps)
         let steps = TaskCreation.steps
-        #expect(steps.count == 4 && steps.agentStep == 4)
-        #expect((1...4).map { steps.primaryTitle(onStep: $0, createLabel: "Create Task") } == ["Continue", "Continue", "Continue", "Create Task"])
-        #expect((1...4).map(steps.creates(onStep:)) == [false, false, false, true])
-        #expect((1...4).map(steps.showsDestination(onStep:)) == [false, false, false, true])
-        #expect((1...4).map(steps.showsCommand(onStep:)) == [false, false, false, true])
-        #expect((1...4).map(steps.hasPrompt(onStep:)) == [false, false, true, false])
+        #expect(steps.count == 3 && steps.agentStep == 3)
+        #expect((1...3).map { steps.primaryTitle(onStep: $0, createLabel: "Create Task") } == ["Continue", "Continue", "Create Task"])
+        #expect((1...3).map(steps.secondaryTitle(onStep:)) == ["Cancel", "Back", "Back"])
+        #expect((1...3).map(steps.creates(onStep:)) == [false, false, true])
+        #expect((1...3).map(steps.showsDestination(onStep:)) == [false, false, true])
+        #expect((1...3).map(steps.showsCommand(onStep:)) == [false, false, true])
+        #expect((1...3).map(steps.hasPrompt(onStep:)) == [false, true, false])
     }
 
     @Test func onlyCompletedStepsCanBeClickedOrReachedByTheirNumber() {

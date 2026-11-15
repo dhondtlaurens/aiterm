@@ -2,6 +2,9 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
+/// New Review's three steps: Review, Prompt, Agent. The first holds where the review comes from and
+/// what it checks out — the merge request, the ticket, the name and the branch — on one page, as New
+/// Task's does.
 struct NewReviewSheet: View {
     @Bindable var model: ReviewCreationModel
     @State private var step = 1
@@ -11,7 +14,7 @@ struct NewReviewSheet: View {
     init(model: ReviewCreationModel) { self.model = model }
     var body: some View {
         CreationSheet(model: model, step: $step, title: "New review in \(model.project.name)",
-                      stepNames: ["Merge request", "Name and branch", "Prompt", "Agent"],
+                      stepNames: ["Review", "Prompt", "Agent"],
                       destination: Self.destination(step: step, project: model.project, owner: model.owningTask, slug: model.worktreeSlug, branch: model.draft.branch),
                       createLabel: Self.createLabel(owner: model.owningTask), canAdvance: Self.canAdvance(step: step, model: model),
                       pickers: [$mrOpen, $ticketsOpen, $branchOpen]) { content }
@@ -22,8 +25,7 @@ struct NewReviewSheet: View {
     @ViewBuilder private var content: some View {
         switch step {
         case 1: NewReviewFirstStep(model: model, mrOpen: $mrOpen, branchOpen: $branchOpen, ticketsOpen: $ticketsOpen)
-        case 2: NewReviewNamingStep(model: model, branchOpen: $branchOpen)
-        case 3:
+        case 2:
             PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
                 if model.draft.mr?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                     DescriptionToggle("Add the merge request’s description", isOn: $model.draft.appendRequest,
@@ -37,8 +39,9 @@ struct NewReviewSheet: View {
         default: AgentStep(model: model)
         }
     }
+    /// Every step needs a name and a branch, which the first step asks for: a review derives neither.
     static func canAdvance(step: Int, title: String, branch: String, creating: Bool) -> Bool {
-        !creating && (step == 1 || (TaskCreator.isNamed(title) && !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+        !creating && TaskCreator.isNamed(title) && !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
         canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating)
@@ -62,6 +65,8 @@ extension NewReviewSheet {
 }
 #endif
 
+/// The Review step: the merge request and the ticket, which fill each other and the name and
+/// branch, then the name, the branch to check out, and the worktree's copied files.
 struct NewReviewFirstStep: View {
     @Bindable var model: ReviewCreationModel
     @Binding var mrOpen: Bool
@@ -77,7 +82,7 @@ struct NewReviewFirstStep: View {
                             query: Binding(get: { model.query }, set: { model.setQuery($0) }), selectionLimit: 1)
                 if let error = model.pickRefusal ?? model.searchError { HelpText(error, tone: .warning) }
                 else if let note = model.ticketLookupNote { HelpText(note) }
-                else { HelpText("It fills in the name and branch. Empty: pick a branch on the next step.") }
+                else if model.draft.mr == nil { HelpText("It fills in the name and branch.") }
             }
             FormField("Ticket (optional)") {
                 TicketPickerField(placeholder: model.ticketPlaceholder,
@@ -86,20 +91,10 @@ struct NewReviewFirstStep: View {
                                   onPick: { model.pickTicket($0) },
                                   onClear: { model.clearTicket(); model.reopenTicketSearch(); ticketsOpen = true })
                 if let error = model.ticketSearchError { HelpText(error, tone: .warning) }
-                else { HelpText("A ticket finds its merge request. Empty: continue without a ticket.") }
+                else if model.draft.ticket == nil { HelpText("A ticket finds its merge request.") }
             }
-        }
-    }
-}
-
-struct NewReviewNamingStep: View {
-    @Bindable var model: ReviewCreationModel
-    @Binding var branchOpen: Bool
-    var body: some View {
-        FrontToBackStack(spacing: Space.block) {
             FormField("Name") {
                 Input(placeholder: "Describe the review", text: Binding(get: { model.draft.title }, set: { model.draft.setTitle($0) }))
-                HelpText("Its name in the sidebar.")
             }
             FormField("Branch") {
                 BranchInput(text: Binding(get: { model.draft.branch }, set: { model.draft.setBranch($0); model.branchQuery = $0 }),

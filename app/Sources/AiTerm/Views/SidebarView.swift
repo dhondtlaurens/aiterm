@@ -79,12 +79,13 @@ struct SidebarView: View {
     }
 
     /// The OPERATOR heading and, while a broadcast exists and its section is open, its group, as the list draws
-    /// them above the projects: the Operator's row, the broadcast's lead, then the tasks it holds, the queued ones
+    /// them above the projects: the Operator's row — left out while it has nothing to watch
+    /// (`SignalOperatorRowValue.shown`) — the broadcast's lead, then the tasks it holds, the queued ones
     /// last. The heading is off the arrow path, as a divider is; the rest is on it, the Operator's row with an id of
     /// its own (`OperatorRow.id(of:)`), each task with its own.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SignalOperatorHeading(controller: controller).selectionDisabled()
-        ForEach([rows.signalOperator]) { value in
+        ForEach(rows.signalOperator.shown ? [rows.signalOperator] : []) { value in
             SignalOperatorRow(value: value, controller: controller).tag(value.id)
         }
         ForEach(rows.signalSections) { section in

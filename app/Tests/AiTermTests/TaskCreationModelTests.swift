@@ -94,13 +94,15 @@ struct TaskCreationModelTests {
         #expect(!NewTaskSheet.canAdvance(step: TaskCreation.steps.agentStep!, model: model))
     }
 
-    /// A title of spaces is no name: create refuses it, so the sheet must not carry it through three
-    /// steps first. The rule is the one New Review and `TaskCreator` apply.
-    @Test func aBlankTitleCannotLeaveTheNamingStep() async {
+    /// A title of spaces is no name: create refuses it, so the sheet must not carry it past the Task
+    /// step, which asks for it. The rule is the one New Review and `TaskCreator` apply.
+    @Test func aBlankTitleCannotLeaveTheTaskStep() async {
         let model = fixture()
         await model.loadAgentCatalogue()
-        model.draft.setTitle("   ")
+        model.draft.setTitle("Fix the login form")
         #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+        model.draft.setTitle("   ")
+        #expect(!NewTaskSheet.canAdvance(step: 1, model: model))
         #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
         #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
     }
@@ -110,6 +112,7 @@ struct TaskCreationModelTests {
     @Test func agentStepCannotContinueWithNoAgentInstalled() async {
         let model = fixture(available: [])
         await model.loadAgentCatalogue()
+        model.draft.setTitle("Fix the login form")
         #expect(model.selectedModelIsCurrent)
         #expect(NewTaskSheet.canAdvance(step: 1, model: model))
         #expect(!NewTaskSheet.canAdvance(step: TaskCreation.steps.agentStep!, model: model))
@@ -121,7 +124,7 @@ struct TaskCreationModelTests {
         let model = fixture()
         await model.loadAgentCatalogue()
         model.draft.setTitle("Fix the login form")
-        let sheet = NewTaskSheet(model: model).seeded(step: 3)
+        let sheet = NewTaskSheet(model: model).seeded(step: 2)
         // The task's own body, and the shared frame's it hands its step to.
         let wholeSheet = { _ = sheet.body; _ = sheet.body.body }
         #expect(!invalidates(wholeSheet, by: { model.promptText = "g" }))

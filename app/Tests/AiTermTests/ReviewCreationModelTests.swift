@@ -255,7 +255,7 @@ import Foundation
         let m = model()
         m.draft.setTitle("Review")
         m.draft.setBranch("feat-gift-card")
-        let sheet = NewReviewSheet(model: m).seeded(step: 3)
+        let sheet = NewReviewSheet(model: m).seeded(step: 2)
         #expect(!invalidates({ _ = sheet.body }, by: { m.promptText = "/code-review" }))
         #expect(invalidates({ _ = sheet.body }, by: { m.draft.setBranch("feat-other") }))
     }

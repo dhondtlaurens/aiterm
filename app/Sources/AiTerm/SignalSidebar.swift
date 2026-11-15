@@ -89,15 +89,21 @@ struct SignalSidebar {
 
 }
 
-/// Only the permanent row's drawn facts: a tool ledger or journal write changes none of them.
+/// Only the Operator row's drawn facts: a tool ledger or journal write changes none of them.
 struct SignalOperatorRowValue: Equatable, Identifiable {
     var id: UUID { OperatorRow.id(of: OperatorSession.rowID) }
     var line: OperatorLine
     var status: TaskStatus
     var paused: Bool
-    static let empty = Self(line: OperatorLine("watching 0 tasks in 0 signals"), status: .idle, paused: false)
+    /// Whether the sidebar draws the row: while there is a signal or a task the Operator still
+    /// drives, or the Operator is busy or needs you. With no signal configured it has nothing to
+    /// watch, and the OPERATOR heading's + is all there is.
+    var shown = true
+    static let empty = Self(line: OperatorLine("watching 0 tasks in 0 signals"), status: .idle, paused: false, shown: false)
     static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil) -> Self {
         let session = state.operatorSession
+        let tasks = state.tasks.filter { $0.signalTask.map { !$0.takenOver && $0.phase != .stopped } == true }.count
+        let signals = Set(state.signals.map(\.id) + state.tasks.compactMap { $0.signalTask.flatMap { !$0.takenOver && $0.phase != .stopped ? $0.signal : nil } }).count
         let line: OperatorLine
         if session?.paused == true { line = .paused }
         else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .needsInput }) {
@@ -116,12 +122,8 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
             line = OperatorLine(text, look: .acting)
         }
         else if let session, sessions.contains(where: { $0.taskUUID == session.id && $0.agent == .claude && $0.state == .working }) { line = .working }
-        else {
-            let tasks = state.tasks.filter { $0.signalTask.map { !$0.takenOver && $0.phase != .stopped } == true }.count
-            let signals = Set(state.signals.map(\.id) + state.tasks.compactMap { $0.signalTask.flatMap { !$0.takenOver && $0.phase != .stopped ? $0.signal : nil } }).count
-            line = OperatorLine("watching \(tasks) \(tasks == 1 ? "task" : "tasks") in \(signals) \(signals == 1 ? "signal" : "signals")")
-        }
-        return Self(line: line, status: line.look == .needsYou ? .needsInput : line.look == .acting ? .working : .idle,
-                    paused: session?.paused == true)
+        else { line = OperatorLine("watching \(tasks) \(tasks == 1 ? "task" : "tasks") in \(signals) \(signals == 1 ? "signal" : "signals")") }
+        let status: TaskStatus = line.look == .needsYou ? .needsInput : line.look == .acting ? .working : .idle
+        return Self(line: line, status: status, paused: session?.paused == true, shown: tasks > 0 || signals > 0 || status != .idle)
     }
 }

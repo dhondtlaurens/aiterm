@@ -12,19 +12,18 @@ enum SheetSnapshots {
         [
             Snapshot("step1-closed.png") { taskSheet(step: 1, draft: draft()) },
             Snapshot("step1-empty.png") { taskSheet(step: 1, draft: draft(), ticketsOpen: true) },
-            Snapshot("step1-picked.png") { taskSheet(step: 1, draft: picked(), ticketsOpen: true) },
-            // A project whose .worktreeinclude selects files: the checkbox above the destination line.
+            Snapshot("step1-picked.png") { taskSheet(step: 1, draft: picked()) },
+            // A project whose .worktreeinclude selects files: the checkbox, the step's last field.
             Snapshot("step1-worktreeinclude.png") {
-                taskSheet(step: 2, draft: picked(), worktreeIncludes: [".env", "certs/dev.pem"])
+                taskSheet(step: 1, draft: picked(), worktreeIncludes: [".env", "certs/dev.pem"])
             },
-            Snapshot("step2-name-branch.png") { taskSheet(step: 2, draft: picked()) },
-            Snapshot("step4-agent.png") { taskSheet(step: 4, draft: picked()) },
-            Snapshot("step3-prompt.png") {
+            Snapshot("step3-agent.png") { taskSheet(step: 3, draft: picked()) },
+            Snapshot("step2-prompt.png") {
                 var draft = picked()
                 draft.promptText = "/superpowers:brainstorming\nStart with the worker's shutdown path and the queue drain."
-                return taskSheet(step: 3, draft: draft)
+                return taskSheet(step: 2, draft: draft)
             },
-            Snapshot("step3-completions.png") { completions() },
+            Snapshot("step2-completions.png") { completions() },
             Snapshot("step1-gitlab-issues.png") { taskSheet(step: 1, draft: draft(), ticketsOpen: true, results: mixedTickets) },
             Snapshot("step1-gitlab-picked.png") {
                 var draft = draft()
@@ -32,6 +31,7 @@ enum SheetSnapshots {
                 return taskSheet(step: 1, draft: draft, results: mixedTickets)
             },
             Snapshot("review-step1.png") { reviewSheet(step: 1, mergeRequestsOpen: true) },
+            Snapshot("review-step1-picked.png") { reviewSheet(step: 1) { $0.draft.apply(mr: mergeRequests[0]) } },
             Snapshot("review-ticket-found.png") {
                 reviewSheet(step: 1) {
                     $0.draft.apply(ticket: reviewTicket)
@@ -51,28 +51,27 @@ enum SheetSnapshots {
                     $0.branchQuery = reviewTicket.key
                 }
             },
-            Snapshot("review-step3-ticket.png") {
-                reviewSheet(step: 3) {
+            Snapshot("review-step2-ticket.png") {
+                reviewSheet(step: 2) {
                     $0.draft.apply(ticket: reviewTicket)
                     $0.draft.found(mr: mergeRequests[1], from: reviewTicket.key)
                     $0.promptText = "/code-review"
                 }
             },
             Snapshot("review-step2.png") { reviewSheet(step: 2) { $0.draft.apply(mr: mergeRequests[0]) } },
-            Snapshot("review-step4.png") { reviewSheet(step: 4) { $0.draft.apply(mr: mergeRequests[0]) } },
-            // Step 3 is reached only with a branch, which its destination line names.
+            // The last step is reached only with a branch, which its destination line names.
             Snapshot("review-step3.png") { reviewSheet(step: 3) { $0.draft.apply(mr: mergeRequests[0]) } },
             // A branch that is already a task's: the sheet says the review opens there.
             Snapshot("review-in-task.png") {
                 let working = Fixture().working
-                return reviewSheet(step: 4, owner: working) {
+                return reviewSheet(step: 3, owner: working) {
                     $0.draft.setTitle(working.title)
                     $0.draft.setBranch(working.branch)
                 }
             },
             // A review that gets a worktree of its own offers the same checkbox.
             Snapshot("review-step1-worktreeinclude.png") {
-                reviewSheet(step: 2) {
+                reviewSheet(step: 1) {
                     $0.draft.apply(mr: mergeRequests[0])
                     $0.worktreeIncludes = [".env", "certs/dev.pem"]
                 }
@@ -271,7 +270,7 @@ enum SheetSnapshots {
         let open: () -> Void
 
         var body: some View {
-            NewTaskSheet(model: model).seeded(step: 3)
+            NewTaskSheet(model: model).seeded(step: 2)
                 .onAppear(perform: open)
                 .onChange(of: model.catalogueLoaded) { _, loaded in if loaded { open() } }
         }

@@ -66,7 +66,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
             model.completions.close()
             return true
         }
-        guard step <= 2, let open = pickers.first(where: { $0.wrappedValue }) else { return false }
+        guard step == 1, let open = pickers.first(where: { $0.wrappedValue }) else { return false }
         open.wrappedValue = false
         return true
     }

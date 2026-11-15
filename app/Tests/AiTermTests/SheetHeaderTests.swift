@@ -12,7 +12,7 @@ import Testing
 @Suite(.serialized) struct SheetHeaderTests {
     // -- the stepper -----------------------------------------------------------------------
 
-    private let names = ["Task", "Agent", "Prompt"]
+    private let names = ["Task", "Prompt", "Agent"]
 
     /// On the first step only it is named; the rest are numbered, none ticked.
     @Test func onTheFirstStepTheRestAreNumbered() {
@@ -21,19 +21,19 @@ import Testing
 
     /// In the middle the step behind is ticked, the current one named and the one ahead numbered.
     @Test func inTheMiddleTheStepBehindIsTicked() {
-        #expect(SheetStepper.marks(step: 2, names: names) == [.done, .current("Agent"), .ahead(3)])
+        #expect(SheetStepper.marks(step: 2, names: names) == [.done, .current("Prompt"), .ahead(3)])
     }
 
     /// On the last step every earlier one is ticked.
     @Test func onTheLastStepEveryEarlierOneIsTicked() {
-        #expect(SheetStepper.marks(step: 3, names: names) == [.done, .done, .current("Prompt")])
+        #expect(SheetStepper.marks(step: 3, names: names) == [.done, .done, .current("Agent")])
         let broadcast = SignalModel.stepNames
         #expect(SheetStepper.marks(step: 3, names: broadcast) == [.done, .done, .current(broadcast[2]), .ahead(4), .ahead(5)])
     }
 
     /// VoiceOver reads the stepper as one sentence: where you are, of how many, and the step's name.
     @Test func itReadsAsOneSentence() {
-        #expect(SheetStepper.accessibilityLabel(step: 2, names: names) == "Step 2 of 3, Agent")
+        #expect(SheetStepper.accessibilityLabel(step: 2, names: names) == "Step 2 of 3, Prompt")
         #expect(SheetStepper.accessibilityLabel(step: 1, names: SignalModel.stepNames)
                 == "Step 1 of 5, \(SignalModel.stepNames[0])")
     }
@@ -103,10 +103,10 @@ import Testing
     /// them, and none of their ordinary steps — a ticket or branch picked, the agent, the prompt with its
     /// checkbox, the command and where it opens — is cut short: nothing in them scrolls.
     @Test(arguments: ["step1-closed.png", "step1-picked.png", "step1-worktreeinclude.png", "step1-gitlab-picked.png",
-                      "step2-name-branch.png", "step3-prompt.png", "step4-agent.png",
-                      "review-step1.png", "review-ticket-found.png", "review-request-found-ticket.png", "review-ticket-none.png",
-                      "review-in-task.png", "review-step1-worktreeinclude.png", "review-step2.png", "review-step3.png", "review-step4.png",
-                      "review-step3-ticket.png"])
+                      "step2-prompt.png", "step3-agent.png",
+                      "review-step1.png", "review-step1-picked.png", "review-ticket-found.png", "review-request-found-ticket.png",
+                      "review-ticket-none.png", "review-in-task.png", "review-step1-worktreeinclude.png", "review-step2.png",
+                      "review-step3.png", "review-step2-ticket.png"])
     func everyCreationStepIsOneHeightAndFits(file: String) throws {
         let snapshot = try #require(SheetSnapshots.all.first { $0.file == file })
         let view = snapshot.view()

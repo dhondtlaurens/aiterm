@@ -43,8 +43,10 @@ struct PickChip: View {
 
 /// A field of several picks: each a `PickChip`, then a search field after them that adds one more,
 /// its results hanging under the field in a `DropdownList` as `SearchPicker`'s do, keyed as its are
-/// (`DropdownKeys.perform`). The field wraps onto more lines as the chips fill it (`ChipFlow`). Focusing it, or
-/// typing, opens the list; a pick joins the chips and the field stays for the next one. The caller
+/// (`DropdownKeys.perform`). The field wraps onto more lines as the chips fill it (`ChipFlow`). A click on it, or
+/// typing, opens the list — not focus alone, which a sheet's first field gets as the sheet appears, so the list
+/// never covers the fields under it before the person asks for it. A pick joins the chips and the field stays
+/// for the next one. The caller
 /// keeps `open`, since the sheet closes the list from outside: ⎋, and a click past it.
 struct ChipsPicker<Item: Identifiable, Row: View>: View {
     let placeholder: String
@@ -82,7 +84,7 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
             ForEach(picks) { item in PickChip(mark: mark(item), label: label(item)) { onRemove(item) } }
             if canAdd { SearchField(placeholder: placeholder,
                         text: Binding(get: { text.wrappedValue }, set: { text.wrappedValue = $0; open = true; index = 0 }),
-                        focused: $focused, onCommand: command)
+                        focused: $focused, onCommand: command, onClick: { open = true })
                 .frame(height: PickChip.lineHeight) }
         }
         .padding(.horizontal, Space.inset).padding(.vertical, Space.tight)
@@ -94,7 +96,6 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
         .overlay(alignment: .bottomLeading) {
             results.alignmentGuide(.bottom) { $0[.top] - Space.tight }
         }
-        .onChange(of: focused) { _, focused in if focused { open = true } }
         .onChange(of: open, initial: true) { _, open in if open { index = 0 } }
     }
 

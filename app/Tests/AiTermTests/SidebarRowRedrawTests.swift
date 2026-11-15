@@ -20,9 +20,10 @@ import Testing
         let tasks: [TaskItem]
         let terminals: [TerminalItem]
 
-        /// Every row on screen, by id: two project headers, two terminals and seven tasks.
+        /// Every row on screen, by id: two project headers, two terminals and seven tasks. No signal is
+        /// configured, so the Operator's row is left out.
         var allRows: Set<UUID> {
-            Set(controller.state.projects.map(\.id) + tasks.map(\.id) + terminals.map(\.id) + [OperatorRow.id(of: OperatorSession.rowID)])
+            Set(controller.state.projects.map(\.id) + tasks.map(\.id) + terminals.map(\.id))
         }
 
         /// Turns the run loop until SwiftUI has drawn what the change asked for, then a little
@@ -56,8 +57,8 @@ import Testing
         let counter = RowBodyCounter()
         let host = testHost(SidebarView(controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: 340, height: 760))
         let window = testWindow(hosting: host, styleMask: [.titled])
-        // OPERATORS, header, two project rows, two terminals and seven tasks.
-        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 14 } ?? false }
+        // OPERATOR heading, header, two project rows, two terminals and seven tasks.
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 13 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
         let sidebar = Sidebar(controller: controller, counter: counter, host: host, window: window, list: list,
                               project: projects[0], tasks: tasks, terminals: terminals)
@@ -133,7 +134,7 @@ import Testing
         ] }
         sidebar.settleRows { sidebar.counter.counts[operatorRow] != nil }
         #expect(sidebar.controller.rows.signalOperator.status == .needsInput)
-        #expect(Set(sidebar.counter.counts.keys) == [operatorRow])
+        #expect(Set(sidebar.counter.counts.keys) == [operatorRow], "the question brings the Operator's row in, and only it draws")
         sidebar.counter.reset()
         sidebar.controller.workspace.mutate { $0.operatorSession?.remember(key: "note", result: ["status": "recorded"], at: Date()) }
         sidebar.settleRows()
