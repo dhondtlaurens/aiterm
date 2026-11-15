@@ -1,24 +1,5 @@
 import Foundation
 
-// Operator preferences. Each broadcast freezes its own copy; OperatorProfileStore persists defaults.
-
-/// What the Operator may do beyond the base (spec §5), each one switch.
-public struct Slices: Codable, Equatable, Sendable {
-    /// Create and update tickets in the broadcast's Jira projects.
-    public var jira: Bool
-    /// Involve people on a merge request: mark it ready, assign reviewers, answer their threads.
-    public var review: Bool
-    /// Merge when the written conditions hold, through the request or locally.
-    public var merge: Bool
-
-    public init(jira: Bool = false, review: Bool = false, merge: Bool = false) {
-        self.jira = jira; self.review = review; self.merge = merge
-    }
-
-    /// The base alone: every slice off.
-    public static let none = Slices()
-}
-
 /// The Oracle (spec §4.1, §8): another model that checks the Operator, on or off with its agent kept.
 public struct OracleSetting: Codable, Equatable, Sendable {
     public var isOn: Bool
@@ -38,12 +19,11 @@ public struct OracleSetting: Codable, Equatable, Sendable {
 public struct OperatorProfile: Codable, Equatable, Sendable {
     public var model: String
     public var reasoning: String?
-    public var slices: Slices
     public var oracle: OracleSetting
-    /// House rules for every broadcast, from Settings › Operator; empty for none.
+    /// Standing instructions for every signal, from Settings › Operator; empty for none.
     public var instructions: String
 
-    public init(model: String, reasoning: String?, slices: Slices = .none, oracle: OracleSetting = .standard, instructions: String = "") {
-        self.model = model; self.reasoning = reasoning; self.slices = slices; self.oracle = oracle; self.instructions = instructions
+    public init(model: String, reasoning: String?, oracle: OracleSetting = .standard, instructions: String = "") {
+        self.model = model; self.reasoning = reasoning; self.oracle = oracle; self.instructions = instructions
     }
 }

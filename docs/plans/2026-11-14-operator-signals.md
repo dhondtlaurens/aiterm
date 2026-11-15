@@ -444,7 +444,7 @@ Each step leaves the package building and the gate green.
       `runs`, `foldedRuns` and `operated` are retired in `Models.swift` with the test that an old
       `state.json` loads and its next save has none of them; the old per-run tokens leave the daemon.
 - [x] The act line's decode, the signal heading's fold and counts, Take Over, every row state.
-- [ ] Settings › Operator and the Oracle: the copy as picked.
+- [x] Settings › Operator and the Oracle: the copy as picked.
 - [ ] Fresh sessions end to end: context size, idle, digest, token handover.
 - [ ] Performance: watching tasks out of the per-tick reads, the status cache, the bounds.
 - [ ] Docs, the README inventory, the design page synced with the proposal removed (the
@@ -729,3 +729,15 @@ guard writes before their fixes. The plain gate passed: 1,598 daemon tests (one 
 1,009 app tests (one known issue), 1,678 Core tests (three known issues), and the snapshot check.
 Two daemon queue tests now use an unstarted fake service: the service's periodic poll had raced
 their explicitly queued callers in one gate run. Their focused check and the subsequent gate pass.
+
+### Settings proof · 15 Nov 2026
+
+Settings now uses the picked Operator, Oracle and Steer the Operator groups, with their roles,
+limits, question rounds and real example instructions. The Oracle’s choices share one Agent ·
+Model · Reasoning row and stay saved while off. The old Autonomy fields and `Slices` type are gone;
+a saved profile with those keys loads and drops them on its next save. Cancel, unchanged Save,
+model selection and Oracle choice retention keep their coverage.
+
+The two full native Settings drawings (Oracle on and off) were inspected in
+`build/operator-signals-settings`. The plain gate passed: 1,598 daemon tests (one skipped), 123 UI,
+1,009 app tests (one known issue), 1,679 Core tests (three known issues), and the snapshot check.

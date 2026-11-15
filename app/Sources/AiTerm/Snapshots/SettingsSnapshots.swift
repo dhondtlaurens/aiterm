@@ -14,7 +14,7 @@ enum SettingsSnapshots {
                 projectSheet(editing: true, open: true)
             },
             Snapshot("add-project.png") { projectSheet(editing: false, open: false) },
-        // Settings › Operator came after these images; it is drawn with the Operator's (`OperatorSnapshots`).
+        // Operator’s full role groups are drawn by SignalSettingsSnapshots.
         ] + SettingsTab.allCases.filter { $0 != .operator }.map { tab in
             // A Jira site and email typed in, no token yet.
             Snapshot("settings-\(tab.rawValue.lowercased()).png") {

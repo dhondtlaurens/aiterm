@@ -1,7 +1,7 @@
 import Foundation
 
-/// Settings › Operator's profile, kept as JSON in UserDefaults under `operator.profile`. A broadcast
-/// copies it when it starts. Oracle changes also apply to running broadcasts.
+/// Settings › Operator's profile, kept as JSON in UserDefaults under `operator.profile`. The Operator reads it for
+/// its next session. Oracle changes also invalidate checks already running.
 public enum OperatorProfileStore {
     static let key = "operator.profile"
     private static let oracleRevisionKey = "operator.oracleRevision"

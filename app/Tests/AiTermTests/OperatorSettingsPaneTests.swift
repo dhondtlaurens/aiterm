@@ -60,23 +60,20 @@ import Foundation
 
         settings.select(model: Self.sonnet)
         #expect(settings.reasoning == nil, "Sonnet 5 takes no reasoning")
-        settings.slices.merge = true
-        settings.slices.jira = true
         settings.instructions = "Draft MRs only on Fridays."
         settings.save()
-        #expect(saved(defaults) == OperatorProfile(model: "claude-sonnet-5", reasoning: nil, slices: Slices(jira: true, merge: true),
+        #expect(saved(defaults) == OperatorProfile(model: "claude-sonnet-5", reasoning: nil,
                                                    oracle: .standard, instructions: "Draft MRs only on Fridays."))
     }
 
     /// Cancel is not saving: the edits stay in the model the sheet drops.
     @Test func cancelDiscards() async throws {
         let defaults = ScratchDefaults.make()
-        let kept = OperatorProfile(model: "claude-opus-5-5", reasoning: "low", slices: Slices(review: true))
+        let kept = OperatorProfile(model: "claude-opus-5-5", reasoning: "low")
         try OperatorProfileStore.save(kept, defaults)
         let settings = settings(defaults)
         await settings.load()
         #expect(settings.profile == kept)
-        settings.slices.review = false
         settings.select(reasoning: "high")
         #expect(saved(defaults) == kept)
     }
@@ -150,12 +147,12 @@ import Foundation
 
         settings.select(model: AgentModel(id: "", label: "Unavailable", detail: nil, efforts: [], defaultEffort: nil))
         settings.oracle.model = ""
-        settings.slices.jira = true
+        settings.instructions = "Keep this instruction."
         settings.save()
         let written = saved(defaults)
         #expect(written.model == "claude-opus-5-5" && written.reasoning == "high")
         #expect(written.oracle == .standard)
-        #expect(written.slices.jira, "the rest of the edit is kept")
+        #expect(written.instructions == "Keep this instruction.")
     }
 
     /// A saved model the catalogue no longer lists is still offered, by its id, with its reasoning.
@@ -169,23 +166,14 @@ import Foundation
         #expect(OperatorSettingsModel.options([Self.opus], keeping: "claude-opus-5-5", reasoning: nil).map(\.id) == ["claude-opus-5-5"])
     }
 
-    /// The groups' copy, as drawn in p-op-settings.
-    @Test func theCopyIsAsDrawn() {
+    @Test func theCopyDescribesSignalsQuestionsAndHowToSteerThem() {
         typealias Pane = OperatorSettingsPane
-        #expect(Pane.agentHelp == "It plans the work and steers the agents in your tasks. It reads code but never writes it.")
-        #expect(Pane.autonomyHelp == "What it does without asking you. Each switch is one slice of trust on top of the base. Changes apply to the next broadcast.")
-        #expect(Pane.slices.map(\.title) == ["Jira", "Review", "Merge"])
-        #expect(Pane.never == [
-            "Never writes code itself. Its agents do.",
-            "Never deploys, force-pushes, or pushes to a default or protected branch.",
-            "Never answers an agent’s permission prompt. That’s always yours.",
-        ])
-        #expect(Pane.oracleHelp.contains("Changes apply to running broadcasts"))
-        #expect(Pane.oracleHelp.contains("checks already running are discarded"))
-        #expect(Pane.oracleHelp.contains("PI checks with read-only tools, not a sandbox."))
-        #expect(Pane.instructionsHelp == "House rules for every broadcast. Type / for the agents’ skills.")
-        let copy = [Pane.agentHelp, Pane.autonomyHelp, Pane.baseHelp, Pane.oracleHelp, Pane.instructionsHelp]
-            + Pane.slices.map(\.help) + Pane.never
-        #expect(copy.allSatisfy { !$0.contains("—") && !$0.contains("'") }, "no em dashes, curly apostrophes")
+        #expect(Pane.operatorHelp.contains("One Claude Code session"))
+        #expect(Pane.operatorDoes.count == 3 && Pane.oracleAsks.count == 3)
+        #expect(Pane.oracleNever.contains("every worker question comes to you"))
+        #expect(Pane.instructionsExample.contains("Never move a ticket to Done."))
+        let copy = [Pane.operatorHelp, Pane.operatorNever, Pane.oracleHelp, Pane.oracleNever, Pane.instructionsHelp]
+            + Pane.operatorDoes + Pane.oracleAsks
+        #expect(copy.allSatisfy { !$0.contains("broadcast") && !$0.contains("slice") && !$0.contains("digest") })
     }
 }

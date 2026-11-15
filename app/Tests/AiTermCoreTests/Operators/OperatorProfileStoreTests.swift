@@ -9,19 +9,28 @@ import Foundation
         let profile = OperatorProfileStore.load(ScratchDefaults.make(), claudeDefault: (model: "claude-opus-5-5", reasoning: "high"))
         #expect(profile.model == "claude-opus-5-5")
         #expect(profile.reasoning == "high")
-        #expect(profile.slices == .none)
         #expect(profile.oracle == .standard)
         #expect(profile.instructions == "")
     }
 
     @Test func theStandardOracleIsCodexOnAstraAtMedium() {
         #expect(OracleSetting.standard == OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"))
-        #expect(Slices.none == Slices(jira: false, review: false, merge: false))
+    }
+
+    @Test func oldAutonomyKeysDoNotSurviveTheNextProfileSave() throws {
+        let defaults = ScratchDefaults.make()
+        let old = Data(#"{"model":"opus","reasoning":"high","slices":{"jira":true,"merge":true,"review":true},"oracle":{"isOn":false,"agent":"codex","model":"gpt-6-astra","reasoning":"medium"},"instructions":"Keep draft requests."}"#.utf8)
+        defaults.set(old, forKey: "operator.profile")
+        let profile = OperatorProfileStore.load(defaults, claudeDefault: (model: "opus", reasoning: "high"))
+        #expect(profile.instructions == "Keep draft requests.")
+        try OperatorProfileStore.save(profile, defaults)
+        let object = try JSONDecoder().decode(JSONValue.self, from: #require(defaults.data(forKey: "operator.profile")))
+        #expect(object["slices"] == nil)
     }
 
     @Test func saveThenLoadRoundTrips() throws {
         let defaults = ScratchDefaults.make()
-        let profile = OperatorProfile(model: "claude-sonnet-5", reasoning: nil, slices: Slices(jira: true, review: false, merge: true),
+        let profile = OperatorProfile(model: "claude-sonnet-5", reasoning: nil,
                                       oracle: OracleSetting(isOn: false, agent: .claude, model: "claude-opus-5-5", reasoning: "low"),
                                       instructions: "Run the linter before you accept.")
         try OperatorProfileStore.save(profile, defaults)
