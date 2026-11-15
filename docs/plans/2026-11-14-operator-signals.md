@@ -429,7 +429,7 @@ Each step leaves the package building and the gate green.
 - [x] The engine owners beside today's controller, not wired into it: `ItemRouter`, `StageRunner`,
       `RequestWatch`, `ThenRunner` (with `TaskArchiver.archiveAutomatically`), `QuestionRounds`,
       `OperatorSessionKeeper`, the act; each proven in `SignalWorld` with fakes.
-- [ ] The new tool set and the brief as a second handler and brief generator, not served yet; their
+- [x] The new tool set and the brief as a second handler and brief generator, not served yet; their
       contract fixtures captured with provenance.
 - [ ] The daemon, additively: the single Operator folder and token beside the per-run ones; the gate
       refuses a revoked token; the context-size field parsed. `pytest` green.
@@ -605,3 +605,21 @@ for this to-do.
   cleanup interrupted by pending work, and interrupted token handover. Plain `scripts/test.sh`
   passed: 2,195 Core, 2,047 app, 123 UI and 5 snapshot tests, with existing labelled known issues.
   The engine remains unwired; no live app or contract goldens were changed.
+
+- **Tools and brief:** added the separate thirteen-tool handler and stable role prompt, with mutable
+  signals kept in status and the first JSON message. Task calls carry stage and ownership; the
+  transport record can carry a session generation. Keyed effects persist an intent before delivery,
+  replay completed results after reload, reject changed arguments and keep uncertain effects from
+  being repeated. Normal steering rechecks for a newly arrived question. Pending tool replies are
+  transient; notes recover once from the journal even if the state save was interrupted. The digest
+  includes project and agent choices but excludes quoted descriptions and saved pending prompts.
+  New brief and schema fixtures have their own provenance; the old served contract is unchanged.
+- **Tool proof:** focused owner and handler tests passed, including session replacement during an
+  Oracle read and partial journal recovery. Capped before/after model runs used Sonnet 5.5 at high
+  effort, three runs per scenario per brief, 12 turns and 600 seconds maximum: 9/9 passed for each
+  contract across waiting, product questions and hostile item text. Initial Fable attempts hit a
+  quota limit before any tool call. A real chat-question miss led to explicit bookkeeping copy in
+  the brief, schema and tool reply; final full-stream recordings show the question in chat. Runs
+  used a local stub and isolated working directories, without the app or a host integration. Plain
+  `scripts/test.sh` passed: 1,633 daemon (1 skipped), 2,200 Core, 2,057 app, 123 UI and 5 snapshot
+  tests, with existing labelled known issues. The new tools are not served yet.

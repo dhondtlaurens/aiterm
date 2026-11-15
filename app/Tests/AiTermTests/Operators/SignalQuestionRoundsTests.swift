@@ -86,6 +86,19 @@ import Testing
         #expect(calls == 1 && deliveries == 1)
     }
 
+    @Test func replacingTheOperatorSessionDuringAnOracleReadCannotDeliverAnOldAnswer() async throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var delivered = false
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            oracleEnabled: { true }, question: { _, _ in question }, oracle: { _ in
+                h.workspace.mutate { $0.operatorSession?.generation += 1 }
+                return .agreed("Fine.")
+            }, deliver: { _, _, _ in delivered = true }))
+        await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, key: "old-session", proposal: "Answer.") }
+        #expect(!delivered)
+    }
+
     @Test func aTakeoverDuringTheOracleReadPreventsBothDeliveryAndAQuestion() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }

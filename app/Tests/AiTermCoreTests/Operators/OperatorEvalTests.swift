@@ -28,7 +28,7 @@ struct OperatorEvalTests {
     static let appDefaults = "com.laurensdhondt.aiterm"
 
     struct Brief: Sendable { var name: String; var brief: URL; var tools: URL }
-    struct Job: Sendable { var scenario: EvalScenario; var brief: Brief; var number: Int }
+    struct Job: Sendable { var scenario: EvalScenario; var brief: Brief; var number: Int; var stream = false }
     struct Outcome: Sendable { var scenario: String; var brief: String; var number: Int; var failures: [String] }
 
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -104,22 +104,48 @@ struct OperatorEvalTests {
             try Data(OperatorCommand.mcpConfig(hookPort: port, token: OperatorCommand.makeToken()).utf8).write(to: mcp)
             let arguments = words + ["-p", "--append-system-prompt-file", job.brief.brief.path, "--tools", "Read,Grep,Glob",
                                      "--mcp-config", mcp.path, "--allowedTools", "mcp__aiterm__*", "--max-turns", String(maxTurns),
-                                     "--output-format", "json", "--no-session-persistence",
-                                     "--settings", #"{"disableAllHooks":true}"#, "--strict-mcp-config", job.scenario.firstMessage]
-            let result = try ProcessRunner.run(URL(fileURLWithPath: claude), arguments, in: folder, timeout: runTimeout)
+                                     "--output-format", job.stream ? "stream-json" : "json", "--no-session-persistence",
+                                     "--settings", #"{"disableAllHooks":true}"#, "--strict-mcp-config"] + (job.stream ? ["--verbose"] : []) + [job.scenario.firstMessage]
+            let workingDirectory = try ScratchFolder.make("aiterm-operator-eval-work-")
+            defer { try? FileManager.default.removeItem(at: workingDirectory) }
+            let result = try ProcessRunner.run(URL(fileURLWithPath: claude), arguments, in: workingDirectory, timeout: runTimeout)
             try Data(result.stdout.utf8).write(to: folder.appendingPathComponent("claude.json"))
             try Data(result.stderr.utf8).write(to: folder.appendingPathComponent("claude.stderr"))
-            let answer = try? JSONDecoder().decode(JSONValue.self, from: Data(result.stdout.utf8))
-            let transcript = EvalTranscript(calls: calls(in: log), reply: answer?["result"]?.stringValue ?? "")
+            let parsed = output(result.stdout, stream: job.stream), answer = parsed.answer
+            if job.stream {
+                try Data(result.stdout.utf8).write(to: folder.appendingPathComponent("claude.jsonl"))
+                if let answer { try encoder.encode(answer).write(to: folder.appendingPathComponent("claude.json")) }
+            }
+            let transcript = EvalTranscript(calls: calls(in: log), reply: parsed.chat)
             try Data(transcript.reply.utf8).write(to: folder.appendingPathComponent("reply.md"))
             var failures = job.scenario.check(transcript)
             if result.timedOut { failures.insert("the run timed out after \(Int(runTimeout)) s", at: 0) }
             else if answer?["subtype"]?.stringValue == "error_max_turns" { failures.insert("the run reached \(maxTurns) turns", at: 0) }
             else if answer == nil { failures.insert("claude answered no JSON (exit \(result.status))", at: 0) }
+            else if answer?["is_error"]?.boolValue == true { failures.insert("model error: " + (answer?["result"]?.stringValue ?? "unknown error"), at: 0) }
             return outcome(failures)
         } catch {
             return outcome(["the run couldn't start: \(error)"])
         }
+    }
+
+    /// stream-json includes plain chat written before a tool. The final result alone drops it.
+    static func output(_ text: String, stream: Bool) -> (answer: JSONValue?, chat: String) {
+        if !stream {
+            let answer = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+            return (answer, answer?["result"]?.stringValue ?? "")
+        }
+        let records = text.split(whereSeparator: \.isNewline).compactMap { try? JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)) }
+        let answer = records.last { $0["type"] == "result" }
+        var words: [String] = []
+        for record in records where record["type"] == "assistant" {
+            let content = record["message"]?["content"]?.arrayValue ?? []
+            for block in content where block["type"] == "text" {
+                if let text = block["text"]?.stringValue { words.append(text) }
+            }
+        }
+        let chat = words.joined(separator: "\n")
+        return (answer, chat.isEmpty ? answer?["result"]?.stringValue ?? "" : chat)
     }
 
     /// The stub MCP server, from the daemon's venv, and the port its first line names.

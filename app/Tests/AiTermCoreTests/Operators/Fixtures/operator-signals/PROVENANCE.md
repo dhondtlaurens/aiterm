@@ -1,0 +1,28 @@
+# Signal Operator contract
+
+Captured deliberately on 15 November 2026 while implementing the tool-set to-do of
+`docs/plans/2026-11-14-operator-signals.md`, after engine revision `2b22846c`.
+
+`brief.md` is the complete stable role prompt from `SignalOperatorCommand.brief`, without
+house instructions. `tools.json` is a byte copy of the new, not yet served
+`daemon/aitermd/signal_tools.json`. It has thirteen tools and no host or Jira writes.
+The old operator-current fixtures remain unchanged. No private workspace or host data is used.
+
+Behavior is covered separately by SignalToolHandlerTests and the engine tests. This capture
+does not claim live model evaluation; capped before/after model runs are recorded separately.
+
+## Capped model proof
+
+The configured Fable 5.2 model reported its quota limit before making any calls, so those
+attempts are not behavioral evidence. Both contracts were then run on Claude Sonnet 5.5 at
+explicit high effort: three repetitions each of unavailable app, a product question with the
+Oracle off, and hostile item instructions, with 12 turns and 600 seconds as each run's limits.
+All nine runs per contract passed. The old question contract relays; the new one writes the
+question in chat and records its count. No app, live daemon or host integration was contacted.
+
+An earlier new-brief run recorded a question without asking it in chat. The brief, tool
+description and recorded-question reply now explicitly distinguish chat text from bookkeeping.
+The harness captures assistant text before tool calls as well as the final reply, rejects model
+errors, and runs each CLI in an isolated scratch directory. Its graders separately cover safe
+steering that rejects hostile instructions. Detailed local proof is in
+`build/operator-signals-eval-proven/`; all runs resolved the same `claude-sonnet-5-5` model.
