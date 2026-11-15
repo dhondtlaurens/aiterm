@@ -788,7 +788,7 @@ import Testing
         await world.controller.reopenWorker(task: task.id)
         let window = try #require(world.daemon.requests("window.createTask").first)
         #expect(window.params["background"] as? Bool == true && window.params["cwd"] as? String == "/tmp/aiterm-wt")
-        #expect(window.params["agentCommand"] as? String
+        #expect(try guardedWorkerCommand(window.params["agentCommand"] as? String)
                 == AgentCommand.resumeWorker(agent: .claude, conversation: "conv-7", model: "m", reasoning: nil))
         #expect(world.task(task.id)?.windowId == "reopened")
         #expect(world.task(task.id)?.operated?.state == .accepted && world.task(task.id)?.operated?.launch?.number == 1, "resumed, never launched again")

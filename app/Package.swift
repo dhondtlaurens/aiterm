@@ -22,8 +22,10 @@ let package = Package(
         // apps. Only AiTermTestSupport depends on it: it is never linked into the app.
         .target(name: "AiTermTestWindowHook", path: "Tests/AiTermTestWindowHook",
                 linkerSettings: [.linkedFramework("AppKit")]),
+        // Process proofs of the real worker guard with fixed host facts; not built into AiTerm.
+        .executableTarget(name: "AiTermWorkerGuardProbe", dependencies: ["AiTermCore"], path: "Tests/AiTermWorkerGuardProbe"),
         // The Operator evals' baseline (Fixtures/) is read by path from the checkout, not as a resource bundle.
-        .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests",
+        .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport", "AiTermWorkerGuardProbe"], path: "Tests/AiTermCoreTests",
                     exclude: ["Operators/Fixtures"]),
         .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI", "AiTermTestSupport"], path: "Tests/AiTermUITests"),
         .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests",

@@ -16,6 +16,11 @@ extension ShellGate {
         denial(in: command, depth: 0)
     }
 
+    /// Shares the shell reading with worker policy, including nested commands and git aliases.
+    static func publishingDenial(_ command: String, check: @escaping (String, [String]) -> String?) -> String? {
+        denial(in: command, depth: 0, check: check)
+    }
+
     static let pushDenial = "AiTerm refuses `git push` from the Operator's shell: pushes go through finish_task."
 
     static func workerDenial(_ what: String) -> String {
@@ -40,14 +45,14 @@ extension ShellGate {
     /// How deep a command inside a command is read: `sh -c "eval '…'"` and the like, a few levels and no more.
     private static let deepest = 4
 
-    private static func denial(in command: String, depth: Int) -> String? {
-        guard depth < deepest else { return nil }
+    private static func denial(in command: String, depth: Int, check: ((String, [String]) -> String?)? = nil) -> String? {
+        guard depth < deepest else { return check == nil ? nil : "The worker guard cannot read this many nested shell commands." }
         let (commands, nested) = simpleCommands(command)
         for words in commands {
-            if let why = denial(of: words[...], depth: depth) { return why }
+            if let why = denial(of: words[...], depth: depth, check: check) { return why }
         }
         for text in nested {
-            if let why = denial(in: text, depth: depth + 1) { return why }
+            if let why = denial(in: text, depth: depth + 1, check: check) { return why }
         }
         return nil
     }
@@ -149,7 +154,7 @@ extension ShellGate {
     ]
     private static let shells: Set<String> = ["sh", "bash", "zsh", "dash", "ksh"]
 
-    private static func denial(of command: ArraySlice<String>, depth: Int) -> String? {
+    private static func denial(of command: ArraySlice<String>, depth: Int, check: ((String, [String]) -> String?)?) -> String? {
         var words = command
         while let first = words.first, isAssignment(first) || prefixes.contains(first) {
             words = words.dropFirst()
@@ -164,18 +169,20 @@ extension ShellGate {
         let args = Array(words.dropFirst())
         switch program {
         case "git":
-            return gitDenial(args, depth: depth)
+            return gitDenial(args, depth: depth, check: check)
         case "gh":
+            if let check { return check(program, args) }
             return requestDenial(tool: "gh", args, group: "pr", verbs: ghVerbs)
         case "glab":
+            if let check { return check(program, args) }
             return requestDenial(tool: "glab", args, group: "mr", verbs: glabVerbs)
         case "eval":
-            return denial(in: args.joined(separator: " "), depth: depth + 1)
+            return denial(in: args.joined(separator: " "), depth: depth + 1, check: check)
         case _ where shells.contains(program):
             // `sh -c 'git push'`, `bash -lc …`: the string after the short option that holds `c`.
             guard let flag = args.firstIndex(where: { $0.hasPrefix("-") && !$0.hasPrefix("--") && $0.contains("c") }),
                   flag + 1 < args.count else { return nil }
-            return denial(in: args[flag + 1], depth: depth + 1)
+            return denial(in: args[flag + 1], depth: depth + 1, check: check)
         default:
             return nil
         }
@@ -187,14 +194,15 @@ extension ShellGate {
     private static let gitValued: Set<String> = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"]
 
     /// `git` with any of its options before the subcommand (`-C <dir>`, `-c k=v`, `--no-pager`, `--git-dir=…`).
-    private static func gitDenial(_ args: [String], depth: Int) -> String? {
+    private static func gitDenial(_ args: [String], depth: Int, check: ((String, [String]) -> String?)?) -> String? {
         var i = 0
         while i < args.count, args[i].hasPrefix("-") {
             guard gitValued.contains(args[i]) else { i += 1; continue }
-            if args[i] == "-c", i + 1 < args.count, let why = aliasDenial(args[i + 1], depth: depth) { return why }
+            if args[i] == "-c", i + 1 < args.count, let why = aliasDenial(args[i + 1], depth: depth, check: check) { return why }
             i += 2
         }
         guard i < args.count else { return nil }
+        if let check { return check("git", args) }
         let subcommand = args[i], rest = args[(i + 1)...]
         switch subcommand {
         case "push": return pushDenial
@@ -205,10 +213,10 @@ extension ShellGate {
     }
 
     /// `-c alias.<name>=<value>`: what the alias would run, as git runs it, a `!` one in the shell.
-    private static func aliasDenial(_ setting: String, depth: Int) -> String? {
+    private static func aliasDenial(_ setting: String, depth: Int, check: ((String, [String]) -> String?)?) -> String? {
         guard setting.lowercased().hasPrefix("alias."), let equals = setting.firstIndex(of: "=") else { return nil }
         let value = setting[setting.index(after: equals)...]
-        return value.hasPrefix("!") ? denial(in: String(value.dropFirst()), depth: depth + 1) : denial(in: "git " + value, depth: depth + 1)
+        return value.hasPrefix("!") ? denial(in: String(value.dropFirst()), depth: depth + 1, check: check) : denial(in: "git " + value, depth: depth + 1, check: check)
     }
 
     // MARK: gh and glab

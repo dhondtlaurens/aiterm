@@ -205,7 +205,7 @@ final class WorkerStarter {
         let activity = OperatorActivity(run: operated.runId, task: id, act: .starting)
         onActing(activity, true)
         defer { onActing(activity, false) }
-        let git = ports.git
+        let git = ports.git, home = ports.home, guardExecutable = ports.workerGuardExecutable
         do {
             let start = try await startPoint(of: id, in: project)
             let reserved = state.reservedWorktreeSlugs(projectId: project.id)
@@ -223,8 +223,11 @@ final class WorkerStarter {
             let choice = launchChoice(for: task, operated: operated, attempt: attempt)
             // The Operator's worker flags, its brief the first prompt.
             let command = try await BackgroundWork.run {
-                try AgentCommand.build(agent: choice.agent, model: choice.model, reasoning: choice.reasoning, prompt: prompt,
-                                       worktreePath: worktree, git: git, operated: true)
+                let command = try AgentCommand.build(agent: choice.agent, model: choice.model, reasoning: choice.reasoning, prompt: prompt,
+                                                     worktreePath: worktree, git: git, operated: true)
+                var worker = task; worker.worktreePath = worktree; worker.agent = choice.agent
+                return try WorkerGuardLaunch.command(command, task: worker, remote: project.remoteUrl, home: home,
+                                                     executable: guardExecutable, git: git)
             }
             // Awaits have passed: the task may have been stopped, taken over or blocked, or its run paused.
             guard claimHolds(id, attempt) else {
@@ -394,6 +397,8 @@ final class WorkerStarter {
         guard !isStarting(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
               task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.firstWorkerConversation,
               let daemon = daemon() else { return nil }
+        let home = ports.home, guardExecutable = ports.workerGuardExecutable, git = ports.git
+        let remote = state.project(id: task.projectId)?.remoteUrl
         starts[id, default: Start()].running = true
         let reopening = OperatorActivity(run: operated.runId, task: id, act: .reopeningItsWindow)
         onActing(reopening, true)
@@ -403,8 +408,14 @@ final class WorkerStarter {
                 onActing(reopening, false)
             }
             do {
-                let command = AgentCommand.resumeWorker(agent: task.agent, conversation: conversation.id, model: task.model,
-                                                        reasoning: task.reasoning)
+                let command = try await BackgroundWork.run {
+                    let command = AgentCommand.resumeWorker(agent: task.agent, conversation: conversation.id, model: task.model,
+                                                            reasoning: task.reasoning)
+                    return try WorkerGuardLaunch.command(command, task: task, remote: remote, home: home, executable: guardExecutable, git: git)
+                }
+                guard !isStopped, let current = state.task(id: id)?.operated, current.ownership == operated.ownership,
+                      current.runId == operated.runId, state.run(id: operated.runId) != nil,
+                      !live.sessions.contains(where: { $0.taskUUID == id }) else { return }
                 let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: task.worktreePath, title: task.branch,
                                                                agentCommand: command, frame: taskFrame(), background: true)
                 // Left on the row, so a click raises it.

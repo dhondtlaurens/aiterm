@@ -474,7 +474,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op", window: "wop", tag: run.id)])
         await world.controller.reopenWorker(task: task.id)
         let reopened = try #require(world.daemon.requests("window.createTask").first)
-        #expect(reopened.params["agentCommand"] as? String
+        #expect(try guardedWorkerCommand(reopened.params["agentCommand"] as? String)
                 == AgentCommand.resumeWorker(agent: .claude, conversation: "conv-main", model: "m", reasoning: nil))
         #expect(world.daemon.requests("window.createTask").count == 1 && world.daemon.requests("tab.create").isEmpty, "not by a reopen")
 

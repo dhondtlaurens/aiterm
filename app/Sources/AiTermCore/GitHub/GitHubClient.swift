@@ -51,6 +51,14 @@ public struct GitHubClient: HostRepository {
         "/repos/" + repo.components(separatedBy: "/").map(HTTPJSON.pathSegment).joined(separator: "/")
     }
 
+    /// Read before a worker pushes, so a renamed default is never inferred from a stale local ref.
+    public func defaultBranch() async throws -> String {
+        struct Metadata: Decodable { var defaultBranch: String }
+        let branch = try await get(Metadata.self, path: boundPath, notFound: .repoNotFound(repo)).defaultBranch
+        guard !branch.isEmpty else { throw GitHubError.decoding }
+        return branch
+    }
+
     public func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitHub, host: Self.api, token: config.token) {
             try await Self.testConnection(config: config, session: session)

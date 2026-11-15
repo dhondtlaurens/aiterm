@@ -66,7 +66,7 @@ import Testing
         #expect(tab.params["windowId"] as? String == "w-failed")
         #expect(tab.params["cwd"] as? String == started.worktreePath)
         #expect(tab.params["background"] as? Bool == true && tab.params["tabKey"] == nil)
-        #expect(tab.params["agentCommand"] as? String == (try expectedCommand(started)))
+        #expect(try guardedWorkerCommand(tab.params["agentCommand"] as? String) == (try expectedCommand(started)))
         #expect(started.operated?.state == .working && started.windowId == "w-failed")
         #expect(started.operated?.launch?.number == 2 && started.operated?.launch?.openedAt != nil)
         #expect(started.operated?.launch?.workerPending == true, "its agent is not listed yet")

@@ -22,6 +22,7 @@ struct OperatorPorts {
     /// Where under `home` Claude keeps its conversations and skills: the app's `ClaudeConfig`, from the login shell.
     var claudeConfig = ClaudeConfig()
     var git: any GitRunning
+    var workerGuardExecutable: URL = Bundle.main.executableURL!
     var notifications: any OperatorNotifications
     /// The Jira client `jira_search` runs through, while Settings has one.
     var jira: @Sendable () -> (any OperatorJira)? = { nil }

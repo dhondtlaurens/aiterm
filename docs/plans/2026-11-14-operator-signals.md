@@ -433,7 +433,7 @@ Each step leaves the package building and the gate green.
       contract fixtures captured with provenance.
 - [x] The daemon, additively: the single Operator folder and token beside the per-run ones; the gate
       refuses a revoked token; the context-size field parsed. `pytest` green.
-- [ ] The worker guard: the `pre-push` hook for every worker (today's workers may not push at all,
+- [x] The worker guard: the `pre-push` hook for every worker (today's workers may not push at all,
       so it changes nothing for them yet), the Claude PreToolUse check and the Codex shims; proven in
       a scratch repo, `--no-verify` included. Codex's push denial lifts only once its tests pass.
 - [ ] Activation: `OperatorController` runs one Operator and signals through the new owners, the new
@@ -640,3 +640,34 @@ for this to-do.
   (including a synthetic 39,239-token worker), with provenance; strict field parity stays intact.
   Plain `scripts/test.sh` passed: 1,657 daemon (1 skipped), 2,204 Core, 2,057 app, 123 UI and 5
   snapshot tests, with existing labelled known issues. Controllers still use the per-run path.
+
+### Worker guard proof · 15 Nov 2026
+
+Every managed first worker, resumed worker and extra tab receives a private launch environment.
+Its Git shim and Claude PreToolUse hook share the shell parser; a pre-push hook checks every ref,
+the connected repository, the current branch and head, fresh host default/protection, and ancestry.
+It preserves Git's existing configuration entries and chains the project's existing pre-push hook
+with the original arguments and stdin. No repository or personal CLI defaults are changed.
+
+The installed Codex **0.169.0** was exercised against a scripted local Responses endpoint in an
+isolated repository. Its default login shell reset PATH and initially bypassed the shims; the
+per-launch `allow_login_shell=false` setting fixes that. The final factory-built launcher proved
+an ordinary own-branch push reaches a local bare origin and `--no-verify` leaves it untouched.
+No blanket trust of personal hooks is enabled. Claude uses its per-launch settings file. Both
+paths refuse force pushes, other branches and merge commands; unknown host protection refuses a
+push. These are publishing guards, not a sandbox against deliberately invoking explicit binaries.
+
+The probe executable is a test-only Swift target sharing the production guard entry, with fake
+host facts confined to that executable; the app's guard entry reads the connected host itself and
+runs before app/controller construction. `WorkerGuardCodexTests` is opt-in; the gate's scratch Git
+integration tests exercise the same launch scripts without accounts or model use.
+
+References: [Git pre-push contract](https://git-scm.com/docs/githooks#_pre_push),
+[Git configuration environment](https://git-scm.com/docs/git-config#ENVIRONMENT),
+[GitHub repository default branch](https://docs.github.com/en/rest/repos/repos#get-a-repository),
+[GitLab project default branch](https://docs.gitlab.com/api/projects/),
+[Codex per-launch shell policy](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/mod.rs).
+
+The built native AiTerm executable was also invoked with `--worker-guard argv` in a temporary
+home: it refused `git push --no-verify` with exit 2 and created no live app state. This checks the
+production entry path as well as the test-only probe, without opening or replacing the running app.

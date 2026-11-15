@@ -6,6 +6,15 @@ import Synchronization
 /// Every secret lives in one Keychain item, read once per process, so macOS asks for access once
 /// rather than once per token. The items are a stand-in: a test never touches the real Keychain.
 @Suite struct KeychainTests {
+    @Test func aWorkerGuardReadsSecretsWithoutMigrationOrWrites() {
+        let items = FakeKeychainItems(["gitlab.token": "g"])
+        let store = ReadOnlyKeychain(items: items)
+        #expect(store.get("gitlab.token") == "g")
+        #expect(!store.set("gitlab.token", "other"))
+        #expect(items.accounts == ["gitlab.token"])
+        #expect(SystemKeychainItems(service: "synthetic", allowsInteraction: false).allowsInteraction == false)
+    }
+
     @Test func everySecretLivesInOneItem() {
         let items = FakeKeychainItems()
         let keychain = Keychain(items: items)

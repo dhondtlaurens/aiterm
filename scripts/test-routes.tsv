@@ -22,7 +22,7 @@
 # `# daemon readers outside daemon/:` line, where a row above must route that path to daemon.
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
 # reads only its own target: PaletteDistinctionTests OperatorPlanToolsTests OperatorCommandTests OperatorCurrentContractTests WorkerTurnTests
-# opt-in, reads outside its target: OperatorEvalTests SignalOperatorEvalTests
+# opt-in, reads outside its target: OperatorEvalTests SignalOperatorEvalTests WorkerGuardCodexTests
 # daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py
 
 # The daemon, and what the Swift suites read from it.
@@ -48,6 +48,8 @@ app/Sources/AiTermUI/*	target:AiTermUITests target:AiTermTests
 app/Sources/AiTerm/*	target:AiTermTests suite:AiTermUITests.DesignRulesTests
 app/Sources/AiTerm/Resources/Info.plist	suite:AiTermCoreTests.ReleaseFeedTests
 
+# The guard probe is a test-only executable invoked by this process proof.
+app/Tests/AiTermWorkerGuardProbe/*	target:AiTermCoreTests suite:AiTermCoreTests.WorkerGuardLaunchTests
 # A test target's own files.
 app/Tests/AiTermCoreTests/*	target:AiTermCoreTests
 app/Tests/AiTermUITests/*	target:AiTermUITests

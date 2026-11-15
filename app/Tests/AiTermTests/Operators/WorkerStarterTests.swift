@@ -64,6 +64,12 @@ import Testing
         #expect(window.params["background"] as? Bool == true)
         #expect(window.params["taskId"] as? String == task.id.uuidString)
         #expect(window.params["cwd"] as? String == started.worktreePath)
+        let launch = try #require(window.params["agentCommand"] as? String)
+        #expect(launch.hasPrefix("/bin/sh '"), "managed starts must install the shared guard")
+        let scopeFile = AiTermPaths.supportDirectory(home: world.ports.home)
+            .appendingPathComponent("workers/" + task.id.uuidString + "/main/scope.json")
+        let scope = try JSONDecoder().decode(WorkerGuard.Scope.self, from: Data(contentsOf: scopeFile))
+        #expect(scope.branch == started.branch && scope.worktree == started.worktreePath && !scope.allowsPush)
         // AiTerm's own first line, not the Operator's: where the worker is, and where alone it commits.
         let prompt = "[AiTerm] You are already in this task's worktree, on branch feat/pluto-1. Commit only here, on feat/pluto-1. "
             + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file in the repository. "
@@ -72,7 +78,7 @@ import Testing
             + "and nothing after them.\n\nDo PLUTO-1."
         let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
-        #expect(window.params["agentCommand"] as? String == expected)
+        #expect(try guardedWorkerCommand(window.params["agentCommand"] as? String) == expected)
         #expect(started.windowId == "reopened")
         #expect(started.operated?.launch?.openedAt != nil, "its window is up: never launched again")
     }
@@ -97,7 +103,7 @@ import Testing
         #expect(started.operated?.modelReason == "Started Task PLUTO-7 on Codex: Claude’s weekly limit is at 84 %.")
         let expected = try AgentCommand.build(agent: .codex, model: fallback.model, reasoning: fallback.reasoning, prompt: brief("feat/pluto-7", "Do PLUTO-7."),
                                               worktreePath: started.worktreePath, git: git, operated: true)
-        #expect(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String == expected)
+        #expect(try guardedWorkerCommand(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String) == expected)
         let logged = try #require(world.run(run.id)?.decisions)
         #expect(logged.map(\.key) == ["switch-\(task.id.uuidString)"])
         #expect(logged.first?.text == "Started Task PLUTO-7 on Codex")
@@ -217,7 +223,7 @@ import Testing
         let prompt = brief("feat/pluto-5", "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-5.")
         let expected = try AgentCommand.build(agent: .claude, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
-        #expect(window.params["agentCommand"] as? String == expected)
+        #expect(try guardedWorkerCommand(window.params["agentCommand"] as? String) == expected)
     }
 
     @Test func aRetriedTaskWhoseWorkerIsStillBusyIsBlockedAndNoSecondAgentStarts() async throws {

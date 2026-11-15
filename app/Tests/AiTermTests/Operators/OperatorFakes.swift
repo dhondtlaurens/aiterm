@@ -414,3 +414,10 @@ extension OperatorServiceFixtures {
         return (world, run, task)
     }
 }
+
+/// Inspect the command recorded in a private managed-worker launcher, without executing it.
+func guardedWorkerCommand(_ line: String?) throws -> String? {
+    guard let line, line.hasPrefix("/bin/sh '") && line.hasSuffix("'") else { return line }
+    let path = String(line.dropFirst(9).dropLast()).replacingOccurrences(of: "'\"'\"'", with: "'")
+    return try String(contentsOfFile: path, encoding: .utf8).components(separatedBy: "export GIT_CONFIG_COUNT PATH\n").last?.trimmingCharacters(in: .newlines)
+}

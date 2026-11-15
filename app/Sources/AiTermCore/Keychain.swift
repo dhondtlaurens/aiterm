@@ -34,10 +34,12 @@ protocol KeychainItems: Sendable {
 
 struct SystemKeychainItems: KeychainItems {
     let service: String
+    var allowsInteraction = true
     private func query(_ account: String) -> [String: Any] { [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account] }
 
     func read(_ account: String) -> KeychainRead {
         var q = query(account); q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
+        if !allowsInteraction { q[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail }
         var out: CFTypeRef?
         switch SecItemCopyMatching(q as CFDictionary, &out) {
         case errSecSuccess: return (out as? Data).map(KeychainRead.found) ?? .refused
@@ -131,4 +133,23 @@ public final class Keychain: SecretStore, Sendable {
         guard let data = try? encoder.encode(secrets) else { return false }
         return items.write(Self.account, data)
     }
+}
+
+/// Worker guard subprocesses read only. They cannot prompt, migrate old items, save or delete.
+public struct ReadOnlyKeychain: SecretStore, Sendable {
+    private let items: any KeychainItems
+    public init(service: String = "com.laurensdhondt.aiterm") {
+        items = SystemKeychainItems(service: service, allowsInteraction: false)
+    }
+    init(items: any KeychainItems) { self.items = items }
+    public func get(_ key: String) -> String? {
+        switch items.read(Keychain.account) {
+        case .found(let bytes): return (try? JSONDecoder().decode([String: String].self, from: bytes))?[key]
+        case .missing:
+            if case .found(let bytes) = items.read(key) { return String(data: bytes, encoding: .utf8) }
+            return nil
+        case .refused: return nil
+        }
+    }
+    @discardableResult public func set(_ key: String, _ value: String?) -> Bool { false }
 }

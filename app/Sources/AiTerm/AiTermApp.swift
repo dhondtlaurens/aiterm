@@ -7,6 +7,7 @@ import AiTermCore
 @MainActor
 final class AiTermApp: NSObject, NSApplicationDelegate {
     static func main() {
+        if WorkerGuardEntry.runIfRequested() { return }
         let app = NSApplication.shared
         Appearance.apply()
         #if DEBUG

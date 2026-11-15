@@ -76,7 +76,7 @@ import Testing
         let explicit = await world.call(run.id, "open_tab", Self.arguments(key: "explicit", agent: "claude", model: model)
             .adding("reasoning", "medium"))
         #expect(explicit.value?["reasoning"] == "medium")
-        let commands = world.daemon.requests("tab.create").compactMap { $0.params["agentCommand"] as? String }
+        let commands = try world.daemon.requests("tab.create").compactMap { try guardedWorkerCommand($0.params["agentCommand"] as? String) }
         #expect(commands.contains { $0.contains("--effort high") })
         #expect(commands.contains { $0.contains("--effort medium") })
     }
@@ -102,7 +102,7 @@ import Testing
         #expect(request.params["tabKey"] as? String == "review")
         #expect(request.params["background"] as? Bool == true)
         let file = TabOpener.promptFile(for: "review")
-        #expect(request.params["agentCommand"] as? String
+        #expect(try guardedWorkerCommand(request.params["agentCommand"] as? String)
                 == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-mini \"$(command cat .aiterm/\(file))\"")
         let prompt = try String(contentsOfFile: task.worktreePath + "/.aiterm/" + file, encoding: .utf8)
         #expect(prompt == WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + TabOpener.sharedLine + "\n\n" + brief)
@@ -117,7 +117,7 @@ import Testing
     @Test func aShortBriefLaunchesSafelyWithTheFullWorkerPreamble() async throws {
         let (world, run, task) = try makeWorld()
         #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "claude", model: "claude-named")).value?["state"] == "opened")
-        let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
+        let command = try #require(try guardedWorkerCommand(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String))
         let prompt = TabOpener.prompt(branch: task.branch, brief: "Write the tests.")
         #expect(prompt.contains("Inventories, audits and lists go in your final message, never in a new file in the repository."))
         #expect(prompt.hasPrefix(WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + TabOpener.sharedLine + "\n\n"))

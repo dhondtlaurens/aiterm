@@ -65,7 +65,8 @@ final class TabOpener {
         guard !isStopped, let found = record(id), found.tab.launch == attempt, found.tab.sessionId == nil, Self.holds(found.task, in: state),
               let window = found.task.windowId, let daemon = daemon() else { return Self.outcome(of: record(id)?.tab) }
         let task = found.task, tab = found.tab
-        let worktree = task.worktreePath, git = ports.git
+        let worktree = task.worktreePath, git = ports.git, home = ports.home, guardExecutable = ports.workerGuardExecutable
+        let remote = state.project(id: task.projectId)?.remoteUrl
         let run = task.operated.flatMap { state.run(id: $0.runId) }
         let review = run?.taskSettings.review
         // Built here, unused by a review tab: `prompt(branch:brief:)` needs the main actor, the review's SHA the background.
@@ -84,8 +85,11 @@ final class TabOpener {
                 } else {
                     prompt = workerPrompt
                 }
-                return try AgentCommand.build(agent: tab.agent, model: tab.model, reasoning: tab.reasoning, prompt: prompt, worktreePath: worktree,
-                                              git: git, operated: true, readOnly: reviewing, promptFile: file)
+                let command = try AgentCommand.build(agent: tab.agent, model: tab.model, reasoning: tab.reasoning, prompt: prompt, worktreePath: worktree,
+                                                     git: git, operated: true, readOnly: reviewing, promptFile: file)
+                var worker = task; worker.agent = tab.agent
+                return try WorkerGuardLaunch.command(command, task: worker, remote: remote, home: home,
+                                                     executable: guardExecutable, git: git, slot: id.key)
             }
             // The await has passed: the task may have been taken over or ended, its window closed, or its broadcast paused.
             guard !isStopped, let now = record(id), now.tab.launch == attempt, now.tab.sessionId == nil, Self.holds(now.task, in: state),

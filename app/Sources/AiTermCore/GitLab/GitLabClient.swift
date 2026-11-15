@@ -54,6 +54,14 @@ public struct GitLabClient: HostRepository {
         return base
     }
 
+    /// Read before a worker pushes, so a renamed default is never inferred from a stale local ref.
+    public func defaultBranch() async throws -> String {
+        struct Metadata: Decodable { var defaultBranch: String }
+        let branch = try await get(Metadata.self, path: boundPath, notFound: .projectNotFound(project)).defaultBranch
+        guard !branch.isEmpty else { throw GitLabError.decoding }
+        return branch
+    }
+
     public func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitLab, host: Self.base(config.hostURL), token: config.token) {
             try await Self.testConnection(config: config, session: session)

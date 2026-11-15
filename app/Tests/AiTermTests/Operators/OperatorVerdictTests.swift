@@ -202,7 +202,7 @@ import Testing
         _ = try git.run(["commit", "--allow-empty", "-m", "Detached HEAD differs"], in: task.worktreePath)
         let tab = try #require(world.task(task.id)?.operated?.extraTabs.first)
         #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)
-        let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
+        let command = try #require(try guardedWorkerCommand(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String))
         let prompt = try String(contentsOfFile: task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: tab.key), encoding: .utf8)
         #expect(prompt.hasPrefix("Check correctness with /review."))
         #expect(prompt.contains(sha) && prompt.contains(task.branch))
@@ -228,7 +228,7 @@ import Testing
         let (world, _, task) = try OperatorVerdictFixtures.make(brief: "")
         let tab = try #require(world.task(task.id)?.operated?.extraTabs.first)
         #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)
-        let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
+        let command = try #require(try guardedWorkerCommand(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String))
         let file = task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: tab.key)
         // AiTerm's lines alone are too long to type, so even a review with no brief reads its prompt file.
         #expect(command.contains("$(command cat"))
@@ -246,7 +246,7 @@ import Testing
         } }
         let tab = try #require(world.task(task.id)?.operated?.extraTabs.first)
         #expect(await world.controller.tabs.open(.init(task: task.id, key: tab.key), attempt: tab.launch) == .opened)
-        let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
+        let command = try #require(try guardedWorkerCommand(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String))
         #expect(command.contains("$(command cat"))
         let prompt = try String(contentsOfFile: task.worktreePath + "/.aiterm/" + TabOpener.promptFile(for: tab.key), encoding: .utf8)
         #expect(!prompt.contains("Legacy instructions"))
