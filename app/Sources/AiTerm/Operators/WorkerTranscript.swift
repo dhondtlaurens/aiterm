@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Synchronization
 import AiTermCore
 
@@ -39,7 +40,10 @@ enum WorkerTranscript {
     }
 
     /// The newest reply in the file's last `tailBytes`, read from the end.
-    struct Reply: Sendable { let text: String; let identity: Int }
+    struct Reply: Sendable {
+        let text: String; let identity: Int; let fingerprint: String
+        init(text: String, identity: Int, fingerprint: String = "") { self.text = text; self.identity = identity; self.fingerprint = fingerprint }
+    }
 
     static func lastMessage(in file: URL, agent: AgentKind) -> String? { lastReply(in: file, agent: agent)?.text }
 
@@ -63,7 +67,7 @@ enum WorkerTranscript {
         for line in lines.reversed() {
             guard let record = try? decoder.decode(JSONValue.self, from: Data(line.utf8)),
                   let text = agent == .codex ? codexReply(record) : claudeReply(record), !text.isEmpty else { continue }
-            return TailRead(reply: Reply(text: text, identity: line.hashValue))
+            return TailRead(reply: Reply(text: text, identity: line.hashValue, fingerprint: SHA256.hash(data: Data(line.utf8)).map { String(format: "%02x", $0) }.joined()))
         }
         return TailRead(reply: nil)
     }

@@ -12,10 +12,10 @@ import AiTermCore
     }
     enum Verdict: Equatable, Sendable { case agreed(String), critique(String), person(String), unavailable(String) }
     struct Ports {
-        var oracleEnabled: () -> Bool
-        var question: (UUID, String) -> Question?
-        var oracle: (Input) async throws -> Verdict
-        var deliver: (TaskItem, Question, String) async throws -> Void
+        var oracleEnabled: @MainActor () -> Bool
+        var question: @MainActor (UUID, String) -> Question?
+        var oracle: @MainActor (Input) async throws -> Verdict
+        var deliver: @MainActor (TaskItem, Question, String) async throws -> Void
     }
     private let workspace: WorkspaceStore
     private let journal: SignalJournal

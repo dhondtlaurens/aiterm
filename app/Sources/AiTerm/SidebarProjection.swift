@@ -15,6 +15,8 @@ import AiTermCore
 @Observable
 final class SidebarProjection {
     /// The list's top level, in the order it is drawn: projects with their rows, and dividers.
+    private(set) var signalOperator = SignalOperatorRowValue.empty
+    private(set) var signalSections: [SignalSection] = []
     private(set) var entries: [SidebarEntry] = []
     /// The projects of `entries`.
     private(set) var sections: [ProjectSection] = []
@@ -90,6 +92,8 @@ final class SidebarProjection {
     /// Everything the rows are made of. Not the whole workspace: `sidebarFrame`, the last-used agents and models, and
     /// each task's remembered conversations are saved with the rows but drawn by none of them.
     private struct Inputs: Equatable {
+        var operatorRow: SignalOperatorRowValue
+        var signals: [Signal]
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         /// What each of the board's tasks' Claude workers runs now, which `sessions` leaves out: read from every tab only
@@ -128,7 +132,7 @@ final class SidebarProjection {
     func refresh() -> Bool {
         let state = workspace.state, shown = boardShown()
         let liveModels = shown ? state.activeRun.map { BroadcastBoard.liveModels(of: $0, state: state, sessions: live.sessions) } : nil
-        let next = Inputs(items: state.items, tasks: state.tasks.map(Self.drawn), terminals: state.terminals, sessions: live.rowSessions,
+        let next = Inputs(operatorRow: .make(state: state, sessions: live.rowSessions), signals: state.signals, items: state.items, tasks: state.tasks.map(Self.drawn), terminals: state.terminals, sessions: live.rowSessions,
                           liveModels: liveModels ?? [:], modelLabels: shown ? modelLabels : [:],
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
@@ -139,6 +143,7 @@ final class SidebarProjection {
         inputs = next
         derivations += 1
         if (shown && previous?.boardShown != true) || (next.labelsWanted && previous?.labelsWanted != true) { readModelLabels() }
+        if next.operatorRow != signalOperator { signalOperator = next.operatorRow }
         if next.acting != acting { acting = next.acting }
         if next.runs != previous?.runs {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -157,9 +162,12 @@ final class SidebarProjection {
                                 liveModels: next.liveModels, modelLabels: next.modelLabels)
         }
         if board != self.board { self.board = board }
-        let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
+        let allEntries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
                                            projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks,
                                            pass: pass)
+        let signals = SignalSidebar(state: state, entries: allEntries)
+        if signals.signals != signalSections { signalSections = signals.signals }
+        let entries = signals.projects
         // Rebuilt only when their own list changed, since most derivations are for a status; and
         // written only when the lookup differs, which a reordered list leaves as it was.
         if next.tasks != previous?.tasks {

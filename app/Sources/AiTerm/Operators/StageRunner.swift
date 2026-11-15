@@ -5,10 +5,10 @@ import AiTermCore
 /// every await is followed by an ownership check, so Take Over invalidates late completions.
 @MainActor final class StageRunner {
     struct Ports {
-        var workerIsWorking: (UUID) -> Bool
-        var prepare: (TaskItem, Signal) async throws -> TaskItem
-        var launch: (TaskItem, String) async throws -> String
-        var restore: (TaskItem) async throws -> TaskItem
+        var workerIsWorking: @MainActor (UUID) -> Bool
+        var prepare: @MainActor (TaskItem, Signal) async throws -> TaskItem
+        var launch: @MainActor (TaskItem, String) async throws -> String
+        var restore: @MainActor (TaskItem) async throws -> TaskItem
     }
     private let workspace: WorkspaceStore
     private let journal: SignalJournal
@@ -114,10 +114,24 @@ import AiTermCore
             throw ActionUnavailable("The task is no longer the Operator’s.")
         }
         let next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: ports.workerIsWorking(id))
-        workspace.mutate { $0.updateSignalTask(id) { $0 = next } }
+        let configuration = next.configuration ?? workspace.state.signal(id: next.signal)
+        workspace.mutate { state in
+            state.updateSignalItem(id) { task in
+                task.signalTask = next
+                if next.phase == .launching, let configuration {
+                    if configuration.agents.count == 1, let choice = configuration.agents.first {
+                        task.agent = choice.agent; task.model = choice.model; task.reasoning = choice.reasoning
+                    } else {
+                        task.signalTask?.phase = .blocked
+                        task.signalTask?.blockedReason = "Choose a permitted agent and model for this stage."
+                    }
+                }
+            }
+        }
         guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }
         try await journal.append(.ours("Stage \(record.stage) left working."), task: id)
-        if next.phase == .launching { await run(id) }
+        if workspace.state.signalItem(id: id)?.signalTask?.phase == .launching { await run(id) }
+        else if workspace.state.signalItem(id: id)?.signalTask?.phase == .blocked { changed(id, "This stage needs an agent choice.") }
     }
     private func holds(_ claim: SignalClaim, generation expected: UUID) -> Bool {
         !isStopped && generation == expected && workspace.state.operatorSession?.paused != true

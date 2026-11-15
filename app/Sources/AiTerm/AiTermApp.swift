@@ -150,7 +150,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "New Task…", action: #selector(newTask), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "New Review…", action: #selector(newReview), keyEquivalent: "r")
         fileMenu.addItem(withTitle: "New Terminal…", action: #selector(newTerminal), keyEquivalent: "t")
-        fileMenu.addItem(withTitle: "New Broadcast…", action: #selector(newBroadcast), keyEquivalent: "b")
+        fileMenu.addItem(withTitle: "New Signal…", action: #selector(newSignal), keyEquivalent: "s")
         fileItem.submenu = fileMenu
         // The standard Edit menu: without it the app has no Cut/Copy/Paste/Undo key equivalents,
         // so the text fields in the New Task and Settings sheets could not be edited normally.
@@ -202,6 +202,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func newTask() { if let project = controller.targetProject { controller.sheets.presentNewTask(project: project) } }
     @objc func newReview() { if let project = controller.targetProject { controller.sheets.presentNewReview(project: project) } }
     @objc func newTerminal() { if let project = controller.targetProject { controller.sheets.presentNewTerminal(project: project) } }
+    @objc func newSignal() { controller.presentNewSignal() }
     @objc func newBroadcast() { controller.presentNewBroadcast() }
     @objc func addProject() { Task { await controller.projects.addProject() } }
     @objc func addDivider() { controller.sheets.presentNewDivider() }
@@ -232,6 +233,7 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(openSettings): return controller.canPresentSettings
         case #selector(newTask), #selector(newReview): return controller.canCreateTask
         case #selector(newTerminal): return controller.canCreateTerminal
+        case #selector(newSignal): return controller.canPresentNewSignal
         case #selector(newBroadcast): return controller.canPresentNewBroadcast
         case #selector(addProject), #selector(addDivider): return controller.canUseFileMenu
         case #selector(zoomIn): return zoomable && controller.preferences.interfaceSize.bigger != nil

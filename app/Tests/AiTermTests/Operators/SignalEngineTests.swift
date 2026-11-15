@@ -5,6 +5,19 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite struct SignalEngineTests {
+    @Test func differentQueriesInOnePassGiveTheSharedItemToTheOldestSignal() throws {
+        var world = SignalWorld()
+        let oldest = world.signal(age: -10), newer = world.signal(age: 10)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let router = ItemRouter(workspace: h.workspace, now: { world.now })
+        let read = SignalRead(items: [world.ticket()], complete: true)
+        let ids = router.apply(observations: [.init(signals: [newer], read: read), .init(signals: [oldest], read: read)])
+        let task = try #require(h.workspace.state.tasks.first)
+        #expect(ids == [task.id] && h.workspace.state.tasks.count == 1)
+        #expect(task.signalTask?.signal == oldest)
+        #expect(task.signalTask?.pendingStages.map(\.signal) == [newer])
+    }
+
     @Test func aCompleteMatchSavesItsStageBeforePreparingAndLaunchingAWorker() async throws {
         var world = SignalWorld()
         let signal = world.signal()
@@ -57,6 +70,28 @@ import Testing
         #expect(h.workspace.state.tasks.count == 1)
         #expect(h.workspace.state.task(id: id)?.signalTask?.signal == second)
         #expect(h.workspace.state.task(id: id)?.signalTask?.canRunThen == false)
+    }
+
+    @Test(arguments: [false, true]) func aPendingStageUsesItsOwnAgentRows(multiple: Bool) async throws {
+        var world = SignalWorld(); let first = world.signal()
+        let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        let second = world.signal(name: "Review", agents: multiple ? [SignalWorld.agent, codex] : [codex])
+        let id = world.workingTask(signal: first), next = world.state.signal(id: second)!
+        let stage = SignalStage(signal: second, item: world.ticket().item, matchedAt: world.now, configuration: next, prompt: "Review.")
+        world.state.updateSignalTask(id) { $0.pendingStages = [stage] }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var agents: [AgentKind] = []
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task },
+            launch: { task, _ in agents.append(task.agent); return "worker" }, restore: { $0 }))
+        try await runner.finish(id, action: .finish(.operatorJudges))
+        if multiple {
+            #expect(agents.isEmpty)
+            #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)
+            try await runner.resume(id, agent: codex)
+        }
+        #expect(agents == [.codex])
+        #expect(h.workspace.state.task(id: id)?.agent == .codex)
     }
 
     @Test func partialReadsAndUnmappedTicketsNeverCreateAWorkerIntent() throws {

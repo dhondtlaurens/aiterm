@@ -263,6 +263,10 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         await app.send("[]")
         errors[protocol.PROTOCOL] = await app.first(mark, lambda m: "error" in m and m.get("id") is None)
 
+        # Additive signal-stage handover: the same checked delivery envelope, no sibling closes.
+        replies["session.closeIdle"] = await app.call("session.closeIdle", {
+            "sessionId": worker, "ownership": 1, "conversation": "c-wire"})
+
         mark = app.mark()
         await iterm.disconnect()
         events[protocol.ITERM_DISCONNECTED] = await app.event(protocol.ITERM_DISCONNECTED, mark)

@@ -551,7 +551,7 @@ import Testing
 @MainActor @Suite(.blocking) struct BackpackAppControllerTests {
     /// The sheet's actual popup follows workspace broadcasts, including one starting after the
     /// sheet opens. Ending a broadcast enables the option again and Connect carries that choice.
-    @Test func unpluggedChoicesFollowTheLiveBroadcast() async throws {
+    @Test func unpluggedChoicesFollowEnabledSignals() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let fake = FakeBackpack()
@@ -572,11 +572,11 @@ import Testing
         let agentsDone = try #require(button.itemArray.first { $0.title == "When agents are done" })
         #expect(agentsDone.isEnabled)
 
-        let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run] }
+        var world = SignalWorld(); let signal = world.signal()
+        controller.workspace.mutate { $0.signals = world.state.signals }
         settle(host)
         #expect(!agentsDone.isEnabled)
-        #expect(model.until == .turnedOff, "a broadcast starting under the sheet falls back to Never")
+        #expect(model.until == .turnedOff, "a signal switching on under the sheet falls back to Never")
         #expect(button.titleOfSelectedItem == "Never")
         model.until = .agentsStop
         #expect(model.canConnect)
@@ -585,7 +585,9 @@ import Testing
         #expect(model.backpack.state.until == .turnedOff)
         await model.backpack.turnOff()
 
-        controller.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        controller.workspace.mutate { state in
+            if let index = state.signals.firstIndex(where: { $0.id == signal }) { state.signals[index].enabled = false }
+        }
         settle(host)
         let refreshedButton = try #require(host.descendants(NSPopUpButton.self).last)
         #expect(refreshedButton.itemArray.first { $0.title == "When agents are done" }?.isEnabled == true)

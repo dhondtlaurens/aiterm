@@ -6,28 +6,37 @@ import AiTermCore
 @MainActor final class ItemRouter {
     private let workspace: WorkspaceStore
     private let now: () -> Date
-    private let workerIsWorking: (UUID) -> Bool
+    private let workerIsWorking: @MainActor (UUID) -> Bool
     var changed: (UUID, String) -> Void = { _, _ in }
-    init(workspace: WorkspaceStore, now: @escaping () -> Date, workerIsWorking: @escaping (UUID) -> Bool = { _ in false }) {
+    init(workspace: WorkspaceStore, now: @escaping () -> Date, workerIsWorking: @escaping @MainActor (UUID) -> Bool = { _ in false }) {
         self.workspace = workspace; self.now = now; self.workerIsWorking = workerIsWorking
     }
     @discardableResult func apply(signals ids: [UUID], read: SignalRead) -> [UUID] {
-        guard read.complete, workspace.canChangeWorkspace else { return [] }
+        apply(observations: [SignalObservation(signals: ids, read: read)])
+    }
+    @discardableResult func apply(observations: [SignalObservation]) -> [UUID] {
+        let complete = observations.filter { $0.read.complete }
+        guard !complete.isEmpty, workspace.canChangeWorkspace else { return [] }
         let at = now(), state = workspace.state
+        let ids = Set(complete.flatMap(\.signals))
         let signals = state.signals.filter { ids.contains($0.id) && $0.isRunnable }
-        let items = Dictionary(read.items.compactMap { item in item.item.identity.map { ($0, item) } }, uniquingKeysWith: { first, _ in first })
-        let matches = signals.flatMap { signal in read.items.map { item in
-            SignalMatch(signal: signal.id, item: item.item,
-                        project: ItemProjectMapper.projects(for: item.item, in: state.projects).first?.id,
-                        matchedAt: at, branch: item.mergeRequest?.sourceBranch)
-        } }
+        let items = Dictionary(complete.flatMap { $0.read.items }.compactMap { item in item.item.identity.map { ($0, item) } },
+                               uniquingKeysWith: { first, _ in first })
+        let matches = complete.flatMap { observation in
+            signals.filter { observation.signals.contains($0.id) }.flatMap { signal in observation.read.items.map { item in
+                SignalMatch(signal: signal.id, item: item.item,
+                            project: ItemProjectMapper.projects(for: item.item, in: state.projects).first?.id,
+                            matchedAt: at, branch: item.mergeRequest?.sourceBranch)
+            } }
+        }
         let decisions = MatchDecision.decide(matches: matches, signals: signals, tasks: state.tasks + state.archive.map(\.task),
                                              projects: state.projects, seen: state.signalSeen, complete: true)
         var launches: [UUID] = [], events: [(UUID, String)] = []
         workspace.mutate { state in
-            if read.full {
-                for index in state.signalSeen.indices where ids.contains(state.signalSeen[index].signal) {
-                    if state.signalSeen[index].item.identity.map({ items[$0] == nil }) == true {
+            for observation in complete where observation.read.full {
+                let matching = Set(observation.read.items.compactMap { $0.item.identity })
+                for index in state.signalSeen.indices where observation.signals.contains(state.signalSeen[index].signal) {
+                    if state.signalSeen[index].item.identity.map({ !matching.contains($0) }) == true {
                         state.signalSeen[index].isMatching = false
                     }
                 }

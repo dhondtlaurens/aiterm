@@ -9,3 +9,8 @@ parity remains enabled. Names and other values retain the existing scripted capt
 Capture: from `daemon/`, `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py`.
 Then run the producer normally and the app's WireContractTests. No live account or iTerm2 is used.
 The separate frozen operator-current tool and workspace fixtures were not regenerated.
+
+Activation adds `session.closeIdle`, a generation- and conversation-checked idle worker handover.
+Only its new reply frame and the method manifest were captured; existing frames are unchanged.
+The scripted reply refuses unsent input. Delivery adapter tests separately prove safe closure,
+sibling preservation and refusal for work, ownership, conversation, typing and permission changes.

@@ -139,6 +139,10 @@ final class RecordingDaemon: DaemonCommands {
         return first
     }
 
+    func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
+        try await answer("session.closeIdle", ["sessionId": sessionId, "ownership": ownership, "conversation": conversation])
+        return Delivery(result: .delivered, reason: nil)
+    }
     func prompt(sessionId: String) async throws -> PromptKind? {
         try await answer("session.prompt", ["sessionId": sessionId])
         return prompts[sessionId]

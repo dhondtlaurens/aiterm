@@ -15,33 +15,8 @@ struct OperatorSidebarTests {
         return (host, window)
     }
 
-    @Test func theListLeadsWithTheOperatorHeadingAndItsBroadcast() throws {
-        let controller = AppController(preferences: .scratch())
-        try controller.workspace.load()
-        let (host, window) = hosted(controller)
-        defer { window.orderOut(nil) }
-        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
-        let list = try #require(host.firstDescendant(NSTableView.self))
-        // OPERATOR, PROJECTS, the empty block.
-        #expect(list.numberOfRows == 3)
-        #expect(controller.rows.broadcast == nil, "no broadcast: the heading offers its \"+\"")
-
-        let run = OperatorUIFixtures.run()
-        controller.workspace.mutate { $0.runs = [run] }
-        // OPERATOR, the broadcast's lead row, PROJECTS folded: no empty block.
-        settle(host, describing: "the broadcast's group") { list.numberOfRows == 3 && controller.rows.projectsFolded }
-        #expect(controller.rows.broadcast != nil, "one broadcast at a time: the \"+\" goes")
-        #expect(controller.rows.broadcast?.operatorRow.title == run.name, "the lead row is the broadcast")
-
-        // Folded, the Operator's section gives way to the projects: OPERATOR, PROJECTS, the empty block.
-        controller.projects.toggleFolded(run: run.id)
-        settle(host, describing: "the projects open") { list.numberOfRows == 3 && !controller.rows.projectsFolded }
-        controller.projects.toggleFolded(run: run.id)
-        settle(host, describing: "the Operator open again") { list.numberOfRows == 3 && controller.rows.projectsFolded }
-
-        controller.workspace.mutate { $0.runs[0].state = .stopped }
-        settle(host, describing: "the group gone with the broadcast") { list.numberOfRows == 3 }
-        #expect(controller.rows.broadcast == nil, "and the \"+\" returns")
+    @Test func theListLeadsWithThePermanentOperatorAndSignals() throws {
+        try SignalSidebarTests().thePermanentRowAndSignalHeadersLeaveProjectsVisible()
     }
 
     @Test func theRowIsReadOutAsItIsDrawn() throws {

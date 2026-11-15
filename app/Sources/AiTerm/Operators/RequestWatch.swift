@@ -15,10 +15,10 @@ import AiTermCore
         }
     }
     struct Ports {
-        var workerIsWorking: (UUID) -> Bool
-        var read: (TaskItem) async throws -> Snapshot
-        var oracleMerge: (TaskItem, Snapshot) async throws -> Bool
-        var merge: (TaskItem, Snapshot) async throws -> Void
+        var workerIsWorking: @MainActor (UUID) -> Bool
+        var read: @MainActor (TaskItem) async throws -> Snapshot
+        var oracleMerge: @MainActor (TaskItem, Snapshot) async throws -> Bool
+        var merge: @MainActor (TaskItem, Snapshot) async throws -> Void
     }
     private let workspace: WorkspaceStore
     private let stages: StageRunner
@@ -61,7 +61,7 @@ import AiTermCore
     private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, signal: Signal) async throws {
         var snapshot = first
         if let reference = snapshot.reference { workspace.mutate { $0.updateSignalTask(task.id) { $0.watchedRequest = reference } } }
-        let merges = signal.finish.doneWhen == .merged || signal.finish.mergesWhenReady
+        let merges = signal.finish.mergesWhenReady
         if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
             let roundID = UUID().uuidString, generation = workspace.state.operatorSession?.generation
             let round = ChallengeRecord(id: roundID, tool: "merge_when_ready", kind: .veto,

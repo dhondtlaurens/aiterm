@@ -411,6 +411,8 @@ import Testing
     @Test func aNotificationsBoardWaitsForTheRenameSheetToDismiss() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
+        // Exercise the retired owner directly; the live app no longer installs its board routing.
+        controller.sheets.onDismiss = { [weak controller] in controller?.presentRequestedBoard() }
         try controller.workspace.load()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }
@@ -430,6 +432,8 @@ import Testing
     @Test func aDeferredBoardForARemovedRunClearsSilently() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
+        // Exercise the retired owner directly; the live app no longer installs its board routing.
+        controller.sheets.onDismiss = { [weak controller] in controller?.presentRequestedBoard() }
         try controller.workspace.load()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }

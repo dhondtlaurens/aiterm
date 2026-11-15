@@ -423,6 +423,8 @@ struct BroadcastBoardSheetTests {
     @Test func aNotificationsClickOpensTheBoard() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
+        // The legacy board owner is explicit here, never installed by the live composition.
+        controller.watchBoardRequests()
         try controller.workspace.load()
         let run = OperatorUIFixtures.run(state: .complete)
         controller.workspace.mutate { $0.runs = [run] }
@@ -438,6 +440,8 @@ struct BroadcastBoardSheetTests {
     @Test func aQuestionsClickOpensTheBoardOnIt() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
+        // The legacy board owner is explicit here, never installed by the live composition.
+        controller.watchBoardRequests()
         try controller.workspace.load()
         var run = OperatorUIFixtures.run()
         run.questions = [OperatorUIFixtures.question("Keep the access gate for admins?", id: "t2-gate")]

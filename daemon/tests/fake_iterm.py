@@ -134,6 +134,15 @@ class FakeIterm:
         for sid in closed:
             await self._announce_closed(sid)
 
+    async def close_session(self, session_id: str) -> None:
+        session = self._session(session_id)
+        window = self._window(session.window_id)
+        window["sessions"].remove(session_id)
+        self.sessions.pop(session_id)
+        if not window["sessions"]:
+            self.windows.pop(session.window_id)
+        await self._announce_closed(session_id)
+
     async def send_text(self, session_id: str, text: str) -> None:
         if self.send_error is not None:
             raise self.send_error

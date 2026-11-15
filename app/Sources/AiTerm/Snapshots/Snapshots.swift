@@ -45,7 +45,7 @@ enum Snapshots {
     static var regressionSet: [Snapshot] {
         SidebarSnapshots.rows + SheetSnapshots.all + SettingsSnapshots.all + [SidebarSnapshots.marks]
             + SidebarSnapshots.states + OperatorSnapshots.all + BroadcastSetupSnapshots.all + SheetSnapshots.initialization
-            + SidebarSnapshots.backgroundWorkCards
+            + SidebarSnapshots.backgroundWorkCards + SignalSnapshots.all + SignalSidebarSnapshots.all
     }
 
     static func runIfRequested() -> Bool {

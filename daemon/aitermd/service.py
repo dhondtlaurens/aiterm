@@ -161,6 +161,7 @@ class Service:
         r("sessions.setTitles", self.windows.set_titles)
         r("sessions.markSeen", self._h_mark_seen)
         r("session.deliver", self._h_deliver)
+        r("session.closeIdle", self._h_close_idle)
         r("session.prompt", self._h_prompt)
         r("session.dismissStartup", self._h_dismiss_startup)
         r("session.setOwnership", self._h_set_ownership)
@@ -226,6 +227,11 @@ class Service:
         result = await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)
         if command is not None and result.result == "delivered":
             await self.publisher.session_changed(self.slash_commands.delivered(session_id, command))
+        return result.to_json()
+
+    async def _h_close_idle(self, p: Any) -> dict[str, Any]:
+        result = await self.deliverer.close_idle(param(p, "sessionId", str), param(p, "ownership", int),
+                                                 param(p, "conversation", str))
         return result.to_json()
 
     async def _h_prompt(self, p: Any) -> dict[str, Any]:

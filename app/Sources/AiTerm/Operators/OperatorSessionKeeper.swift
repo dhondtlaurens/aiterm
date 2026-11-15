@@ -5,11 +5,11 @@ import AiTermCore
 /// same session generation; its I/O port adopts the window and token already prepared for it.
 @MainActor @Observable final class OperatorSessionKeeper {
     struct Ports {
-        var canOpen: () -> Bool
-        var windowIsOpen: (OperatorSession) -> Bool
-        var close: (String) async throws -> Void
-        var revoke: (UUID) async throws -> Void
-        var open: (OperatorSession, OperatorDigest) async throws -> String
+        var canOpen: @MainActor () -> Bool
+        var windowIsOpen: @MainActor (OperatorSession) -> Bool
+        var close: @MainActor (String) async throws -> Void
+        var revoke: @MainActor (UUID) async throws -> Void
+        var open: @MainActor (OperatorSession, OperatorDigest) async throws -> String
     }
     private let workspace: WorkspaceStore
     private let now: () -> Date

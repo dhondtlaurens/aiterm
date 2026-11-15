@@ -87,6 +87,10 @@ final class SheetCoordinator {
         sheet = kind
     }
 
+    func present(signal: SignalModel) {
+        guard canChangeWorkspace, sheet == nil else { return }; present(.signal(signal))
+    }
+
     // -- sheets that open at once -------------------------------------------------------
     /// The sheet that edits the project's linked Jira projects, opened on the list as it is now.
     func presentJiraProjects(for project: Project) {

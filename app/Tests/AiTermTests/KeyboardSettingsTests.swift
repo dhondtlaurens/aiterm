@@ -76,10 +76,10 @@ import Testing
         #expect(Self.keys(of: try item("New Task…")) == ["⌘", "N"])
         #expect(Self.keys(of: try item("New Review…")) == ["⌘", "R"])
         #expect(Self.keys(of: try item("New Terminal…")) == ["⌘", "T"])
-        #expect(Self.keys(of: try item("New Broadcast…")) == ["⌘", "B"])
+        #expect(Self.keys(of: try item("New Signal…")) == ["⌘", "S"])
         let fileMenu = try #require(menus.first { $0.title == "File" })
         #expect(fileMenu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
-            "Add Project…", "Add Divider…", "New Task…", "New Review…", "New Terminal…", "New Broadcast…",
+            "Add Project…", "Add Divider…", "New Task…", "New Review…", "New Terminal…", "New Signal…",
         ])
         #expect(Self.keys(of: try item("Hide AiTerm")) == ["⌘", "H"])
         #expect(Self.keys(of: try item("Hide Others")) == ["⌥", "⌘", "H"])

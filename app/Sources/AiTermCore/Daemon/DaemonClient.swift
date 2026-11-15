@@ -586,6 +586,10 @@ public final class DaemonClient: Sendable {
         try await request(.sessionDeliver, params: DeliverParams(sessionId: sessionId, text: text, ownership: ownership, wake: wake,
                                                                  worktree: worktree), as: Delivery.self)
     }
+    public func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
+        struct Params: Encodable { var sessionId: String; var ownership: Int; var conversation: String }
+        return try await request(.sessionCloseIdle, params: Params(sessionId: sessionId, ownership: ownership, conversation: conversation), as: Delivery.self)
+    }
     public func prompt(sessionId: String) async throws -> PromptKind? {
         try await promptDetails(sessionId: sessionId).kind
     }

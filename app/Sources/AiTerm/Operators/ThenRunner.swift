@@ -5,9 +5,9 @@ import AiTermCore
 /// queued work that arrived during preflight takes precedence and continues in the same task.
 @MainActor final class ThenRunner {
     struct Ports {
-        var workerIsWorking: (UUID) -> Bool
-        var archive: (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void
-        var remove: (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void
+        var workerIsWorking: @MainActor (UUID) -> Bool
+        var archive: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void
+        var remove: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void
     }
     private let workspace: WorkspaceStore
     private let journal: SignalJournal

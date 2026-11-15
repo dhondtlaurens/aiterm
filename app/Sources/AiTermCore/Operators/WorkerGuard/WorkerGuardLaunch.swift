@@ -25,10 +25,18 @@ public enum WorkerGuardLaunch {
             return "/bin/sh " + AgentCommand.shellQuote(script.path)
         }
     }
+    public static func recordedScope(task: UUID, home: URL, slot: String = "main") -> WorkerGuard.Scope? {
+        let file = folder(task: task, home: home, slot: slot).appendingPathComponent("scope.json")
+        guard case .bytes(let data) = RegularFile.read(file.path, limit: 65536) else { return nil }
+        return try? JSONDecoder().decode(WorkerGuard.Scope.self, from: data)
+    }
+    private static func folder(task: UUID, home: URL, slot: String) -> URL {
+        let key = slot == "main" ? slot : SHA256.hash(data: Data(slot.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        return AiTermPaths.supportDirectory(home: home).appendingPathComponent("workers/" + task.uuidString + "/" + key)
+    }
     public static func prepare(scope: WorkerGuard.Scope, home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                slot: String = "main", executable: URL) throws -> Prepared {
-        let key = slot == "main" ? slot : SHA256.hash(data: Data(slot.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
-        let folder = AiTermPaths.supportDirectory(home: home).appendingPathComponent("workers/" + scope.task.uuidString + "/" + key)
+        let folder = folder(task: scope.task, home: home, slot: slot)
         let manager = FileManager.default
         for path in [folder, folder.appendingPathComponent("bin"), folder.appendingPathComponent("hooks")] {
             try manager.createDirectory(at: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

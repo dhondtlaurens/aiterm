@@ -24,7 +24,7 @@ public enum OperatorCommand {
     /// the host: closing, editing, reviewing, approving and commenting. Pushes stay with `finish_task`.
     /// The gate refuses the same from the parsed words (`ShellGate.hardDenial`); these are Claude's
     /// backstop, for a command that reaches no gate because AiTerm isn't there.
-    public static let shellDenials = AgentCommand.operatedClaudeDenials.filter { $0 != "AskUserQuestion" } + [
+    public static let shellDenials = ["Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] + [
         "Bash(git commit:*)", "Bash(git * commit:*)", "Bash(git reset --hard:*)", "Bash(git checkout:*)", "Bash(git switch:*)",
         "Bash(git clean:*)", "Bash(git -C * checkout:*)", "Bash(git -C * reset:*)", "Bash(git -C * switch:*)", "Bash(git -C * clean:*)",
         "Bash(git -c * reset:*)", "Bash(git -c * checkout:*)", "Bash(git -c * switch:*)", "Bash(git -c * clean:*)",

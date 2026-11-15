@@ -21,6 +21,12 @@ public enum MatchDecision: Equatable, Sendable {
             let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt)
             if let task = tasks.first(where: { candidate in
                 if matchesItem(match.item, task: candidate) { return true }
+                // A real Jira read can bind an existing request/manual branch before that task
+                // has a JiraRef. The linked project and site must agree; a key in an arbitrary
+                // branch or on another Jira connection is not enough.
+                if candidate.jira == nil, case .ticket(let ticket) = match.item,
+                   TicketMergeRequests.jiraKey(in: candidate.branch) == ticket.key.uppercased(),
+                   ItemProjectMapper.projects(for: match.item, in: projects).contains(where: { $0.id == candidate.projectId }) { return true }
                 if let branch = match.branch, branch == candidate.branch,
                    case .mergeRequest(let request) = match.item,
                    projects.contains(where: { $0.id == candidate.projectId && $0.remoteUrl.flatMap(ItemRef.repository) == ItemRef.repository(request.remote) }) { return true }

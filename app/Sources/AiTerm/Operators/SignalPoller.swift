@@ -25,17 +25,19 @@ final class SignalPoller {
     private var loops: [String: PollLoop] = [:]
     private var progress: [String: Progress] = [:]
     private var generation = UUID()
+    var onPass: @MainActor ([SignalObservation]) -> Void = { _ in }
     var onRead: @MainActor ([UUID], SignalRead) -> Void = { _, _ in }
     var onFailure: @MainActor ([UUID], String) -> Void = { _, _ in }
 
     init(work: OperatorWork, automatic: Bool = true, now: @escaping @MainActor () -> Date = { Date() }) {
         self.work = work; self.automatic = automatic; self.now = now
     }
-    func replace(_ values: [Registration]) {
+    func replace(_ values: [Registration], refresh: Set<UUID> = []) {
         stop()
         registrations = values
         let keys = Set(values.map { $0.sourceHost + ":" + $0.readKey })
-        progress = progress.filter { keys.contains($0.key) }
+        let refreshed = Set(values.filter { refresh.contains($0.id) }.map { $0.sourceHost + ":" + $0.readKey })
+        progress = progress.filter { keys.contains($0.key) && !refreshed.contains($0.key) }
         for host in Set(values.map(\.sourceHost)) {
             passes[host] = TickPass(work: work)
             if automatic {
@@ -58,7 +60,11 @@ final class SignalPoller {
         let groups = Dictionary(grouping: registrations.filter { $0.sourceHost == host }, by: \.readKey)
         let firsts = groups.values.compactMap(\.first).sorted { $0.id.uuidString < $1.id.uuidString }
         let generation = generation
-        passes[host]?.run(firsts.map(\.id)) { [weak self] id in
+        var observations: [SignalObservation] = []
+        passes[host]?.run(firsts.map(\.id), finished: { [weak self] in
+            guard let self, self.generation == generation, !observations.isEmpty else { return }
+            self.onPass(observations)
+        }) { [weak self] id in
             guard let self, self.generation == generation, let registration = firsts.first(where: { $0.id == id }),
                   let sharing = groups[registration.readKey] else { return }
             let key = host + ":" + registration.readKey, at = self.now()
@@ -70,6 +76,7 @@ final class SignalPoller {
                 guard !Task.isCancelled, self.generation == generation else { return }
                 guard read.complete else { throw IncompleteRead("signal matches") }
                 self.progress[key] = Progress(cursor: read.cursor ?? at, lastFull: full ? at : before.lastFull, next: at.addingTimeInterval(60))
+                observations.append(SignalObservation(signals: sharing.map(\.id), read: read))
                 self.onRead(sharing.map(\.id), read)
             } catch {
                 guard !Task.isCancelled, self.generation == generation else { return }

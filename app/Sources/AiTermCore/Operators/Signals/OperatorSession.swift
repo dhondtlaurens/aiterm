@@ -1,6 +1,8 @@
 import Foundation
 
 public struct OperatorSession: Codable, Equatable, Sendable {
+    /// The sidebar row exists before any CLI or persisted session does.
+    public static let rowID = UUID(uuidString: "6AF39C02-7591-4EB4-9420-2D56565F9A1B")!
     public struct Question: Codable, Equatable, Identifiable, Sendable {
         public var id: String
         public var task: UUID?
@@ -12,6 +14,8 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         public var ownership: Int?
         public var tab: String?
         public var workerQuestion: String?
+        public var gate: GateRequest?
+        public var gateConsumedAt: Date?
         public init(id: String, task: UUID?, text: String, openedAt: Date, resolvedAt: Date? = nil) {
             self.id = id; self.task = task; self.text = text; self.openedAt = openedAt; self.resolvedAt = resolvedAt
         }

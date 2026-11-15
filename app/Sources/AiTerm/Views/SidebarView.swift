@@ -83,11 +83,16 @@ struct SidebarView: View {
     /// last. The heading is off the arrow path, as a divider is; the rest is on it, the Operator's row with an id of
     /// its own (`OperatorRow.id(of:)`), each task with its own.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
-        OperatorHeading(controller: controller).selectionDisabled()
-        if let broadcast = rows.broadcast, !broadcast.folded {
-            OperatorRowView(row: broadcast.operatorRow, controller: controller).tag(broadcast.operatorRow.id)
-            ForEach(broadcast.tasks) { row in
-                TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+        SignalOperatorHeading(controller: controller).selectionDisabled()
+        ForEach([rows.signalOperator]) { value in
+            SignalOperatorRow(value: value, controller: controller).tag(value.id)
+        }
+        ForEach(rows.signalSections) { section in
+            SignalHeader(section: section, controller: controller).selectionDisabled()
+            if !section.collapsed {
+                ForEach(section.tasks) { row in
+                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+                }
             }
         }
     }
@@ -96,12 +101,8 @@ struct SidebarView: View {
     /// entry's rows: what the list draws under the Operator's, and the snapshots stack.
     @ViewBuilder static func projectRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SidebarHeader(controller: controller).selectionDisabled()
-        if !rows.projectsFolded {
-            if !rows.hasProjects {
-                SidebarEmptyState(controller: controller).selectionDisabled()
-            }
-            ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
-        }
+        if !rows.hasProjects { SidebarEmptyState(controller: controller).selectionDisabled() }
+        ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
     }
 
     var body: some View {
@@ -459,6 +460,7 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
+                case .signal(let model): SignalSheet(model: model)
                 case .newBroadcast(let model): NewBroadcastSheet(model: model)
                 case .broadcastBoard(let id): BroadcastBoardHost(runId: id, controller: controller)
                 case .shelvedBroadcast(let id): BroadcastBoardHost(runId: id, source: .shelved, controller: controller)

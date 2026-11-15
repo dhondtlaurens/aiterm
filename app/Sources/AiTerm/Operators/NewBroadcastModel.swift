@@ -268,10 +268,7 @@ final class NewBroadcastModel: Identifiable {
     // -- step 3: agents ---------------------------------------------------------------
 
     /// One row of the Agents step, kept apart from its combination so it stays put while that is picked.
-    struct AgentRow: Identifiable, Equatable {
-        let id = UUID()
-        var choice: AgentChoice
-    }
+    typealias AgentRow = AgentChoiceRow
 
     /// The last broadcast's rows less those whose agent is no longer installed or whose model is no longer listed, each at
     /// a reasoning its model offers, alike rows once; with none of them, each installed agent at its Settings › Agents

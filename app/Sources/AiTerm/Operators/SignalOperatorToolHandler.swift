@@ -5,13 +5,14 @@ import AiTermCore
 /// effect receives a live authority check; an uncertain delivery is never blindly replayed.
 @MainActor final class SignalOperatorToolHandler {
     struct Ports {
-        var oracleEnabled: () -> Bool
-        var workerQuestion: (UUID, String) -> Bool
-        var read: (TaskItem) async throws -> JSONValue
+        var oracleEnabled: @MainActor () -> Bool
+        var workerQuestion: @MainActor (UUID, String) -> Bool
+        var read: @MainActor (TaskItem) async throws -> JSONValue
         var message: @MainActor (TaskItem, String, String, @escaping @MainActor () -> Bool) async throws -> Void
         var openTab: @MainActor (TaskItem, String, AgentChoice, String, String, @escaping @MainActor () -> Bool) async throws -> JSONValue
-        var jiraSearch: (String) async throws -> JSONValue
-        var oracle: (TaskItem?, String, String) async throws -> String
+        var jiraSearch: @MainActor (String) async throws -> JSONValue
+        var oracle: @MainActor (TaskItem?, String, String) async throws -> String
+        var actionsAllowed: @MainActor () -> Bool = { true }
     }
     let workspace: WorkspaceStore
     let stages: StageRunner
@@ -104,7 +105,7 @@ import AiTermCore
         guard let session = workspace.state.operatorSession, session.id.uuidString == request.runId,
               session.generation == request.generation, !session.startingFresh else { throw ToolRefusal("This Operator session is no longer current.") }
         if mutating {
-            guard workspace.canChangeWorkspace, !session.paused, !Task.isCancelled else { throw ToolRefusal("The Operator is paused or the workspace is unavailable.") }
+            guard ports.actionsAllowed(), workspace.canChangeWorkspace, !session.paused, !Task.isCancelled else { throw ToolRefusal("The Operator is paused or the workspace is unavailable.") }
         }
     }
     private func remember(_ result: JSONValue, key: String, arguments: String) throws {

@@ -46,7 +46,7 @@ enum KeyBindings {
             KeyBinding(action: "New Task…", keys: ["⌘", "N"]),
             KeyBinding(action: "New Review…", keys: ["⌘", "R"]),
             KeyBinding(action: "New Terminal…", keys: ["⌘", "T"]),
-            KeyBinding(action: "New Broadcast…", keys: ["⌘", "B"]),
+            KeyBinding(action: "New Signal…", keys: ["⌘", "S"]),
             KeyBinding(action: "Zoom In", keys: ["⌘", "+"]),
             KeyBinding(action: "Zoom Out", keys: ["⌘", "−"]),
             KeyBinding(action: "Actual Size", keys: ["⌘", "0"]),

@@ -5,6 +5,23 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalPollerTests {
+    @Test func differentQueriesPublishOneCompletePassAndAnEditForcesACurrentFullRead() async {
+        let reader = SignalPollReader(), work = OperatorWork(), clock = SignalPollClock()
+        let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
+        let a = UUID(), b = UUID()
+        var batches: [[UUID]] = []
+        poller.onPass = { batches.append($0.flatMap(\.signals)) }
+        let registrations: [SignalPoller.Registration] = [
+            .init(id: a, sourceHost: "jira", readKey: "a", isJira: true, reader: reader),
+            .init(id: b, sourceHost: "jira", readKey: "b", isJira: true, reader: reader)]
+        poller.replace(registrations); poller.tick(); await work.settled()
+        #expect(batches.count == 1 && Set(batches[0]) == Set([a, b]))
+        poller.replace(registrations, refresh: [a]); poller.tick(); await work.settled()
+        #expect(await reader.calls.map(\.full) == [true, true, true], "Save starts current matches even before the minute is up.")
+        #expect(batches.count == 2 && batches.last == [a])
+        poller.stop()
+    }
+
     @Test func equalQueriesShareAReadAndJiraSweepsEveryTenMinutes() async {
         let clock = SignalPollClock(), reader = SignalPollReader(), work = OperatorWork()
         let poller = SignalPoller(work: work, automatic: false, now: { clock.date })

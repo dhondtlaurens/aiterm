@@ -22,7 +22,7 @@ import Testing
 
         /// Every row on screen, by id: two project headers, two terminals and seven tasks.
         var allRows: Set<UUID> {
-            Set(controller.state.projects.map(\.id) + tasks.map(\.id) + terminals.map(\.id))
+            Set(controller.state.projects.map(\.id) + tasks.map(\.id) + terminals.map(\.id) + [OperatorRow.id(of: OperatorSession.rowID)])
         }
 
         /// Turns the run loop until SwiftUI has drawn what the change asked for, then a little
@@ -54,10 +54,10 @@ import Testing
         controller.focus.browse(.task(tasks[0].id))
 
         let counter = RowBodyCounter()
-        let host = testHost(SidebarView(controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: 340, height: 700))
+        let host = testHost(SidebarView(controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: 340, height: 760))
         let window = testWindow(hosting: host, styleMask: [.titled])
         // OPERATORS, header, two project rows, two terminals and seven tasks.
-        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 13 } ?? false }
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 14 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
         let sidebar = Sidebar(controller: controller, counter: counter, host: host, window: window, list: list,
                               project: projects[0], tasks: tasks, terminals: terminals)
@@ -70,6 +70,7 @@ import Testing
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
         #expect(sidebar.window.makeFirstResponder(sidebar.list))
+        sidebar.settleRows()
         sidebar.counter.reset()
 
         let arrow = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
@@ -100,31 +101,23 @@ import Testing
     /// A change to the broadcast redraws its group's rows alone, and of those only what draws it: the Operator's
     /// own question changes its row; its progress showing, the OPERATOR heading's, no row at all; a change neither
     /// draws anything of, a decision recorded, redraws nothing. The projects are folded into OPERATOR meanwhile.
-    @Test func aBroadcastChangeRedrawsOnlyItsRows() throws {
+    @Test func aSessionQuestionRedrawsOnlyTheOperatorAndBookkeepingRedrawsNothing() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
-        let run = OperatorUIFixtures.run(windowId: nil), operatorRow = OperatorRow.id(of: run.id)
-        sidebar.controller.workspace.mutate { $0.runs = [run] }
-        // OPERATOR, the Operator's row, PROJECTS folded.
-        sidebar.settleRows { sidebar.list.numberOfRows == 3 && sidebar.counter.counts[operatorRow] != nil }
-
-        sidebar.counter.reset()
-        sidebar.controller.workspace.mutate { $0.runs[0].questions = [OperatorUIFixtures.question("retry policy?")] }
-        sidebar.settleRows { sidebar.counter.counts[operatorRow] != nil }
-        #expect(sidebar.controller.rows.broadcast?.operatorRow.status == .needsInput)
-        #expect(Set(sidebar.counter.counts.keys) == [operatorRow], "a request: redrawn \(sidebar.counter.counts.count) rows")
-
-        sidebar.counter.reset()
-        sidebar.controller.workspace.mutate { $0.runs[0].firstPlanSize = 4 }
-        sidebar.settleRows { sidebar.controller.rows.broadcast?.header.progress == "0 of 0" }
-        #expect(sidebar.counter.counts.isEmpty, "progress: redrawn \(sidebar.counter.counts.count) rows")
-
-        sidebar.counter.reset()
-        sidebar.controller.workspace.mutate { state in
-            state.runs[0].decisions = [OperatorDecision(key: "k", text: "Kept the subtitle.", task: nil, at: Date(), challenge: nil)]
-        }
+        let operatorRow = OperatorRow.id(of: OperatorSession.rowID)
+        sidebar.controller.workspace.mutate { $0.operatorSession = OperatorSession(createdAt: Date()) }
         sidebar.settleRows()
-        #expect(sidebar.counter.counts.isEmpty, "nothing the row draws: redrawn \(sidebar.counter.counts.count) rows")
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.operatorSession?.questions = [
+            OperatorSession.Question(id: "question", task: nil, text: "Which locale?", openedAt: Date())
+        ] }
+        sidebar.settleRows { sidebar.counter.counts[operatorRow] != nil }
+        #expect(sidebar.controller.rows.signalOperator.status == .needsInput)
+        #expect(Set(sidebar.counter.counts.keys) == [operatorRow])
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.operatorSession?.remember(key: "note", result: ["status": "recorded"], at: Date()) }
+        sidebar.settleRows()
+        #expect(sidebar.counter.counts.isEmpty, "A saved tool result changes no drawn row")
     }
 
     @Test func aMissingCheckoutRedrawsOnlyItsRow() throws {
@@ -159,22 +152,22 @@ import Testing
     /// A driven task the Operator acts on decodes its words in their own view: its row's body is not run
     /// again frame by frame while its words decode.
     @Test func anActingRowIsNotRedrawnPerFrame() throws {
-        let sidebar = try hostedSidebar()
-        defer { sidebar.window.orderOut(nil) }
-        let acted = sidebar.tasks[2]
-        let run = OperatorUIFixtures.run(projectIds: [sidebar.project.id])
-        sidebar.controller.rows.actingSource = { OperatorActs(tasks: [acted.id: .answering]) }
-        sidebar.controller.workspace.mutate { state in
-            state.runs = [run]
-            if let i = state.tasks.firstIndex(where: { $0.id == acted.id }) {
-                state.tasks[i].operated = OperatorUIFixtures.operated(run: run.id, key: "t2", state: .working)
-            }
-        }
-        sidebar.settleRows { sidebar.host.firstDescendant(DecodeWordsView.self) != nil }
-        #expect(sidebar.host.firstDescendant(DecodeWordsView.self) != nil, "the acting row decodes")
-        sidebar.counter.reset()
-        settle(sidebar.host, for: 0.5)
-        #expect(sidebar.counter.counts[acted.id] == nil, "the acting row was redrawn \(sidebar.counter.counts[acted.id] ?? 0) times in 0.5 s")
+        // The retired row's decode remains covered directly until its replacement's row-state step.
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        let project = OperatorUIFixtures.project("shop"), run = OperatorUIFixtures.run()
+        var state = AppState(); state.append(project: project); state.runs = [run]
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working, worktree: "/synthetic/work")
+        state.tasks = [task]; controller.workspace.mutate { $0 = state }
+        let acting = OperatorActs(tasks: [task.id: .answering])
+        let section = try #require(SidebarModel.broadcastSection(state: state, sessions: [], branchByCwd: [:], acting: acting))
+        let row = try #require(section.tasks.first), counter = RowBodyCounter()
+        let host = testHost(TaskRowView(row: row, task: task, controller: controller).environment(\.rowBodyCounter, counter), size: CGSize(width: 420, height: 100))
+        let window = testWindow(hosting: host); defer { window.orderOut(nil) }
+        settle(host)
+        #expect(host.firstDescendant(DecodeWordsView.self) != nil)
+        counter.reset(); settle(host, for: 0.5)
+        #expect(counter.counts[task.id] == nil)
     }
     /// Baseline 1, final 0: a status the expanded header does not draw.
     @Test func anExpandedProjectHeaderDoesNotRedrawForItsTasksStatus() throws {
@@ -195,14 +188,15 @@ import Testing
     @Test func theSectionHeadingsDoNotRedrawForAStatusTheyDoNotDraw() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil); sidebar.controller.shutdown() }
-        let run = OperatorUIFixtures.run(windowId: nil)
+        var world = SignalWorld(); let signal = world.signal()
         var task = sidebar.tasks[0]
         task.windowId = "header-worker"
-        task.operated = .make(run: run.id, key: "T1", state: .working, takenOver: true, launched: true)
+        task.signalTask = SignalTask(signal: signal, item: world.ticket().item, startedAt: Date())
+        task.signalTask?.takenOver = true
         let session = SessionInfo.make("header-worker", window: "header-worker", task: task.id)
-        sidebar.controller.workspace.mutate { $0.runs = [run]; $0.tasks[0] = task }
+        sidebar.controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks[0] = task }
         sidebar.controller.live.sessions = [session]
-        sidebar.settleRows { sidebar.list.numberOfRows == 4 }
+        sidebar.settleRows { sidebar.list.numberOfRows == 15 }
         sidebar.counter.reset()
         var changed = session; changed.state = .working
         sidebar.controller.live.sessions = [changed]

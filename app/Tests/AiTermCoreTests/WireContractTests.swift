@@ -89,7 +89,7 @@ import Testing
             case .itermStatus, .windowActivate, .sessionActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
                  .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
                 _ = try read(DaemonClient.Empty.self)
-            case .sessionDeliver:
+            case .sessionDeliver, .sessionCloseIdle:
                 let delivery = try read(Delivery.self)
                 #expect(try delivery.result.rawValue == field("result") as? String)
                 // A code this app knows: one it did not would read as `.unknown`.

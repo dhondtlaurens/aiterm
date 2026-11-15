@@ -35,9 +35,28 @@ import Testing
         #expect(archived == 1 && read == 1)
     }
 
+    @Test func choosingMergedOnlyWatchesForThePersonsMergeAndNeverOptsIntoOne() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .merged), task = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let runner = stages(h, at: world.now)
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now },
+                              ports: .init(workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
+        var merged = false
+        let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
+            workerIsWorking: { _ in false }, read: { _ in ready(merged: merged) },
+            oracleMerge: { _, _ in Issue.record("No merge was opted into"); return false },
+            merge: { _, _ in Issue.record("No merge was opted into") }))
+        await watch.pass()
+        #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .working)
+        merged = true; await watch.pass()
+        #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .done)
+    }
+
     @Test(arguments: ["approval", "checks", "threads", "head", "oracle", "changed-head"])
     func aMergeRequiresTheWholeFloorAndTheOraclesYes(reason: String) async throws {
-        var world = SignalWorld(); let signal = world.signal(done: .merged), task = world.workingTask(signal: signal)
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let runner = stages(h, at: world.now)
         let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now },
@@ -78,7 +97,9 @@ import Testing
     }
 
     @Test func aMergeIsConfirmedFromTheHostBeforeThenRuns() async throws {
-        var world = SignalWorld(); let signal = world.signal(done: .merged), task = world.workingTask(signal: signal)
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let runner = stages(h, at: world.now)
         let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now },

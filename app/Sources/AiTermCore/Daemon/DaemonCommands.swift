@@ -30,6 +30,7 @@ public protocol DaemonCommands: Sendable {
     /// Types `text` into the session by the daemon's delivery rules; `ownership` must be the session's
     /// current generation, `wake` holds it while the person types there.
     func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery
+    func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery
     func prompt(sessionId: String) async throws -> PromptKind?
     func promptDetails(sessionId: String) async throws -> PromptDetails
     /// Declines Codex's update offer with Esc, and nothing else: true when it did.

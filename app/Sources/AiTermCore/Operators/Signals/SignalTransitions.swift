@@ -37,7 +37,7 @@ public enum SignalTransitions {
             next.phase = .blocked; next.blockedReason = reason
         case .resume:
             guard task.phase == .blocked else { throw SignalTransitionError.invalidEdge }
-            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.currentAct = nil
+            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.currentAct = nil; next.pendingReplies = nil
         case .archive:
             guard task.canRunThen else { throw SignalTransitionError.invalidEdge }
             next.phase = .archived

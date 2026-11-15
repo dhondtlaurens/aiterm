@@ -109,6 +109,8 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, task) = try await prepare(fixture)
         let app = fixture.controller
+        // Prove the retired closer directly while it remains compiled for the deletion step.
+        app.installTaskAutoCloser()
         app.helper.setDaemonClient(RecordingDaemon())
         if ending {
             app.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .active; $0.summaryGivenUp = false } }
@@ -127,6 +129,8 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let (run, task) = try await prepare(fixture)
         let app = fixture.controller
+        // Prove the retired closer directly while it remains compiled for the deletion step.
+        app.installTaskAutoCloser()
         // What a quit mid-removal leaves: the record written, the row still there, the pass not closed.
         let interrupted = try #require(TaskAutoCloser.record(task, in: run, at: Date()))
         app.workspace.mutate { $0.updateRun(id: run.id) { $0.finished = [interrupted] } }

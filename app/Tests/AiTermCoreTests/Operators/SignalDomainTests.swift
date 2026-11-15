@@ -11,6 +11,18 @@ import Testing
                work: SignalWork(prompt: "/psg:plan"), agents: [], finish: SignalFinish(doneWhen: .operatorJudges))
     }
 
+    @Test func aRealTicketContinuesAnExistingRequestBranchOnlyInItsLinkedJiraProject() throws {
+        var world = SignalWorld(); let id = world.signal()
+        let task = TaskItem.make(project: world.project.id, branch: "review/PAY-1-retries", worktreePath: "/synthetic/work")
+        let match = SignalMatch(signal: id, item: world.ticket().item, project: world.project.id, matchedAt: world.now)
+        let decisions = MatchDecision.decide(matches: [match], signals: world.state.signals, tasks: [task], projects: world.state.projects, seen: [], complete: true)
+        guard case .continueTask(let existing, _) = decisions.first else { Issue.record("The real ticket must reuse its existing branch task."); return }
+        #expect(existing == task.id)
+        var other = match; other.item = .ticket(site: "https://other-jira.example", key: "PAY-1")
+        let unrelated = MatchDecision.decide(matches: [other], signals: world.state.signals, tasks: [task], projects: world.state.projects, seen: [], complete: true)
+        if case .continueTask = unrelated.first { Issue.record("A matching key on another Jira site is another item.") }
+    }
+
     @Test func jqlQuotesAllChipsAndManualQueryWins() {
         let conditions = JiraConditions(labels: ["agent\"ready", "back\\log"], inOpenSprints: true,
                                         assignee: "me", statuses: ["In Progress"], projects: ["PAY"])
@@ -33,6 +45,8 @@ import Testing
         let review = SignalSource.gitLab(RequestConditions(event: .reviewRequested))
         #expect(SignalFinish(doneWhen: .myReviewPosted, then: .archive).isValid(for: review))
         #expect(!SignalFinish(doneWhen: .approved, mergesWhenReady: true).isValid(for: review))
+        #expect(SignalFinish(doneWhen: .approved, then: .remove, deletesMergedBranch: true).isValid(for: .jira(JiraConditions())),
+                "Remove offers a branch cleanup that still requires proof the branch was merged.")
         #expect(!SignalFinish(doneWhen: .merged, mergesWhenReady: true).isValid(for: .jira(JiraConditions())))
         #expect(!SignalFinish(doneWhen: .ticketStatus("Done")).isValid(for: .gitHub(RequestConditions(event: .myRequest))))
     }

@@ -24,7 +24,7 @@ public struct SignalFinish: Codable, Equatable, Sendable {
             return candidate == doneWhen
         }
         guard allowed else { return false }
-        if deletesMergedBranch && (then != .remove || doneWhen != .merged) { return false }
+        if deletesMergedBranch && then != .remove { return false }
         if mergesWhenReady {
             if doneWhen == .merged { return false }
             switch source {

@@ -21,6 +21,16 @@ public extension JiraClient {
                               complete: tickets.count == page.issues.count && (last || page.nextPageToken != nil))
     }
 
+    /// A bounded, read-only person picker. Jira may withhold email addresses.
+    func signalUsers(query: String = "", accountId: String? = nil) async throws -> [JiraUser] {
+        struct Person: Decodable { var accountId: String; var displayName: String; var emailAddress: String? }
+        let selector = accountId.map { URLQueryItem(name: "accountId", value: $0) }
+            ?? URLQueryItem(name: "query", value: query)
+        let people = try await decode([Lenient<Person>].self, request(path: "/rest/api/3/user/search", queryItems: [
+            selector, URLQueryItem(name: "startAt", value: "0"), URLQueryItem(name: "maxResults", value: "50")]))
+        return people.compactMap(\.value).map { JiraUser(accountId: $0.accountId, displayName: $0.displayName, email: $0.emailAddress) }
+    }
+
     func labels() async throws -> [String] {
         try await signalValues(String.self, path: "/rest/api/3/label")
     }

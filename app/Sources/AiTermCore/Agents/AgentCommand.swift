@@ -20,10 +20,11 @@ public enum AgentCommand {
     /// The invocation without its prompt argument — shared by `build` and `previewCommand` so the
     /// footer preview can never drift from the command that is actually run. Every word goes
     /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
-    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false) -> [String] {
-        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly)
+    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false, publishing: Bool = false, resuming: String? = nil) -> [String] {
+        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly, publishing: publishing)
             : agent.harness.launchWords(model: model, reasoning: reasoning)
-        return words.map(shellWord)
+        guard let resuming else { return words.map(shellWord) }
+        return ([agent.harness.executable] + agent.harness.resumeArguments(resuming) + words.dropFirst()).map(shellWord)
     }
 
     /// The agents an operator may give a task (spec §4.0): the two whose limits AiTerm can set.
@@ -37,6 +38,8 @@ public enum AgentCommand {
     /// What a Claude review tab may never do on top of `operatedClaudeDenials`, which deny its push already: write a
     /// file, or write through git, so the commit it reviews is the one it reads. Each git command is denied in the
     /// three forms the push is: plain, after `-C <dir>`, and after any other option.
+    public static let publishingClaudeDenials = ["AskUserQuestion", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(glab mr accept:*)", "Bash(git merge:*)"]
+
     public static let reviewClaudeDenials = ["Edit", "Write", "NotebookEdit"]
         + ["commit", "checkout", "switch", "reset", "rebase", "merge", "stash", "add"].flatMap { command in
             ["Bash(git \(command):*)", "Bash(git -C * \(command):*)", "Bash(git * \(command):*)"]
@@ -53,11 +56,11 @@ public enum AgentCommand {
     ///   read-only instead (`codexReadOnlyLaunchWords`).
     /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
     /// Neither review launch removes subagents or read-only shell commands.
-    public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false) -> [String] {
+    public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false, publishing: Bool = false) -> [String] {
         let harness = agent.harness
         switch agent {
         case .claude:
-            let denials = operatedClaudeDenials + (readOnly ? reviewClaudeDenials : [])
+            let denials = (publishing ? publishingClaudeDenials : operatedClaudeDenials) + (readOnly ? reviewClaudeDenials : [])
             return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
         case .codex where readOnly:
             return harness.codexReadOnlyLaunchWords(model: model, reasoning: reasoning)
@@ -69,8 +72,8 @@ public enum AgentCommand {
     /// The Operator's worker reopened in its worktree: its conversation resumed with the same launch
     /// flags it started with (`workerWords`), never the blanket bypass a sheet's
     /// Codex task resumes with. The CLI, its resume arguments, then the worker's options.
-    public static func resumeWorker(agent: AgentKind, conversation: String, model: String, reasoning: String?) -> String {
-        let words = workerWords(agent: agent, model: model, reasoning: reasoning)
+    public static func resumeWorker(agent: AgentKind, conversation: String, model: String, reasoning: String?, publishing: Bool = false) -> String {
+        let words = workerWords(agent: agent, model: model, reasoning: reasoning, publishing: publishing)
         return ([agent.harness.executable] + agent.harness.resumeArguments(conversation) + words.dropFirst())
             .map(shellWord).joined(separator: " ")
     }
@@ -101,8 +104,8 @@ public enum AgentCommand {
     /// written to: an extra worker tab's own (`TabOpener`), so two agents started in one worktree never read
     /// each other's. It is typed into the command as it is, so it is a plain file name.
     public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
-                             git: any GitRunning, operated: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md") throws -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated, readOnly: readOnly)
+                             git: any GitRunning, operated: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md", publishing: Bool = false, resuming: String? = nil) throws -> String {
+        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated, readOnly: readOnly, publishing: publishing, resuming: resuming)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"

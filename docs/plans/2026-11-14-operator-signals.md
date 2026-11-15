@@ -436,7 +436,7 @@ Each step leaves the package building and the gate green.
 - [x] The worker guard: the `pre-push` hook for every worker (today's workers may not push at all,
       so it changes nothing for them yet), the Claude PreToolUse check and the Codex shims; proven in
       a scratch repo, `--no-verify` included. Codex's push denial lifts only once its tests pass.
-- [ ] Activation: `OperatorController` runs one Operator and signals through the new owners, the new
+- [x] Activation: `OperatorController` runs one Operator and signals through the new owners, the new
       handler is served, push and MR creation leave the worker denials, New Signal joins the family,
       and the OPERATOR group shows the Operator's row and signal headings over identical task rows.
       Broadcasts can no longer be started; their code is still present but unreachable.
@@ -671,3 +671,21 @@ References: [Git pre-push contract](https://git-scm.com/docs/githooks#_pre_push)
 The built native AiTerm executable was also invoked with `--worker-guard argv` in a temporary
 home: it refused `git push --no-verify` with exit 2 and created no live app state. This checks the
 production entry path as well as the test-only probe, without opening or replacing the running app.
+
+### Activation proof · 15 Nov 2026
+
+The native composition now serves the thirteen Signal tools, polls complete source passes, prepares
+and resumes guarded workers, watches source-specific finish conditions and owns the single
+Operator window. The five-step Signal sheet previews current matches and uses the shared creation
+chrome. The permanent Operator row and Signal headings reuse project task rows while Projects
+remain visible. Broadcast launch commands are absent from the live menus.
+
+Regression probes caught and fixed a stale-request repository binding, selection observation that
+redrew the permanent row on an unrelated arrow key, recovered-launch adoption without a repeated
+prompt, and confusing “Merged” with permission to merge. Automatic merging requires its separate
+opt-in. A native idle-close RPC checks the exact conversation, prompt and human input before
+closing a CLI; the previous wire frames remain unchanged. Isolated hosted snapshots cover the
+Signal sheets and full sidebar (`build/operator-signals-sheets-native`); the JQL field, match list,
+footer and sidebar hierarchy were inspected. No running app or personal CLI defaults were changed.
+
+Activation gate: plain `scripts/test.sh` passed (1,668 daemon tests; 123 UI, 2,227 Core, 2,089 app and 6 snapshot tests; existing labelled known issues retained).

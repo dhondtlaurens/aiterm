@@ -95,6 +95,7 @@ final class AppController {
     /// Archives tasks and reviews.
     let archiver: TaskArchiver
     /// The operations: their runs, their operators' tabs and tokens, and the services under them.
+    let signalController: SignalOperatorController
     let operatorController: OperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
@@ -181,8 +182,14 @@ final class AppController {
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
                                                     taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
         self.operatorController = operatorController
-        helper.onEvent { [weak operatorController] in operatorController?.handle($0) }
-        helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
+        let signalController = SignalOperatorController(workspace: workspace, live: live, work: work, ports: operatorPorts,
+                                                        daemon: daemon, frame: { tiling.taskFrame() })
+        self.signalController = signalController
+        signalController.readConnections = { SignalConnections(jira: jiraSettings(), gitLab: gitLabSettings(), gitHub: gitHubSettings()) }
+        signalController.archive = { [archiver] task, allowed in try await archiver.archiveAutomatically(task, starting: allowed) }
+        signalController.remove = { [remover] task, allowed in try await remover.removeAutomatically(task, starting: allowed, stillAllowed: allowed) }
+        helper.onEvent { [weak signalController] in signalController?.handle($0) }
+        helper.onAttach { [weak signalController] in signalController?.daemonAttached() }
         let fixPipeline = ports.fixPipeline ?? { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
         self.fixPipeline = fixPipeline
         sheets = SheetCoordinator(projects: projects, workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
@@ -202,7 +209,7 @@ final class AppController {
         backpack = BackpackController(ports: backpackPorts,
                                       settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
                                       agentsWorking: { live.sessions.contains { $0.state == .working } },
-                                      broadcastRunning: { workspace.state.activeRun != nil },
+                                      broadcastRunning: { workspace.state.signals.contains(where: \.enabled) && workspace.state.operatorSession?.paused != true },
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
@@ -233,12 +240,19 @@ final class AppController {
         // The banner's Fix needs the agents and the pull, both built after the notices.
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
         // A notification's click: a broadcast's board opens over the sidebar, a task's window comes forward.
-        operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
+        operatorPorts.notifications.onOpen = { [weak self] target in
+            guard let self else { return }
+            switch target {
+            case .board, .question: Task { await self.signalController.openOperator() }
+            case .task(let id): self.focus.select(.task(id))
+            }
+        }
         // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
         let operators = operatorController
         rows.actingSource = { [weak operators] in operators?.acting ?? .none }
         operators.onChange { [weak self] in self?.refreshRows() }
+        signalController.onChange { [weak self] in self?.refreshRows() }
         // The board is derived only while its sheet shows: opening it derives the rows with it. The Shelf's sheet derives
         // no board, but its cards name models by the same labels.
         rows.boardShown = { [weak sheets] in if case .broadcastBoard? = sheets?.sheet { true } else { false } }
@@ -253,21 +267,19 @@ final class AppController {
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
         // controller's to reopen, in front.
-        focus.setReopenOperatorWindow { [weak operators] id in
-            Task { await operators?.reopenOperator(run: id) }
+        focus.setReopenOperatorWindow { [weak signalController] _ in
+            Task { await signalController?.openOperator() }
         }
         // A driven task whose window you closed: its conversation resumed by the operator controller,
         // never a second worker beside a live one (integration decision 7). The row raises the window
         // it opened once the reopen is done.
-        focus.setReopenWorkerWindow { [weak operators] id in
-            Task { await operators?.reopenWorker(task: id) }
+        focus.setReopenWorkerWindow { [weak signalController] id in
+            Task { await signalController?.reopenWorker(id) }
         }
         // A notification's click on a waiting plan, a done or a blocked broadcast opens its board:
         // D7 records the request on the operator controller; this presents it, and any made before now.
-        sheets.onDismiss = { [weak self] in self?.presentRequestedBoard() }
-        presentRequestedBoard()
-        installTaskAutoCloser()
-        watchBoardRequests()
+
+
     }
 
     // -- lifecycle ------------------------------------------------------------------
@@ -285,7 +297,7 @@ final class AppController {
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
         helper.start()
-        operatorController.start()
+        signalController.start()
         // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
         // Blocking disk work, so off the cooperative pool.
         DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
@@ -310,6 +322,7 @@ final class AppController {
         if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
+        signalController.stop()
         operatorController.stop()
         helper.shutdown()
     }
