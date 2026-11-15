@@ -14,6 +14,9 @@ struct SignalBadgePose: Equatable {
         requested = line
     }
     func delay(at: TimeInterval) -> TimeInterval { display != requested ? max(0, until - at) : 0 }
+    /// Whether the badge line plays the decode: only when an act ends on its own. Under the pointer the
+    /// badges are simply there, so a row never animates text it was already showing.
+    static func decodes(returning: Bool, hovering: Bool) -> Bool { returning && !hovering }
 }
 
 /// Replaces the entire badge line, preserving its height and its clickable badges on hover.
@@ -32,11 +35,12 @@ struct SignalBadgeLine<Badges: View>: View {
     var body: some View {
         let shown = enabled ? (motionStill == .snapshot ? line : pose.display) : nil
         let normal = hovering || shown == nil
+        let decoding = normal && SignalBadgePose.decodes(returning: returning, hovering: hovering)
         ZStack(alignment: .leading) {
-            badges().opacity(normal && !returning ? 1 : 0).allowsHitTesting(normal && !returning)
-            if normal && returning {
+            badges().opacity(normal && !decoding ? 1 : 0).allowsHitTesting(normal && !decoding)
+            if decoding {
                 DecodeWords(text: normalText, font: Typography.chip.scaled(by: scale).nsFont,
-                            ink: surface.secondaryInk, duration: hovering ? 0.35 : OperatorBadge.decodeDuration)
+                            ink: surface.secondaryInk, duration: OperatorBadge.decodeDuration)
                     .allowsHitTesting(false).accessibilityHidden(true)
             } else if !normal, let shown { OperatorBadge(line: shown).allowsHitTesting(false) }
         }
@@ -46,13 +50,7 @@ struct SignalBadgeLine<Badges: View>: View {
             guard motionStill != .snapshot else { return }
             let wasNormal = hovering || pose.display == nil
             pose.update(enabled ? line : nil, at: ProcessInfo.processInfo.systemUptime)
-            // Hover returns the badges immediately, even while a finished act is held.
-            if hovering && motionStill == nil {
-                returning = true
-                try? await Task.sleep(for: .seconds(0.35))
-                guard !Task.isCancelled else { return }
-                returning = false
-            }
+            // Hover returns the badges at once, without a decode, even while a finished act is held.
             let wait = enabled ? pose.delay(at: ProcessInfo.processInfo.systemUptime) : 0
             if wait > 0 {
                 try? await Task.sleep(for: .seconds(wait))
@@ -61,7 +59,7 @@ struct SignalBadgeLine<Badges: View>: View {
             }
             if !hovering && pose.display == nil && !wasNormal && motionStill == nil {
                 returning = true
-                try? await Task.sleep(for: .seconds(hovering ? 0.35 : OperatorBadge.decodeDuration))
+                try? await Task.sleep(for: .seconds(OperatorBadge.decodeDuration))
                 guard !Task.isCancelled else { return }
             }
             returning = false

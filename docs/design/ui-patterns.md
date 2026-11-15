@@ -18,7 +18,8 @@ its `SignalHeadingValue` contains only the heading's drawn facts, folded counts 
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.
 
 `SignalBadgeLine` replaces the whole badge line with the current act. It holds an act at least three
-seconds, decodes over half a second and returns the badges under the pointer in 0.35 seconds. A
+seconds and decodes back to the badges over half a second when it ends; under the pointer the badges
+return at once, with no decode. A
 new act replaces the previous act directly. `DecodeWordsView` keeps unsettled glyphs in the text's
 own case/ink and width. Reduce Motion swaps; snapshots remain still. No third row line is added.
 

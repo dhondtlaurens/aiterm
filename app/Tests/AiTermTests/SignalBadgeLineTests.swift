@@ -27,4 +27,10 @@ struct SignalBadgeLineTests {
         pose.update(nil, at: 14.1)
         #expect(pose.display == nil, "A quiet state needs no extra action hold")
     }
+    @Test func theBadgesDecodeOnlyWhenAnActEndsNeverUnderThePointer() {
+        #expect(SignalBadgePose.decodes(returning: true, hovering: false), "An ended act decodes back to the badges")
+        #expect(!SignalBadgePose.decodes(returning: true, hovering: true), "Hover shows the badges at once")
+        #expect(!SignalBadgePose.decodes(returning: false, hovering: true))
+        #expect(!SignalBadgePose.decodes(returning: false, hovering: false))
+    }
 }
