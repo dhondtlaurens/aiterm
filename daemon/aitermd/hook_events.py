@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 from collections.abc import Callable
 from dataclasses import KW_ONLY, dataclass, replace
 from typing import Any, NamedTuple
@@ -26,6 +27,7 @@ class HookEvent:
     iterm_session_id: str | None = None
     reasoning: str | None = None
     context_percent: int | None = None
+    context_tokens: int | None = None
     # Where a Claude SubagentStart's child writes its transcript, or a directory or two below (SubagentTranscripts.read):
     # what the status engine reads on every tick, for whether the child's run is over and when it last wrote.
     subagent_transcript: str | None = None
@@ -288,6 +290,28 @@ def _context_percent(p: dict[str, Any]) -> int | None:
     return clamped_percent(cw.get("used_percentage"))
 
 
+def _context_tokens(p: dict[str, Any]) -> int | None:
+    """Current input context, not session billing totals or output. Unknown remains unknown."""
+    cw = p.get("context_window")
+    if not isinstance(cw, dict):
+        return None
+    usage = cw.get("current_usage")
+    if isinstance(usage, dict):
+        counts: list[int] = []
+        for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"):
+            value = usage.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                break
+            counts.append(value)
+        if len(counts) == 3 and (total := sum(counts)) <= 2**63 - 1:
+            return total
+    percent, size = cw.get("used_percentage"), cw.get("context_window_size")
+    if (isinstance(percent, (int, float)) and not isinstance(percent, bool) and math.isfinite(percent) and 0 <= percent <= 100
+            and isinstance(size, int) and not isinstance(size, bool) and 0 < size <= 2**63 - 1):
+        return round(percent * size / 100)
+    return None
+
+
 class StatusLine(NamedTuple):
     """What one status-line tick tells the daemon: the session it describes, and facts that land in
     different places -- account usage in the `UsageStore`, the model, effort and context fill on the
@@ -304,6 +328,7 @@ class StatusLine(NamedTuple):
     reasoning: str | None = None
     # Where the session writes its conversation (`transcript_path`), as its hooks name it too.
     transcript: str | None = None
+    context_tokens: int | None = None
 
 
 def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
@@ -318,7 +343,7 @@ def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
         nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd")),
         nonempty_string(p.get(ITERM_SESSION_FIELD)),
         _object_field(p, "model", "id"), _context_percent(p), _object_field(p, "effort", "level"),
-        nonempty_string(p.get("transcript_path")),
+        nonempty_string(p.get("transcript_path")), _context_tokens(p),
     )
 
 

@@ -67,11 +67,11 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if tick.model or tick.reasoning or tick.context_percent is not None:
+            if tick.model or tick.reasoning or tick.context_percent is not None or "context_window" in body:
                 async with self._in_order:
                     post = HookEvent(agent, None, tick.model, tick.session_id, tick.cwd,
                                      iterm_session_id=tick.iterm_session_id, reasoning=tick.reasoning,
-                                     context_percent=tick.context_percent, transcript=tick.transcript)
+                                     context_percent=tick.context_percent, context_tokens=tick.context_tokens, transcript=tick.transcript)
                     ticked = await self._place_and_apply(post, body, statusline=True)
                 if ticked:
                     await self.publisher.session_changed(ticked)
@@ -108,6 +108,8 @@ class HookRouter:
         own = sid == direct
         changed = self.status.apply_metadata(sid, model=ev.model if own else None, reasoning=ev.reasoning if own else None,
                                              context=ev.context_percent, cwd=ev.cwd if not statusline else None,
+                                             context_tokens=ev.context_tokens if own and statusline else None,
+                                             clear_context_tokens=statusline and own,
                                              conversation=ev.conversation_id if own and not statusline else None,
                                              transcript=ev.transcript if own else None,
                                              # A status line naming a model without effort clears the previous one's.

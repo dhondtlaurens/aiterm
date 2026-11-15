@@ -24,7 +24,7 @@ agreement. The following tables describe the current contract.
 | `session.prompt` | the prompt the tab's screen shows open: `permission`, `startup`, `menu` or none; a blank screen is an error. Recognition rules are below this table |
 | `session.dismissStartup` | declines the CLI's update offer with Esc only while its tab is not working and its update options appear below any input arrow; other startup dialogs remain yours to answer: `{dismissed: false}` |
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
-| `operator.register` / `operator.revoke` | open and close `/operator` to a broadcast's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
+| `operator.register` / `operator.revoke` | register or revoke an Operator token. With `generation`, the single Operator uses `operators/operator/token` and a private `session.json` binding identity, generation and token hash. A stale revoke cannot revoke its successor. Without it, the current per-run `operators/runs/<run-id>/token` path remains available until activation. Revoke deletes the token file |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
 
 `session.prompt` recognises Claude's last selection arrow on a numbered option next to its preceding
@@ -65,6 +65,18 @@ payload's legacy `background` array, derived by provider ID in the daemon. This 
 Stop's interleaved order while replacing a known kind without duplicating it. Unavailable kinds
 fall back to eligible legacy evidence. Display changes publish `session.changed` even when the
 turn status stays the same. The field never changes Operator obligations or acceptance.
+
+Session payloads carry nullable `contextTokens`: this conversation's current input context,
+including input, cache creation and cache read tokens, excluding output and lifetime billing totals.
+A finite percentage and valid window size provide an estimate only when exact usage is unavailable.
+Null is unknown. Counts are never promoted to sibling tabs and are cleared when the process changes.
+Older payloads that omit the field still decode.
+
+The single Operator's `operator.request` includes the token's `generation`; the app checks it
+before acting. Its token serves the thirteen signal tools, while per-run tokens retain their current
+catalogue during the additive phase. A missing or revoked token always denies `/operator/gate`,
+including a token revoked while the gate waited for the app. Other unavailable-gate behavior remains
+unchanged during this phase.
 
 An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read
 is logged and drops the connection, so the app reconnects to a fresh snapshot rather than keep a

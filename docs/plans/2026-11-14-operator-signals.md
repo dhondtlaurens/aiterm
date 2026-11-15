@@ -431,7 +431,7 @@ Each step leaves the package building and the gate green.
       `OperatorSessionKeeper`, the act; each proven in `SignalWorld` with fakes.
 - [x] The new tool set and the brief as a second handler and brief generator, not served yet; their
       contract fixtures captured with provenance.
-- [ ] The daemon, additively: the single Operator folder and token beside the per-run ones; the gate
+- [x] The daemon, additively: the single Operator folder and token beside the per-run ones; the gate
       refuses a revoked token; the context-size field parsed. `pytest` green.
 - [ ] The worker guard: the `pre-push` hook for every worker (today's workers may not push at all,
       so it changes nothing for them yet), the Claude PreToolUse check and the Codex shims; proven in
@@ -623,3 +623,20 @@ for this to-do.
   used a local stub and isolated working directories, without the app or a host integration. Plain
   `scripts/test.sh` passed: 1,633 daemon (1 skipped), 2,200 Core, 2,057 app, 123 UI and 5 snapshot
   tests, with existing labelled known issues. The new tools are not served yet.
+
+- **Daemon:** added a private single-Operator folder and generation-bound token beside per-run
+  authority. A hash binds the separately atomic token and manifest files; incomplete, public or
+  symlinked authority is not loaded. Register/revoke carry generations, stale revokes leave a
+  successor alone, and a failed file deletion remains owed on retry. New authority serves the
+  thirteen schemas; legacy authority still serves its current catalogue. Missing or revoked
+  shell-gate tokens deny, including revocation during an awaited request. Current input context
+  now travels from the proven Claude conversation to Swift, using exact input/cache components
+  before a valid percentage estimate. Unknown clears the reading rather than becoming zero or
+  inheriting a sibling's count. Launch settings disable idle compaction, including on resume.
+- **Daemon proof:** fake-clock/file and real HTTP/socket tests cover authority loading, rotation,
+  retries, revocation, schema selection and generation forwarding; hook-router tests cover exact
+  context, nulls, sibling isolation and process replacement. Native launch/permissions and both
+  wire directions passed. The wire capture was deliberately extended only with `contextTokens`
+  (including a synthetic 39,239-token worker), with provenance; strict field parity stays intact.
+  Plain `scripts/test.sh` passed: 1,657 daemon (1 skipped), 2,204 Core, 2,057 app, 123 UI and 5
+  snapshot tests, with existing labelled known issues. Controllers still use the per-run path.

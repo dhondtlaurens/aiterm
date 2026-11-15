@@ -17,6 +17,8 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// sibling tabs running the same provider so tab changes cannot erase it. An unassociated
     /// session may carry its own value, but the app only displays task context.
     public var contextPercent: Int? = nil
+    /// Current input context for this conversation, never shared with sibling tabs. Unknown is nil.
+    public var contextTokens: Int? = nil
     /// The conversation this tab's agent runs, as the agent's own hooks name it: what reopening its
     /// task's window resumes (`TaskItem.conversations`). Nil for a shell, before the agent's first
     /// hook placed on this tab, and from a daemon too old to send it.
@@ -87,6 +89,7 @@ extension SessionInfo {
         agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
         active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
         contextPercent = try c.decodeIfPresent(Int.self, forKey: .contextPercent)
+        contextTokens = try c.decodeIfPresent(Int.self, forKey: .contextTokens)
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)

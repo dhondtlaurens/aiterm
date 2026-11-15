@@ -114,6 +114,20 @@ final class DaemonOperatorWireTests {
         #expect(params(2)["runId"] as? String == "R")
     }
 
+    @Test func aSingleOperatorsRequestRetainsTheTokensGeneration() throws {
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","generation":3,"tool":"run_status","arguments":{}}}"#.utf8)
+        let event = try DaemonClient.decodeEvent("operator.request", from: line)
+        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", runId: "R", tool: "run_status", arguments: [:], generation: 3)))
+    }
+
+    @Test func singleOperatorAuthorityCarriesItsGenerationOnRegisterAndRevoke() async throws {
+        try connect { _ in [String: Any]() }
+        try await client.registerOperator(runId: "R", token: "tok", generation: 2)
+        try await client.revokeOperator(runId: "R", generation: 2)
+        #expect(params(0)["generation"] as? Int == 2)
+        #expect(params(1)["generation"] as? Int == 2)
+    }
+
     @Test func aStartupDialogIsDismissedOnlyWhenTheDaemonSaysItDeclinedOne() async throws {
         try connect { req in ["dismissed": (req["params"] as? [String: Any])?["sessionId"] as? String == "s1"] }
         #expect(try await client.dismissStartup(sessionId: "s1"))

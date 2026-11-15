@@ -22,6 +22,7 @@ from .iterm_port import ItermPort
 from .keystrokes import YOUR_PROMPT_SECONDS, TypingGuard
 from .offload import run_detached
 from .operator_mcp import OperatorRoute, OperatorTokens
+from .operator_session import OperatorSessionTokens
 from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
@@ -88,7 +89,8 @@ class Service:
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
         # (spec §11); None keeps tokens in memory only.
-        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs))
+        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs),
+                                       OperatorSessionTokens(operator_runs.parent / "operator" if operator_runs else None))
         self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame, window.activate and session.activate each leave a state the next one replaces, and the app

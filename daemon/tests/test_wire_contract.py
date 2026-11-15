@@ -195,6 +195,8 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["session.deliver"] = await app.call("session.deliver", {
             "sessionId": worker, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
         # A slash command typed into the Claude worker, whose hooks named its transcript: its session says what became of it.
+        # The additive single-Operator context field: current input on this conversation alone.
+        svc.status.apply_metadata(worker, context_tokens=39239)
         svc.registry.set_transcript(worker, "/repo/claude-profile/projects/-repo/c-wire.jsonl")
         await app.call("session.deliver", {"sessionId": worker, "text": "/effort high", "ownership": 1, "wake": False, "worktree": None})
         replies["session.prompt"] = await app.call("session.prompt", {"sessionId": worker})

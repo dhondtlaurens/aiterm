@@ -483,8 +483,8 @@ public final class DaemonClient: Sendable {
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
     struct SessionParams: Encodable { var sessionId: String }
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
-    struct RegisterParams: Encodable { var runId, token: String }
-    struct RunParams: Encodable { var runId: String }
+    struct RegisterParams: Encodable { var runId, token: String; var generation: Int? = nil }
+    struct RunParams: Encodable { var runId: String; var generation: Int? = nil }
     typealias PromptResult = PromptDetails
     struct DismissResult: Decodable { var dismissed: Bool }
     struct DeliveryPolicyResult: Decodable { var agents: [String: DeliveryVerdict] }
@@ -607,6 +607,12 @@ public final class DaemonClient: Sendable {
     }
     public func registerOperator(runId: String, token: String) async throws {
         _ = try await request(.operatorRegister, params: RegisterParams(runId: runId, token: token), as: Empty.self)
+    }
+    public func registerOperator(runId: String, token: String, generation: Int) async throws {
+        _ = try await request(.operatorRegister, params: RegisterParams(runId: runId, token: token, generation: generation), as: Empty.self)
+    }
+    public func revokeOperator(runId: String, generation: Int) async throws {
+        _ = try await request(.operatorRevoke, params: RunParams(runId: runId, generation: generation), as: Empty.self)
     }
     public func revokeOperator(runId: String) async throws {
         _ = try await request(.operatorRevoke, params: RunParams(runId: runId), as: Empty.self)

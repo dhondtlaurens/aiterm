@@ -165,6 +165,12 @@ final class RecordingDaemon: DaemonCommands {
 
     func registerOperator(runId: String, token: String) async throws { try await answer("operator.register", ["runId": runId, "token": token]) }
 
+    func registerOperator(runId: String, token: String, generation: Int) async throws {
+        try await answer("operator.register", ["runId": runId, "token": token, "generation": generation])
+    }
+    func revokeOperator(runId: String, generation: Int) async throws {
+        try await answer("operator.revoke", ["runId": runId, "generation": generation])
+    }
     func revokeOperator(runId: String) async throws { try await answer("operator.revoke", ["runId": runId]) }
 
     /// Recorded with `result` as the `JSONValue` itself, so a test reads the answer as the operator would.

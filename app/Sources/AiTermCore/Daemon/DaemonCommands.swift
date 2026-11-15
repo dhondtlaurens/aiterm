@@ -38,7 +38,9 @@ public protocol DaemonCommands: Sendable {
     /// What the delivery check vouches for, per agent: whether, and at which version, its workers can be messaged.
     func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict]
     func registerOperator(runId: String, token: String) async throws
+    func registerOperator(runId: String, token: String, generation: Int) async throws
     func revokeOperator(runId: String) async throws
+    func revokeOperator(runId: String, generation: Int) async throws
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws
 }
 

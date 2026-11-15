@@ -201,6 +201,7 @@ class StatusEngine:
 
     def apply_metadata(self, session_id: str, *, model: str | None = None, reasoning: str | None = None,
                        context: int | None = None, cwd: str | None = None,
+                       context_tokens: int | None = None, clear_context_tokens: bool = False,
                        conversation: str | None = None, transcript: str | None = None,
                        clear_reasoning: bool = False) -> list[str]:
         """What an agent reports beside its state: each value present replaces the session's, and
@@ -221,6 +222,8 @@ class StatusEngine:
             if (turn := self._turns.get(session_id)) is not None:
                 turn.work_since, turn.shell_snapshot = None, None
                 self.reg.set_display_work(session_id, None)
+            changed.append(session_id)
+        if (context_tokens is not None or clear_context_tokens) and self.reg.set_context_tokens(session_id, context_tokens):
             changed.append(session_id)
         if context is not None:
             # Context is presented per provider within a task. Updating sibling tabs for the same

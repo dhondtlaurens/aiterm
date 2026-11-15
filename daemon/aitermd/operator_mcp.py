@@ -9,7 +9,6 @@ import uuid
 import json
 import logging
 import os
-import re
 import stat
 import time
 from collections.abc import Awaitable, Callable
@@ -18,6 +17,8 @@ from typing import Any
 
 from . import delivery, mcp, protocol
 from .models import support_dir
+from .operator_token import well_formed as well_formed
+from .operator_session import OperatorSessionTokens
 from .rpc_params import optional_param, param
 from .rpc_server import RpcError
 
@@ -28,7 +29,9 @@ NOT_ANSWERING = "AiTerm isn't answering"
 # Where the app keeps each run's folder, named by its id: brief.md, mcp.json and `token` (spec §5.1).
 RUNS_ROOT = support_dir() / "operators" / "runs"
 # A run's token: the app's 32 random bytes, as hex.
-_TOKEN = re.compile(r"[0-9a-fA-F]{64}")
+SINGLE_ROOT = RUNS_ROOT.parent / "operator"
+SIGNAL_TOOLS: tuple[dict[str, Any], ...] = tuple(json.loads(Path(__file__).with_name("signal_tools.json").read_text()))
+SIGNAL_TOOL_NAMES = frozenset(tool["name"] for tool in SIGNAL_TOOLS)
 
 
 def _gate_open(why: str) -> str:
@@ -37,13 +40,14 @@ def _gate_open(why: str) -> str:
                                               "permissionDecisionReason": f"AiTerm ran this command unchallenged: {why}"}})
 
 
+def _gate_denied(why: str) -> str:
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                              "permissionDecisionReason": why}})
+
+
 class ToolError(Exception):
     """A tool call that failed, with what the operator is told: answered as a tool result with
     isError, as MCP has a tool's own failures, never as a protocol error."""
-
-
-def well_formed(token: str) -> bool:
-    return _TOKEN.fullmatch(token) is not None
 
 
 def _run_folder_name(run_id: str) -> bool:
@@ -643,9 +647,10 @@ class OperatorRoute:
     named."""
 
     def __init__(self, broadcast: Callable[[str, Any], Awaitable[None]], client_count: Callable[[], int],
-                 tokens: OperatorTokens | None = None):
+                 tokens: OperatorTokens | None = None, session_tokens: OperatorSessionTokens | None = None):
         self.broadcast, self.client_count = broadcast, client_count
         self.tokens = tokens if tokens is not None else OperatorTokens()
+        self.session_tokens = session_tokens if session_tokens is not None else OperatorSessionTokens()
         # The tool calls waiting for the app's answer, by the request id the event carried. Ids are
         # unique across route lifetimes; an answer from before a restart finds nothing and is dropped.
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -657,46 +662,57 @@ class OperatorRoute:
         return self.tokens.run_for(token) if token else None
 
     async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
-        if (run_id := self._run(headers)) is None:
-            return 401, json.dumps({"error": "a registered run's token is required"})
+        token = mcp.bearer(headers.get("authorization", ""))
+        owner = self.session_tokens.owner_for(token) if token else None
+        run_id, generation = owner if owner else (self._run(headers), None)
+        if run_id is None:
+            return 401, json.dumps({"error": "a registered Operator token is required"})
         if method != "POST":
             # No stream from the server: each answer is the reply to its own POST.
             return 405, ""
         async def call(request: dict[str, Any]) -> dict[str, Any]:
-            return await self._call(run_id, request.get("id"), request.get("params"))
+            return await self._call(run_id, request.get("id"), request.get("params"), generation=generation)
 
-        return await mcp.serve(body, TOOLS, "aiterm", call)
+        return await mcp.serve(body, SIGNAL_TOOLS if generation is not None else TOOLS, "aiterm", call)
 
-    async def _call(self, run_id: str, request_id: Any, params: Any) -> dict[str, Any]:
+    async def _call(self, run_id: str, request_id: Any, params: Any, generation: int | None = None) -> dict[str, Any]:
         tool = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments") if isinstance(params, dict) else None
         if arguments is None:
             arguments = {}
-        if not isinstance(tool, str) or tool not in TOOL_NAMES or not isinstance(arguments, dict):
+        names = SIGNAL_TOOL_NAMES if generation is not None else TOOL_NAMES
+        if not isinstance(tool, str) or tool not in names or not isinstance(arguments, dict):
             return mcp.error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
         try:
-            result = await self.ask_app(run_id, tool, arguments)
+            result = await self.ask_app(run_id, tool, arguments, generation=generation)
         except ToolError as exc:
             return mcp.answer(request_id, mcp.tool_result(str(exc), is_error=True))
         return mcp.answer(request_id, mcp.tool_result(result))
 
     async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any],
-                      timeout: float | None = None) -> dict[str, Any]:
+                      timeout: float | None = None, generation: int | None = None) -> dict[str, Any]:
         """The app's answer to one tool call: broadcast as `operator.request` and awaited until its
         `operator.reply`, for `timeout` at most (OPERATOR_REQUEST_TIMEOUT unless given). Raises ToolError with what the
         operator is told: the app's own error, NOT_OPEN with no app attached, NOT_ANSWERING after the
         timeout -- after which the app may still have acted, which every mutating tool's key makes
         safe to repeat (spec §11)."""
+        if generation is not None and not self.session_tokens.owns(run_id, generation):
+            raise ToolError("This Operator session was revoked.")
         if self.client_count() == 0:
             raise ToolError(NOT_OPEN)
         request_id = f"op-{self._prefix}-{next(self._ids)}"
         answer: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = answer
         try:
-            await self.broadcast(protocol.OPERATOR_REQUEST, {"requestId": request_id, "runId": run_id, "tool": tool,
-                                                             "arguments": arguments})
+            payload: dict[str, Any] = {"requestId": request_id, "runId": run_id, "tool": tool, "arguments": arguments}
+            if generation is not None:
+                payload["generation"] = generation
+            await self.broadcast(protocol.OPERATOR_REQUEST, payload)
             async with asyncio.timeout(delivery.OPERATOR_REQUEST_TIMEOUT if timeout is None else timeout):
-                return await answer
+                result = await answer
+                if generation is not None and not self.session_tokens.owns(run_id, generation):
+                    raise ToolError("This Operator session was revoked.")
+                return result
         except TimeoutError as exc:
             raise ToolError(NOT_ANSWERING) from exc
         finally:
@@ -707,10 +723,15 @@ class OperatorRoute:
         goes to the app as `gate_command` -- no MCP tool, so the Operator cannot call it -- and the
         app's allow or deny comes back as Claude's hook JSON, an allow with a rewrite carrying it as
         `updatedInput`. Waits GATE_TIMEOUT for the app. Fails open: with no app, no answer in time, a
-        bad token, a body or an answer it cannot read, the command is allowed and the reason says it
-        ran unchallenged, since a gate that is closed must not stall the Operator."""
-        if (run_id := self._run(headers)) is None:
-            return 200, _gate_open("a registered run's token was missing")
+        a body or an answer it cannot read, the command is allowed and the reason says it
+        ran unchallenged. A missing or revoked token always denies, including revocation while waiting."""
+        token = mcp.bearer(headers.get("authorization", ""))
+        owner = self.session_tokens.owner_for(token) if token else None
+        run_id, generation = owner if owner else (self._run(headers), None)
+        def revoked() -> bool:
+            return self.session_tokens.owner_for(token) != owner if owner is not None and token else self._run(headers) != run_id
+        if run_id is None:
+            return 200, _gate_denied("This Operator token is missing or revoked.")
         try:
             hook = json.loads(body or b"{}")
         except (ValueError, RecursionError):
@@ -723,9 +744,11 @@ class OperatorRoute:
         try:
             answer = await self.ask_app(run_id, "gate_command", {"command": command, "directory": directory,
                                                                  "description": description},
-                                        timeout=delivery.GATE_TIMEOUT)
+                                        timeout=delivery.GATE_TIMEOUT, generation=generation)
         except ToolError as exc:
-            return 200, _gate_open(str(exc))
+            return 200, _gate_denied("This Operator token was revoked.") if revoked() else _gate_open(str(exc))
+        if revoked():
+            return 200, _gate_denied("This Operator token was revoked.")
         decision, reason, rewrite = answer.get("decision"), answer.get("reason"), answer.get("rewrite")
         if decision not in ("allow", "deny") or not isinstance(reason, str) or not (rewrite is None or isinstance(rewrite, str)):
             return 200, _gate_open("the app's answer was unreadable")
@@ -741,7 +764,15 @@ class OperatorRoute:
         run starts, beside the token file it writes, which is what a restarted daemon reads."""
         run_id, token = param(p, "runId", str), param(p, "token", str)
         try:
-            self.tokens.register(run_id, token)
+            generation = optional_param(p, "generation", int)
+            if generation is not None:
+                if self.tokens.run_for(token) is not None:
+                    raise ValueError("that token belongs to a broadcast")
+                self.session_tokens.register(run_id, generation, token)
+            else:
+                if self.session_tokens.owner_for(token) is not None:
+                    raise ValueError("that token belongs to the Operator")
+                self.tokens.register(run_id, token)
         except ValueError as exc:
             raise RpcError(protocol.BAD_PARAMS, str(exc)) from exc
         return {}
@@ -749,7 +780,12 @@ class OperatorRoute:
     async def revoke(self, p: Any) -> dict[str, Any]:
         """operator.revoke: closes /operator to a run's token -- a stopped run's (spec §9) -- and
         deletes its token file, so no restart brings it back."""
-        self.tokens.revoke(param(p, "runId", str))
+        run_id = param(p, "runId", str)
+        try:
+            self.session_tokens.revoke(run_id, generation=optional_param(p, "generation", int))
+        except ValueError:
+            pass  # Per-run ids have not always been UUIDs.
+        self.tokens.revoke(run_id)
         return {}
 
     async def reply(self, p: Any) -> dict[str, Any]:

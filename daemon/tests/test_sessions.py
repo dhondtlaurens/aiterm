@@ -16,7 +16,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": None, "reasoning": None, "state": "idle", "subagentsWrittenAt": None, "title": "zsh", "cwd": "/home",
-        "agentCwd": None, "active": False, "contextPercent": None, "conversationId": None, "terminalId": None,
+        "agentCwd": None, "active": False, "contextPercent": None, "contextTokens": None, "conversationId": None, "terminalId": None,
         "tabKey": None, "background": [], "yourPrompt": None, "slashCommands": [], "stoppedOn": None, "testActivity": None,
         "displayWork": None})
 

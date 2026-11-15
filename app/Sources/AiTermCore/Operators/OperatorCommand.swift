@@ -150,7 +150,7 @@ public enum OperatorCommand {
     /// Record trust for that exact folder before Claude opens, without changing tool permissions.
     /// Claude's global-state writer uses a `.lock` directory around its read/merge/atomic write.
     /// Join that lock briefly; never take it from another writer or replace unreadable state.
-    private static func trustRunFolder(_ folder: URL, home: URL, claudeConfig: ClaudeConfig) throws {
+    static func trustRunFolder(_ folder: URL, home: URL, claudeConfig: ClaudeConfig) throws {
         let file = UserConfigFile(home: home, url: claudeConfig.globalJSON(home: home))
         let manager = FileManager.default, lock = file.url.appendingPathExtension("lock")
         // Foundation strips a leading `/private`; Claude keys trust on the physical working directory.
