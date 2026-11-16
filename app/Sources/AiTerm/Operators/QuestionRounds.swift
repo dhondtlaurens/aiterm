@@ -29,6 +29,7 @@ import AiTermCore
     private let ports: Ports
     private var running: Set<String> = []
     private var activeQuestions: Set<String> = []
+    private var rounds: OracleRoundLedger { OracleRoundLedger(workspace: workspace, now: now, tool: "answer_worker") }
     var changed: () -> Void = {}
     init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports) {
         self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports
@@ -81,8 +82,8 @@ import AiTermCore
                 return try remember(["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
                                      "next": "Wait for the person's answer in your chat."], key: ledgerKey, arguments: arguments)
             }
-            if let open = workspace.state.operatorSession?.oracleRounds.first(where: { $0.tool == "answer_worker" && $0.askedEvidence == binding }) {
-                if open.stage == .unchallenged || (open.round ?? 0) >= 3 {
+            if let open = rounds.open(binding: binding) {
+                if open.stage == .unchallenged || (open.round ?? 0) >= OracleRoundLedger.maximumRounds {
                     return try remember(askPerson(question, reason: open.unchallengedReason ?? "The Operator and Oracle still disagree after three rounds."), key: ledgerKey, arguments: arguments)
                 }
                 if open.stage == .running || open.stage == .ready {
@@ -97,23 +98,13 @@ import AiTermCore
             } else if challenge != nil { throw ActionUnavailable("That Oracle round does not belong to this worker's current question.") }
             if person || !ports.oracleEnabled() {
                 let reason = person ? "The Operator says this is your decision." : "The Oracle is off."
-                let marker = ChallengeRecord(id: UUID().uuidString, tool: "answer_worker", stage: .unchallenged,
-                                             askedArguments: arguments, unchallengedReason: reason, askedAt: now(), askedEvidence: binding, round: 0)
-                workspace.mutate { $0.operatorSession?.oracleRounds.append(marker) }
+                rounds.marker(binding: binding, arguments: arguments, reason: reason)
                 return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
             }
         }
-        let round = (previous?.round ?? 0) + 1, roundID = UUID().uuidString
-        let discussion = previous?.result.flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
-        var record = ChallengeRecord(id: roundID, tool: "answer_worker", askedArguments: arguments, askedAt: now(),
-                                     askedEvidence: binding, round: round)
-        record.reply = proposal
-        record.result = String(decoding: try JSONEncoder().encode(discussion), as: UTF8.self)
-        workspace.mutate { state in
-            if let challenge { state.operatorSession?.oracleRounds.removeAll { $0.id == challenge } }
-            state.operatorSession?.oracleRounds.append(record)
-            state.updateSignalTask(id) { $0.currentAct = humanAnswer ? "answering its worker" : "consulting the Oracle" }
-        }
+        if previous == nil, let challenge { rounds.clear(challenge) }
+        let (roundID, round, discussion) = try rounds.begin(binding: binding, arguments: arguments, proposal: proposal, previous: previous)
+        workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = humanAnswer ? "answering its worker" : "consulting the Oracle" } }
         guard workspace.flush() else { throw ActionUnavailable("The Oracle round couldn’t be saved.") }
         defer {
             workspace.mutate { state in
@@ -133,13 +124,8 @@ import AiTermCore
         case .agreed:
             // A crash after this marker may have delivered. A restart asks the person instead of
             // typing the same answer twice into a worker that may already be at work again.
-            workspace.mutate { state in
-                if let index = state.operatorSession?.oracleRounds.firstIndex(where: { $0.id == roundID }) {
-                    state.operatorSession?.oracleRounds[index].stage = .ready
-                    state.operatorSession?.oracleRounds[index].approved = true
-                }
-                state.updateSignalTask(id) { $0.currentAct = "answering its worker" }
-            }
+            rounds.ready(roundID)
+            workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "answering its worker" } }
             guard workspace.flush() else { throw ActionUnavailable("The answer intent couldn’t be saved.") }
             try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
             guard stillAsks(), let current = workspace.state.task(id: id) else { clear(roundID); throw ActionUnavailable("The task or question changed.") }
@@ -156,18 +142,11 @@ import AiTermCore
             clear(roundID)
             return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
         case .critique(let text):
-            if round >= 3 {
+            if round >= OracleRoundLedger.maximumRounds {
                 markForPerson(roundID, reason: "The Operator and Oracle still disagree after three rounds. " + text)
                 return try remember(askPerson(question, reason: "The Operator and Oracle still disagree after three rounds. " + text), key: ledgerKey, arguments: arguments)
             }
-            let history = discussion + ["Operator: " + proposal, "Oracle: " + text]
-            workspace.mutate { state in
-                if let index = state.operatorSession?.oracleRounds.firstIndex(where: { $0.id == roundID }) {
-                    state.operatorSession?.oracleRounds[index].stage = .delivered
-                    state.operatorSession?.oracleRounds[index].critique = text
-                    state.operatorSession?.oracleRounds[index].result = String(decoding: try! JSONEncoder().encode(history), as: UTF8.self)
-                }
-            }
+            rounds.critique(roundID, proposal: proposal, text: text, discussion: discussion)
             return try remember(["status": "challenged", "challengeId": .string(roundID), "round": .int(round), "critique": .string(text)], key: ledgerKey, arguments: arguments)
         case .person(let reason), .unavailable(let reason):
             markForPerson(roundID, reason: reason)
@@ -220,14 +199,8 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
         changed()
     }
-    private func markForPerson(_ id: String, reason: String) {
-        workspace.mutate { state in
-            guard let index = state.operatorSession?.oracleRounds.firstIndex(where: { $0.id == id }) else { return }
-            state.operatorSession?.oracleRounds[index].stage = .unchallenged
-            state.operatorSession?.oracleRounds[index].unchallengedReason = reason
-        }
-    }
-    private func clear(_ id: String) { workspace.mutate { $0.operatorSession?.oracleRounds.removeAll { $0.id == id } } }
+    private func markForPerson(_ id: String, reason: String) { rounds.unchallenged(id, reason: reason) }
+    private func clear(_ id: String) { rounds.clear(id) }
     private func remember(_ result: JSONValue, key: String, arguments: String) throws -> JSONValue {
         workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }

@@ -27,9 +27,15 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
 3. **Prompt:** say what each worker does, including its checks. For example, `/psg:plan, then
    /psg:implement and /psg:review`. Description checkboxes add only the ticket and/or merge request
    description, quoted as data beneath your prompt. `/` offers installed skills.
-4. **Agents:** list the permitted Agent · Model · Reasoning rows. The Operator chooses among them
-   for a task or another work tab. A first launch may switch to the other permitted agent when
-   weekly usage reaches 80%; an existing conversation keeps its agent.
+4. **Agents:** list the permitted Agent · Model · Reasoning rows. With one row every task uses it.
+   With several, each task's row shows **Operator choosing its agent** while the Operator proposes
+   a row with a one-line reason, weighing the item, your prompt, the project, weekly usage per
+   agent, the installed agents and your standing instructions; an agent at 80% weekly usage is
+   avoided when another permitted agent has room. The Oracle agrees or critiques, for up to three
+   rounds. If the Oracle is off or unavailable the proposal applies; after three disagreeing rounds
+   the first row in your list does, and only then may AiTerm still move to the other agent at 80%.
+   The row and its reason go into the task's journal. The choice never comes to you. A later stage
+   and another work tab are chosen the same way; an existing conversation keeps its agent.
 5. **Done:** choose the source's done condition, whether to merge when ready where offered, and
    whether to keep, archive or remove the task. The closing box states what your choices do.
 
@@ -40,8 +46,10 @@ ten minutes; source failures back off to five minutes.
 
 AiTerm uses projects already in the sidebar; it never clones on pick-up. Link a project's Jira
 projects in **Add Project…** or **Edit Project…**. A ticket linked to several projects waits for
-the Operator to choose one. Merge requests map by repository remote. Items without a project are
-skipped with their reason in the signal's tooltip and activity log. No acknowledgement is written
+the Operator to choose one: its row shows **Operator choosing its project**, and the Operator
+decides it alone, or together with the agent row when there are several rows. Merge requests map
+by repository remote. Items without a project are skipped with their reason in the signal's
+tooltip and activity log. No acknowledgement is written
 to a host or ticket when an item is picked up.
 
 ## One item keeps one task

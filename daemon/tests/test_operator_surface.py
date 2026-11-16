@@ -198,7 +198,7 @@ async def test_single_operator_authority_runs_through_http_and_the_app_socket(ap
     await send(w, 1, "operator.register", {"runId": operator, "generation": 4, "token": TOKEN})
     assert (await read_until(r, lambda m: m.get("id") == 1))["result"] == {}
     _, listed = await operator_post(svc.hooks.port, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token=TOKEN)
-    assert len(listed["result"]["tools"]) == 13
+    assert len(listed["result"]["tools"]) == 14
     calling = asyncio.create_task(operator_post(svc.hooks.port, tool_call("note", {"key": "n", "task": "t"}), token=TOKEN))
     request = (await read_until(r, lambda m: m.get("event") == "operator.request"))["payload"]
     assert request["generation"] == 4 and request["runId"] == operator

@@ -16,19 +16,21 @@ import AiTermCore
         var sessions: @MainActor () -> [SessionInfo] = { [] }
         var instructions: @MainActor () -> String? = { nil }
         var usage: @MainActor () -> UsageSnapshot = { .empty }
+        var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
     }
     let workspace: WorkspaceStore
     let stages: StageRunner
     let questions: QuestionRounds
+    let choices: AgentChoiceRounds
     let journal: SignalJournal
     let now: () -> Date
     let ports: Ports
     private var running: Set<String> = []
     var changed: () -> Void = {}
     var recorded: (OperatorRequest, ToolAnswer) -> Void = { _, _ in }
-    init(workspace: WorkspaceStore, stages: StageRunner, questions: QuestionRounds, journal: SignalJournal,
+    init(workspace: WorkspaceStore, stages: StageRunner, questions: QuestionRounds, choices: AgentChoiceRounds, journal: SignalJournal,
          now: @escaping () -> Date, ports: Ports) {
-        self.workspace = workspace; self.stages = stages; self.questions = questions
+        self.workspace = workspace; self.stages = stages; self.questions = questions; self.choices = choices
         self.journal = journal; self.now = now; self.ports = ports
     }
     func respond(_ request: OperatorRequest) async -> ToolAnswer {
@@ -89,16 +91,17 @@ import AiTermCore
         }
         // These effects may have happened when a connection drops. Record uncertainty first;
         // the same key then asks for inspection instead of typing/opening a duplicate.
-        if let ledgerKey, [.messageTask, .openTab, .askOracle, .resumeTask, .finishStage].contains(tool) {
+        if let ledgerKey, [.messageTask, .openTab, .askOracle, .resumeTask, .finishStage, .chooseAgent].contains(tool) {
             try remember(["status": "uncertain", "next": "Inspect run_status and read_task before another action."], key: ledgerKey, arguments: arguments)
         }
         let result = try await execute(tool, call: call, task: task, key: key, allowed: allowed)
         // Stage owners intentionally advance authority. They check their own effects after every await.
         try requireSession(request, mutating: tool.mutating)
-        if [.resumeTask, .finishStage].contains(tool), let task, workspace.state.signalItem(id: task.id).flatMap(SignalClaim.init) == nil {
+        let advancesStage: Set<SignalOperatorTool> = [.resumeTask, .finishStage, .chooseAgent]
+        if advancesStage.contains(tool), let task, workspace.state.signalItem(id: task.id).flatMap(SignalClaim.init) == nil {
             throw ToolRefusal("The task is no longer the Operator’s.")
         }
-        if tool != .resumeTask && tool != .finishStage, let claim, !claim.holds(in: workspace.state) {
+        if !advancesStage.contains(tool), let claim, !claim.holds(in: workspace.state) {
             throw ToolRefusal("The task changed while this call ran.")
         }
         if let ledgerKey, result["status"] != "pending" { try remember(result, key: ledgerKey, arguments: arguments) }

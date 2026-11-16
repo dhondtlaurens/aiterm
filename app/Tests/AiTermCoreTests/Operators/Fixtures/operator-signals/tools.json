@@ -96,7 +96,7 @@
   },
   {
     "name": "open_tab",
-    "description": "Open a work tab using an exact permitted agent row. Checking and publishing follow the worker skill.",
+    "description": "Open a work tab on an exact permitted agent row. With several permitted rows the Oracle checks the row first: on challenged revise with challengeId and a new key, at most three rounds. Checking and publishing follow the worker skill.",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,
@@ -139,7 +139,11 @@
         },
         "why": {
           "type": "string",
-          "description": "why"
+          "description": "One-line reason for this row, given the work, weekly usage and installed agents."
+        },
+        "challengeId": {
+          "type": "string",
+          "description": "The challengeId of the Oracle's last critique of this tab's row."
         }
       },
       "required": [
@@ -309,7 +313,7 @@
   },
   {
     "name": "resume_task",
-    "description": "Resume a blocked task. Select a linked project or permitted agent row if a choice is needed.",
+    "description": "Resume a blocked task on its decided project and agent row. To change either, or for a choosing task, use choose_agent.",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,
@@ -356,6 +360,73 @@
         "stage",
         "ownership",
         "key"
+      ],
+      "dependentRequired": {
+        "task": [
+          "stage",
+          "ownership"
+        ]
+      }
+    }
+  },
+  {
+    "name": "choose_agent",
+    "description": "Choose a choosing task's agent row, and its project when it has candidates, with a one-line reason; also changes a blocked task's row. The Oracle agrees or critiques: on challenged revise with challengeId and a new key, at most three rounds. Never asks the person.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task": {
+          "type": "string",
+          "description": "The task UUID from run_status."
+        },
+        "stage": {
+          "type": "integer",
+          "description": "The current task stage from run_status."
+        },
+        "ownership": {
+          "type": "integer",
+          "description": "The current task ownership from run_status."
+        },
+        "key": {
+          "type": "string",
+          "description": "A unique key for this action. Retry with the same key and exact arguments."
+        },
+        "project": {
+          "type": "string",
+          "description": "One of the task's candidate project UUIDs, when it has several."
+        },
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "description": "An agent from the task's choosableRows."
+        },
+        "model": {
+          "type": "string",
+          "description": "The exact model in that choosable row."
+        },
+        "reasoning": {
+          "type": "string",
+          "description": "The exact reasoning in that permitted row; omit if absent."
+        },
+        "reason": {
+          "type": "string",
+          "description": "One line: why this row (and project) fits the work, weekly usage, installed agents and standing instructions."
+        },
+        "challengeId": {
+          "type": "string",
+          "description": "The challengeId of the Oracle's last critique of this choice."
+        }
+      },
+      "required": [
+        "task",
+        "stage",
+        "ownership",
+        "key",
+        "reason"
       ],
       "dependentRequired": {
         "task": [

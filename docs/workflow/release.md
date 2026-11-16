@@ -58,7 +58,7 @@ encoder discards them, including inside archived tasks. Old broadcast history an
 appear in the Archive. Release notes must state this prerequisite and the changed keys: New Signal
 is ⌘S and Show Archive is ⌘A outside a text field.
 
-Current Signal saved-format, brief and thirteen-tool fixtures have explicit provenance. Historical
+Current Signal saved-format, brief and fourteen-tool fixtures have explicit provenance. Historical
 broadcast input is retained only to prove retirement and for the frozen before/after model eval;
 there is no legacy runtime. Workspace/credential recovery still protects the person's other data.
 

@@ -10,7 +10,7 @@ public extension AppState {
                   signal(id: record.signal)?.enabled != false,
                   let configuration = record.configuration ?? signal(id: record.signal), configuration.isRunnable else { return false }
             switch record.phase {
-            case .launching, .working, .watching, .blocked: return true
+            case .launching, .choosing, .working, .watching, .blocked: return true
             case .done: return record.thenApplied != true || !record.pendingStages.isEmpty
             case .archived: return !record.pendingStages.isEmpty
             case .stopped, .unknown: return false

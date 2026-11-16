@@ -87,29 +87,50 @@ import AiTermCore
             changed(id, "Its worker could not start.")
         }
     }
+    /// Resumes a blocked stage on its decided row and project. Changing either is a choice, made
+    /// through `choose` after the Operator and the Oracle agree.
     func resume(_ id: UUID, project: UUID? = nil, agent: AgentChoice? = nil) async throws {
+        if workspace.state.signalItem(id: id)?.signalTask?.phase == .choosing {
+            throw ActionUnavailable("This stage waits for its agent choice. Use choose_agent.")
+        }
         guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
               let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask, !record.takenOver,
               record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")
         }
-        if let candidates = record.candidateProjects, candidates.count > 1 {
-            guard let project, candidates.contains(project), workspace.state.project(id: project) != nil else {
-                throw ActionUnavailable("Choose one of this ticket's linked projects.")
-            }
-        } else if let project, project != task.projectId { throw ActionUnavailable("This task already belongs to another project.") }
-        let choice = agent ?? (signal.agents.count == 1 ? signal.agents.first : nil)
-        guard let choice, signal.agents.contains(choice), AgentCommand.operatedAgents.contains(choice.agent), !choice.model.isEmpty else {
-            throw ActionUnavailable("Choose one of this signal's permitted agents and models.")
+        let current = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
+        if let project, project != task.projectId { throw ActionUnavailable("resume_task keeps the task's project. Use choose_agent to change it.") }
+        if let agent, agent != current { throw ActionUnavailable("resume_task keeps the decided agent row. Use choose_agent to change it.") }
+        guard signal.agents.contains(current), AgentCommand.operatedAgents.contains(current.agent), !current.model.isEmpty else {
+            throw ActionUnavailable("Its agent row is no longer permitted. Use choose_agent to choose one.")
         }
-        if let project, project != task.projectId, task.hasCheckout { throw ActionUnavailable("A task with a checkout cannot move repositories.") }
         let next = try SignalTransitions.apply(.resume, to: record, at: now())
-        workspace.mutate { $0.updateSignalItem(id) { task in
-            task.signalTask = next; task.signalTask?.candidateProjects = nil
-            if let project { task.projectId = project }
-            task.agent = choice.agent; task.model = choice.model; task.reasoning = choice.reasoning
-        } }
+        workspace.mutate { $0.updateSignalItem(id) { task in task.signalTask = next; task.signalTask?.candidateProjects = nil } }
         guard workspace.flush() else { throw ActionUnavailable("The resume intent couldn’t be saved.") }
+        await run(id)
+    }
+    /// Applies a decided row and project to a choosing stage, or to a blocked stage that resumes on
+    /// a new row, journals the choice and starts the stage. The caller validated the choice.
+    func choose(_ id: UUID, choice: AgentChoiceRecord) async throws {
+        guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
+              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
+              record.phase == .choosing || record.phase == .blocked,
+              let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
+            throw ActionUnavailable("Only a choosing or blocked task of the Operator takes an agent choice.")
+        }
+        if let project = choice.project, project != task.projectId {
+            guard workspace.state.project(id: project) != nil else { throw ActionUnavailable("That project is no longer in the sidebar.") }
+            guard !task.hasCheckout else { throw ActionUnavailable("A task with a checkout cannot move repositories.") }
+        }
+        let next = try SignalTransitions.apply(record.phase == .choosing ? .chosen : .resume, to: record, at: now())
+        workspace.mutate { $0.updateSignalItem(id) { task in
+            task.signalTask = next; task.signalTask?.candidateProjects = nil; task.signalTask?.choice = choice
+            if let project = choice.project { task.projectId = project }
+            task.agent = choice.row.agent; task.model = choice.row.model; task.reasoning = choice.row.reasoning
+        } }
+        guard workspace.flush() else { throw ActionUnavailable("The agent choice couldn’t be saved.") }
+        try await journal.append(.ours(choice.journalLine), task: id)
+        changed(id, "The Operator chose its agent.")
         await run(id)
     }
     func finish(_ id: UUID, action: SignalAction, judged: Bool = false) async throws {
@@ -122,20 +143,14 @@ import AiTermCore
         workspace.mutate { state in
             state.updateSignalItem(id) { task in
                 task.signalTask = next
-                if next.phase == .launching, let configuration {
-                    if configuration.agents.count == 1, let choice = configuration.agents.first {
-                        task.agent = choice.agent; task.model = choice.model; task.reasoning = choice.reasoning
-                    } else {
-                        task.signalTask?.phase = .blocked
-                        task.signalTask?.blockedReason = "Choose a permitted agent and model for this stage."
-                    }
-                }
+                if next.phase == .launching, let configuration { task.prepareLaunch(configuration: configuration, candidates: nil, at: now()) }
             }
         }
         guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }
         try await journal.append(.ours("Stage \(record.stage) left working."), task: id)
         if workspace.state.signalItem(id: id)?.signalTask?.phase == .launching { await run(id) }
-        else if workspace.state.signalItem(id: id)?.signalTask?.phase == .blocked { changed(id, "This stage needs an agent choice.") }
+        else if workspace.state.signalItem(id: id)?.signalTask?.phase == .choosing { changed(id, "The Operator chooses this stage's agent.") }
+        else if workspace.state.signalItem(id: id)?.signalTask?.phase == .blocked { changed(id, "This stage cannot start.") }
     }
     private func holds(_ claim: SignalClaim, generation expected: UUID) -> Bool {
         !isStopped && generation == expected && workspace.state.operatorSession?.paused != true

@@ -58,6 +58,11 @@ struct SignalSidebar {
         } else {
             switch record.phase {
             case .launching: row.operatorLine = OperatorLine("starting its worker", look: .acting); row.status = .working
+            case .choosing:
+                // The Operator's turn, never the person's: the acting look, counted as work.
+                let projectOnly = (record.choosableRows?.count ?? 0) == 1 && (record.candidateProjects?.count ?? 0) > 1
+                row.operatorLine = OperatorLine("Operator choosing " + (projectOnly ? "its project" : "its agent"), look: .acting)
+                row.status = .working
             case .working:
                 if task.windowId == nil && task.firstWorkerConversation != nil { row.operatorLine = .windowClosed; row.status = .idle }
                 else if !busy { row.status = .working }

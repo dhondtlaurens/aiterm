@@ -266,4 +266,39 @@ import Testing
         facts.hostReadComplete = true
         #expect(DoneCheck.evaluate(condition, facts: facts, stageStartedAt: now) == .reached)
     }
+
+    @Test func aStageWaitsInChoosingUntilTheOperatorChoosesThenLaunchesUnderANewOwnership() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        var task = SignalTask(signal: signal().id, item: item, startedAt: now)
+        task = try SignalTransitions.apply(.needChoice, to: task, at: now)
+        task.choosableRows = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: nil)]; task.candidateProjects = [UUID(), UUID()]
+        #expect(task.phase == .choosing && !task.phase.isActive && !task.phase.canContinue)
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.block("no"), to: task, at: now) }
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.resume, to: task, at: now) }
+        let chosen = try SignalTransitions.apply(.chosen, to: task, at: now)
+        #expect(chosen.phase == .launching && chosen.ownership == task.ownership + 1)
+        #expect(chosen.choosableRows == nil && chosen.candidateProjects == nil)
+        #expect(chosen.edges.suffix(2).map(\.to) == [.choosing, .launching])
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.chosen, to: chosen, at: now) }
+        #expect(try SignalTransitions.apply(.takeOver, to: task, at: now).takenOver)
+        #expect(try SignalTransitions.apply(.stop, to: task, at: now).phase == .stopped)
+    }
+    @Test func theChoosingPhaseAndItsSparseFieldsRoundTripAndOldRecordsDecode() throws {
+        var task = SignalTask(signal: signal().id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: now)
+        let bare = try JSONEncoder().encode(task)
+        #expect(!String(decoding: bare, as: UTF8.self).contains("choosableRows") && !String(decoding: bare, as: UTF8.self).contains("\"choice\""))
+        task.phase = .choosing; task.choosableRows = [AgentChoice(agent: .codex, model: "gpt-5.5", reasoning: "high")]
+        task.choice = AgentChoiceRecord(row: AgentChoice(agent: .codex, model: "gpt-5.5", reasoning: "high"), project: nil,
+                                        reason: "Codex has room this week.", decided: .oracleOff, round: nil, note: nil, at: now)
+        #expect(try JSONDecoder().decode(SignalTask.self, from: JSONEncoder().encode(task)) == task)
+        #expect(try JSONValue(encoding: TaskPhase.choosing) == ["kind": "choosing"])
+    }
+    @Test func aNewStageForgetsThePreviousStagesChoice() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        var task = SignalTask(signal: signal().id, item: item, startedAt: now); task.phase = .done
+        task.choice = AgentChoiceRecord(row: AgentChoice(agent: .codex, model: "gpt-5.5", reasoning: nil), project: nil,
+                                        reason: "r", decided: .oracleAgreed, round: 1, note: nil, at: now)
+        let next = try SignalTransitions.apply(.matched(SignalStage(signal: signal("Next").id, item: item, matchedAt: now)), to: task, at: now)
+        #expect(next.phase == .launching && next.choice == nil)
+    }
 }

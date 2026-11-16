@@ -161,7 +161,8 @@ import Testing
             workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in "window" }, restore: { $0 }))
         let questions = rounds ?? QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             oracleEnabled: { false }, question: { _, _ in nil }, oracle: { _ in .unavailable("Off") }, deliver: { _, _, _ in }))
-        return SignalOperatorToolHandler(workspace: h.workspace, stages: stages, questions: questions, journal: h.journal,
+        let choices = AgentChoiceRounds(workspace: h.workspace, now: { world.now }, ports: .init(oracleEnabled: { false }, oracle: { _ in .unavailable("Off") }))
+        return SignalOperatorToolHandler(workspace: h.workspace, stages: stages, questions: questions, choices: choices, journal: h.journal,
             now: { world.now }, ports: .init(oracleEnabled: { false }, workerQuestion: workerQuestion, read: read,
                 message: message, openTab: { _, _, _, _, _, _ in [:] }, jiraSearch: { _ in [] }, oracle: { _, _, _ in "A second opinion." }))
     }

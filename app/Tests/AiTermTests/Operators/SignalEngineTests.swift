@@ -123,8 +123,10 @@ import Testing
         try await runner.finish(id, action: .finish(.operatorJudges))
         if multiple {
             #expect(agents.isEmpty)
-            #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)
-            try await runner.resume(id, agent: codex)
+            #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .choosing)
+            #expect(h.workspace.state.task(id: id)?.signalTask?.choosableRows == [SignalWorld.agent, codex])
+            try await runner.choose(id, choice: AgentChoiceRecord(row: codex, project: nil, reason: "A review suits Codex.",
+                                                                  decided: .oracleAgreed, round: 1, note: nil, at: world.now))
         }
         #expect(agents == [.codex])
         #expect(h.workspace.state.task(id: id)?.agent == .codex)

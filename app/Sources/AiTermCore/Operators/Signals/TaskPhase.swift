@@ -2,6 +2,8 @@ import Foundation
 
 public enum TaskPhase: Codable, Equatable, Sendable {
     case launching
+    /// Waiting for the Operator to choose the stage's agent row or project; not the person's turn.
+    case choosing
     case working
     case watching(DoneWhen)
     case blocked
@@ -14,6 +16,7 @@ public enum TaskPhase: Codable, Equatable, Sendable {
         let raw = try JSONValue(from: decoder)
         switch raw["kind"]?.stringValue {
         case "launching": self = .launching
+        case "choosing": self = .choosing
         case "working": self = .working
         case "watching":
             guard let value = raw["value"] else { throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Missing TaskPhase value")) }
@@ -29,6 +32,7 @@ public enum TaskPhase: Codable, Equatable, Sendable {
         let raw: JSONValue
         switch self {
         case .launching: raw = ["kind": "launching"]
+        case .choosing: raw = ["kind": "choosing"]
         case .working: raw = ["kind": "working"]
         case .watching(let value): raw = ["kind": "watching", "value": try JSONValue(encoding: value)]
         case .blocked: raw = ["kind": "blocked"]

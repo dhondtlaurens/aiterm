@@ -92,13 +92,14 @@ enum kinds use inert unknown fallbacks rather than losing the workspace.
 | `MatchDecision`, `SignalTransitions`, `DoneCheck`, `FreshStartPolicy` | Pure identity/routing, stage edges, source-specific completion and idle fresh-start decisions. Pending stages outrank Then. |
 | `SignalPoller`, source readers | Shared complete reads, minute polling, ten-minute Jira sweeps and failure backoff. Partial reads cannot start tasks. |
 | `ItemRouter` | Map matches to existing tasks/projects, persist skipped reasons, choose the oldest signal in a shared pass. No clone or pick-up writes. |
-| `StageRunner` | Persist launch intent, prepare/restore the same task, launch one worker, advance or block its stage. |
+| `StageRunner` | Persist launch intent, prepare/restore the same task, launch one worker, advance or block its stage; a stage with a row or project left to choose waits in `choosing` until a decided choice is applied. |
 | `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
 | `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
 | `ThenRunner`, `TaskArchiver`, `TaskRemover` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
 | `OperatorSessionKeeper` | Persist one session, generation/token handover, adoption and idle fresh starts. Close the old window before revoking its token. |
+| `AgentChoiceRounds`, `OracleRoundLedger` | Bind the Operator's agent-row (and project) proposal for a stage or work tab to its stage/ownership and run up to three Oracle rounds; the outcome never asks the person. The ledger keeps the saved rounds both owners share. |
 | `QuestionRounds`, `SignalJournal` | Bind three-round answer discussions to the full worker question/conversation/stage/ownership; persist quoted answers/instructions and bounded state tails over append-only journals. |
-| `SignalOperatorToolHandler`, `SignalShellGate` | Validate thirteen tools, idempotency and current authority; handle the private gated shell route separately. Missing/stale tokens deny. |
+| `SignalOperatorToolHandler`, `SignalShellGate` | Validate fourteen tools, idempotency and current authority; handle the private gated shell route separately. Missing/stale tokens deny. |
 | `SignalOperatorController`, `OperatorWork` | Compose owners, schedule finite jobs, reconcile sources/workers, coalesce fixed event/task wake lines, cancel owned work on stop. |
 | `SignalPauseSignaller`, `SignalQuestionNotification` | Save pause/carry-on obligations and route counted human questions to the one chat. Worker permission prompts keep normal task notifications. |
 

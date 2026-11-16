@@ -4,7 +4,7 @@ import AiTermCore
 
 @MainActor enum SignalSidebarSnapshots {
     static var all: [Snapshot] {
-        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "blocked", "done", "window-closed", "off", "removed", "section-folded"].map { state in
+        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "choosing", "blocked", "done", "window-closed", "off", "removed", "section-folded"].map { state in
             Snapshot("signals-" + state + ".png", hostedOnly: true) { make(state) }
         }
     }
@@ -21,7 +21,8 @@ import AiTermCore
             var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-142"), startedAt: Snapshots.clock.now)
             record.phase = pose == "watching" ? .watching(.hasReviewer) : .working; record.configuration = signal
             if pose == "acting" { record.currentAct = "answering its worker" }
-            if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Choose which linked project should hold this ticket." }
+            if pose == "choosing" { record.phase = .choosing; record.choosableRows = signal.agents + [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")] }
+            if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming." }
             if pose == "done" { record.phase = .done }
             if pose == "taken-over" { record.takenOver = true; record.ownership = 1 }
             if let index = state.tasks.firstIndex(where: { $0.id == fixture.working.id }) { state.tasks[index].signalTask = record
@@ -40,7 +41,7 @@ import AiTermCore
             if ["questions", "section-folded"].contains(pose) { state.operatorSession?.questions = [.init(id: "vat", task: fixture.working.id,
                 text: "Block orders without a VAT number, or export them with the field empty?", openedAt: Snapshots.clock.now)] }
         }
-        if ["watching", "questions", "section-folded", "paused", "off", "blocked", "done", "window-closed"].contains(pose) { controller.live.sessions.removeAll { $0.taskUUID == fixture.working.id } }
+        if ["watching", "questions", "section-folded", "paused", "off", "choosing", "blocked", "done", "window-closed"].contains(pose) { controller.live.sessions.removeAll { $0.taskUUID == fixture.working.id } }
         return SidebarView(controller: controller).frame(width: 420, height: 900)
     }
 }

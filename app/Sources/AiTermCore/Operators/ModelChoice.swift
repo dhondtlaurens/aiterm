@@ -6,6 +6,7 @@ import Foundation
 public enum ModelChoice {
     /// The weekly use, in percent, at which new tasks move to the other agent: AiTerm's amber line.
     static let switchAt = 80
+    public static var switchAtPercent: Int { switchAt }
 
     /// The two agents the Operator chooses between. An agent outside them never switches.
     public static let pair: [AgentKind] = [.claude, .codex]
