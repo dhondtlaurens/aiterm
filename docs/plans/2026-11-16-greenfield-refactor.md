@@ -223,7 +223,7 @@ TS tests-scripts.
 - [x] 0c. **Codex.** Tests build `TaskItem`, `Project` and `SessionInfo` through the shared
   builders; local copies of those builders go (TS F6). No assertion changes.
 
-- [ ] 0d. **Codex.** `scripts/reset-operator-state.sh`: the reset command as a script. With AiTerm
+- [x] 0d. **Codex.** `scripts/reset-operator-state.sh`: the reset command as a script. With AiTerm
   quit, it copies `state.json` to a dated file beside it, sets a task's `takenOver` mark where its
   signal record says it was taken over, then removes `operatorSession` and every task's and
   archived task's `signalTask`, using only what macOS ships. A guard script under `scripts/` runs
@@ -550,10 +550,16 @@ left.
 - 0b: `SignalJourneyTests.aJiraMatchRunsToItsDoneConditionAndThenArchivesItsTask` added; three
   filtered runs green; it fails at the archive expectations with Then `.keep` and with the ticket left
   at `To Do`. The brief's evidence held. The test wraps the stub's `Mutex` in a small `Sendable`
-  class, because a noncopyable `Mutex` cannot be captured by the stub's escaping closure.- 0c: 55 test files build `Project`, `TaskItem` and `SessionInfo` through the shared builders, which
+  class, because a noncopyable `Mutex` cannot be captured by the stub's escaping closure.
+- 0c: 55 test files build `Project`, `TaskItem` and `SessionInfo` through the shared builders, which
   gained `mr`, `appendTicket`, `conversations`, `project`, `model` and `title`. No test added,
   deleted or renamed; no assertion changed. Direct initialiser calls kept: the six `ModelsTests`
   exceptions the brief names, plus `anUnknownSidebarItemKeepsItsPlaceAndIsNeverDrawnOrCounted`
   (it asserts a JSON round trip), and the six Find a Fix files (1i deletes them). The brief's
   `Project(id:` grep also matches `updateProject(id:` and `removeProject(id:`; those hits are not
   initialiser calls. Twenty local helpers stay as thin wrappers with three or more callers each.
+- 0d: `scripts/reset-operator-state.sh` (one line: `pgrep`, `cp -p`, `date`, `osascript`) and its
+  guard `scripts/test-reset-operator-state.sh`, run by `test-swift-toolchain.sh` beside the history
+  guard and routed from both scripts and the `operator-signals/state.json` fixture
+  (`test-test-select.sh` pins the three routes). The script was only ever run on scratch copies.
+  `ArchivedTask` lives in `Models.swift`, not `Tasks/`; its keys are as the brief says.

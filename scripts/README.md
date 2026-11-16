@@ -40,6 +40,11 @@ new bundle. Installed/development copies share their identifier, workspace, sock
 This is a live switch; do not use it while another run must remain undisturbed. A stable signing
 identity preserves automation/Keychain grants across rebuilds.
 
+`reset-operator-state.sh [path]` clears `operatorSession` and active/archived tasks' `signalTask`
+records, preserves takeover marks on the tasks, and keeps every other saved value with a dated copy
+before editing. Run it with AiTerm quit before switching between the installed app and a development
+build while their Operator records differ in shape, and once when upgrading to the major release.
+
 ## Test
 
 ```sh
@@ -69,8 +74,9 @@ never change the command's verdict or activity record. Release still requires a 
 
 `test-history.py` writes that history, and `release.sh` asks it (`require-full`) for the full pass.
 `test-queue.sh` is the sourced shim into `test-queue.py`. `test-swift-toolchain.sh` proves the pin and
-runs the queue guard (`test-test-queue.sh`), the history guard (`test-test-history.sh`) and the build
-and bundle checks in `scripts/fixtures/`. `test-test-select.sh` guards fixture
+runs the queue guard (`test-test-queue.sh`), the history guard (`test-test-history.sh`), the workspace
+reset guard (`test-reset-operator-state.sh`) and the build and bundle checks in `scripts/fixtures/`.
+`test-test-select.sh` guards fixture
 readers and routing. `test.sh` creates `daemon/.venv` with the `dev` extra when needed, runs pytest,
 then its own venv's mypy/ruff over implementation, tests and tools. `PYTEST` can override the pytest
 executable; lint still uses the repository venv.

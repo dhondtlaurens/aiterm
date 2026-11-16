@@ -78,6 +78,10 @@ scripts/make-app.sh	toolchain
 scripts/snapshots.sh	toolchain
 # The history guard syntax-checks release.sh without running it.
 scripts/release.sh	toolchain
+# The reset guard edits scratch copies of the saved workspace fixture.
+scripts/reset-operator-state.sh	toolchain
+scripts/test-reset-operator-state.sh	toolchain
+app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals/state.json	toolchain
 
 # Nothing a test reads.
 docs/*	none
