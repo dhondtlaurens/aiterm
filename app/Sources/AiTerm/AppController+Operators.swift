@@ -56,6 +56,18 @@ extension AppController {
         setOperatorOpen(!rows.operatorOpen)
     }
 
+    /// ↓ on the Operator's last row, or ↑ on the first project: the arrow crosses the fold, opening the other
+    /// section, folding this one, and peeking at the row it reaches as the list's own arrows do. False where the
+    /// list moves on its own (`SidebarProjection.crossing(from:down:)`).
+    @discardableResult
+    func crossSections(down: Bool) -> Bool {
+        guard canChangeWorkspace, let selection = focus.selection,
+              let target = rows.crossing(from: selection, down: down) else { return false }
+        reveal(target)
+        focus.peek(target)
+        return true
+    }
+
     /// Stored even while there is nothing to fold, when the projection ignores it: a new signal opens the
     /// section before its rows are derived.
     func setOperatorOpen(_ open: Bool) {

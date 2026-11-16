@@ -28,20 +28,25 @@ struct NativeRowHighlight: NSViewRepresentable {
                 found.selectionHighlightStyle = .none
                 return
             }
-            func table(in view: NSView) -> NSTableView? {
-                if let table = view as? NSTableView { return table }
-                return view.subviews.lazy.compactMap { table(in: $0) }.first
-            }
-            var ancestor = superview
-            while let current = ancestor {
-                if let table = table(in: current) {
-                    table.selectionHighlightStyle = .none
-                    found = table
-                    return
-                }
-                ancestor = current.superview
-            }
+            guard let table = NativeRowHighlight.table(near: self) else { return }
+            table.selectionHighlightStyle = .none
+            found = table
         }
+    }
+
+    /// The table of the list `view` rides in the background of: each ancestor's subtree is searched in
+    /// turn, outward, so the nearest table is that list's own.
+    static func table(near view: NSView) -> NSTableView? {
+        func table(in view: NSView) -> NSTableView? {
+            if let table = view as? NSTableView { return table }
+            return view.subviews.lazy.compactMap { table(in: $0) }.first
+        }
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let table = table(in: current) { return table }
+            ancestor = current.superview
+        }
+        return nil
     }
 
     func makeNSView(context: Context) -> Probe { Probe(frame: .zero) }

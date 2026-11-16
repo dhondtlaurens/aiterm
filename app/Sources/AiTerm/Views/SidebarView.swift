@@ -125,6 +125,7 @@ struct SidebarView: View {
                 // still owns keyboard navigation; only its focus-dependent gray highlight is hidden.
                 .scrollContentBackground(.hidden)
                 .background(NativeRowHighlight.off)
+                .background(SectionCrossing { controller.crossSections(down: $0) })
                 // A plain ↩: ⌘↩ is the sheets' commit key, not the list's.
                 .onKeyPress(.return, phases: .down) { press in
                     guard press.modifiers.isEmpty else { return .ignored }

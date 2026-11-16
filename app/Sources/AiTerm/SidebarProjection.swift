@@ -55,6 +55,21 @@ struct SectionFold: Equatable {
                 + section.tasks.filter { $0.status.needsAttention }.map { RowID.task($0.id) }
         }
     }
+    /// The rows under OPERATOR in the order the arrow keys walk them: its row, then each signal's heading
+    /// and, unfolded, its tasks. Worked out whether or not the section is open.
+    var operatorPath: [RowSelection] {
+        (signalOperator.shown ? [.operation(OperatorSession.rowID)] : [])
+            + signalSections.flatMap { section in [.signal(section.id)] + (section.collapsed ? [] : section.tasks.map { .task($0.id) }) }
+    }
+    /// Where an arrow key crosses the fold between the sections: ↓ on the Operator's last row reaches the first
+    /// project, ↑ on the first project the Operator's last row. Nil anywhere else, where the list moves on its own,
+    /// and while there is no fold.
+    func crossing(from row: RowSelection, down: Bool) -> RowSelection? {
+        guard operatorHeading.folds, let first = sections.first.map({ RowSelection.project($0.project.id) }) else { return nil }
+        if down, operatorOpen, row == operatorPath.last { return first }
+        if !down, !operatorOpen, row == first { return operatorPath.last }
+        return nil
+    }
     @discardableResult func refresh() -> Bool {
         let state = workspace.state
         let drawn = state.tasks.map { task in
