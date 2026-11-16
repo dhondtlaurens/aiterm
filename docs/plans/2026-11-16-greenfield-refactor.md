@@ -563,3 +563,7 @@ left.
   guard and routed from both scripts and the `operator-signals/state.json` fixture
   (`test-test-select.sh` pins the three routes). The script was only ever run on scratch copies.
   `ArchivedTask` lives in `Models.swift`, not `Tasks/`; its keys are as the brief says.
+- Phase close: plain `scripts/test.sh all` green on `f3df6271` (1702 Swift tests in 168 suites,
+  daemon suite and lint, snapshots). Codex adversarial review of the phase's change: no findings,
+  "ready" (static review). `main` had not moved since the branch (`247b305d`); merged to `main`.
+  No manual check is owed for phase 0.
