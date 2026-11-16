@@ -122,6 +122,9 @@ a heading explaining that the source was removed.
 
 **Take Over** on a driven task moves it to its project and withdraws the Operator's authority and
 questions for it. Its worktree, branch and conversations stay. There is no Hand Back.
+Clicking it opens its window. If its worker never started, AiTerm creates or adopts its worktree
+and opens a shell; a merge-request task checks out the request's source branch. Saved conversations
+resume with their branch guards, without repeating the Signal's work instruction.
 
 While the Operator acts on a task, the whole badge line decodes into its action and back. Hover to
 read the badges. Reduce Motion uses a plain swap. There is no extra status line or board.

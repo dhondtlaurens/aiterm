@@ -325,7 +325,7 @@ final class WindowReconciler {
         let token: WorkInFlight.Token?
         switch row {
         case .task(let id):
-            // A driven task's worker is the operator controller's to resume, never a fresh agent here.
+            // Signal tasks use their driven or taken-over opener, preserving their worker guards.
             guard let task = state.task(id: id), task.windowId == nil, task.signalTask == nil else { return nil }
             token = work.begin(.reopening, onTask: id)
         case .terminal(let id):

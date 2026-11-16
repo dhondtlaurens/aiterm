@@ -5,6 +5,7 @@ import AiTermCore
 /// review opened in the task that already has its branch.
 @MainActor
 final class TaskLauncher {
+    typealias RequestCheckout = @MainActor (TaskItem) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome)
     private let workspace: WorkspaceStore
     private let work: WorkInFlight
     private let notices: Notices
@@ -14,6 +15,7 @@ final class TaskLauncher {
     private let workflow: TaskWorkflow
     private let git: any GitRunning
     private let daemon: @MainActor () -> (any DaemonCommands)?
+    private var takenOverOpenings: [UUID: Task<Void, Never>] = [:]
 
     init(workspace: WorkspaceStore, work: WorkInFlight, notices: Notices, checkouts: CheckoutMonitor, focus: RowFocus,
          tiling: SidebarTiling, workflow: TaskWorkflow, git: any GitRunning, daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
@@ -193,6 +195,76 @@ final class TaskLauncher {
         guard let note = outcome.bannerMessage else { return nil }
         notices.report(OperationIssue(title: note, subject: task.id))
         return note
+    }
+
+    /// A taken-over task opens as the person's task, even when the Operator never made its checkout
+    /// or started a conversation. Opening it never sends the Signal's work instruction again.
+    func openTakenOverWindow(_ id: UUID, prepareRequest: @escaping RequestCheckout,
+                            resume: @escaping @MainActor (TaskItem) async throws -> [String]) -> Task<Void, Never> {
+        if let opening = takenOverOpenings[id] { return opening }
+        let opening = Task {
+            defer { takenOverOpenings[id] = nil }
+            do { try await openTakenOver(id, prepareRequest: prepareRequest, resume: resume) }
+            catch { notices.report(OperationIssue(title: "Couldn’t open the task’s window.", error: error, subject: id)) }
+        }
+        takenOverOpenings[id] = opening
+        return opening
+    }
+
+    private func openTakenOver(_ id: UUID, prepareRequest: RequestCheckout,
+                              resume: @MainActor (TaskItem) async throws -> [String]) async throws {
+        guard var task = state.task(id: id), task.signalTask?.takenOver == true, task.windowId == nil else { return }
+        guard canChangeWorkspace, let project = state.project(id: task.projectId), let daemon = daemon(),
+              let token = work.begin(.reopening, onTask: id) else { throw ActionUnavailable("This task cannot open now.") }
+        defer { work.end(token) }
+        func current(_ expected: TaskItem) -> TaskItem? {
+            guard canChangeWorkspace, !Task.isCancelled, let value = state.task(id: id), value.signalTask?.takenOver == true,
+                  value.projectId == expected.projectId, value.branch == expected.branch,
+                  value.worktreePath == expected.worktreePath else { return nil }
+            return value
+        }
+        let snapshot = try await daemon.snapshot()
+        guard let latest = current(task) else { return }
+        if let window = latest.windowId ?? snapshot.sessions.first(where: { $0.taskUUID == id })?.windowId {
+            workspace.mutate { $0.updateSignalItem(id) { $0.windowId = window } }
+            return
+        }
+        guard snapshot.connected else { throw ActionUnavailable("iTerm2 isn’t connected. Try again once it reconnects.") }
+        if !task.hasCheckout {
+            let prepared: TaskItem
+            var includes = WorktreeInclude.Outcome.complete
+            if task.mr != nil {
+                let result = try await prepareRequest(task)
+                prepared = result.task; includes = result.includes
+            }
+            else {
+                let git = git
+                let start = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
+                guard current(task) != nil else { return }
+                let result = try await workflow.checkOutWorker(task, project: project, start: start,
+                    reserved: state.reservedWorktreeSlugs(projectId: project.id))
+                prepared = result.made.task; includes = result.made.worktreeInclude
+            }
+            guard current(task) != nil else { return }
+            workspace.mutate { state in
+                guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { return }
+                state.tasks[index].worktreePath = prepared.worktreePath
+                state.tasks[index].baseBranch = prepared.baseBranch
+            }
+            guard workspace.flush(), let saved = state.task(id: id) else { throw ActionUnavailable("The checkout could not be saved. Recover the workspace before opening its window.") }
+            task = saved
+            Self.report(includes, of: task, to: notices)
+            checkouts.refresh()
+        }
+        guard await FolderCheck.exists(task.worktreePath) else { throw ActionUnavailable("This task's worktree is missing.") }
+        guard let task = current(task), task.windowId == nil else { return }
+        let commands = try await resume(task)
+        guard let ready = current(task), ready.windowId == nil else { return }
+        guard let window = try await openWindow(for: ready, command: commands.first, with: daemon) else { return }
+        for command in commands.dropFirst() {
+            guard current(task)?.windowId == window else { return }
+            _ = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command)
+        }
     }
 
     /// A task's window, in its worktree, adopted by the row: its id, or nil when the row went while the
