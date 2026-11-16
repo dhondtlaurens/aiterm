@@ -44,30 +44,6 @@ import Synchronization
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    @Test func aDraftIsOpenedFromTheTasksBranch() async throws {
-        let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        let request = try await client.createRequest(from: "feat/pluto-231-add-gift-card", into: "main", title: "PLUTO-231 Add gift card", description: "Opened by AiTerm", draft: true)
-        #expect(request == MergeRequest(iid: 12, title: "Draft: PLUTO-231 Add gift card", sourceBranch: "feat/pluto-231-add-gift-card",
-                                        targetBranch: "main", author: "Laurens", state: "opened", draft: true,
-                                        url: "https://git.example.net/web/acme-web/-/merge_requests/12", description: "Opened by AiTerm"))
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "POST")
-        #expect(sent.url?.absoluteString == Self.base)
-        #expect(sent.value(forHTTPHeaderField: "PRIVATE-TOKEN") == "tok")
-        let fields = try body(sent)
-        #expect(fields["source_branch"] as? String == "feat/pluto-231-add-gift-card")
-        #expect(fields["target_branch"] as? String == "main")
-        #expect(fields["title"] as? String == "Draft: PLUTO-231 Add gift card")
-        #expect(fields["description"] as? String == "Opened by AiTerm")
-        #expect(fields["remove_source_branch"] as? Bool == false, "deleting a branch is ask-first")
-    }
-
-    @Test func aMergeEndsRequestIsNoDraft() async throws {
-        let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        _ = try await client.createRequest(from: "feat/x", into: "main", title: "PLUTO-231 Add gift card", description: "", draft: false)
-        #expect(try body(stub.lastRequest)["title"] as? String == "PLUTO-231 Add gift card")
-    }
-
     @Test func theOpenRequestFromABranchIsFoundNotOpenedAgain() async throws {
         let list = "[" + Self.status(detailed: "mergeable", pipeline: "success") + "]"
         let (client, stub) = makeClient { _ in (200, Data(list.utf8)) }
@@ -106,8 +82,8 @@ import Synchronization
         }
     }
 
-    /// What the Operator reads of a request (`run_status`): draft, pipeline, GitLab's own mergeability word, approvals.
-    @Test func gitLabStateReadsDraftPipelineMergeabilityAndApprovals() async throws {
+    /// The request state carries its pipeline, approvals and head.
+    @Test func gitLabStateReadsPipelineApprovalsAndHead() async throws {
         let json = Self.status(detailed: "ci_must_pass", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
         let (client, stub) = makeClient { request in
             if request.url?.path.hasSuffix("/approvals") == true { return (200, Data(#"{"approved_by":[{"user":{"username":"alice"}}]}"#.utf8)) }
@@ -116,8 +92,7 @@ import Synchronization
         let request = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231-add-gift-card", targetBranch: "main", author: nil,
                                    state: "opened", draft: false, url: "https://git.example.net/web/acme-web/-/merge_requests/12")
         let state = try await client.state(of: request)
-        #expect(state == MergeRequestState(iid: 12, url: request.url, draft: true, pipeline: "failed", mergeable: "ci_must_pass",
-                                           approvedBy: ["alice"], head: Self.head))
+        #expect(state == MergeRequestState(pipeline: "failed", approvedBy: ["alice"], head: Self.head))
         #expect(stub.requests.count == 2 && stub.requests.contains { $0.url?.path.hasSuffix("/12/approvals") == true })
     }
 
@@ -142,109 +117,6 @@ import Synchronization
         await #expect(throws: GitLabError.unauthorized) {
             _ = try await self.makeClient { _ in (401, Data()) }.client.merge(12, at: Self.head)
         }
-    }
-
-    /// Snag !62 ("Aikido findings 2026-11"): the Operator can correct a request AiTerm opened. A draft stays one: a title
-    /// without GitLab's prefix would mark it ready, and a prefix the Operator wrote is not doubled.
-    @Test func anOpenDraftIsRetitledRedescribedAndReassignedAndStaysADraft() async throws {
-        let (client, stub) = makeClient { request in
-            if request.url?.path.hasSuffix("/users") == true { return (200, Data(#"[{"id":31,"username":"nathan"}]"#.utf8)) }
-            return (200, Data(Self.created.utf8))
-        }
-        let seen = Mutex<MergeRequest?>(nil)
-        try await client.updateRequest(12, RequestContent(title: "draft: PLUTO-231: Add gift card", description: "Adds the gift card.", assignee: "nathan"), beforeWrite: { request in seen.withLock { $0 = request } })
-        #expect(seen.withLock { $0 }?.draft == true, "the request as read is handed over before the write")
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "PUT")
-        #expect(sent.url?.absoluteString == Self.base + "/12")
-        let fields = try body(sent)
-        #expect(fields["title"] as? String == "Draft: PLUTO-231: Add gift card")
-        #expect(fields["description"] as? String == "Adds the gift card.")
-        #expect(fields["assignee_ids"] as? [Int] == [31])
-    }
-
-    @Test func anEditChangesOnlyWhatItGives() async throws {
-        let (client, stub) = makeClient { request in
-            if request.url?.path.hasSuffix("/users") == true { return (200, Data(#"[{"id":7,"username":"laurens"}]"#.utf8)) }
-            return (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8))
-        }
-        try await client.updateRequest(12, RequestContent(title: nil, description: nil, assignee: "laurens"))
-        #expect(try fieldNames(stub.lastRequest) == ["assignee_ids"])
-        try await client.updateRequest(12, RequestContent(title: "PLUTO-231: Add gift card", description: nil, assignee: nil))
-        #expect(try body(stub.lastRequest)["title"] as? String == "PLUTO-231: Add gift card", "a request that is no draft gets no prefix")
-    }
-
-    // MARK: - retry_pipeline and resolve_thread (snag G)
-
-    /// Six pipelines of broadcast "Aikido findings 2026-11" failed on runner timeouts: the request's head pipeline, once
-    /// failed, is retried by its id, with the request as read handed over first.
-    @Test func aFailedHeadPipelineIsRetried() async throws {
-        let (client, stub) = makeClient { request in
-            request.httpMethod == "POST" ? (201, Data(#"{"id":5501,"status":"running"}"#.utf8))
-                : (200, Data(Self.status(detailed: "ci_must_pass", pipeline: "failed").utf8))
-        }
-        let seen = Mutex<MergeRequest?>(nil)
-        let retried = try await client.retryPipeline(12, beforeWrite: { request in seen.withLock { $0 = request } })
-        #expect(retried == .retried("pipeline 5501"))
-        #expect(seen.withLock { $0 }?.sourceBranch == "feat/pluto-231-add-gift-card")
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "POST")
-        #expect(sent.url?.absoluteString == "https://git.example.net/api/v4/projects/web%2Facme-web/pipelines/5501/retry")
-    }
-
-    @Test(arguments: ["running", "success", "canceled", nil] as [String?])
-    func aPipelineThatDidntFailIsNotRetried(_ pipeline: String?) async throws {
-        let (client, stub) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: pipeline).utf8)) }
-        let answer = try await client.retryPipeline(12, beforeWrite: { _ in Issue.record("nothing to write") })
-        #expect(answer == .notFailed(pipeline.map { "its pipeline is \($0)" } ?? "it has no pipeline"))
-        #expect(!stub.requests.contains { $0.httpMethod != "GET" })
-    }
-
-    /// critique_thread's read: the discussion whole, its place on the diff and its notes, GitLab's own left out.
-    @Test func aDiscussionIsReadWhole() async throws {
-        let discussion = #"{"id":"d64","notes":[{"body":"Open redirect.","author":{"username":"aikido-bot"},"system":false,"#
-            + #""position":{"new_path":"app/redirect.ts","new_line":42,"old_path":"app/redirect.ts","old_line":40}},"#
-            + #"{"body":"changed this line","system":true},{"body":"Still open.","author":{"username":"jan"},"system":false}]}"#
-        let (client, stub) = makeClient { _ in (200, Data(discussion.utf8)) }
-        let detail = try await client.threadDetail(64, thread: "d64")
-        #expect(detail == ReviewThreadDetail(id: "d64", path: "app/redirect.ts", line: 42, notes: [
-            ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect."), ReviewThreadDetail.Note(author: "jan", body: "Still open.")]))
-        #expect(stub.lastRequest?.url?.absoluteString == Self.base + "/64/discussions/d64")
-    }
-
-    @Test func aDiscussionIsResolved() async throws {
-        let (client, stub) = makeClient { _ in (200, Data(#"{"id":"d64","notes":[]}"#.utf8)) }
-        try await client.resolve(64, thread: "d64")
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "PUT")
-        #expect(sent.url?.absoluteString == Self.base + "/64/discussions/d64")
-        #expect(try body(sent)["resolved"] as? Bool == true)
-    }
-
-    @Test func anAssigneeGitLabDoesNotKnowWritesNothing() async throws {
-        let (client, stub) = makeClient { request in
-            if request.url?.path.hasSuffix("/users") == true { return (200, Data("[]".utf8)) }
-            return (200, Data(Self.created.utf8))
-        }
-        await #expect(throws: GitLabError.noUser("ghost")) {
-            try await client.updateRequest(12, RequestContent(title: "T", description: nil, assignee: "ghost"))
-        }
-        #expect(!stub.requests.contains { $0.httpMethod == "PUT" })
-    }
-
-    @Test func anOperatorsTitleWithADraftPrefixIsNotDoubled() async throws {
-        let (client, stub) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        _ = try await client.createRequest(from: "feat/x", into: "main", title: "Draft: PLUTO-231: Add gift card", description: "", draft: true)
-        #expect(try body(stub.lastRequest)["title"] as? String == "Draft: PLUTO-231: Add gift card")
-    }
-
-    @Test func aRequestIsRetargeted() async throws {
-        let (client, stub) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8)) }
-        try await client.retarget(12, to: "main")
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "PUT")
-        #expect(sent.url?.absoluteString == Self.base + "/12")
-        #expect(try body(sent)["target_branch"] as? String == "main")
     }
 
     /// GET /projects/:id/protected_branches, as GitLab 17 answers it: a name or a `*` wildcard per rule.
@@ -327,22 +199,15 @@ import Synchronization
         }
     }
 
-
     // MARK: Beyond the recorded happy path — what must hold when GitLab answers oddly
 
     private func fieldNames(_ request: URLRequest?) throws -> Set<String> { Set(try body(request).keys) }
 
     @Test func noWriteAsksGitLabToMergeSquashOrDeleteAnything() async throws {
-        let (creator, created) = makeClient { _ in (201, Data(Self.created.utf8)) }
-        _ = try await creator.createRequest(from: "feat/x", into: "main", title: "T", description: "D", draft: false)
-        #expect(try fieldNames(created.lastRequest) == ["source_branch", "target_branch", "title", "description", "remove_source_branch"])
         let merged = Self.status(state: "merged", detailed: "not_open", pipeline: "success")
         let (merger, merge) = makeClient { _ in (200, Data(merged.utf8)) }
         _ = try await merger.merge(12, at: Self.head)
         #expect(try fieldNames(merge.lastRequest) == ["sha"], "no auto-merge, no squash, no source-branch removal")
-        let (mover, move) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "success").utf8)) }
-        try await mover.retarget(12, to: "main")
-        #expect(try fieldNames(move.lastRequest) == ["target_branch"])
     }
 
     @Test func aMergeGitLabHasNotRunYetIsWaitingNotMerged() async throws {

@@ -236,7 +236,7 @@ TS tests-scripts.
   the eval keeps the current contract; `AGENTS.md`, `docs/testing.md`, `daemon/README.md`,
   `scripts/test-routes.tsv` and the provenance notes follow. The suite's `operatorOpen` test moves
   to the saved-format suite.
-- [ ] 1b. **Codex.** The code-host and Jira write surface and everything only it uses: the request
+- [x] 1b. **Codex.** The code-host and Jira write surface and everything only it uses: the request
   writes, thread replies, pipeline retry, user lookup, `JiraWrites`, `JiraAgile`, the confined
   search, the "outcome unknown" and "not sent" failures, `OperatorPorts.publisher`, `FakeMergeHost`,
   the dead thread prompt (HO F1, TS F1). `merge` stays as the one host write.
@@ -582,3 +582,15 @@ left.
   `read_task/lastMessage` replies went too, because the current `read_task` has no `what`
   argument and the stub could only match them under the old contract. `docs/testing.md` still names
   a nonexistent `OperatorWorkBudgetTests`; left for 9a.
+- 1b: the code-host and Jira write surface went (request writes, thread replies and resolution,
+  pipeline retry, user lookup, `JiraWrites`, `JiraAgile`, `search(jql:in:)`, the uncertain-outcome
+  and not-sent failures, `OperatorPorts.publisher`, `FakeMergeHost`, the thread prompt); both
+  `merge` bodies are byte-identical. Tests deleted with their behaviour, no survivor: `JiraWritesTests`,
+  `JiraAgileTests`, `FakeMergeHostTests` and the write tests the brief lists in `GitHubPublishTests`,
+  `GitLabPublishTests`, `MergeRequestPublisherTests` (renamed `HostRepositoryTests`),
+  `GitHubClientTests` and `HTTPJSONTests`. Thread reads survive in `HostRepositoryTests.gitHubReadsThreadsByTheirNodeId`
+  and `gitLabReadsEachThreadWithItsIdAndLastNote`. Differences: `JiraUser` lived in the deleted
+  `JiraWrites.swift` and moved beside `signalUsers`; `readinessThatCannotBeAskedThrows` had no
+  `retarget` line left. The Done-when grep for `func resolve(_` still matches
+  `WatchedFileCache.resolve`, which the brief itself lists as unrelated (2b deletes the file).
+  `JiraClient.approximateCount` has no source caller and is kept, as the brief says.

@@ -78,8 +78,8 @@ after you finish editing the fields. **Save** stores service tokens in the Keych
 | Service | Configuration and permissions |
 | --- | --- |
 | Jira | Site URL, account email and API token. Optionally link Jira projects from a project's context menu; the New Task sheet can use a ticket to fill its name and branch. |
-| GitLab | Host URL and access token. Reading needs `read_api`; an Operator that opens or merges requests needs `api`. |
-| GitHub | Access token for the relevant repositories. Reading requests needs pull-request read access. An Operator that opens or merges them needs pull-request and contents write access, plus administration read access to inspect branch protection. |
+| GitLab | Host URL and access token. Reading needs `read_api`; an Operator that merges requests needs `api`. |
+| GitHub | Access token for the relevant repositories. Reading requests needs pull-request read access. An Operator that merges them needs pull-request and contents write access, plus administration read access to inspect branch protection. |
 
 ### Mac and Backpack Mode
 

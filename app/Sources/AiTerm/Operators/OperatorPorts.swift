@@ -37,11 +37,6 @@ struct OperatorPorts {
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
-    /// The code host a project's requests are published on, with the connections Settings saved (G10):
-    /// `remote` is origin's, the repository the push goes to. The tokens stay in the clients.
-    var publisher: @Sendable (RemoteInfo) throws -> any MergeRequestPublishing = { remote in
-        try MergeRequestPublisher.publisher(for: remote, gitLab: GitLabSettings.load(), gitHub: GitHubSettings.load())
-    }
     /// How long the host's view of a task's request is waited for (`OperatorTiming.hostReadTimeout`) and kept (`hostReadCache`):
     /// what `run_status` and `read_task` show of each request.
     var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)

@@ -121,8 +121,7 @@ concurrency cap. [Operator guide](operators.md); [contract protection](testing.m
 `HTTPJSON` and `HostAPI` share JSON transport and credential-safe redirects. GitHub, GitLab and Jira
 retain their actual pagination and error semantics: a picker may show a bounded subset, while
 publication must refuse an incomplete safety read. Each GitHub and GitLab client is bound to one
-repository when it is made (`HostRepository`). `HostFailure.outcomeUnknown` says whether a failed
-write may have reached the host; a failure before sending is not. A token's user is kept per host
+repository when it is made (`HostRepository`). A token's user is kept per host
 and token until Settings saves. Commands use typed arguments and hermetic Git
 configuration in tests.
 

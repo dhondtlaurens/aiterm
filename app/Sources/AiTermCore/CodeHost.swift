@@ -46,19 +46,13 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
     public var reference: String { host.reference(iid) }
 }
 
-/// What the host says of one request now, as the Operator reads it in `run_status` and `read_task` (spec §11): whether it is
-/// still a draft, its pipeline (GitLab's `head_pipeline.status`; on GitHub the checks as one word: `success`, `failure`,
-/// `pending`, nil when there are none), the host's own word for whether it can merge (GitLab's `detailed_merge_status`,
-/// GitHub's `mergeable_state`), who approved it, and the head commit all of that is about.
-public struct MergeRequestState: Codable, Equatable, Sendable {
-    public var iid: Int, url: String, draft: Bool
+/// A request's pipeline status, approvals and head commit as the host reports them now.
+public struct MergeRequestState: Equatable, Sendable {
     public var pipeline: String?
-    public var mergeable: String
     public var approvedBy: [String]
     public var head: String?
-    public init(iid: Int, url: String, draft: Bool, pipeline: String?, mergeable: String, approvedBy: [String], head: String?) {
-        self.iid = iid; self.url = url; self.draft = draft; self.pipeline = pipeline
-        self.mergeable = mergeable; self.approvedBy = approvedBy; self.head = head
+    public init(pipeline: String?, approvedBy: [String], head: String?) {
+        self.pipeline = pipeline; self.approvedBy = approvedBy; self.head = head
     }
 }
 
@@ -75,26 +69,12 @@ public struct ReviewThreads: Equatable, Sendable {
     }
 }
 
-/// One review thread on a request, as the Review slice reads it (spec §5): GitLab's resolvable
-/// discussion, GitHub's review thread. `id` is what a reply names; the last note is who spoke last
-/// in it and what they said.
+/// One review thread on a request: GitLab's resolvable discussion or GitHub's review thread,
+/// with its id and the last note's author and body.
 public struct ReviewThread: Equatable, Sendable {
     public var id: String, resolved: Bool, lastAuthor: String?, lastBody: String
     public init(id: String, resolved: Bool, lastAuthor: String?, lastBody: String) {
         self.id = id; self.resolved = resolved; self.lastAuthor = lastAuthor; self.lastBody = lastBody
-    }
-}
-
-/// One review thread whole, as `critique_thread` hands it to the Oracle (snag G): where in the change it sits, when the
-/// host says, and every note in it that is not the host's own, oldest first.
-public struct ReviewThreadDetail: Equatable, Sendable {
-    public struct Note: Equatable, Sendable {
-        public var author: String?, body: String
-        public init(author: String?, body: String) { self.author = author; self.body = body }
-    }
-    public var id: String, path: String?, line: Int?, notes: [Note]
-    public init(id: String, path: String?, line: Int?, notes: [Note]) {
-        self.id = id; self.path = path; self.line = line; self.notes = notes
     }
 }
 
@@ -105,13 +85,6 @@ public struct IncompleteRead: Error, Equatable, LocalizedError {
     public let what: String
     public init(_ what: String) { self.what = what }
     public var errorDescription: String? { "AiTerm couldn’t read every one of the \(what) on the host." }
-}
-
-/// Someone on a code host a request can be assigned to for review: the username the host knows them
-/// by, and their display name when the host gives one.
-public struct HostUser: Equatable, Sendable {
-    public var username: String, name: String?
-    public init(username: String, name: String?) { self.username = username; self.name = name }
 }
 
 /// What a code host says of merging a request now, in its own words.
@@ -134,8 +107,8 @@ public extension MergeReadiness {
     static let draftReason = "it is a draft"
 }
 
-/// Whether a code host protects a branch. AiTerm never pushes to a protected branch (spec §3):
-/// `TaskPublisher` asks before every push, and pushes nothing unless the answer is `.unprotected`.
+/// Whether a code host protects a branch. A worker's push is checked against the host's protection
+/// before it is allowed; only `.unprotected` permits it.
 public enum BranchProtection: Equatable, Sendable {
     case unprotected
     /// Protected, and why, in the host's terms: the rule or ruleset that covers it.
@@ -200,11 +173,4 @@ public enum ProtectionUnknown: Error, Equatable, LocalizedError {
         case .tooManyRules(let count): return "The host has more than \(count) branch protection rules, more than AiTerm reads."
         }
     }
-}
-
-/// Whether a failed host write may have reached the host. The transport mapping and preparation
-/// own this fact; callers choose their existing sentence from it.
-public protocol HostFailure: Error {
-    var outcomeUnknown: Bool { get }
-    static func notSent(_ error: Self) -> Self
 }

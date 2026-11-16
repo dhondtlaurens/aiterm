@@ -96,8 +96,6 @@ extension OperatorPorts {
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = ScratchFolder.path("aiterm-operators-")
         var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
-        // Nothing is published but through a test's own fake host, and no merge watch waits for real.
-        ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
         // No wait for a summary ends but a test's own: a test that gives up on one moves the clock or the sleep.
         ports.clock.sleep = { purpose, duration in
             guard purpose == .wake else { throw CancellationError() }

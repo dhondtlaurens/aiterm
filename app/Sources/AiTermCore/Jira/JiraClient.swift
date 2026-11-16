@@ -23,20 +23,12 @@ public struct JiraConfig: Equatable, Sendable { public let siteURL: URL, email: 
     }
 }
 
-public enum JiraError: HostFailure, Equatable, LocalizedError {
-    /// The preparation failed before a host write was sent; the original sentence is kept.
-    indirect case notSent(JiraError)
+public enum JiraError: Equatable, LocalizedError {
     case unauthorized, network(String), badResponse(Int), decoding
     case projectSiteMismatch(linked: URL, configured: URL)
     case unconfinedQuery
-    /// `key` has no transition into `status` from where it is; `offered` are the statuses it can move to.
-    case noTransition(key: String, status: String, offered: [String])
-    /// A write Jira refused for what it asked (a 4xx other than a sign-in or a rate limit), with Jira's own words.
-    case refused(status: Int, detail: String)
-
     public var errorDescription: String? {
         switch self {
-        case .notSent(let error): return error.errorDescription
         case .unauthorized: return "Check your Jira email and API token in Settings › Integrations."
         case .network(let message): return "Couldn’t connect to Jira. \(message)"
         case .badResponse(let status): return "Jira returned an error (HTTP \(status)). Try again."
@@ -44,10 +36,6 @@ public enum JiraError: HostFailure, Equatable, LocalizedError {
         case .projectSiteMismatch(let linked, let configured):
             return "This project is linked to Jira at \(linked.absoluteString), but Settings is connected to \(configured.absoluteString). Remove it in Jira Projects… and link it again."
         case .unconfinedQuery: return "That JQL’s parentheses don’t pair up, so it can’t be kept to the operation’s projects."
-        case .refused(let status, let detail): return "Jira refused it (HTTP \(status))" + (detail.isEmpty ? "." : ": \(detail)")
-        case .noTransition(let key, let status, let offered):
-            return "\(key) can’t move to “\(status)” from where it is. "
-                + (offered.isEmpty ? "Jira offers no move from there." : "Jira offers: \(offered.joined(separator: ", ")).")
         }
     }
 }
@@ -81,12 +69,6 @@ public struct JiraClient: Sendable {
 
     public func myOpenIssues(projects: [JiraProjectRef] = []) async throws -> [JiraTicket] {
         try await search(jql: Self.scoped(Self.openIssuesJQL, in: try projectScope(projects)))
-    }
-
-    /// An operator's JQL, kept to `projects` (spec §6 `jira_search`).
-    public func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket] {
-        guard let confined = Self.confined(jql, to: try projectScope(projects)) else { throw JiraError.unconfinedQuery }
-        return try await search(jql: confined)
     }
 
     /// `jql`'s condition in parentheses after `scope`, so an `OR` in it cannot reach past the scope, and
@@ -269,7 +251,7 @@ public struct JiraClient: Sendable {
         let path = "/rest/api/3/search/jql"
         let data = try await send(method: "POST", path: path,
                                   json: JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
-                                                                       fields: ["summary", "description", "status", "issuetype", "updated"])), write: false)
+                                                                       fields: ["summary", "description", "status", "issuetype", "updated"])))
         return try decode(SearchResponse.self, data: data, reading: path).issues.compactMap(\.value).map { issue in
             let description = ADFText.plain(issue.fields.description)
             return JiraTicket(key: issue.key, summary: issue.fields.summary, description: description.isEmpty ? nil : description,
@@ -369,14 +351,4 @@ private struct ProjectPage: Decodable {
 private struct Myself: Decodable {
     @Lenient var displayName: String?
     @Lenient var emailAddress: String?
-}
-
-public extension JiraError {
-    var outcomeUnknown: Bool {
-        switch self {
-        case .network, .decoding: return true
-        case .badResponse(let status): return HTTPJSON.Failure.status(status).outcomeUnknown
-        case .unauthorized, .projectSiteMismatch, .unconfinedQuery, .noTransition, .refused, .notSent: return false
-        }
-    }
 }
