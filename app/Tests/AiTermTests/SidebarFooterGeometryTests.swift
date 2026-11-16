@@ -50,16 +50,18 @@ struct SidebarFooterGeometryTests {
         UsageLine.Window.allCases.map { width($0.shortLabel) }.max() ?? 0
     }
 
-    /// From the footer's leading edge to a row's first half: the list's inset and `Space.base`, the
+    /// From the footer's leading edge to a row's first column: the list's inset and `Space.base`, the
     /// mark, `Space.inset`.
-    private static func firstHalf(scale: InterfaceScale = .standard) -> CGFloat {
+    private static func firstColumn(scale: InterfaceScale = .standard) -> CGFloat {
         scale(Space.inset) + scale(Space.base) + scale(Size.vendorMark) + scale(Space.inset)
     }
 
-    /// One half's width in a footer `width` wide: what is left after the edges, the mark, its
-    /// inset and the gap, shared equally.
-    private static func half(_ width: CGFloat, scale: InterfaceScale = .standard) -> CGFloat {
-        (width - 2 * (scale(Space.inset) + scale(Space.base)) - scale(Size.vendorMark) - scale(Space.inset) - scale(Space.gap)) / 2
+    /// One column's width in a footer `width` wide: what is left after the edges, the mark, its
+    /// inset and the gaps between the columns, shared equally.
+    private static func column(_ width: CGFloat, scale: InterfaceScale = .standard) -> CGFloat {
+        let gaps = CGFloat(SidebarFooter.columns - 1) * scale(Space.gap)
+        return (width - 2 * (scale(Space.inset) + scale(Space.base)) - scale(Size.vendorMark) - scale(Space.inset) - gaps)
+            / CGFloat(SidebarFooter.columns)
     }
 
     /// Where a reading's number ends when it starts at `x`: label box, `Space.tight`, ring, a space.
@@ -108,10 +110,10 @@ struct SidebarFooterGeometryTests {
     }
 
     /// The context row is a vendor row with one window labelled `ctx`: mark, ring and number in its
-    /// first half, exactly as a vendor's `wk` is, with no title or avatar group beside it.
+    /// first column, exactly as a vendor's `wk` is, with no title or avatar group beside it.
     @Test func theTaskRowDrawsOnlyItsMarkAndContext() throws {
         let host = host([], task: UsageTaskRow(agent: .claude, context: context), width: 600)
-        let expected = Self.numberStart(Self.firstHalf()) + Self.width("84%")
+        let expected = Self.numberStart(Self.firstColumn()) + Self.width("84%")
         // Below the SYSTEM heading, above the rule: the context row alone.
         let top = Int(Space.tight + Size.menuRow)
         let right = try paintedWidth(host, band: top..<(top + Int(Size.menuRow)))
@@ -126,7 +128,7 @@ struct SidebarFooterGeometryTests {
         let rows = [UsageVendorRow(vendor: .claude, lines: [week.withoutReset], note: nil)]
         // The row also carries the vendor mark and the footer's leading edge, then the label box.
         let text = Self.labelBox() + Space.tight + Self.width(" 84%")
-        let ring = try paintedWidth(rows, width: 600) - Self.firstHalf() - text
+        let ring = try paintedWidth(rows, width: 600) - Self.firstColumn() - text
         #expect(abs(ring - Size.statusMark) < 2,
                 "the segment leaves \(ring) pt for its ring; a ring is \(Size.statusMark) pt")
     }
@@ -143,24 +145,30 @@ struct SidebarFooterGeometryTests {
         #expect(sizes.allSatisfy { abs($0.height - Size.statusMark) < 0.5 })
     }
 
-    /// The reset time is the row's only source of "when does this clear?", so it has to be drawn,
-    /// not merely carried on the line. It follows the number's box, as wide as `100%`, so dropping
-    /// it narrows the half by the reset and by what the box holds beyond `84%`.
-    @Test func theRowDrawsEachWindowsResetTime() throws {
-        let bare = [UsageVendorRow(vendor: .claude, lines: [week.withoutReset], note: nil)]
-        let dated = [UsageVendorRow(vendor: .claude, lines: [week], note: nil)]
-        let expected = Self.width(SidebarFooter.widestNumber) - Self.width("84%") + Self.width(" \(week.reset!)")
+    /// At rest a row is its numbers alone: a window's reset waits under the pointer, in its
+    /// `ResetBadge`, so a dated reading paints exactly as wide as the same reading without one.
+    @Test func theResetIsNotDrawnAtRest() throws {
+        let bare = [UsageVendorRow(vendor: .claude, lines: [week.withoutReset, fiveHour.withoutReset], note: nil)]
+        let dated = [UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil)]
         let grown = try paintedWidth(dated, width: 600) - paintedWidth(bare, width: 600)
-        #expect(abs(grown - expected) < 2,
-                "the reset adds \(grown) pt of row; the box and the string measure \(expected) pt")
+        #expect(abs(grown) < 0.5, "the resets add \(grown) pt of row at rest")
     }
 
-    /// The sidebar minimum has to fit a half's widest reading: a window at 100 %, resetting on a
-    /// later day. A row's first half starts at the same x whatever the width, so it paints the same
-    /// at the minimum as unconstrained unless it truncates. At every interface size, against that
-    /// size's own minimum.
+    /// The badge a reset rises in is a chip: `Size.chip` tall at every size, at its own width, its
+    /// time whole.
     @Test(arguments: InterfaceScale.all)
-    func theWidestHalfFitsTheMinimumSidebarWidth(scale: InterfaceScale) throws {
+    func theResetBadgeIsAChip(scale: InterfaceScale) {
+        let host = NSHostingView(rootView: ResetBadge(reset: "Wed 16:28").interfaceScale(scale))
+        #expect(abs(host.fittingSize.height - scale(Size.chip)) < 0.5)
+        let words = (("resets Wed 16:28" as NSString).size(withAttributes: [.font: Self.telemetryFont]).width) * scale.factor
+        #expect(host.fittingSize.width > words, "the chip is \(host.fittingSize.width) pt; its words alone are \(words) pt")
+    }
+
+    /// The sidebar minimum has to fit a column's widest reading: a window at 100 %. A row's first
+    /// column starts at the same x whatever the width, so it paints the same at the minimum as
+    /// unconstrained unless it truncates. At every interface size, against that size's own minimum.
+    @Test(arguments: InterfaceScale.all)
+    func theWidestColumnFitsTheMinimumSidebarWidth(scale: InterfaceScale) throws {
         let full = UsageLine(window: .weekly, percent: 100, reset: "Wed 16:28", warning: true)
         let rows = [UsageVendorRow(vendor: .claude, lines: [full], note: nil)]
         // Comparing the row against its own unconstrained rendering is the only honest test:
@@ -169,24 +177,30 @@ struct SidebarFooterGeometryTests {
         let minimum = scale(Size.sidebarMinWidth)
         let atMinimum = try paintedWidth(rows, width: minimum, scale: scale)
         #expect(abs(atMinimum - natural) < 1,
-                "at ×\(scale.factor) the half paints \(natural) pt unconstrained but only \(atMinimum) pt at the \(minimum) pt sidebar minimum, so it is truncating")
-        #expect(natural - Self.firstHalf(scale: scale) <= Self.half(minimum, scale: scale),
-                "at ×\(scale.factor) the reading needs \(natural - Self.firstHalf(scale: scale)) pt of a \(Self.half(minimum, scale: scale)) pt half")
+                "at ×\(scale.factor) the column paints \(natural) pt unconstrained but only \(atMinimum) pt at the \(minimum) pt sidebar minimum, so it is truncating")
+        #expect(natural - Self.firstColumn(scale: scale) <= Self.column(minimum, scale: scale),
+                "at ×\(scale.factor) the reading needs \(natural - Self.firstColumn(scale: scale)) pt of a \(Self.column(minimum, scale: scale)) pt column")
     }
 
-    /// Every row is two equal halves, so a second reading starts at the same x in both groups: a
-    /// vendor's 5-hour window and the Mac's RAM end where a half's reading ends, midway plus a gap.
-    @Test func theSecondHalfStartsMidwayInEveryRow() throws {
+    /// Every row is three equal columns, so a reading starts at the same x in both groups: a
+    /// vendor's 5-hour window and the Mac's RAM end where a second column's reading ends, and the
+    /// battery where a third's does.
+    @Test func everyColumnStartsAtTheSameXInEveryRow() throws {
         let width: CGFloat = 400
-        let second = Self.firstHalf() + Self.half(width) + Space.gap
-        let expected = Self.numberStart(second) + Self.width("84%")
+        let column = Self.column(width) + Space.gap
+        let second = Self.numberStart(Self.firstColumn() + column) + Self.width("84%")
+        let third = Self.numberStart(Self.firstColumn() + 2 * column) + Self.width("84%")
         let vendor = [UsageVendorRow(vendor: .claude, lines: [week.withoutReset, fiveHour.withoutReset], note: nil)]
         let ink = try paintedWidth(vendor, width: width)
-        #expect(abs(ink - expected) < 2, "the 5-hour window ends at \(ink) pt; a second half's ends at \(expected) pt")
-        let machine = [UsageLine(window: .cpu, percent: 84, warning: false), UsageLine(window: .ram, percent: 84, warning: false)]
+        #expect(abs(ink - second) < 2, "the 5-hour window ends at \(ink) pt; a second column's ends at \(second) pt")
         let top = Int(Space.tight + Size.menuRow)
-        let mac = try paintedWidth(host([], machine: machine, width: width), band: top..<(top + Int(Size.menuRow)))
-        #expect(abs(mac - ink) < 1, "the Mac's RAM ends at \(mac) pt, the vendor's 5-hour window at \(ink) pt")
+        let band = top..<(top + Int(Size.menuRow))
+        let pair = [UsageLine(window: .cpu, percent: 84, warning: false), UsageLine(window: .ram, percent: 84, warning: false)]
+        let ram = try paintedWidth(host([], machine: pair, width: width), band: band)
+        #expect(abs(ram - ink) < 1, "the Mac's RAM ends at \(ram) pt, the vendor's 5-hour window at \(ink) pt")
+        let battery = try paintedWidth(host([], machine: pair + [UsageLine(window: .battery, percent: 84, warning: false)], width: width),
+                                       band: band)
+        #expect(abs(battery - third) < 2, "the battery ends at \(battery) pt; a third column's ends at \(third) pt")
     }
 
     /// The widest context row — a full window — paints whole at the
@@ -282,16 +296,14 @@ extension SidebarFooterGeometryTests {
         #expect(abs(host([], mode: mode).fittingSize.height - (system + 1 + usage)) < 0.5)
     }
 
-    /// On battery the battery reading leaves the readings row for a second one, which the mode's
-    /// line shares rather than adding a third: one extra row whether Unplugged is on or not.
-    @Test(arguments: [MacMode.desk, .on])
-    func theBatteryTakesTheSecondMacRow(mode: MacMode) {
+    /// On battery the battery is the readings row's third column, so it adds no row: at the desk
+    /// the Mac is one row, and Unplugged's line is the only second one.
+    @Test(arguments: [(MacMode.desk, 1), (.on, 2)])
+    func theBatteryJoinsTheReadingsRow(mode: MacMode, rows: Int) {
         let machine = [UsageLine(window: .cpu, percent: 23, warning: false), UsageLine(window: .ram, percent: 61, warning: false),
                        UsageLine(window: .battery, percent: 74, warning: false)]
-        #expect(SidebarFooter.macParts(machine).readings.map(\.window) == [.cpu, .ram])
-        #expect(SidebarFooter.macParts(machine).battery.map(\.window) == [.battery])
         let usage = Space.tight + Size.menuRow + Space.base
-        let system = Space.tight + Size.menuRow * 3 + Space.base
+        let system = Space.tight + Size.menuRow * CGFloat(1 + rows) + Space.base
         #expect(abs(host([], machine: machine, mode: mode).fittingSize.height - (system + 1 + usage)) < 0.5)
     }
 }
