@@ -65,9 +65,14 @@ struct SignalSidebar {
                 row.status = .working
             case .working:
                 if task.windowId == nil && task.firstWorkerConversation != nil { row.operatorLine = .windowClosed; row.status = .idle }
-                else if !busy { row.status = .working }
+                // Every worker ended its turn and the Operator does nothing yet: the turn is the Operator's to read,
+                // so no done ring (P3 1A), and nothing runs, so no spinner either.
+                else if !busy { row.operatorLine = .workerDone; row.status = .waiting }
             case .watching(let condition):
-                row.operatorLine = OperatorLine(waiting(for: condition)); if !busy { row.status = .idle }
+                row.operatorLine = .waiting(for: condition, facts: record.waitingOn, request: task.mr?.reference, ticket: task.jira?.key)
+                if !busy {
+                    if case .unknown = condition { row.status = .idle } else { row.status = .waiting }
+                }
             case .blocked:
                 row.operatorLine = OperatorLine("blocked", look: .needsYou, tooltip: record.blockedReason ?? "Open its window to inspect it.")
                 row.status = .needsInput
@@ -78,20 +83,6 @@ struct SignalSidebar {
         }
         return row
     }
-    private static func waiting(for condition: DoneWhen) -> String {
-        switch condition {
-        case .operatorJudges: "waiting for the Operator"
-        case .hasReviewer: "waiting on a reviewer"
-        case .approved: "waiting on approval"
-        case .threadsResolved: "waiting on review threads"
-        case .merged: "waiting for the merge"
-        case .ticketStatus(let status): "waiting for " + status
-        case .myReviewPosted: "waiting for the posted review"
-        case .mergedOrClosed: "waiting for the request to close"
-        case .unknown: "unsupported done condition"
-        }
-    }
-
 }
 
 /// Only the Operator row's drawn facts: a tool ledger or journal write changes none of them.

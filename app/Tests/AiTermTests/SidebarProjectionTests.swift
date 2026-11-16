@@ -41,6 +41,22 @@ import Testing
         { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
     }
 
+    /// A done check that read only new reviewers or a new thread count changes the waiting task's line, and nothing else.
+    @Test func newReviewersOrThreadCountsAloneRedrawTheWaitingLine() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let signal = Signal(name: "Requests", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .approved, then: .keep))
+        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .watching(.approved); record.configuration = signal
+        controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record }
+        let rows = controller.rows
+        func line() -> String? { rows.signalSections.first?.tasks.first?.operatorLine?.text }
+        #expect(line() == "waiting on reviewer approval")
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ann Peeters"]) } }
+        #expect(line() == "waiting on approval · Ann")
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ben Aerts"]) } }
+        #expect(line() == "waiting on approval · Ben")
+    }
     @Test func journalEdgesAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
         let controller = try controller(); defer { controller.shutdown() }
         let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),

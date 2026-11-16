@@ -27,6 +27,65 @@ import Testing
         await watch.pass()
         #expect(h.workspace.state.task(id: id)?.mr == link)
     }
+    /// Whom a watched task waits on is what the done check read, saved for its line; an incomplete read keeps the last.
+    @Test func theReviewersAndOpenThreadsTheDoneCheckReadAreSavedForTheLine() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .watching(.approved) }
+        let h = try SignalHarness(world); defer { h.cleanUp() }; let runner = stages(h, at: world.now)
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
+        var snapshot = ready(); snapshot.facts.approved = false; snapshot.facts.reviewers = ["Lawrence De Spiegeleire"]; snapshot.facts.openThreads = 2
+        let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
+            workerIsWorking: { _ in false }, read: { _ in snapshot }, oracleMerge: { _, _ in false }, merge: { _, _ in }))
+        await watch.pass()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn == SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire"], openThreads: 2))
+        snapshot.facts.hostReadComplete = false; snapshot.facts.reviewers = []
+        await watch.pass()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn?.reviewers == ["Lawrence De Spiegeleire"])
+    }
+    /// Judged done but held for merge when ready: the line must name what the merge lacks, not the met condition.
+    @Test func aMetConditionHeldForTheMergeSavesWhatTheMergeLacks() async throws {
+        var world = SignalWorld(); let signal = world.signal(); world.state.signals[0].finish.mergesWhenReady = true
+        let id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .watching(.operatorJudges) }
+        let h = try SignalHarness(world); defer { h.cleanUp() }; let runner = stages(h, at: world.now)
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
+        var snapshot = ready(); snapshot.greenChecks = false
+        let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
+            workerIsWorking: { _ in false }, read: { task in
+                var value = snapshot; value.facts.operatorJudged = task.signalTask?.operatorJudged == true; return value
+            }, oracleMerge: { _, _ in Issue.record("Checks are not green"); return false }, merge: { _, _ in }))
+        await watch.pass()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn == nil, "Not judged yet: the Operator is awaited")
+        h.workspace.mutate { $0.updateSignalTask(id) { $0.operatorJudged = true } }
+        await watch.pass()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn?.mergeBlockers == [.checks])
+        snapshot.greenChecks = true; snapshot.facts.threadsResolved = false; snapshot.localHead = "local"
+        await watch.pass()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn?.mergeBlockers == [.threads, .push])
+    }
+    /// As `SignalHostIO` builds it: approved, but the host not ready while its checks run. The approval is not what
+    /// the merge waits for; with every gate met, the host's own hold is.
+    @Test func anApprovedRequestWhoseHostIsNotReadyNamesTheRealBlocker() {
+        var facts = DoneCheck.Facts(); facts.hostReadComplete = true; facts.approved = true; facts.threadsResolved = true
+        var running = RequestWatch.Snapshot(reference: nil, facts: facts, head: "h", localHead: "h",
+                                            approvals: false, greenChecks: false, hostReady: false)
+        #expect(running.mergeBlockers == [.checks])
+        running.greenChecks = true
+        #expect(running.mergeBlockers == [.host], "Green, approved, resolved and pushed, yet the host holds it: conflicts")
+        running.hostReady = true; running.approvals = true
+        #expect(running.mergeBlockers.isEmpty && running.canMerge)
+        running.facts.approved = false; running.approvals = false
+        #expect(running.mergeBlockers == [.approval])
+    }
+    @Test func aNewStageForgetsWhomThePreviousOneWaitedOn() throws {
+        var record = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .done; record.waitingOn = SignalWaitFacts(reviewers: ["Ann"])
+        let stage = SignalStage(signal: record.signal, item: record.item, matchedAt: Date())
+        let next = try SignalTransitions.apply(.matched(stage), to: record, at: Date())
+        #expect(next.stage == 2 && next.waitingOn == nil)
+    }
     @Test func theOperatorJudgesDoneBeforeItsMergeThenFinishesAfterHostConfirmation() async throws {
         var world = SignalWorld(); let signal = world.signal(); world.state.signals[0].finish.mergesWhenReady = true
         let id = world.workingTask(signal: signal), h = try SignalHarness(world); defer { h.cleanUp() }; let runner = stages(h, at: world.now)

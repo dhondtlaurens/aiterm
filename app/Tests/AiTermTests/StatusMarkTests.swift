@@ -122,7 +122,7 @@ struct StatusMarkTests {
 
     /// Every look stays inside its `size` box (proposal 2A, 21 Oct 2026): the arc used to straddle
     /// the circle and reach half a stroke past the idle ring's edge.
-    @Test(arguments: [TaskStatus.idle, .working, .needsInput, .background, .done])
+    @Test(arguments: [TaskStatus.idle, .working, .needsInput, .background, .waiting, .done])
     func staysInsideItsBox(status: TaskStatus) throws {
         let bitmap = try drawn(status)
         for degrees in stride(from: CGFloat(0), to: 360, by: 15) {
@@ -132,9 +132,11 @@ struct StatusMarkTests {
 
     /// A background mark is the ring in dashes, in the arc's ink: around it ink and black take turns, and there are
     /// `backgroundDashes` of each. On the accent it is white, as the arc is.
-    @Test func aBackgroundMarkIsADashedRing() throws {
+    /// A waiting mark (a driven task waiting on the Operator or a person) is drawn the same way.
+    @Test(arguments: [TaskStatus.background, .waiting])
+    func aBackgroundOrWaitingMarkIsADashedRing(status: TaskStatus) throws {
         for (surface, ink) in [(Surface.sidebar, Palette.spinner), (.accent, Palette.onAccent)] {
-            let bitmap = try drawn(.background, on: surface)
+            let bitmap = try drawn(status, on: surface)
             let ring = size / 2 - size * 0.15 / 2
             let pixels = try (0..<360).map { try pixel(bitmap, radius: ring, degrees: CGFloat($0)) }
             let inked = pixels.map { !isBlack($0) }

@@ -52,8 +52,9 @@ struct StatusMark: View {
             case .needsInput:
                 Circle().strokeBorder(Palette.amber, lineWidth: RingGeometry.strokeWidth(size))
             // A turn ended with work still running, which wakes the agent again (proposal Background work on your own
-            // tasks B): the ring dashed, turning slowly, in the arc's ink. Reduce Motion keeps it still.
-            case .background:
+            // tasks B), or a driven task waiting on a turn, the Operator or a person: the ring dashed, turning slowly,
+            // in the arc's ink. Reduce Motion keeps it still.
+            case .background, .waiting:
                 ZStack {
                     if motionStill == .reduceMotion {
                         DashedRing(size: size, color: surface.isOnAccent ? Palette.onAccent : Palette.spinner)

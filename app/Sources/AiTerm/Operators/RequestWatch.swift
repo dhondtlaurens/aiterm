@@ -10,9 +10,21 @@ import AiTermCore
         var head: String?, localHead: String?
         var approvals: Bool, greenChecks: Bool
         var link: MergeRequestRef? = nil
+        /// Whether the host itself would merge now (`MergeReadiness.ready`); `approvals` folds it in for `canMerge`.
+        var hostReady = true
         var canMerge: Bool {
             facts.hostReadComplete && approvals && greenChecks && facts.threadsResolved
                 && head != nil && head == localHead && !facts.merged && !facts.closed
+        }
+        /// What of `canMerge` the request still lacks, for the waiting line.
+        var mergeBlockers: [SignalWaitFacts.MergeBlocker] {
+            // Approval as the request has it, not `approvals`, which also holds the host's readiness: running checks
+            // must not read as an approval to come.
+            let gates: [(Bool, SignalWaitFacts.MergeBlocker)] = [(facts.approved, .approval), (greenChecks, .checks), (facts.threadsResolved, .threads),
+                                                                 (head != nil && head == localHead, .push)]
+            let missing = gates.filter { !$0.0 }.map(\.1)
+            // The host holding it back for a reason none of the others names: conflicts, a draft, its own rules.
+            return missing.isEmpty && !hostReady ? [.host] : missing
         }
     }
     struct Ports {
@@ -61,14 +73,24 @@ import AiTermCore
     }
     private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, signal: Signal) async throws {
         var snapshot = first
+        let merges = signal.finish.mergesWhenReady
+        // The done condition met and only merge when ready holding the task: the line names what the merge lacks.
+        let met = DoneCheck.evaluate(signal.finish.doneWhen, facts: snapshot.facts, stageStartedAt: task.signalTask?.startedAt ?? .distantPast) == .reached
         if let reference = snapshot.reference { workspace.mutate { state in
             state.updateSignalItem(task.id) { task in
                 task.signalTask?.watchedRequest = reference
                 if let link = snapshot.link { task.mr = link }
+                // Only a complete read speaks for whom it waits on, and each fact only when this read carried it.
+                guard snapshot.facts.hostReadComplete else { return }
+                var wait = task.signalTask?.waitingOn ?? SignalWaitFacts()
+                if let reviewers = snapshot.facts.reviewers { wait.reviewers = reviewers }
+                if let open = snapshot.facts.openThreads { wait.openThreads = open }
+                wait.mergeBlockers = merges && met && !snapshot.facts.merged ? snapshot.mergeBlockers : nil
+                let next = wait.isEmpty ? nil : wait
+                if task.signalTask?.waitingOn != next { task.signalTask?.waitingOn = next }
             }
         } }
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
-        let merges = signal.finish.mergesWhenReady
         if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
             let roundID = UUID().uuidString, generation = workspace.state.operatorSession?.generation
             let round = ChallengeRecord(id: roundID, tool: "merge_when_ready", kind: .veto,

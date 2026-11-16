@@ -443,7 +443,7 @@ struct TaskRowView: View {
                         }
                     }
                     // Why a removal stopped, or what the task is missing, comes first; else, on a task the
-                    // Operator drives, what it says of it: `waiting on a reviewer`, `Operator answering`, `done`.
+                    // Operator drives, what it says of it: `waiting for a reviewer`, `Operator answering`, `done`.
                     if let note = caption.note {
                         HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
                     } else if caption.progress == nil, task?.signalTask.map({ !$0.takenOver }) == true {
@@ -731,9 +731,9 @@ struct TaskRowAccessibility: Equatable {
 /// task is missing — its worktree, or a window that could not be reopened. While a removal runs
 /// neither shows: its window closing first, and its checkout going, are the removal, not news.
 
-/// A task row's trailing mark: its status's `StatusMark` (while the Operator holds the task, the spinner
-/// unless it needs you: `SidebarModel.heldStatus`), or once the Operator's work on the task is over (its
-/// line's look `ended`) the check (1A, 21 Oct 2026), or the pause sign while the Operator has it queued and once its
+/// A task row's trailing mark: its status's `StatusMark` (while the Operator holds the task, the status
+/// `SignalSidebar` gives it: the waiting ring once its worker's turn ended or it waits on someone), or
+/// once the Operator's work on the task is over (its line's look `ended`) the check (1A, 21 Oct 2026), or the pause sign while the Operator has it queued and once its
 /// workers stopped for a pause of yours (`TaskRow.paused`; the Operator's row too, once every task's did). The
 /// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
 /// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a

@@ -26,12 +26,17 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
     public var forkHead: String?
     /// Its description (GitLab) or body (GitHub): where a ticket key or `Closes #53` may be.
     public var description: String?
+    /// Who is asked to review it, as the answer that listed it names them: GitLab's reviewers by display name (else
+    /// username), GitHub's requested reviewers by login, which drops each once they reviewed. Nil when the answer
+    /// carried no such list.
+    public var reviewers: [String]?
     public var id: Int { iid }
     public init(iid: Int, title: String, sourceBranch: String, targetBranch: String,
-                author: String?, state: String, draft: Bool, url: String, forkHead: String? = nil, description: String? = nil) {
+                author: String?, state: String, draft: Bool, url: String, forkHead: String? = nil, description: String? = nil,
+                reviewers: [String]? = nil) {
         self.iid = iid; self.title = title; self.sourceBranch = sourceBranch; self.targetBranch = targetBranch
         self.author = author; self.state = state; self.draft = draft; self.url = url; self.forkHead = forkHead
-        self.description = description
+        self.description = description; self.reviewers = reviewers
     }
 
     /// The lane a picked merge or pull request shows beside its title.

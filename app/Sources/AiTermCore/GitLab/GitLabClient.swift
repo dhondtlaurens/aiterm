@@ -585,8 +585,10 @@ public struct GitLabClient: HostRepository {
 /// The fields of a merge request the picker shows.
 private struct MergeRequestPayload: Decodable {
     struct Author: Decodable { var name: String? }
+    struct Reviewer: Decodable { var name: String?, username: String? }
     var iid: Int, title: String, sourceBranch: String, targetBranch: String, webUrl: String
     var author: Author?, state: String?, draft: Bool?, description: String?
+    var reviewers: [Reviewer]?
     /// Where the branch lives and where the request goes; they differ for a request from a fork.
     var sourceProjectId: Int?, targetProjectId: Int?
 
@@ -595,7 +597,8 @@ private struct MergeRequestPayload: Decodable {
                      author: author?.name, state: state ?? "opened", draft: draft ?? false, url: webUrl,
                      forkHead: sourceProjectId != nil && targetProjectId != nil && sourceProjectId != targetProjectId
                          ? "project \(sourceProjectId!):\(sourceBranch)" : nil,
-                     description: description)
+                     description: description,
+                     reviewers: reviewers?.compactMap { reviewer in [reviewer.name, reviewer.username].compactMap { $0 }.first { !$0.isEmpty } })
     }
 }
 

@@ -6,7 +6,7 @@ import AiTermCore
 ///
 /// Same vocabulary as the rows themselves: `StatusMark`'s own glyph, at `Size.statusMarkSmall`, in
 /// front of the number of tasks wearing it — a collapsed project should not need a second colour language to
-/// say the same four things. The chips keep their intrinsic width, so the project name is what
+/// say the same five things. The chips keep their intrinsic width, so the project name is what
 /// gives way when the sidebar narrows, exactly as it does for the branch line's `+n`.
 struct StatusCountChips: View {
     let counts: [StatusCount]
@@ -33,7 +33,8 @@ private struct StatusCountChip: View {
 
     private var ink: Color {
         switch count.status {
-        case .idle: return Palette.muted
+        // Waiting is quiet: nothing of it runs, so the muted ink of idle, beside its dashed ring.
+        case .idle, .waiting: return Palette.muted
         // Brighter than idle: at 8 pt a spinner arc and a hollow ring are nearly the same shape,
         // so the ink is what separates "running" from "waiting for nobody".
         // A row in the background is counted with working (`SidebarModel.statusCounts`).
@@ -46,7 +47,7 @@ private struct StatusCountChip: View {
     /// The chip's fill and edge, one `Palette` pair per status family.
     private var wash: (fill: Color, stroke: Color) {
         switch count.status {
-        case .idle, .working, .background: return (Palette.statusChipQuietFill, Palette.statusChipQuietStroke)
+        case .idle, .working, .background, .waiting: return (Palette.statusChipQuietFill, Palette.statusChipQuietStroke)
         case .needsInput: return (Palette.statusChipAttentionFill, Palette.statusChipAttentionStroke)
         case .done: return (Palette.statusChipDoneFill, Palette.statusChipDoneStroke)
         }

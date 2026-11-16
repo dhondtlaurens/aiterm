@@ -69,12 +69,16 @@ import AiTermCore
         if let number = requestNumber(task), number != request.iid { throw ActionUnavailable("The watched request changed.") }
         guard request.sourceBranch == task.branch else { throw ActionUnavailable("The request belongs to another branch.") }
         facts.merged = request.state == "merged"; facts.closed = request.state == "closed"
+        // Who it waits on, from the request answer just read: the sidebar's line, never a call of its own.
+        facts.reviewers = request.reviewers
         let link = MergeRequestRef(iid: request.iid, title: request.title, url: request.url)
         if !signal.finish.mergesWhenReady {
             switch signal.finish.doneWhen {
             case .hasReviewer: facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
             case .approved: facts.approved = try await !host.approvals(of: request.iid).isEmpty
-            case .threadsResolved: facts.threadsResolved = try await host.threads(of: request.iid).allSatisfy(\.resolved)
+            case .threadsResolved:
+                let threads = try await host.threads(of: request.iid)
+                facts.threadsResolved = threads.allSatisfy(\.resolved); facts.openThreads = threads.filter { !$0.resolved }.count
             case .myReviewPosted: facts.reviewPostedAt = try await host.mySignalReviewPostedAt(of: request.iid)
             default: break
             }
@@ -87,7 +91,7 @@ import AiTermCore
         facts.hostReadComplete = true
         facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
         facts.approved = !state.approvedBy.isEmpty
-        facts.threadsResolved = threads.allSatisfy(\.resolved)
+        facts.threadsResolved = threads.allSatisfy(\.resolved); facts.openThreads = threads.filter { !$0.resolved }.count
         facts.closed = request.state == "closed"
         var head = state.head
         if case .merged(_, let mergedHead, _) = readiness { facts.merged = true; if !mergedHead.isEmpty { head = mergedHead } }
@@ -96,7 +100,7 @@ import AiTermCore
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
         let ready: Bool = if case .ready = readiness { true } else { false }
         return RequestWatch.Snapshot(reference: reference, facts: facts, head: head, localHead: local,
-                                     approvals: facts.approved && ready, greenChecks: state.pipeline == "success", link: link)
+                                     approvals: facts.approved && ready, greenChecks: state.pipeline == "success", link: link, hostReady: ready)
     }
     func merge(_ task: TaskItem, snapshot: RequestWatch.Snapshot) async throws {
         guard let claim = SignalClaim(task), let reference = snapshot.reference, let head = snapshot.head, snapshot.canMerge,
