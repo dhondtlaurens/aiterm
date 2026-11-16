@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import Darwin
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct StateStoreTests {
     @Test func fileStampsKeepFileAndSymlinkMetadata() throws {
@@ -59,7 +60,7 @@ import Darwin
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
         let store = StateStore(url: url)
         var s = AppState.empty
-        s.append(project: Project(id: UUID(), name: "AiTerm", path: "/tmp/AiTerm", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: true))
+        s.append(project: Project.make(name: "AiTerm", path: "/tmp/AiTerm", collapsed: true))
         try store.save(s)
         #expect(try store.load() == s)
         #expect(!FileManager.default.fileExists(atPath: url.path + ".tmp"))
@@ -200,13 +201,8 @@ import Darwin
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
-        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: "/tmp/repo/.worktrees/work", baseBranch: "main", jira: nil,
-                            agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0),
-                            windowId: "w1")
+        let project = Project.make(name: "Repo", path: "/tmp/repo")
+        let task = TaskItem.make(project: project.id, worktreePath: "/tmp/repo/.worktrees/work", model: "sonnet", windowId: "w1")
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell",
                                     windowId: "w2", createdAt: Date(timeIntervalSince1970: 0))
         var valid = AppState.empty
@@ -274,8 +270,7 @@ import Darwin
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
         var s = AppState.empty
         let shared = UUID()
-        s.append(project: Project(id: shared, name: "AiTerm", path: "/tmp/AiTerm", provider: .git, remoteUrl: nil,
-                                  addedAt: Date(timeIntervalSince1970: 0), collapsed: false))
+        s.append(project: Project.make(id: shared, name: "AiTerm", path: "/tmp/AiTerm"))
         s.append(divider: SidebarDivider(id: shared, name: "Work"))
         #expect(throws: (any Error).self) { try StateStore(url: url).save(s) }
     }
@@ -307,12 +302,8 @@ import Darwin
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
-        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: "/tmp/repo/.worktrees/work", baseBranch: "main", jira: nil,
-                            agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
+        let project = Project.make(name: "Repo", path: "/tmp/repo")
+        let task = TaskItem.make(project: project.id, worktreePath: "/tmp/repo/.worktrees/work")
         var known = AppState.empty
         known.items = [.project(project)]; known.tasks = [task]
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601

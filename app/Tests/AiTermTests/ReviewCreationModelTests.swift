@@ -5,8 +5,8 @@ import Foundation
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct ReviewCreationModelTests {
-    let project = Project(id: UUID(), name: "acme-web", path: "/tmp/p", provider: .gitlab,
-                          remoteUrl: "git@git.example.net:web/acme-web.git", addedAt: Date(), collapsed: false)
+    let project = Project.make(name: "acme-web", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git",
+        addedAt: Date())
     let mr = MergeRequest(iid: 4, title: "Add gift card", sourceBranch: "feat-gift-card",
                           targetBranch: "main", author: "L", state: "opened", draft: false,
                           url: "https://git.example.net/web/acme-web/-/merge_requests/4")
@@ -44,8 +44,8 @@ import Foundation
 
     /// A review model on a scratch home and hermetic git, for this suite and `ReviewFixTests`:
     /// `fixer` and `pipeline` are what a failure's Fix runs with — none by default.
-    static func makeModel(project: Project = Project(id: UUID(), name: "acme-web", path: "/tmp/p", provider: .gitlab,
-                                                     remoteUrl: "git@git.example.net:web/acme-web.git", addedAt: Date(), collapsed: false),
+    static func makeModel(project: Project = Project.make(name: "acme-web", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git",
+        addedAt: Date()),
                           search: @escaping @MainActor (String) async throws -> [MergeRequest] = { _ in [] },
                           agent: AgentKind = .claude, modelID: String = "sonnet", available: Set<AgentKind>? = nil,
                           catalogue: @escaping @Sendable (AgentKind) -> [AgentModel] = ScratchHome.catalogue,
@@ -218,10 +218,8 @@ import Foundation
     /// Where a review will open is decided by its branch, and the sheet has to know before
     /// anything is created: a branch that is a task's opens in that task, not a worktree of its own.
     @Test func testTheOwningTaskFollowsTheBranch() {
-        let owner = TaskItem(id: UUID(), projectId: project.id, title: "Gift card", branch: "feat-gift-card",
-                             worktreePath: "/tmp/p/.worktrees/gift-card", baseBranch: "main", jira: nil,
-                             agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                             createdAt: Date(), windowId: nil)
+        let owner = TaskItem.make(project: project.id, title: "Gift card", branch: "feat-gift-card",
+            worktreePath: "/tmp/p/.worktrees/gift-card", model: "sonnet", appendTicket: true, createdAt: Date())
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                     context: .scratch(), owningTask: { branch, _ in branch == owner.branch ? owner : nil },
                                     searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })

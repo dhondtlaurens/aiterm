@@ -12,7 +12,7 @@ import Testing
         return try #require(SignalSidebar(state: world.state, entries: entries).signals.first?.tasks.first)
     }
     private func tab(_ id: UUID, _ state: SessionState) -> SessionInfo {
-        OperatorServiceFixtures.session("worker", window: "worker-window", tag: id, state: state)
+        SessionInfo.make("worker", window: "worker-window", task: id, state: state)
     }
     private func watching(_ condition: DoneWhen, facts: SignalWaitFacts? = nil) -> (SignalWorld, UUID) {
         var world = SignalWorld(); let signal = world.signal(done: condition), id = world.workingTask(signal: signal)

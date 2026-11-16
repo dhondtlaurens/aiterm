@@ -1,20 +1,15 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The conversations a task's window shows, remembered for its reopen (`AppState.rememberingConversations`).
 @Suite struct TaskConversationsTests {
     let project = UUID()
 
     func task(window: String?, conversations: [TaskConversation] = []) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project, title: "t", branch: "b", worktreePath: "/w", baseBranch: "main", jira: nil,
-                 agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                 createdAt: Date(timeIntervalSince1970: 0), windowId: window, conversations: conversations)
-    }
-
-    func tab(_ id: String, window: String, index: Int, agent: SessionAgent, conversation: String?) -> SessionInfo {
-        SessionInfo(sessionId: id, windowId: window, tabIndex: index, taskId: nil, projectId: nil, agent: agent, model: nil,
-                    state: .idle, title: "", cwd: "/", conversationId: conversation)
+        TaskItem.make(project: project, title: "t", branch: "b", worktreePath: "/w", windowId: window,
+            conversations: conversations)
     }
 
     func state(_ tasks: TaskItem...) -> AppState {
@@ -27,10 +22,10 @@ import Testing
     /// shell and another window's tab are not the task's.
     @Test func aTaskRemembersItsWindowsAgentConversationsInTabOrder() {
         let next = state(task(window: "w1")).rememberingConversations(from: [
-            tab("c", window: "w1", index: 2, agent: .codex, conversation: "thread-3"),
-            tab("a", window: "w1", index: 0, agent: .claude, conversation: "conv-1"),
-            tab("s", window: "w1", index: 1, agent: .shell, conversation: nil),
-            tab("x", window: "w2", index: 0, agent: .pi, conversation: "elsewhere"),
+            SessionInfo.make("c", tabIndex: 2, agent: .codex, conversation: "thread-3"),
+            SessionInfo.make("a", conversation: "conv-1"),
+            SessionInfo.make(tabIndex: 1, agent: .shell),
+            SessionInfo.make("x", window: "w2", agent: .pi, conversation: "elsewhere"),
         ])
         #expect(next.tasks[0].conversations == [TaskConversation(agent: .claude, id: "conv-1"),
                                                  TaskConversation(agent: .codex, id: "thread-3")])
@@ -41,12 +36,12 @@ import Testing
     @Test func aWindowWithAnAgentYetToNameItsConversationLeavesWhatWasRemembered() {
         let remembered = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2")]
         let before = state(task(window: "w1", conversations: remembered))
-        let partly = [tab("a", window: "w1", index: 0, agent: .codex, conversation: "thread-1"),
-                      tab("b", window: "w1", index: 1, agent: .claude, conversation: nil)]
+        let partly = [SessionInfo.make("a", agent: .codex, conversation: "thread-1"),
+                      SessionInfo.make("b", tabIndex: 1)]
         #expect(before.rememberingConversations(from: partly) == before)
 
-        let both = [tab("a", window: "w1", index: 0, agent: .codex, conversation: "thread-9"),
-                    tab("b", window: "w1", index: 1, agent: .claude, conversation: "conv-8")]
+        let both = [SessionInfo.make("a", agent: .codex, conversation: "thread-9"),
+                    SessionInfo.make("b", tabIndex: 1, conversation: "conv-8")]
         #expect(before.rememberingConversations(from: both).tasks[0].conversations
                 == [TaskConversation(agent: .codex, id: "thread-9"), TaskConversation(agent: .claude, id: "conv-8")])
     }
@@ -54,8 +49,8 @@ import Testing
     /// Two panes share a tab's index: they are read in the order of their session ids, the same every time.
     @Test func twoPanesOfOneTabAreReadInAFixedOrder() {
         let next = state(task(window: "w1")).rememberingConversations(from: [
-            tab("b", window: "w1", index: 0, agent: .codex, conversation: "thread-2"),
-            tab("a", window: "w1", index: 0, agent: .claude, conversation: "conv-1"),
+            SessionInfo.make("b", agent: .codex, conversation: "thread-2"),
+            SessionInfo.make("a", conversation: "conv-1"),
         ])
         #expect(next.tasks[0].conversations.map(\.id) == ["conv-1", "thread-2"])
     }
@@ -66,15 +61,15 @@ import Testing
         let remembered = [TaskConversation(agent: .claude, id: "conv-1")]
         let open = state(task(window: "w1", conversations: remembered))
         #expect(open.rememberingConversations(from: []) == open)
-        #expect(open.rememberingConversations(from: [tab("s", window: "w1", index: 0, agent: .shell, conversation: nil)]) == open)
+        #expect(open.rememberingConversations(from: [SessionInfo.make(agent: .shell)]) == open)
         let closed = state(task(window: nil, conversations: remembered))
-        #expect(closed.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .codex, conversation: "x")]) == closed)
+        #expect(closed.rememberingConversations(from: [SessionInfo.make("a", agent: .codex, conversation: "x")]) == closed)
     }
 
     /// An empty id would make a later resume open the CLI's picker, so it is never remembered.
     @Test func aTabNamingAnEmptyConversationIsNotRemembered() {
         let before = state(task(window: "w1"))
-        #expect(before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "")]) == before)
+        #expect(before.rememberingConversations(from: [SessionInfo.make("a", conversation: "")]) == before)
     }
 
     /// An id starting with "-" would be read by the agent's CLI as a flag, so it is never remembered —
@@ -82,21 +77,21 @@ import Testing
     @Test func aTabNamingAConversationThatReadsAsAFlagIsNotRemembered() {
         let remembered = [TaskConversation(agent: .claude, id: "conv-1")]
         let before = state(task(window: "w1", conversations: remembered))
-        #expect(before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "--model")]) == before)
-        #expect(before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "-x")]) == before)
+        #expect(before.rememberingConversations(from: [SessionInfo.make("a", conversation: "--model")]) == before)
+        #expect(before.rememberingConversations(from: [SessionInfo.make("a", conversation: "-x")]) == before)
     }
 
     @Test func aNewConversationReplacesTheOneItsTabHad() {
         let before = state(task(window: "w1", conversations: [TaskConversation(agent: .claude, id: "conv-1")]))
-        let next = before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "conv-2")])
+        let next = before.rememberingConversations(from: [SessionInfo.make("a", conversation: "conv-2")])
         #expect(next.tasks[0].conversations == [TaskConversation(agent: .claude, id: "conv-2")])
     }
 
     @Test func onlyTheTasksNamedAreRead() {
         let a = task(window: "w1"), b = task(window: "w2")
         let next = state(a, b).rememberingConversations(from: [
-            tab("1", window: "w1", index: 0, agent: .claude, conversation: "conv-a"),
-            tab("2", window: "w2", index: 0, agent: .claude, conversation: "conv-b"),
+            SessionInfo.make("1", conversation: "conv-a"),
+            SessionInfo.make("2", window: "w2", conversation: "conv-b"),
         ], only: [b.id])
         #expect(next.tasks.map(\.conversations.count) == [0, 1])
     }

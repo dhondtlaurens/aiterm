@@ -1,15 +1,14 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct ArchiveSearchTests {
     func entry(_ title: String, branch: String = "feat/x", jira: String? = nil, summary: String = "", mr: Int? = nil,
                mrTitle: String = "", project: String = "repo", at: TimeInterval = 0) -> ArchiveSearch.Entry {
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: title, branch: branch, worktreePath: "/w", baseBranch: "main",
-                            jira: jira.map { JiraRef(key: $0, summary: summary, url: "https://j/\($0)") },
-                            mr: mr.map { MergeRequestRef(iid: $0, title: mrTitle, url: "https://g/\($0)") },
-                            agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
+        let task = TaskItem.make(project: UUID(), title: title, branch: branch, worktreePath: "/w",
+            jira: jira.map { JiraRef(key: $0, summary: summary, url: "https://j/\($0)") },
+            mr: mr.map { MergeRequestRef(iid: $0, title: mrTitle, url: "https://g/\($0)") })
         return .init(archived: ArchivedTask(task: task, archivedAt: Date(timeIntervalSince1970: at)), projectName: project, provider: .gitlab)
     }
 

@@ -8,7 +8,7 @@ import Testing
 /// offers the checkbox, and what its tooltip says.
 @Suite(.blocking) @MainActor struct WorktreeIncludeSheetTests {
     private func taskModel(_ repo: String, git: any GitRunning = GitRunner.hermetic()) -> TaskCreationModel {
-        let project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: repo, addedAt: Date())
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("With env")
         return TaskCreationModel(project: project, draft: draft, context: .scratch(git: git), searchIssues: { _ in [] }, createTask: { _ in })
@@ -40,10 +40,8 @@ import Testing
 
     /// A review that opens in the task that has its branch makes no worktree, so it offers nothing.
     @Test func aReviewOffersTheFilesOnlyWhenItGetsAWorktree() {
-        let owner = TaskItem(id: UUID(), projectId: UUID(), title: "Gift card", branch: "feat/gift-card",
-                             worktreePath: "/p/.worktrees/gift-card", baseBranch: "main", jira: nil,
-                             agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                             createdAt: Date(), windowId: nil)
+        let owner = TaskItem.make(project: UUID(), title: "Gift card", branch: "feat/gift-card", worktreePath: "/p/.worktrees/gift-card",
+            model: "sonnet", appendTicket: true, createdAt: Date())
         #expect(NewReviewSheet.worktreeIncludes([".env"], owner: nil) == [".env"])
         #expect(NewReviewSheet.worktreeIncludes([".env"], owner: owner).isEmpty)
     }

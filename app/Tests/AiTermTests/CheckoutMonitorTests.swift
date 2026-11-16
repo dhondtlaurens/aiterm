@@ -8,13 +8,11 @@ import Testing
 /// A monitor over a scripted scanner: each pass reports the next of `passes`, or the last one again.
 @MainActor
 struct CheckoutMonitorTests {
-    private let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil,
-                                  addedAt: Date(), collapsed: false)
+    private let project = Project.make(name: "repo", path: "/repo", addedAt: Date())
 
     private func task(_ name: String) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: name, branch: "feat/\(name)", worktreePath: "/repo/.worktrees/\(name)",
-                 baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                 appendTicket: false, createdAt: Date(), windowId: nil)
+        TaskItem.make(project: project.id, title: name, branch: "feat/\(name)", worktreePath: "/repo/.worktrees/\(name)",
+            model: "opus", createdAt: Date())
     }
 
     private func scanning(_ passes: [WorkspaceScan]) -> CheckoutMonitor.Scanner {
@@ -29,8 +27,7 @@ struct CheckoutMonitorTests {
         var state = AppState.empty
         state.append(project: project)
         state.tasks = [removed]
-        let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: removed.id.uuidString, projectId: nil,
-                              agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
+        let tab = SessionInfo.make(window: "w", task: removed.id, cwd: "/repo")
         let remote = WorkspaceScan.Remote(provider: .gitlab, url: "git@gitlab.example/repo.git")
         let found = WorkspaceScan(branchByCwd: ["/repo": "main"], projectBranch: [project.id: "main"],
                                   missingCheckouts: [removed.id], removedTasks: [removed], remotes: [project.id: remote],
@@ -179,8 +176,7 @@ struct CheckoutMonitorTests {
         var state = AppState.empty
         state.append(project: project)
         let scans = ScanLog(holding: true)
-        let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: nil, projectId: nil,
-                              agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
+        let tab = SessionInfo.make(window: "w", cwd: "/repo")
         let workspace = WorkspaceStore.holding(state)
         let live = LiveSessions(workspace: workspace)
         live.sessions = [tab]
@@ -205,8 +201,7 @@ struct CheckoutMonitorTests {
     @Test func aRefreshIsNotBlockedByATitleSyncInFlight() async throws {
         var state = AppState.empty
         state.append(project: project)
-        let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: nil, projectId: project.id.uuidString,
-                              agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
+        let tab = SessionInfo.make(window: "w", project: project.id, cwd: "/repo")
         let scans = ScanLog()
         var sent: [[SessionTitle]] = []
         var inFlight: CheckedContinuation<Void, Never>?

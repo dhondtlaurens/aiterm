@@ -71,8 +71,7 @@ import Testing
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: dir.path, provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: dir.path, addedAt: Date())
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
         try controller.breakSaving()
@@ -166,20 +165,17 @@ import Testing
             state.append(project: busy)
             state.append(project: waiting)
         }
-        let working = TaskItem(id: UUID(), projectId: busy.id, title: "Busy", branch: "feat/x", worktreePath: busy.path,
-                               baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                               appendTicket: false, createdAt: Date(), windowId: nil)
-        let done = TaskItem(id: UUID(), projectId: waiting.id, title: "Done", branch: "feat/y", worktreePath: waiting.path,
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(), windowId: nil)
+        let working = TaskItem.make(project: busy.id, title: "Busy", branch: "feat/x", worktreePath: busy.path, model: "opus",
+            createdAt: Date())
+        let done = TaskItem.make(project: waiting.id, title: "Done", branch: "feat/y", worktreePath: waiting.path, model: "opus",
+            createdAt: Date())
         let asking = TerminalItem(id: UUID(), projectId: waiting.id, name: "Shell", windowId: "w3", createdAt: Date())
         controller.workspace.mutate { state in
             state.tasks = [working, done]
             state.terminals = [asking]
         }
         func session(_ id: String, window: String, task: TaskItem?, state: SessionState) -> SessionInfo {
-            SessionInfo(sessionId: id, windowId: window, tabIndex: 0, taskId: task?.id.uuidString, projectId: task == nil ? waiting.id.uuidString : nil,
-                        agent: .claude, model: nil, state: state, title: "", cwd: "/")
+            SessionInfo.make(id, window: window, task: task?.id, project: task == nil ? waiting.id : nil, state: state)
         }
 
         controller.live.sessions = [session("a", window: "w1", task: working, state: .working),
@@ -208,8 +204,7 @@ import Testing
             state.append(project: project)
             state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w", createdAt: Date())]
         }
-        controller.live.sessions = [SessionInfo(sessionId: "a", windowId: "w", tabIndex: 0, taskId: nil, projectId: project.id.uuidString,
-                                                agent: .claude, model: nil, state: .needsInput, title: "", cwd: project.path)]
+        controller.live.sessions = [SessionInfo.make("a", window: "w", project: project.id, state: .needsInput, cwd: project.path)]
         controller.workspace.mutate { state in state.updateProject(id: project.id) { $0.collapsed = true } }
         #expect(controller.canShowFocusView)
 
@@ -259,16 +254,11 @@ import Testing
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
         try controller.workspace.load()
-        let first = Project(id: UUID(), name: "First", path: "/first", provider: .git,
-                            remoteUrl: nil, addedAt: Date(), collapsed: true)
-        let moved = Project(id: UUID(), name: "Moved", path: "/moved", provider: .git,
-                            remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let last = Project(id: UUID(), name: "Last", path: "/last", provider: .git,
-                           remoteUrl: nil, addedAt: Date(), collapsed: true)
-        let child = TaskItem(id: UUID(), projectId: moved.id, title: "Child", branch: "feat/child",
-                             worktreePath: "/moved/.worktrees/child", baseBranch: "main", jira: nil,
-                             agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil,
-                             appendTicket: false, createdAt: Date(), windowId: nil)
+        let first = Project.make(name: "First", path: "/first", addedAt: Date(), collapsed: true)
+        let moved = Project.make(name: "Moved", path: "/moved", addedAt: Date())
+        let last = Project.make(name: "Last", path: "/last", addedAt: Date(), collapsed: true)
+        let child = TaskItem.make(project: moved.id, title: "Child", branch: "feat/child", worktreePath: "/moved/.worktrees/child",
+            model: "sonnet", createdAt: Date())
         let terminal = TerminalItem(id: UUID(), projectId: moved.id, name: "Shell", windowId: nil,
                                     createdAt: Date())
         controller.workspace.mutate { state in
@@ -299,8 +289,7 @@ import Testing
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let jiraSite = URL(string: "https://example.atlassian.net")!
         let frontend = JiraProjectRef(id: "10001", key: "SHOP", name: "Storefront", siteURL: jiraSite)
         let portal = JiraProjectRef(id: "10002", key: "PAY", name: "Payments", siteURL: jiraSite)
@@ -326,8 +315,7 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(!controller.canChangeWorkspace)
 
@@ -379,12 +367,9 @@ import Testing
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
         let controller = AppController(store: store, preferences: .scratch())
         try controller.workspace.load()
-        let first = Project(id: UUID(), name: "First", path: "/first", provider: .git,
-                            remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let last = Project(id: UUID(), name: "Last", path: "/last", provider: .git,
-                           remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let stranger = Project(id: UUID(), name: "Stranger", path: "/elsewhere", provider: .git,
-                               remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let first = Project.make(name: "First", path: "/first", addedAt: Date())
+        let last = Project.make(name: "Last", path: "/last", addedAt: Date())
+        let stranger = Project.make(name: "Stranger", path: "/elsewhere", addedAt: Date())
         controller.workspace.mutate { $0.items = [.project(first), .project(last)] }
         #expect(controller.workspace.flush())
 
@@ -420,9 +405,8 @@ import Testing
         controller.workspace.mutate { $0.append(project: project) }
         let rule = SidebarDivider(id: UUID(), name: "Work")
         controller.workspace.mutate { $0.append(divider: rule) }
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
+        let task = TaskItem.make(project: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt", model: "opus",
+            createdAt: Date(), windowId: "w1")
         controller.workspace.mutate { $0.tasks = [task] }
 
         controller.projects.rename(divider: rule, to: "  Personal ")
@@ -495,9 +479,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let project = fixtureProject("repo")
         controller.workspace.mutate { $0.append(project: project) }
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        let task = TaskItem.make(project: project.id, title: "Old", branch: "feat/x", worktreePath: "/wt", model: "opus",
+            createdAt: Date())
         controller.workspace.mutate { $0.tasks = [task] }
 
         controller.sheets.presentNewDivider()
@@ -644,13 +627,9 @@ import Testing
         try controller.workspace.load()
         let worktree = dir.appendingPathComponent("repo/.worktrees/work")
         try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
-        let project = Project(id: UUID(), name: "Repo", path: dir.appendingPathComponent("repo").path, provider: .git,
-                              remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: worktree.path, baseBranch: "main", jira: nil,
-                            agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: "Do the work",
-                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0),
-                            windowId: "w1")
+        let project = Project.make(name: "Repo", path: dir.appendingPathComponent("repo").path)
+        let task = TaskItem.make(project: project.id, worktreePath: worktree.path, model: "sonnet", firstPrompt: "Do the work",
+            windowId: "w1")
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w2",
                                     createdAt: Date(timeIntervalSince1970: 0))
         var state = AppState.empty
@@ -688,16 +667,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "Ongoing", branch: "feat/ongoing",
-                            worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .codex,
-                            model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: Date(), windowId: "old")
-        controller.workspace.mutate { $0.append(project: Project(id: task.projectId, name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)) }
+        let task = TaskItem.make(project: UUID(), title: "Ongoing", branch: "feat/ongoing", worktreePath: "/wt", agent: .codex,
+            model: "model", createdAt: Date(), windowId: "old")
+        controller.workspace.mutate { $0.append(project: Project.make(id: task.projectId, name: "Repo", path: "/repo", addedAt: Date())) }
         controller.workspace.mutate { $0.tasks = [task] }
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: false, sessions: [], usage: .empty)))
         #expect(controller.state.tasks[0].windowId == "old")
-        let session = SessionInfo(sessionId: "s", windowId: "recovered", tabIndex: 0, taskId: task.id.uuidString,
-                                  projectId: nil, agent: .shell, model: nil, state: .idle, title: "", cwd: "/wt")
+        let session = SessionInfo.make(window: "recovered", task: task.id, agent: .shell, cwd: "/wt")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [session], usage: .empty)))
         #expect(controller.state.tasks[0].windowId == "recovered")
         controller.focus.browse(.task(task.id))
@@ -712,12 +688,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: "/repo/.worktrees/work", baseBranch: "main", jira: nil,
-                            agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(), windowId: "w1")
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
+        let task = TaskItem.make(project: project.id, worktreePath: "/repo/.worktrees/work", model: "sonnet", createdAt: Date(),
+            windowId: "w1")
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w2",
                                     createdAt: Date())
         controller.workspace.mutate { state in
@@ -727,18 +700,15 @@ import Testing
         }
         controller.focus.browse(.task(task.id))
 
-        let first = SessionInfo(sessionId: "a", windowId: "w1", tabIndex: 0,
-                                taskId: task.id.uuidString, projectId: project.id.uuidString,
-                                agent: .claude, model: "sonnet", state: .idle, title: "a", cwd: task.worktreePath,
-                                active: true, contextPercent: 42)
-        let second = SessionInfo(sessionId: "b", windowId: "w1", tabIndex: 1,
-                                 taskId: task.id.uuidString, projectId: project.id.uuidString,
-                                 agent: .claude, model: "sonnet", state: .idle, title: "b", cwd: task.worktreePath,
-                                 active: false, contextPercent: 18)
-        let codex = SessionInfo(sessionId: "c", windowId: "w1", tabIndex: 2,
-                                taskId: task.id.uuidString, projectId: project.id.uuidString,
-                                agent: .codex, model: "gpt-5.6", state: .idle, title: "c", cwd: task.worktreePath,
-                                active: false, contextPercent: 64)
+        var first = SessionInfo.make("a", task: task.id, project: project.id, model: "sonnet", title: "a", cwd: task.worktreePath,
+            active: true)
+        first.contextPercent = 42
+        var second = SessionInfo.make("b", tabIndex: 1, task: task.id, project: project.id, model: "sonnet", title: "b",
+            cwd: task.worktreePath)
+        second.contextPercent = 18
+        var codex = SessionInfo.make("c", tabIndex: 2, task: task.id, project: project.id, agent: .codex, model: "gpt-5.6", title: "c",
+            cwd: task.worktreePath)
+        codex.contextPercent = 64
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: false,
                                                                sessions: [first, second, codex], usage: .empty)))
         #expect(controller.live.contextPercents(for: controller.focus.selection) == [.claude: 42, .codex: 64])
@@ -788,8 +758,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "w2",
                                     createdAt: Date())
         let other = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal 2", windowId: "w3",
@@ -800,9 +769,7 @@ import Testing
         }
         controller.focus.browse(.terminal(terminal.id))
 
-        let shell = SessionInfo(sessionId: "t", windowId: "w2", tabIndex: 0, taskId: nil,
-                                projectId: project.id.uuidString, agent: .shell, model: nil, state: .idle,
-                                title: "zsh", cwd: "/repo", active: true)
+        let shell = SessionInfo.make("t", window: "w2", project: project.id, agent: .shell, title: "zsh", cwd: "/repo", active: true)
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: false,
                                                                sessions: [shell], usage: .empty)))
         #expect(controller.live.contextPercents(for: controller.focus.selection).isEmpty)
@@ -843,7 +810,7 @@ import Testing
         try await BackgroundWork.run { try GitFixture.initRepo(at: repo.path) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: repo.path, addedAt: Date())
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
         if failSave { try FileManager.default.createDirectory(at: controller.workspace.file.backupURL, withIntermediateDirectories: false) }
@@ -878,7 +845,7 @@ import Testing
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: recording)
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: repo.path, addedAt: Date())
         controller.workspace.mutate { $0.items = [.project(project)] }
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Through the runner")
@@ -944,14 +911,10 @@ import Testing
     /// The alert-level courtesy. The guarantee is `TaskWorkflow.remove`'s own refusal, tested in
     /// `TaskWorkflowTests`; this only proves the checkbox is never offered for a review.
     @Test @MainActor func reviewRemovalNeverOffersToDeleteTheBranch() {
-        let review = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
-                              worktreePath: "/tmp/wt", baseBranch: "main", jira: nil, kind: .review, mr: nil,
-                              agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                              createdAt: Date(), windowId: nil)
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "Add gift card", branch: "feat/gift",
-                            worktreePath: "/tmp/wt2", baseBranch: "main", jira: nil,
-                            agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: Date(), windowId: nil)
+        let review = TaskItem.make(project: UUID(), title: "Review gift card", branch: "feat-gift", worktreePath: "/tmp/wt",
+            kind: .review, model: "sonnet", createdAt: Date())
+        let task = TaskItem.make(project: UUID(), title: "Add gift card", branch: "feat/gift", worktreePath: "/tmp/wt2",
+            model: "sonnet", createdAt: Date())
         #expect(TaskRemover.offersBranchDeletion(for: review) == false)
         #expect(TaskRemover.offersBranchDeletion(for: task) == true)
     }
@@ -1067,18 +1030,14 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let checkout = dir.appendingPathComponent("repo/.worktrees/a")
         try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
-        let project = Project(id: UUID(), name: "repo", path: dir.appendingPathComponent("repo").path, provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "a", branch: "feat/a",
-                            worktreePath: checkout.path, baseBranch: "main", jira: nil, agent: .claude,
-                            model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                            createdAt: Date(), windowId: nil)
+        let project = Project.make(name: "repo", path: dir.appendingPathComponent("repo").path, addedAt: Date())
+        let task = TaskItem.make(project: project.id, title: "a", branch: "feat/a", worktreePath: checkout.path, model: "opus",
+            appendTicket: true, createdAt: Date())
         controller.workspace.mutate { state in
             state.append(project: project)
             state.tasks.append(task)
         }
-        controller.live.sessions = [SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: nil, projectId: nil,
-                                           agent: .shell, model: nil, state: .idle, title: "", cwd: checkout.path)]
+        controller.live.sessions = [SessionInfo.make(window: "w", agent: .shell, cwd: checkout.path)]
         await controller.checkouts.refresh().value
 
         let changed = Mutex(false)
@@ -1096,15 +1055,15 @@ import Testing
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }
         let project = fixtureProject("repo")
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/.worktrees/a",
-                            baseBranch: "main", jira: nil, agent: .codex, model: "gpt-5.6", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w")
+        let task = TaskItem.make(project: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/.worktrees/a", agent: .codex,
+            model: "gpt-5.6", createdAt: Date(), windowId: "w")
         controller.workspace.mutate { state in
             state.append(project: project)
             state.tasks = [task]
         }
-        let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: task.id.uuidString, projectId: nil,
-                              agent: .codex, model: "gpt-5.6", state: .working, title: "⠋ repo", cwd: "/repo", contextPercent: 12)
+        var tab = SessionInfo.make(window: "w", task: task.id, agent: .codex, model: "gpt-5.6", state: .working, title: "⠋ repo",
+            cwd: "/repo")
+        tab.contextPercent = 12
         controller.live.sessions = [tab]
         func rowsChange(_ change: (inout SessionInfo) -> Void) -> Bool {
             let changed = Mutex(false)
@@ -1141,8 +1100,7 @@ import Testing
                                        })
         try controller.workspace.load()
         let task = UUID(), project = UUID()
-        var tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: task.uuidString, projectId: project.uuidString,
-                              agent: .claude, model: "opus", state: .idle, title: "claude", cwd: dir.path)
+        var tab = SessionInfo.make(window: "w", task: task, project: project, model: "opus", title: "claude", cwd: dir.path)
         controller.helper.handle(.sessionOpened(tab))
         await controller.checkouts.refreshTask?.value
         #expect(scans.count == 1)
@@ -1177,15 +1135,13 @@ import Testing
                                        setBadge: { written.append($0) })
         try controller.workspace.load()
         let project = fixtureProject("repo")
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                            appendTicket: true, createdAt: Date(), windowId: "w")
+        let task = TaskItem.make(project: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a", model: "opus",
+            appendTicket: true, createdAt: Date(), windowId: "w")
         controller.workspace.mutate { state in
             state.append(project: project)
             state.tasks = [task]
         }
-        var tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: task.id.uuidString, projectId: nil,
-                              agent: .claude, model: nil, state: .needsInput, title: "", cwd: "/repo/a")
+        var tab = SessionInfo.make(window: "w", task: task.id, state: .needsInput, cwd: "/repo/a")
         controller.live.sessions = [tab]
         #expect(written == ["1"])
 
@@ -1209,17 +1165,14 @@ import Testing
                                        setBadge: { written.append($0) })
         try controller.workspace.load()
         let project = fixtureProject("repo")
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                            appendTicket: true, createdAt: Date(), windowId: "w")
+        let task = TaskItem.make(project: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a", model: "opus",
+            appendTicket: true, createdAt: Date(), windowId: "w")
         let shell = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "t", createdAt: Date())
         controller.workspace.mutate { $0.append(project: project) }
         controller.workspace.mutate { $0.tasks = [task] }; controller.workspace.mutate { $0.terminals = [shell] }
         controller.live.sessions = [
-            SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: task.id.uuidString, projectId: nil,
-                        agent: .claude, model: nil, state: .done, title: "", cwd: "/repo/a"),
-            SessionInfo(sessionId: "u", windowId: "t", tabIndex: 0, taskId: nil, projectId: project.id.uuidString,
-                        agent: .codex, model: nil, state: .needsInput, title: "", cwd: "/repo"),
+            SessionInfo.make(window: "w", task: task.id, state: .done, cwd: "/repo/a"),
+            SessionInfo.make("u", window: "t", project: project.id, agent: .codex, state: .needsInput, cwd: "/repo"),
         ]
         #expect(written.last == "2")
         controller.showFocusView()
@@ -1292,7 +1245,7 @@ private func projectWithAnUnreadableEnv(in dir: URL) async throws -> (controller
     }
     let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: git)
     try controller.workspace.load()
-    let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+    let project = Project.make(name: "Repo", path: repo.path, addedAt: Date())
     controller.workspace.mutate { $0.items = [.project(project)] }
     #expect(controller.workspace.flush())
     return (controller, project)
@@ -1329,7 +1282,7 @@ func loadedController() throws -> (AppController, URL) {
 
 @MainActor
 private func fixtureProject(_ name: String) -> Project {
-    Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+    Project.make(name: name, path: "/" + name, addedAt: Date())
 }
 
 /// Counts the passes a controller's scanner is asked for, from the background thread each runs on.

@@ -254,8 +254,7 @@ import AiTermUI
         #expect(controller.focus.selection == .signal(signal))
     }
     @Test func anOrdinaryUntaggedPermissionPromptDoesNotBecomeTheOperators() {
-        let session = SessionInfo(sessionId: "shell", windowId: "window", tabIndex: 0, taskId: nil,
-            projectId: nil, agent: .claude, model: nil, state: .needsInput, title: "", cwd: "/")
+        let session = SessionInfo.make("shell", window: "window", state: .needsInput)
         #expect(SignalOperatorRowValue.make(state: AppState(), sessions: [session]) == .empty)
     }
     /// Configured signals watch without a chat; unfinished work or real attention shows its row.

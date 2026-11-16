@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// A task row is never wider than the sidebar gives it. Its badges are chips at their own width, so a
 /// ticket, a merge request and a long `+1416 −1072` once outgrew the row and pushed the status mark out
@@ -13,9 +14,8 @@ struct TaskRowOverflowTests {
     func theRowKeepsItsWidthWhateverItsBadges(width: CGFloat) throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783-dependency-updates",
-                            worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-1")
+        let task = TaskItem.make(project: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783-dependency-updates",
+            worktreePath: "/wt", model: "sonnet", createdAt: Date(), windowId: "w-1")
         let row = TaskRow(id: task.id, title: task.title, jiraKey: "FE-1783", jiraUrl: "https://j/FE-1783",
                           mr: MergeRequestRef(iid: 45, title: "Dependency updates", url: "https://gitlab.example.com/mr/45"),
                           branch: BranchLabel(name: task.branch, extra: 0, drifted: false, detail: ""), avatars: AvatarGroup(marks: [], overflow: 0), status: .idle,

@@ -517,9 +517,8 @@ import Testing
         }
         defer { if scenario == "permission-denied" { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: parent.path) } }
         // A missing session cwd is not evidence that the saved checkout was removed.
-        controller.live.sessions = [SessionInfo(sessionId: "s", windowId: "alive", tabIndex: 0,
-            taskId: fixture.task.id.uuidString, projectId: nil, agent: .codex, model: nil,
-            state: .idle, title: "", cwd: fixture.task.worktreePath + "/deleted-subdirectory")]
+        controller.live.sessions = [SessionInfo.make(window: "alive", task: fixture.task.id, agent: .codex,
+            cwd: fixture.task.worktreePath + "/deleted-subdirectory")]
         controller.checkouts.refresh()
         await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil || !controller.checkouts.missingCheckouts.isEmpty }
         // Retained. A checkout read missing starts a window pass (phase 7), which adopts the window its tab is in, as a

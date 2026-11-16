@@ -140,10 +140,8 @@ struct SidebarTilingTests {
         let task = try await fixture.addTask(windowId: "task-window")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Terminal", windowId: "terminal-window",
                                     createdAt: Date())
-        let closed = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Closed", branch: "main",
-                              worktreePath: fixture.repo.path, baseBranch: "main", jira: nil, agent: .codex,
-                              model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                              createdAt: Date(), windowId: nil)
+        let closed = TaskItem.make(project: fixture.project.id, title: "Closed", branch: "main", worktreePath: fixture.repo.path,
+            agent: .codex, model: "model", createdAt: Date())
         controller.workspace.mutate { state in
             state.terminals = [terminal]
             state.tasks.append(closed)

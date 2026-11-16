@@ -10,8 +10,7 @@ import AiTermCore
 @Suite(.serialized, .blocking) struct NewTaskSheetKeyboardTests {
     @Test func arrowDownAndReturnSelectTheNextVisibleTicket() throws {
         let controller = AppController(preferences: .scratch())
-        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "AiTerm", path: "/tmp", provider: .none, addedAt: Date())
         let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         let tickets = [
             JiraTicket(key: "ML-1", summary: "First ticket", description: nil,
@@ -54,8 +53,7 @@ import AiTermCore
     /// until the person clicks the field or types.
     @Test func focusingTheTicketSearchLeavesItsListClosedUntilTyping() throws {
         let controller = AppController(preferences: .scratch())
-        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "AiTerm", path: "/tmp", provider: .none, addedAt: Date())
         let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
         model.results = [JiraTicket(key: "ML-1", summary: "First ticket", description: nil,
@@ -110,8 +108,7 @@ import AiTermCore
     /// typed in, keeps only the name.
     @Test func typingATypePrefixIntoTheBranchFieldPicksTheTypeAsYouType() throws {
         let controller = AppController(preferences: .scratch())
-        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "AiTerm", path: "/tmp", provider: .none, addedAt: Date())
         let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
         let host = testHost(NewTaskSheet(model: model).seeded(step: 1), size: CGSize(width: Sheet.width, height: Sheet.height))

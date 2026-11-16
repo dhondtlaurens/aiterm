@@ -3,6 +3,7 @@ import Testing
 import AiTermUI
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// What each sidebar badge prints once the Interface tab has turned its detail off: the mark stays
 /// and still links, and the text it dropped moves into the tooltip so it is a hover away.
@@ -20,8 +21,7 @@ import AiTermUI
     private let diff = BaseDiff(base: "main", stat: DiffStat(added: 12, removed: 3))
 
     @Test func aProjectCountTurnedOffLeavesTheMarkAndMenu() throws {
-        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp/aiterm", provider: .git, remoteUrl: nil,
-                              addedAt: Date(), collapsed: false, jiraProjects: [jira])
+        let project = Project.make(name: "AiTerm", path: "/tmp/aiterm", addedAt: Date(), jiraProjects: [jira])
         let full = try #require(ProjectJiraBadge.badge(for: project))
         #expect(full.label == "1")
         #expect(full.help == "Jira · SHOP Storefront")

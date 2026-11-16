@@ -72,11 +72,10 @@ struct SidebarInteractionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let tasks = ["First task", "Second task"].map { title in
-            TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/work", worktreePath: "/wt",
-                     baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                     firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "window-" + title)
+            TaskItem.make(project: project.id, title: title, worktreePath: "/wt", model: "sonnet", createdAt: Date(),
+                windowId: "window-" + title)
         }
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "terminal-window", createdAt: Date())
         controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }; controller.workspace.mutate { $0.terminals = [terminal] }
@@ -124,11 +123,10 @@ struct SidebarInteractionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let tasks = ["First task", "Second task"].map { title in
-            TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/work", worktreePath: "/wt",
-                     baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                     firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "window-" + title)
+            TaskItem.make(project: project.id, title: title, worktreePath: "/wt", model: "sonnet", createdAt: Date(),
+                windowId: "window-" + title)
         }
         controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }
         controller.focus.browse(.task(tasks[0].id))
@@ -193,14 +191,10 @@ struct SidebarInteractionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        func project(_ name: String) -> Project {
-            Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        }
-        let (a, b) = (project("a"), project("b"))
+        let (a, b) = (Project.make(name: "a", path: "/a", addedAt: Date()), Project.make(name: "b", path: "/b", addedAt: Date()))
         func task(_ title: String, in project: Project) -> TaskItem {
-            TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/work", worktreePath: "/wt",
-                     baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                     firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "window-" + title)
+            TaskItem.make(project: project.id, title: title, worktreePath: "/wt", model: "sonnet", createdAt: Date(),
+                windowId: "window-" + title)
         }
         let tasks = [task("a1", in: a), task("a2", in: a), task("b1", in: b), task("b2", in: b)]
         let terminal = TerminalItem(id: UUID(), projectId: b.id, name: "Terminal", windowId: "terminal-window", createdAt: Date())
@@ -333,8 +327,8 @@ struct SidebarInteractionTests {
         }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let old = Project(id: UUID(), name: "Old", path: first.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let new = Project(id: UUID(), name: "New", path: second.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let old = Project.make(name: "Old", path: first.path, addedAt: Date())
+        let new = Project.make(name: "New", path: second.path, addedAt: Date())
         controller.workspace.mutate { $0.items = [.project(old)] }
         controller.checkouts.refresh()
         controller.workspace.mutate { $0.items = [.project(new)] }
@@ -347,10 +341,7 @@ struct SidebarInteractionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        func project(_ name: String) -> Project {
-            Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: true)
-        }
-        let (a, b) = (project("a"), project("b"))
+        let (a, b) = (Project.make(name: "a", path: "/a", addedAt: Date(), collapsed: true), Project.make(name: "b", path: "/b", addedAt: Date(), collapsed: true))
         controller.workspace.mutate { state in
             state.append(project: a)
             state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
@@ -381,8 +372,7 @@ struct SidebarInteractionTests {
         // OPERATOR heading, header, the block, the divider.
         #expect(list.numberOfRows == 4)
 
-        controller.workspace.mutate { $0.append(project: Project(id: UUID(), name: "a", path: "/a", provider: .git, remoteUrl: nil,
-                                                                  addedAt: Date(), collapsed: true)) }
+        controller.workspace.mutate { $0.append(project: Project.make(name: "a", path: "/a", addedAt: Date(), collapsed: true)) }
         settle(host, for: 0.05) // Absence: the row count is the same before and after.
         // OPERATOR heading, header, the divider, project a.
         #expect(list.numberOfRows == 4)

@@ -63,8 +63,8 @@ local and UTC dates. A change lowers a number with the work that earned it and n
 latency claims.
 
 `AiTermTestSupport/Builders.swift` holds the shared builders for `Project`, `TaskItem`,
-`SessionInfo` and Signal values; new tests use them, and older tests still call the
-initialisers directly. `ScratchFolder` hands out folders under
+`SessionInfo` and Signal values; tests build those values through them. Only tests of the
+initialisers or of decoding call the initialisers directly. `ScratchFolder` hands out folders under
 one root per test process, removed at exit, and sweeps dead processes' roots at the next start.
 `GitFixture` copies one hermetic seed repository per process; each copy owns its refs and objects,
 and an explicit runner still owns setup for fault and count tests. A test that runs git, a process,

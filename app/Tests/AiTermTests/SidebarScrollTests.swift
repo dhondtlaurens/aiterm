@@ -80,8 +80,7 @@ struct SidebarScrollTests {
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
         for index in 0..<20 {
-            let project = Project(id: UUID(), name: "Repo \(index)", path: "/repo\(index)", provider: .git, remoteUrl: nil,
-                                  addedAt: Date(), collapsed: index == 19)
+            let project = Project.make(name: "Repo \(index)", path: "/repo\(index)", addedAt: Date(), collapsed: index == 19)
             controller.workspace.mutate { state in
                 state.append(project: project)
                 state.terminals.append(TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: nil, createdAt: Date()))

@@ -2,12 +2,16 @@ import Testing
 import Foundation
 import Synchronization
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct SidebarModelTests {
-    func session(_ id: String, task: String?, agent: SessionAgent, state: SessionState, tab: Int, window: String = "w1", project: String? = nil,
+    func session(_ id: String, task: String?, agent: SessionAgent, state: SessionState, tab: Int, window: String = "w1", project: UUID? = nil,
                  cwd: String = "", agentCwd: String? = nil, active: Bool = false, context: Int? = nil) -> SessionInfo {
-        SessionInfo(sessionId: id, windowId: window, tabIndex: tab, taskId: task, projectId: project, agent: agent, model: nil, state: state,
-                    title: "", cwd: cwd, agentCwd: agentCwd, active: active, contextPercent: context)
+        var session = SessionInfo.make(id, window: window, tabIndex: tab, project: project, agent: agent, state: state, cwd: cwd, active: active)
+        session.taskId = task
+        session.agentCwd = agentCwd
+        session.contextPercent = context
+        return session
     }
 
     @Test func testAggregateWorstWins() {
@@ -100,7 +104,7 @@ import Synchronization
         #expect(counts == [StatusCount(status: .working, count: 1), StatusCount(status: .waiting, count: 2),
                            StatusCount(status: .needsInput, count: 1)])
         #expect(SidebarModel.statusCountsLabel(counts) == "1 working, 2 waiting, 1 needs input")
-        #expect(SidebarModel.needingAttention([ProjectSection(project: Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: true), tasks: [taskRow(.waiting)], terminals: [])]).isEmpty)
+        #expect(SidebarModel.needingAttention([ProjectSection(project: Project.make(name: "Repo", path: "/repo", addedAt: Date(), collapsed: true), tasks: [taskRow(.waiting)], terminals: [])]).isEmpty)
     }
 
     func taskRow(_ status: TaskStatus) -> TaskRow {
@@ -132,7 +136,7 @@ import Synchronization
     /// A project with nothing under it has nothing to disclose: it draws collapsed whatever it
     /// stored, and goes back to its stored state as soon as a task or a terminal lands in it.
     @Test func testAProjectWithNoRowsIsCollapsedWhateverItStored() {
-        var project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        var project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let empty = ProjectSection(project: project, tasks: [], terminals: [])
         #expect(empty.isEmpty)
         #expect(empty.collapsed)
@@ -146,8 +150,7 @@ import Synchronization
     /// project with no rows is left out — it draws collapsed whatever it stored.
     @Test func focusViewOpensOnlyTheProjectsWaitingOnYou() {
         func section(tasks: [TaskRow] = [], terminals: [TerminalRow] = [], collapsed: Bool) -> ProjectSection {
-            ProjectSection(project: Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                                            addedAt: Date(), collapsed: collapsed), tasks: tasks, terminals: terminals)
+            ProjectSection(project: Project.make(name: "Repo", path: "/repo", addedAt: Date(), collapsed: collapsed), tasks: tasks, terminals: terminals)
         }
         let done = section(tasks: [taskRow(.idle), taskRow(.done)], collapsed: true)
         let asking = section(terminals: [terminalRow(.needsInput)], collapsed: true)
@@ -159,7 +162,7 @@ import Synchronization
 
     /// With nothing waiting — only working or idle rows — every project with rows folds to its header.
     @Test func focusViewFoldsEverythingWhenNothingNeedsAttention() {
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         #expect(SidebarModel.focusView([ProjectSection(project: project, tasks: [taskRow(.working)], terminals: [terminalRow(.idle)])])
                 == [project.id: true])
         #expect(SidebarModel.focusView([]) == [:])
@@ -169,8 +172,7 @@ import Synchronization
     /// a skipped task passed over, and none when nothing waits.
     @Test func firstNeedingAttentionFollowsTheDrawingOrder() {
         func section(tasks: [TaskRow] = [], terminals: [TerminalRow] = []) -> ProjectSection {
-            ProjectSection(project: Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                                            addedAt: Date(), collapsed: false), tasks: tasks, terminals: terminals)
+            ProjectSection(project: Project.make(name: "Repo", path: "/repo", addedAt: Date()), tasks: tasks, terminals: terminals)
         }
         let busy = section(tasks: [taskRow(.working)])
         let done = taskRow(.done), asking = terminalRow(.needsInput), later = taskRow(.needsInput)
@@ -189,8 +191,7 @@ import Synchronization
     /// List View (⌘L): every project with rows opens, whatever its rows say; empty ones are left out.
     @Test func listViewOpensEveryProjectWithRows() {
         func section(tasks: [TaskRow] = [], terminals: [TerminalRow] = [], collapsed: Bool) -> ProjectSection {
-            ProjectSection(project: Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                                            addedAt: Date(), collapsed: collapsed), tasks: tasks, terminals: terminals)
+            ProjectSection(project: Project.make(name: "Repo", path: "/repo", addedAt: Date(), collapsed: collapsed), tasks: tasks, terminals: terminals)
         }
         let folded = section(tasks: [taskRow(.working)], collapsed: true)
         let shell = section(terminals: [terminalRow(.idle)], collapsed: true)
@@ -227,13 +228,15 @@ import Synchronization
 
     @Test func testSectionsMatchSessionsToTasksAndTerminals() {
         var state = AppState.empty
-        let p = Project(id: UUID(), name: "acme-web", path: "/r", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let t = TaskItem(id: UUID(), projectId: p.id, title: "SIGTERM", branch: "feat/web-5447-sigterm", worktreePath: "/r/.worktrees/x", baseBranch: "main", jira: JiraRef(key: "WEB-5447", summary: "SIGTERM", url: "u"), agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: "w1")
+        let p = Project.make(name: "acme-web", path: "/r", provider: .gitlab, addedAt: Date())
+        let t = TaskItem.make(project: p.id, title: "SIGTERM", branch: "feat/web-5447-sigterm", worktreePath: "/r/.worktrees/x",
+            jira: JiraRef(key: "WEB-5447", summary: "SIGTERM", url: "u"), model: "opus", appendTicket: true,
+            createdAt: Date(), windowId: "w1")
         let term = TerminalItem(id: UUID(), projectId: p.id, name: "Terminal", windowId: "w9", createdAt: Date())
         state.items = [.project(p)]; state.tasks = [t]; state.terminals = [term]
         let sessions = [session("a", task: t.id.uuidString, agent: .claude, state: .working, tab: 0, cwd: "/r/.worktrees/x"),
                         session("b", task: t.id.uuidString, agent: .codex, state: .needsInput, tab: 1, cwd: "/r/.worktrees/x"),
-                        session("c", task: nil, agent: .shell, state: .idle, tab: 0, window: "w9", project: p.id.uuidString, cwd: "/r")]
+                        session("c", task: nil, agent: .shell, state: .idle, tab: 0, window: "w9", project: p.id, cwd: "/r")]
         let sections = SidebarModel.sections(state: state, sessions: sessions,
                                              branchByCwd: ["/r/.worktrees/x": "feat/web-5447-sigterm", "/r": "main"], projectBranch: [p.id: "main"])
         #expect(sections.count == 1)
@@ -248,10 +251,9 @@ import Synchronization
     /// the same comparison the snapshot's window reattachment makes.
     @Test func aTabFindsItsTaskByTheIdItsTagNames() {
         var state = AppState.empty
-        let p = Project(id: UUID(), name: "r", path: "/r", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let t = TaskItem(id: UUID(), projectId: p.id, title: "T", branch: "feat/t", worktreePath: "/r/.worktrees/t", baseBranch: "main",
-                         jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                         createdAt: Date(), windowId: "w1")
+        let p = Project.make(name: "r", path: "/r", addedAt: Date())
+        let t = TaskItem.make(project: p.id, title: "T", branch: "feat/t", worktreePath: "/r/.worktrees/t", model: "opus",
+            createdAt: Date(), windowId: "w1")
         state.items = [.project(p)]; state.tasks = [t]
         let sessions = [session("a", task: t.id.uuidString.lowercased(), agent: .codex, state: .working, tab: 0),
                         session("b", task: "not-a-uuid", agent: .claude, state: .needsInput, tab: 1)]
@@ -269,14 +271,11 @@ import Synchronization
 
     @Test func testSectionsPutTasksBeforeReviewsWithoutReorderingEitherLane() {
         var state = AppState.empty
-        let project = Project(id: UUID(), name: "p", path: "/p", provider: .git, remoteUrl: nil,
-                              addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "p", path: "/p", addedAt: Date())
         state.items = [.project(project)]
         func item(_ title: String, kind: TaskKind = .task) -> TaskItem {
-            TaskItem(id: UUID(), projectId: project.id, title: title, branch: title,
-                     worktreePath: "/p/.worktrees/\(title)", baseBranch: "main", jira: nil, kind: kind,
-                     agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                     createdAt: Date(), windowId: nil)
+            TaskItem.make(project: project.id, title: title, branch: title, worktreePath: "/p/.worktrees/\(title)",
+                kind: kind, model: "opus", createdAt: Date())
         }
         let task1 = item("Task 1") // Saved without a `kind`, as tasks are.
         let review1 = item("MR 1", kind: .review)
@@ -294,7 +293,7 @@ import Synchronization
     /// window — `projectId` cannot tell two terminals of the same project apart.
     @Test func testTerminalRowFollowsTheAgentsRunningInItsWindow() {
         var state = AppState.empty
-        let p = Project(id: UUID(), name: "acme-web", path: "/r", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let p = Project.make(name: "acme-web", path: "/r", provider: .gitlab, addedAt: Date())
         let first = TerminalItem(id: UUID(), projectId: p.id, name: "Terminal", windowId: "w1", createdAt: Date())
         let second = TerminalItem(id: UUID(), projectId: p.id, name: "Logs", windowId: "w2", createdAt: Date())
         state.items = [.project(p)]; state.terminals = [first, second]
@@ -303,16 +302,16 @@ import Synchronization
         }
 
         // `claude` took over the window's only session; the second terminal still has a plain shell.
-        let running = rows([session("a", task: nil, agent: .claude, state: .working, tab: 0, window: "w1", project: p.id.uuidString),
-                            session("b", task: nil, agent: .shell, state: .idle, tab: 0, window: "w2", project: p.id.uuidString)])
+        let running = rows([session("a", task: nil, agent: .claude, state: .working, tab: 0, window: "w1", project: p.id),
+                            session("b", task: nil, agent: .shell, state: .idle, tab: 0, window: "w2", project: p.id)])
         #expect(running[0].avatars == AvatarGroup(marks: [.claude], overflow: 0))
         #expect(running[0].status == .working)
         #expect(running[1] == TerminalRow(id: second.id, name: "Logs", branch: BranchLabel(name: "main", extra: 0, drifted: false, detail: ""),
                                           avatars: AvatarGroup(marks: [.shell], overflow: 0), status: .idle))
 
         // A Codex tab opened next to it adds a mark; the row stays the same row.
-        let both = rows([session("a", task: nil, agent: .claude, state: .idle, tab: 0, window: "w1", project: p.id.uuidString),
-                         session("c", task: nil, agent: .codex, state: .needsInput, tab: 1, window: "w1", project: p.id.uuidString)])
+        let both = rows([session("a", task: nil, agent: .claude, state: .idle, tab: 0, window: "w1", project: p.id),
+                         session("c", task: nil, agent: .codex, state: .needsInput, tab: 1, window: "w1", project: p.id)])
         #expect(both[0].id == first.id)
         #expect(both[0].avatars == AvatarGroup(marks: [.claude, .codex], overflow: 0))
         #expect(both[0].status == .needsInput)
@@ -322,7 +321,7 @@ import Synchronization
     /// has one whose window the daemon has not reported yet: draw a shell mark rather than nothing.
     @Test func testTerminalRowWithoutSessionsFallsBackToAShellMark() {
         var state = AppState.empty
-        let p = Project(id: UUID(), name: "r", path: "/r", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let p = Project.make(name: "r", path: "/r", addedAt: Date())
         let closed = TerminalItem(id: UUID(), projectId: p.id, name: "Terminal", windowId: nil, createdAt: Date())
         state.items = [.project(p)]; state.terminals = [closed]
         let stranger = [session("a", task: nil, agent: .claude, state: .working, tab: 0, window: "w1", cwd: "/elsewhere")]
@@ -389,14 +388,15 @@ import Synchronization
 
     @Test func testSessionTitlesUseTheSameLiveBranchesAndFallbacksAsTheSidebar() {
         var state = AppState.empty
-        let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Task", branch: "feat/original", worktreePath: "/repo/.worktrees/original", baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
+        let project = Project.make(name: "repo", path: "/repo", addedAt: Date())
+        let task = TaskItem.make(project: project.id, title: "Task", branch: "feat/original", worktreePath: "/repo/.worktrees/original",
+            model: "opus", createdAt: Date(), windowId: "w1")
         state.items = [.project(project)]; state.tasks = [task]
         let live = session("s1", task: task.id.uuidString, agent: .claude, state: .working, tab: 0,
                            cwd: task.worktreePath, agentCwd: "/repo/.worktrees/current")
         let unresolved = session("s2", task: task.id.uuidString, agent: .shell, state: .idle, tab: 1, cwd: "/Users/me")
         let terminal = session("s3", task: nil, agent: .shell, state: .idle, tab: 0, window: "w2",
-                               project: project.id.uuidString, cwd: "/repo")
+                               project: project.id, cwd: "/repo")
         let unmanaged = session("s4", task: nil, agent: .shell, state: .idle, tab: 0, window: "w3", cwd: "/elsewhere")
 
         let titles = SidebarModel.sessionTitles(
@@ -412,8 +412,9 @@ import Synchronization
     /// A workspace holding two tasks with one id (a hand-edited or merged save) still titles its tabs, by the first.
     @Test func twoTasksSharingAnIdStillTitleTheirTabs() {
         var state = AppState.empty
-        let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Task", branch: "feat/first", worktreePath: "/repo/.worktrees/first", baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
+        let project = Project.make(name: "repo", path: "/repo", addedAt: Date())
+        let task = TaskItem.make(project: project.id, title: "Task", branch: "feat/first", worktreePath: "/repo/.worktrees/first",
+            model: "opus", createdAt: Date(), windowId: "w1")
         var twin = task; twin.branch = "feat/twin"
         state.items = [.project(project)]; state.tasks = [task, twin]
         let tab = session("s1", task: task.id.uuidString, agent: .shell, state: .idle, tab: 0, cwd: "/Users/me")
@@ -615,18 +616,16 @@ import Synchronization
     }
 
     private func tab(_ task: UUID, _ agent: SessionAgent, _ index: Int, active: Bool = false) -> SessionInfo {
-        session("s\(index)", task: task.uuidString, agent: agent, state: .idle, tab: index, active: active)
+        SessionInfo.make("s\(index)", tabIndex: index, task: task, agent: agent, cwd: "", active: active)
     }
 
     @Test func testAReviewRowCarriesItsMergeRequest() {
         var state = AppState.empty
-        let project = Project(id: UUID(), name: "p", path: "/tmp/p", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "p", path: "/tmp/p", provider: .gitlab, addedAt: Date())
         state.items = [.project(project)]
         let mr = MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4")
-        state.tasks = [TaskItem(id: UUID(), projectId: project.id, title: "Review gift card", branch: "feat-gift",
-                                worktreePath: "/tmp/wt", baseBranch: "main", jira: nil, kind: .review, mr: mr,
-                                agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                                createdAt: Date(), windowId: nil)]
+        state.tasks = [TaskItem.make(project: project.id, title: "Review gift card", branch: "feat-gift", worktreePath: "/tmp/wt",
+            kind: .review, mr: mr, model: "sonnet", createdAt: Date())]
         let row = SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])[0].tasks[0]
         #expect(row.mr == mr)
         #expect(row.jiraKey == nil)
@@ -634,11 +633,7 @@ import Synchronization
 
     @Test func testEntriesInterleaveDividersAmongProjectSections() {
         var state = AppState.empty
-        func project(_ name: String) -> Project {
-            Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil,
-                    addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        }
-        let (a, b) = (project("a"), project("b"))
+        let (a, b) = (Project.make(name: "a", path: "/a"), Project.make(name: "b", path: "/b"))
         let rule = SidebarDivider(id: UUID(), name: "Work")
         state.append(project: a); state.append(divider: rule); state.append(project: b)
         let entries = SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
@@ -654,11 +649,7 @@ import Synchronization
     /// the first has no "up", the last no "down", and a divider is a row like any other.
     @Test func testEntriesSayWhichWayEachRowCanMove() {
         var state = AppState.empty
-        func project(_ name: String) -> Project {
-            Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil,
-                    addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        }
-        state.append(project: project("a")); state.append(divider: SidebarDivider(id: UUID(), name: "")); state.append(project: project("b"))
+        state.append(project: Project.make(name: "a", path: "/a")); state.append(divider: SidebarDivider(id: UUID(), name: "")); state.append(project: Project.make(name: "b", path: "/b"))
         let moves = SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:]).map { entry in
             switch entry {
             case .project(let s): return [s.canMove(.up), s.canMove(.down)]
@@ -673,10 +664,9 @@ import Synchronization
 
     private func stateWithOneTask(base: String) -> (AppState, TaskItem) {
         var state = AppState.empty
-        let project = Project(id: UUID(), name: "p", path: "/p", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "feat/t", worktreePath: "/p/.worktrees/t",
-                            baseBranch: base, jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(), windowId: nil)
+        let project = Project.make(name: "p", path: "/p", addedAt: Date())
+        let task = TaskItem.make(project: project.id, title: "t", branch: "feat/t", worktreePath: "/p/.worktrees/t", baseBranch: base,
+            model: "opus", createdAt: Date())
         state.items = [.project(project)]; state.tasks = [task]
         return (state, task)
     }

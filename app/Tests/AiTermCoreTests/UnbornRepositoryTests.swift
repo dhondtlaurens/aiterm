@@ -16,8 +16,7 @@ import Testing
         let path = try GitFixture.folder("unborn-")
         defer { try? FileManager.default.removeItem(atPath: path) }
         try git.run(["init", "-b", "main", path], in: "/")
-        let project = Project(id: UUID(), name: "New repository", path: path, provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "New repository", path: path, addedAt: Date())
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("First task")
         let error = try #require(#expect(throws: (any Error).self) {

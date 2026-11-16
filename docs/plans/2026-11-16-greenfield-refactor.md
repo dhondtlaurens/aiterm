@@ -220,7 +220,7 @@ TS tests-scripts.
   rehearsal; note all three under Record.
 - [x] 0b. **Opus.** One signal journey test through `SignalWorld`: stub source returns an item, a
   task starts, the worker's turn ends, the done condition holds, Then archives (TS section 4).
-- [ ] 0c. **Codex.** Tests build `TaskItem`, `Project` and `SessionInfo` through the shared
+- [x] 0c. **Codex.** Tests build `TaskItem`, `Project` and `SessionInfo` through the shared
   builders; local copies of those builders go (TS F6). No assertion changes.
 
 - [ ] 0d. **Codex.** `scripts/reset-operator-state.sh`: the reset command as a script. With AiTerm
@@ -550,4 +550,10 @@ left.
 - 0b: `SignalJourneyTests.aJiraMatchRunsToItsDoneConditionAndThenArchivesItsTask` added; three
   filtered runs green; it fails at the archive expectations with Then `.keep` and with the ticket left
   at `To Do`. The brief's evidence held. The test wraps the stub's `Mutex` in a small `Sendable`
-  class, because a noncopyable `Mutex` cannot be captured by the stub's escaping closure.
+  class, because a noncopyable `Mutex` cannot be captured by the stub's escaping closure.- 0c: 55 test files build `Project`, `TaskItem` and `SessionInfo` through the shared builders, which
+  gained `mr`, `appendTicket`, `conversations`, `project`, `model` and `title`. No test added,
+  deleted or renamed; no assertion changed. Direct initialiser calls kept: the six `ModelsTests`
+  exceptions the brief names, plus `anUnknownSidebarItemKeepsItsPlaceAndIsNeverDrawnOrCounted`
+  (it asserts a JSON round trip), and the six Find a Fix files (1i deletes them). The brief's
+  `Project(id:` grep also matches `updateProject(id:` and `removeProject(id:`; those hits are not
+  initialiser calls. Twenty local helpers stay as thin wrappers with three or more callers each.

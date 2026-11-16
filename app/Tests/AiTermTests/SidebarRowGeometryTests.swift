@@ -40,12 +40,11 @@ struct SidebarRowGeometryTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         // Three identical rows so the pills can only differ by the state that is drawn on them.
         let tasks = ["Selected row", "Hovered row", "Resting row"].map { title in
-            TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/work", worktreePath: "/wt",
-                     baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                     firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-" + title)
+            TaskItem.make(project: project.id, title: title, worktreePath: "/wt", model: "sonnet", createdAt: Date(),
+                windowId: "w-" + title)
         }
         controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }
         controller.focus.browse(.task(tasks[0].id))
@@ -109,11 +108,9 @@ struct SidebarContextMenuHighlightTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Right-clicked row", branch: "feat/work",
-                            worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet",
-                            reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(),
-                            windowId: "w-1")
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
+        let task = TaskItem.make(project: project.id, title: "Right-clicked row", worktreePath: "/wt", model: "sonnet",
+            createdAt: Date(), windowId: "w-1")
         controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = [task] }
         controller.focus.browse(.task(task.id))
 

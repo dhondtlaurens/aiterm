@@ -30,9 +30,8 @@ import Testing
     /// A row with no worktree yet is not a worktree gone: read as missing, the checkout cleanup would remove it.
     @Test func aTaskWithNoWorktreeYetIsNeverReadMissing() throws {
         let repo = try GitFixture.makeRepo(prefix: "ws-")
-        let project = Project(id: UUID(), name: "p", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let planned = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "feat/t", worktreePath: "", baseBranch: "", jira: nil,
-                               agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        let project = Project.make(name: "p", path: repo, addedAt: Date())
+        let planned = TaskItem.make(project: project.id, title: "t", branch: "feat/t", baseBranch: "", createdAt: Date())
         let git = GitRunner.hermetic(), resolvers = Resolvers(git: git)
         let scan = WorkspaceScan.run(cwds: [], projects: [project], tasks: [planned], branches: resolvers.branches, remotes: resolvers.remotes,
                                      diffs: DiffStatResolver(git: git), defaultBranches: resolvers.defaultBranches)
@@ -43,7 +42,7 @@ import Testing
     @Test func aProjectGitCouldNotBeAskedAboutReportsNoRemote() throws {
         let url = "git@gitlab.example.com:group/app.git"
         let repo = try makeRepo(remote: url)
-        let project = Project(id: UUID(), name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date())
         let flaky = FlakyGitRunner(), clock = TestClock(), resolvers = Resolvers(git: flaky, now: { clock.now })
         flaky.failing = true
         let failed = scan(project, git: flaky, resolvers: resolvers)
@@ -60,7 +59,7 @@ import Testing
     @Test func aKnownRemoteSurvivesAFailedReRead() throws {
         let url = "git@gitlab.example.com:group/app.git"
         let repo = try makeRepo(remote: url)
-        let project = Project(id: UUID(), name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date())
         let flaky = FlakyGitRunner(), clock = TestClock(), resolvers = Resolvers(git: flaky, now: { clock.now })
         #expect(scan(project, git: flaky, resolvers: resolvers).remotes[project.id]?.url == url)
         try GitRunner.hermetic().run(["remote", "set-url", "origin", "git@gitlab.example.com:group/moved.git"], in: repo)
@@ -77,7 +76,7 @@ import Testing
     @Test func aPassForgetsADirectoryNoTabIsInAnyMore() throws {
         let url = "git@gitlab.example.com:group/app.git"
         let repo = try makeRepo(remote: url), elsewhere = try GitFixture.makeRepo(prefix: "ws-tab-")
-        let project = Project(id: UUID(), name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date())
         let recording = RecordingGitRunner(forwardingTo: .hermetic()), resolvers = Resolvers(git: recording)
         let diffs = DiffStatResolver(git: recording)
         func pass(_ cwds: [String]) {

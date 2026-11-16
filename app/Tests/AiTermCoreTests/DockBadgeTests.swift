@@ -1,24 +1,16 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The Dock badge counts the rows Focus View steps through: needing input, or done and unseen,
 /// terminals included — read from the same sections the sidebar draws.
 @Suite struct DockBadgeTests {
-    private let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil,
-                                  addedAt: Date(), collapsed: false)
+    private let project = Project.make(name: "repo", path: "/repo", addedAt: Date())
 
     private func task(windowId: String?) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: "Task", branch: "task",
-                 worktreePath: "/tmp/task", baseBranch: "main", jira: nil, agent: .claude,
-                 model: "model", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                 createdAt: Date(), windowId: windowId)
-    }
-
-    private func session(_ id: String, window: String, taskId: String?, state: SessionState) -> SessionInfo {
-        SessionInfo(sessionId: id, windowId: window, tabIndex: 0,
-                    taskId: taskId, projectId: nil, agent: .claude, model: nil,
-                    state: state, title: "", cwd: "/tmp")
+        TaskItem.make(project: project.id, title: "Task", branch: "task", worktreePath: "/tmp/task", model: "model",
+            appendTicket: true, createdAt: Date(), windowId: windowId)
     }
 
     private func label(_ state: AppState, _ sessions: [SessionInfo], skipping: Set<UUID> = []) -> String? {
@@ -35,8 +27,8 @@ import Testing
     @Test func theBadgeIsHiddenWhenNothingWaits() {
         let open = task(windowId: "task-window")
         #expect(label(state(tasks: [open]), [
-            session("working", window: "task-window", taskId: open.id.uuidString, state: .working),
-            session("idle", window: "task-window", taskId: open.id.uuidString, state: .idle),
+            SessionInfo.make("working", window: "task-window", task: open.id, state: .working, cwd: "/tmp"),
+            SessionInfo.make("idle", window: "task-window", task: open.id, state: .idle, cwd: "/tmp"),
         ]) == nil)
     }
 
@@ -44,9 +36,9 @@ import Testing
     @Test func theBadgeCountsRowsThatNeedInputOnceEach() {
         let first = task(windowId: "first-window"), second = task(windowId: "second-window")
         #expect(label(state(tasks: [first, second]), [
-            session("first-a", window: "first-window", taskId: first.id.uuidString, state: .needsInput),
-            session("first-b", window: "first-window", taskId: first.id.uuidString, state: .needsInput),
-            session("second", window: "second-window", taskId: second.id.uuidString, state: .needsInput),
+            SessionInfo.make("first-a", window: "first-window", task: first.id, state: .needsInput, cwd: "/tmp"),
+            SessionInfo.make("first-b", window: "first-window", task: first.id, state: .needsInput, cwd: "/tmp"),
+            SessionInfo.make("second", window: "second-window", task: second.id, state: .needsInput, cwd: "/tmp"),
         ]) == "2")
     }
 
@@ -55,8 +47,8 @@ import Testing
     @Test func aDoneRowCountsLikeOneNeedingInput() {
         let asking = task(windowId: "asking-window"), finished = task(windowId: "finished-window")
         #expect(label(state(tasks: [asking, finished]), [
-            session("asking", window: "asking-window", taskId: asking.id.uuidString, state: .needsInput),
-            session("finished", window: "finished-window", taskId: finished.id.uuidString, state: .done),
+            SessionInfo.make("asking", window: "asking-window", task: asking.id, state: .needsInput, cwd: "/tmp"),
+            SessionInfo.make("finished", window: "finished-window", task: finished.id, state: .done, cwd: "/tmp"),
         ]) == "2")
     }
 
@@ -64,21 +56,21 @@ import Testing
     @Test func aTerminalCounts() {
         let shell = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "terminal-window", createdAt: Date())
         #expect(label(state(tasks: [], terminals: [shell]), [
-            session("terminal", window: "terminal-window", taskId: nil, state: .needsInput),
+            SessionInfo.make("terminal", window: "terminal-window", state: .needsInput, cwd: "/tmp"),
         ]) == "1")
     }
 
     @Test func tabsWithoutARowAreNotCounted() {
         #expect(label(state(tasks: [task(windowId: "task-window")]), [
-            session("unknown", window: "elsewhere", taskId: UUID().uuidString, state: .needsInput),
-            session("stray", window: "stray-window", taskId: nil, state: .done),
+            SessionInfo.make("unknown", window: "elsewhere", task: UUID(), state: .needsInput, cwd: "/tmp"),
+            SessionInfo.make("stray", window: "stray-window", state: .done, cwd: "/tmp"),
         ]) == nil)
     }
 
     /// A task on its way out is passed over, as Focus View passes over it.
     @Test func aTaskBeingRemovedIsNotCounted() {
         let leaving = task(windowId: "leaving-window")
-        let tabs = [session("leaving", window: "leaving-window", taskId: leaving.id.uuidString, state: .needsInput)]
+        let tabs = [SessionInfo.make("leaving", window: "leaving-window", task: leaving.id, state: .needsInput, cwd: "/tmp")]
         #expect(label(state(tasks: [leaving]), tabs) == "1")
         #expect(label(state(tasks: [leaving]), tabs, skipping: [leaving.id]) == nil)
     }
