@@ -20,13 +20,11 @@ struct StallGuardedGitTests {
     }
 
     private func project(_ path: String) -> Project {
-        Project(id: UUID(), name: path, path: path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        Project.make(name: path, path: path, addedAt: Date())
     }
 
     private func task(_ project: Project, _ path: String) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "b", worktreePath: path, baseBranch: "main",
-                 jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                 createdAt: Date(), windowId: nil)
+        TaskItem.make(project: project.id, title: "t", branch: "b", worktreePath: path, createdAt: Date())
     }
 
     @Test func aTimeoutStallsTheWholeProjectAndNoOther() {

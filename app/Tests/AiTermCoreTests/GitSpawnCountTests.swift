@@ -17,19 +17,13 @@ import Testing
         var projects: [Project], tasks: [TaskItem], cwds: [String]
     }
 
-    private func task(_ project: Project, _ path: String) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "b", worktreePath: path, baseBranch: "main",
-                 jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                 createdAt: Date(), windowId: nil)
-    }
-
     /// Two repositories, each with three task worktrees holding one untracked file, and a folder
     /// that is not a repository, where one more tab sits.
     private func makeWorkspace() throws -> Workspace {
         var workspace = Workspace(projects: [], tasks: [], cwds: [try GitFixture.folder("not-a-repo-")])
         for name in ["one", "two"] {
             let repo = try GitFixture.makeRepo(prefix: "spawns-\(name)-", git: git)
-            let project = Project(id: UUID(), name: name, path: repo, provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
+            let project = Project.make(name: name, path: repo, provider: .gitlab, addedAt: Date())
             try git.run(["remote", "add", "origin", "git@gitlab.example.com:group/\(name).git"], in: repo)
             workspace.projects.append(project)
             workspace.cwds.append(repo)
@@ -37,7 +31,7 @@ import Testing
                 let path = repo + "/.worktrees/" + slug
                 try git.run(["worktree", "add", "-q", "-b", "feat/" + slug, path], in: repo)
                 try "new\nfile\n".write(toFile: path + "/untracked.txt", atomically: true, encoding: .utf8)
-                workspace.tasks.append(task(project, path))
+                workspace.tasks.append(TaskItem.make(project: project.id, title: "t", branch: "b", worktreePath: path, createdAt: Date()))
                 workspace.cwds.append(path)
             }
         }
@@ -140,7 +134,7 @@ import Testing
     /// cost three `rev-parse` each time, one per resolver.
     @Test func aProjectThatIsNotARepositoryCostsOneSpawnPerNegativeWindow() throws {
         let folder = try GitFixture.folder("not-a-repo-")
-        let project = Project(id: UUID(), name: "gone", path: folder, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "gone", path: folder, addedAt: Date())
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let passes = Passes(Workspace(projects: [project], tasks: [], cwds: []), runner: recording)
         _ = passes.pass(); _ = passes.pass()

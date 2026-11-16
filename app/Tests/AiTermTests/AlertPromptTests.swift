@@ -42,10 +42,8 @@ import AiTermCore
         let prompter = ScriptedPrompter(answering: "⎋")
         let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
-        let task = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Work", branch: "feat/work",
-                            worktreePath: fixture.repo.path + "/.worktrees/work", baseBranch: "main", jira: nil,
-                            agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: Date(), windowId: nil)
+        let task = TaskItem.make(project: fixture.project.id, worktreePath: fixture.repo.path + "/.worktrees/work", model: "opus",
+            createdAt: Date())
         fixture.controller.workspace.mutate { $0.tasks = [task] }
 
         #expect(await fixture.controller.remover.confirmRemove(task: task) == nil, "⎋ cancels")
@@ -87,10 +85,8 @@ import AiTermCore
         let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
         func task(_ name: String) -> TaskItem {
-            TaskItem(id: UUID(), projectId: fixture.project.id, title: name, branch: "feat/" + name,
-                     worktreePath: fixture.repo.path + "/.worktrees/" + name, baseBranch: "main", jira: nil,
-                     agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                     createdAt: Date(), windowId: nil)
+            TaskItem.make(project: fixture.project.id, title: name, branch: "feat/" + name,
+                worktreePath: fixture.repo.path + "/.worktrees/" + name, model: "opus", createdAt: Date())
         }
         fixture.controller.workspace.mutate { $0.tasks = [task("one")] }
         await fixture.controller.projects.confirmRemove(project: fixture.project)

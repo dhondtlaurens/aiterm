@@ -2,14 +2,14 @@ import Foundation
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// VoiceOver offers a row's actions without a menu to grey them, so each one it offers must be one
 /// the row's context menu would let the person choose now — and a row's label must read whole.
 @Suite @MainActor struct RowAccessibilityTests {
     private func task(windowId: String?, branch: String = "feat/work") -> TaskItem {
-        TaskItem(id: UUID(), projectId: UUID(), title: "Work", branch: branch, worktreePath: "/wt", baseBranch: "main",
-                 jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                 createdAt: Date(), windowId: windowId)
+        TaskItem.make(project: UUID(), branch: branch, worktreePath: "/wt", model: "opus", createdAt: Date(),
+            windowId: windowId)
     }
 
     /// Choosing the row is its reopen, so VoiceOver offers Archive and Remove alone, as the menu does.
@@ -105,7 +105,7 @@ import AiTermCore
     @Test func aProjectHeaderCollapsesOnlyWithRowsInAnUnlockedWorkspace() throws {
         func section(withTerminal: Bool) -> ProjectSection? {
             var state = AppState.empty
-            let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+            let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
             state.append(project: project)
             if withTerminal {
                 state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w", createdAt: Date())]

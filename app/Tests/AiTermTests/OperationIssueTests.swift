@@ -208,10 +208,8 @@ import Testing
     @Test func aHeldBackReportForARowThatWentIsDropped() async throws {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let other = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Other", branch: "feat/other",
-                             worktreePath: fixture.root.path + "/other", baseBranch: "main", jira: nil, agent: .codex,
-                             model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                             createdAt: Date(timeIntervalSince1970: 0), windowId: "w")
+        let other = TaskItem.make(project: fixture.project.id, title: "Other", branch: "feat/other",
+            worktreePath: fixture.root.path + "/other", agent: .codex, model: "model", windowId: "w")
         fixture.controller.workspace.mutate { $0.tasks.append(other) }
         fixture.controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
 

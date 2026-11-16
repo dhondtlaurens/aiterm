@@ -38,17 +38,14 @@ import AiTermCore
         #expect(!NewReviewSheet.canAdvance(step: 1, title: "Review", branch: "  ", creating: false))
     }
 
-    private static let project = Project(id: UUID(), name: "acme-web", path: "/p", provider: .gitlab,
-                                         remoteUrl: nil, addedAt: Date(), collapsed: false)
+    private static let project = Project.make(name: "acme-web", path: "/p", provider: .gitlab, addedAt: Date())
 
     /// Opening in a task instead of a new worktree must never be a surprise, so both places the
     /// sheet says where the review goes say which: the destination line, on steps 1 and 3, and the
     /// button.
     @Test func testTheSheetSaysWhetherTheReviewOpensInATask() {
-        let owner = TaskItem(id: UUID(), projectId: UUID(), title: "Gift card", branch: "feat/gift-card",
-                             worktreePath: "/p/.worktrees/gift-card", baseBranch: "main", jira: nil,
-                             agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                             createdAt: Date(), windowId: nil)
+        let owner = TaskItem.make(project: UUID(), title: "Gift card", branch: "feat/gift-card", worktreePath: "/p/.worktrees/gift-card",
+            model: "sonnet", appendTicket: true, createdAt: Date())
         for step in [3] {
             #expect(NewReviewSheet.destination(step: step, project: Self.project, owner: owner, slug: "review-gift-card",
                                                branch: "feat/gift-card")?.text
@@ -167,8 +164,8 @@ import AiTermCore
                          title: String = "", branch: String = "",
                          mrOpen: Bool = true, branchOpen: Bool = false,
                          createFails: Bool = false) -> Harness {
-        let project = Project(id: UUID(), name: "acme-web", path: "/tmp/p", provider: .gitlab,
-                              remoteUrl: "git@git.example.net:web/acme-web.git", addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "acme-web", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git",
+            addedAt: Date())
         let created = Created()
         let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                         context: .scratch(availableAgents: { [.claude] }), searchMergeRequests: { _ in mergeRequests },

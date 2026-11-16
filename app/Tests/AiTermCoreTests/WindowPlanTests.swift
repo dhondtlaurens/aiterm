@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// What `AppState.windowPlan` says to do about each row's window: take back a window its tag is in,
 /// restore one it is owed, ask about a task closed alone, drop a terminal closed alone — or nothing.
@@ -8,9 +9,7 @@ import Testing
     let project = UUID()
 
     func task(window: String?) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project, title: "t", branch: "b", worktreePath: "/w", baseBranch: "main", jira: nil,
-                 agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                 createdAt: Date(timeIntervalSince1970: 0), windowId: window)
+        TaskItem.make(project: project, title: "t", branch: "b", worktreePath: "/w", windowId: window)
     }
 
     func terminal(window: String?) -> TerminalItem {
@@ -18,8 +17,7 @@ import Testing
     }
 
     func tab(_ id: String, window: String, task: TaskItem? = nil, terminal: TerminalItem? = nil) -> SessionInfo {
-        var tab = SessionInfo(sessionId: id, windowId: window, tabIndex: 0, taskId: task?.id.uuidString, projectId: nil, agent: .claude,
-                              model: nil, state: .idle, title: "", cwd: "/")
+        var tab = SessionInfo.make(id, window: window, task: task?.id)
         tab.terminalId = terminal?.id.uuidString
         return tab
     }
@@ -31,17 +29,12 @@ import Testing
         return state
     }
 
-    func operated(_ task: TaskItem, state: TaskPhase) -> TaskItem {
-        var task = task
-        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        task.signalTask?.phase = state
-        return task
-    }
-
     /// An operator's task before AiTerm starts it has no worktree: nothing to restore it into, and no
     /// window the person can have closed.
     @Test func aTaskWithNoWorktreeYetIsNeitherRestoredNorAskedAbout() {
-        var planned = operated(task(window: nil), state: .launching)
+        var planned = task(window: nil)
+        planned.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        planned.signalTask?.phase = .launching
         planned.worktreePath = ""
         #expect(state(tasks: [planned]).windowPlan(sessions: [], settled: true, due: [planned.id], waiting: [], lettingGo: []).isEmpty)
     }
@@ -49,7 +42,9 @@ import Testing
     /// A started one takes back the window its tag is in, but a closed one comes back only through the
     /// operator controller (`reopenWorker`, on your click), with the Operator's worker flags.
     @Test func anOperatorsStartedTaskTakesItsTaggedWindowButIsNeverRestoredHere() {
-        let working = operated(task(window: nil), state: .working)
+        var working = task(window: nil)
+        working.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        working.signalTask?.phase = .working
         #expect(state(tasks: [working]).windowPlan(sessions: [], settled: true, due: [working.id], waiting: [], lettingGo: []).isEmpty)
         let adopted = state(tasks: [working]).windowPlan(sessions: [tab("a", window: "w9", task: working)], settled: true, due: [],
                                                          waiting: [], lettingGo: [])

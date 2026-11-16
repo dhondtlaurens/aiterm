@@ -8,8 +8,8 @@ import Synchronization
 /// New Review's ticket field: picking a ticket finds its merge request, picking a merge request
 /// finds its ticket, and each says so; nothing found says so too.
 @Suite @MainActor struct ReviewTicketFieldTests {
-    let project = Project(id: UUID(), name: "jarvis", path: "/tmp/p", provider: .gitlab,
-                          remoteUrl: "git@git.example.net:jarvis/jarvis.git", addedAt: Date(), collapsed: false)
+    let project = Project.make(name: "jarvis", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:jarvis/jarvis.git",
+        addedAt: Date())
     let ticket = JiraTicket(key: "JVS-5793", summary: "invoice_to_exact flags unchanged invoices", description: "## Acceptance\n- unchanged",
                             issueType: "Bug", status: "Review", url: "https://example.atlassian.net/browse/JVS-5793")
     let other = JiraTicket(key: "JVS-5744", summary: "add the function switches", description: nil,

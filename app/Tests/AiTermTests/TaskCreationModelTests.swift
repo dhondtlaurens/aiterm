@@ -158,7 +158,7 @@ struct TaskCreationModelTests {
 
     /// The Jira connection is read once, when the sheet is prepared, and every query uses it.
     @Test func withoutAJiraConnectionASearchSaysSo() async {
-        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/tmp/repo", addedAt: Date())
         let search = TaskCreationModel.ticketSearcher(for: project, jira: nil)
         await #expect { try await search("login") } throws: {
             $0.localizedDescription == "Connect Jira in Settings › Integrations, or continue without a ticket."
@@ -192,8 +192,7 @@ struct TaskCreationModelTests {
         let linked = [JiraProjectRef(id: "1", key: "SHOP", name: "Storefront", siteURL: site),
                       JiraProjectRef(id: "2", key: "PAY", name: "Payments", siteURL: site)]
         func placeholder(_ jiraProjects: [JiraProjectRef]) -> String {
-            let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil,
-                                  addedAt: Date(), collapsed: false, jiraProjects: jiraProjects)
+            let project = Project.make(name: "Repo", path: "/tmp/repo", addedAt: Date(), jiraProjects: jiraProjects)
             return TaskCreationModel(project: project,
                                      draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil),
                                      context: .scratch(), searchIssues: { _ in [] }, createTask: { _ in }).ticketPlaceholder
@@ -209,7 +208,7 @@ struct TaskCreationModelTests {
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent("preview-\(UUID().uuidString)").path
         defer { try? FileManager.default.removeItem(atPath: repo) }
         try FileManager.default.createDirectory(atPath: repo + "/.worktrees/login", withIntermediateDirectories: true)
-        let project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: repo, addedAt: Date())
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setBranch("fix/login")
         let model = TaskCreationModel(project: project, draft: draft, context: .scratch(), searchIssues: { _ in [] }, createTask: { _ in })
@@ -248,7 +247,7 @@ struct TaskCreationModelTests {
                          initialCatalogue: [AgentModel]? = nil,
                          defaults: UserDefaults = ScratchDefaults.make(),
                          create: @escaping @MainActor (TaskDraft) async throws -> Void = { _ in }) -> TaskCreationModel {
-        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/tmp/repo", addedAt: Date())
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: agent, model: model, reasoning: nil)
         draft.setTitle("Keep this draft")
         return TaskCreationModel(project: project, draft: draft,

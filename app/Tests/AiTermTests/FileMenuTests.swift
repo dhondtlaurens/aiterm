@@ -9,20 +9,14 @@ import Testing
 @MainActor
 @Suite(.serialized) struct FileMenuTests {
     private let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    private let git = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-    private let folder = Project(id: UUID(), name: "notes", path: "/notes", provider: .none, remoteUrl: nil, addedAt: Date(), collapsed: false)
+    private let git = Project.make(name: "repo", path: "/repo", addedAt: Date())
+    private let folder = Project.make(name: "notes", path: "/notes", provider: .none, addedAt: Date())
 
     private func controller() throws -> AppController {
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(git), .project(folder)] }
         return controller
-    }
-
-    private func task(in project: Project) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work", worktreePath: "/wt",
-                 baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                 firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
     }
 
     /// What the File menu's items say about themselves, by title.
@@ -73,7 +67,7 @@ import Testing
     @Test func aSelectedRowTargetsItsProject() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
-        let work = task(in: git)
+        let work = TaskItem.make(project: git.id, worktreePath: "/wt", model: "sonnet", createdAt: Date())
         let shell = TerminalItem(id: UUID(), projectId: git.id, name: "Terminal", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.tasks = [work] }; controller.workspace.mutate { $0.terminals = [shell] }
 
@@ -110,7 +104,7 @@ import Testing
     @Test func aSheetTurnsTheWholeMenuOff() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
-        let work = task(in: git)
+        let work = TaskItem.make(project: git.id, worktreePath: "/wt", model: "sonnet", createdAt: Date())
         controller.workspace.mutate { $0.tasks = [work] }
         controller.focus.browse(.task(work.id))
         controller.sheet = .newDivider

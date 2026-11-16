@@ -1,16 +1,15 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct ArchiveStateTests {
-    let project = Project(id: UUID(), name: "Repo", path: "/tmp/Repo", provider: .git, remoteUrl: nil,
-                          addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
+    let project = Project.make(name: "Repo", path: "/tmp/Repo")
 
     func task(_ title: String, created: TimeInterval, window: String? = "w") -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: title, branch: "feat/\(title)", worktreePath: "/tmp/Repo/.worktrees/\(title)",
-                 baseBranch: "main", jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                 createdAt: Date(timeIntervalSince1970: created), windowId: window,
-                 conversations: [TaskConversation(agent: .claude, id: "c-\(title)")])
+        TaskItem.make(project: project.id, title: title, branch: "feat/\(title)",
+            worktreePath: "/tmp/Repo/.worktrees/\(title)", createdAt: Date(timeIntervalSince1970: created), windowId: window,
+            conversations: [TaskConversation(agent: .claude, id: "c-\(title)")])
     }
 
     func state(_ tasks: TaskItem...) -> AppState {

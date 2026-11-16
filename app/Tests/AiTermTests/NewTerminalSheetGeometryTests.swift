@@ -4,6 +4,7 @@ import AiTermUI
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 struct NewTerminalSheetGeometryTests {
@@ -11,8 +12,7 @@ struct NewTerminalSheetGeometryTests {
     /// question, so it is as tall as its field, its title and its footer — short of `Sheet.height`,
     /// which it would otherwise fill with empty space.
     @Test func keepsTheSheetWidthAndFitsItsHeight() {
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let sheet = NameSheet.newTerminal(project: project, suggestedName: "Terminal", branch: "main",
                                           canCreate: true, createTerminal: { _ in })
         let host = NSHostingView(rootView: sheet)

@@ -4,6 +4,7 @@ import AiTermUI
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The card a background mark opens (proposal Background work on your own tasks B, and A of its several jobs, 22 Oct
 /// 2026): what it says, when it opens and closes, and that it lies over its row without growing it.
@@ -29,9 +30,8 @@ struct BackgroundCardTests {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "A task with background work", branch: "feat/work",
-                            worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w")
+        let task = TaskItem.make(project: UUID(), title: "A task with background work", worktreePath: "/wt", model: "sonnet",
+            createdAt: Date(), windowId: "w")
         let row = TaskRow(id: task.id, title: task.title, jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
                           avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, queued: queued, background: [tests, ci])
         let changed = try await cardSurfaceChange(TaskRowView(row: row, task: task, controller: controller))
@@ -43,8 +43,7 @@ struct BackgroundCardTests {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                              addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let row = TerminalRow(id: UUID(), name: "Claude terminal", branch: .none,
                               avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, background: empty ? [] : [tests])
         let changed = try await cardSurfaceChange(TerminalRowView(row: row, terminal: nil, project: project, controller: controller))
@@ -131,9 +130,8 @@ struct BackgroundCardTests {
     func theOpenCardLeavesTheRowItsSize(jobs: Int, status: TaskStatus) async throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783",
-                            worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                            firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-1")
+        let task = TaskItem.make(project: UUID(), title: "FE-1783 Dependency updates: patch", branch: "feat/fe-1783",
+            worktreePath: "/wt", model: "sonnet", createdAt: Date(), windowId: "w-1")
         let row = TaskRow(id: task.id, title: task.title, jiraKey: "FE-1783", jiraUrl: nil, mr: nil,
                           branch: BranchLabel(name: task.branch, extra: 0, drifted: false, detail: ""),
                           avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status,

@@ -61,15 +61,11 @@ private final class OrderedThreadsReader: ReviewThreadsReading, Sendable {
 struct ReviewThreadsWatcherTests {
     private let projectId = UUID()
 
-    private func task(_ number: Int, mr url: String? = nil) -> TaskItem {
-        TaskItem(id: UUID(), projectId: projectId, title: "Task \(number)", branch: "feat/\(number)", worktreePath: "/wt\(number)",
-                 baseBranch: "main", jira: nil, kind: url == nil ? .task : .review,
-                 mr: url.map { MergeRequestRef(iid: number, title: "MR \(number)", url: $0) },
-                 agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
-    }
-
     private func review(_ number: Int) -> TaskItem {
-        task(number, mr: "https://gitlab.example.net/web/shop/-/merge_requests/\(number)")
+        TaskItem.make(project: projectId, title: "Task \(number)", branch: "feat/\(number)", worktreePath: "/wt\(number)",
+                      kind: .review, mr: MergeRequestRef(iid: number, title: "MR \(number)",
+                          url: "https://gitlab.example.net/web/shop/-/merge_requests/\(number)"),
+                      model: "sonnet", createdAt: Date())
     }
 
     private func make(_ tasks: [TaskItem], reader: any ReviewThreadsReading, interval: Duration = .seconds(3600))
@@ -96,7 +92,8 @@ struct ReviewThreadsWatcherTests {
     }
 
     @Test func aPassReadsEveryRowWithAMergeRequestAndNoOther() async {
-        let a = review(87), b = review(91), plain = task(3)
+        let a = review(87), b = review(91), plain = TaskItem.make(project: projectId, title: "Task 3", branch: "feat/3", worktreePath: "/wt3",
+                                  model: "sonnet", createdAt: Date())
         let reader = TableReader()
         reader.answer(a.mr!.url, ReviewThreads(resolved: 2, total: 5))
         reader.answer(b.mr!.url, ReviewThreads(resolved: 0, total: 0))
@@ -178,7 +175,8 @@ struct ReviewThreadsWatcherTests {
     /// Review focus 5: a selection reads its row again only while the watcher runs — never in a
     /// process that only renders, or before launch — and only a row with a merge request.
     @Test func selectingARowWithAMergeRequestReadsItAgainWhileStarted() async {
-        let item = review(87), plain = task(3), reader = TableReader()
+        let item = review(87), plain = TaskItem.make(project: projectId, title: "Task 3", branch: "feat/3", worktreePath: "/wt3",
+                                  model: "sonnet", createdAt: Date()), reader = TableReader()
         reader.answer(item.mr!.url, ReviewThreads(resolved: 1, total: 5))
         let (watcher, _, focus) = make([item, plain], reader: reader)
         focus.browse(.task(item.id))

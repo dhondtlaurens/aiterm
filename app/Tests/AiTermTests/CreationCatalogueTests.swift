@@ -65,7 +65,7 @@ struct CreationCatalogueTests {
 
     private func sheet(catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
                        initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil) -> TaskCreationModel {
-        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/tmp/repo", addedAt: Date())
         let draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .pi, model: "", reasoning: nil)
         return TaskCreationModel(project: project, draft: draft,
                                  context: .scratch(catalogue: catalogue, initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure),

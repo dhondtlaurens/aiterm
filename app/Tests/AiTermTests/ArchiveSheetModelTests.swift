@@ -7,9 +7,8 @@ import Testing
 @MainActor
 @Suite struct ArchiveSheetModelTests {
     func entry(_ title: String, at: TimeInterval) -> ShelfRow {
-        let task = TaskItem(id: UUID(), projectId: UUID(), title: title, branch: "feat/\(title.lowercased())", worktreePath: "/w",
-                            baseBranch: "main", jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(), windowId: nil)
+        let task = TaskItem.make(project: UUID(), title: title, branch: "feat/\(title.lowercased())", worktreePath: "/w",
+            createdAt: Date())
         return .task(.init(archived: ArchivedTask(task: task, archivedAt: Date(timeIntervalSince1970: at)), projectName: "repo", provider: .git))
     }
 

@@ -9,18 +9,15 @@ import Testing
 /// title, nor for a sidebar move or a remembered choice, which the workspace saves but no row draws.
 @MainActor
 @Suite(.blocking) struct SidebarProjectionTests {
-    private let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .gitlab, remoteUrl: nil,
-                                  addedAt: Date(), collapsed: false)
+    private let project = Project.make(name: "repo", path: "/repo", provider: .gitlab, addedAt: Date())
     private var task: TaskItem {
-        TaskItem(id: Self.taskId, projectId: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a",
-                 baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                 appendTicket: true, createdAt: Date(), windowId: "w")
+        TaskItem.make(id: Self.taskId, project: project.id, title: "a", branch: "feat/a", worktreePath: "/repo/a",
+            model: "opus", appendTicket: true, createdAt: Date(), windowId: "w")
     }
     private nonisolated static let taskId = UUID()
 
     private func tab(_ state: SessionState = .working) -> SessionInfo {
-        SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: Self.taskId.uuidString, projectId: nil,
-                    agent: .claude, model: nil, state: state, title: "", cwd: "/repo/a")
+        SessionInfo.make(window: "w", task: Self.taskId, state: state, cwd: "/repo/a")
     }
 
     private func controller(scan: @escaping CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
@@ -194,10 +191,9 @@ import Testing
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo.path)
         let checkout = repo.appendingPathComponent(".worktrees/work").path
         try git.run(["worktree", "add", "-q", "-b", "feat/work", checkout], in: repo.path)
-        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let task = TaskItem(id: Self.taskId, projectId: project.id, title: "Work", branch: "feat/work", worktreePath: checkout,
-                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(), windowId: "w")
+        let project = Project.make(name: "Repo", path: repo.path, addedAt: Date())
+        let task = TaskItem.make(id: Self.taskId, project: project.id, worktreePath: checkout, model: "opus", createdAt: Date(),
+            windowId: "w")
 
         var written: [String?] = []
         let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),

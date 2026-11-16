@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The banner's value on its own: its words, its ways out, and when it has gone stale. What the
 /// app does with one — which report wins the banner, what its actions run — is in AiTermTests.
@@ -38,11 +39,8 @@ import Testing
     /// An issue is stale once the task it is about, or the task or project an action would act on,
     /// has left the workspace; one that names nothing never is.
     @Test func anIssueIsStaleOnceWhatItNamesHasGone() {
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                              addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
-                            jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                            createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
+        let project = Project.make(name: "Repo", path: "/repo")
+        let task = TaskItem.make(project: project.id, title: "t", branch: "b", worktreePath: "/w")
         var state = AppState.empty
         state.append(project: project)
         state.tasks = [task]
@@ -114,8 +112,7 @@ import Testing
 
     /// A fix that would pull a project the workspace no longer has is as stale as a Rebase for it.
     @Test func anIssueWhoseFixRetriesAGoneProjectIsStale() {
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                              addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo")
         var state = AppState.empty
         state.append(project: project)
         let issue = OperationIssue.rebaseRefused(WorktreeError.rebaseConflicted("main", detail: nil), in: project.id, projectPath: "/repo")

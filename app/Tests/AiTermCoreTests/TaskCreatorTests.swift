@@ -12,7 +12,7 @@ import Foundation
     init() throws {
         let folder = try GitFixture.makeRepo(prefix: "tc-", git: git)
         repo = try git.run(["rev-parse", "--show-toplevel"], in: folder)
-        project = Project(id: UUID(), name: "repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        project = Project.make(name: "repo", path: repo, addedAt: Date())
     }
 
     /// A home with no agent configuration in it, so the draft's model comes from the catalogue's
@@ -27,21 +27,18 @@ import Foundation
         try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func worker(branch: String) -> TaskItem {
-        TaskItem(id: UUID(), projectId: project.id, title: "W", branch: branch, worktreePath: "", baseBranch: "", jira: nil, agent: .codex,
-                 model: "m", reasoning: nil, firstPrompt: "Do it.", appendTicket: false, createdAt: Date(), windowId: nil)
-    }
-
     /// An operator's worker gets its worktree when it starts, on a new branch from its start point —
     /// a stacked task's parent's accepted commit — and a relaunch adopts the one an earlier attempt made.
     @Test func aWorkersWorktreeBranchesFromItsStartPointAndARelaunchAdoptsIt() throws {
         let accepted = try head(repo)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "later"], in: repo)
-        let made = try TaskCreator.checkOutWorker(worker(branch: "feat/w"), project: project, start: accepted, git: git)
+        let made = try TaskCreator.checkOutWorker(TaskItem.make(project: project.id, title: "W", branch: "feat/w", baseBranch: "", agent: .codex,
+            firstPrompt: "Do it.", createdAt: Date()), project: project, start: accepted, git: git)
         #expect(made.task.worktreePath.hasPrefix(repo + "/.worktrees/"))
         #expect(made.task.baseBranch == accepted)
         #expect(try head(made.task.worktreePath) == accepted)
-        let again = try TaskCreator.checkOutWorker(worker(branch: "feat/w"), project: project, start: accepted, git: git)
+        let again = try TaskCreator.checkOutWorker(TaskItem.make(project: project.id, title: "W", branch: "feat/w", baseBranch: "", agent: .codex,
+            firstPrompt: "Do it.", createdAt: Date()), project: project, start: accepted, git: git)
         #expect(again.task.worktreePath == made.task.worktreePath)
     }
 

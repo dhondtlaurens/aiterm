@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// A linked project's badge counts every Jira project and offers each in link order.
 /// The badges' own pixels belong to `Badge`; these checks cover the presentation and destinations.
@@ -12,8 +13,7 @@ import AiTermCore
     private static let web = JiraProjectRef(id: "10003", key: "WEB", name: "Website", siteURL: site)
 
     private func project(jira: [JiraProjectRef]) -> Project {
-        Project(id: UUID(), name: "AiTerm", path: "/tmp/aiterm", provider: .git, remoteUrl: nil,
-                addedAt: Date(), collapsed: false, jiraProjects: jira)
+        Project.make(name: "AiTerm", path: "/tmp/aiterm", addedAt: Date(), jiraProjects: jira)
     }
 
     @Test func testAnUnlinkedProjectWearsNoBadge() {

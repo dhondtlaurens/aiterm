@@ -85,8 +85,7 @@ import Testing
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
-                            remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let other = Project.make(name: "Other", path: fixture.root.appendingPathComponent("other").path, addedAt: Date())
         controller.workspace.mutate { $0.append(project: other) }
         let task = try await fixture.addTask(windowId: "alive")
 
@@ -520,7 +519,7 @@ import Testing
         let git = GitRunner.hermetic()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try git.run(["init", "-q", "-b", "main"], in: root.path)
-        let project = Project(id: UUID(), name: "Repo", path: root.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: root.path, addedAt: Date())
         // The monitor's answer differs from git's, so the sheet says which one it took.
         let seen = WorkspaceScan(branchByCwd: [:], projectBranch: [project.id: "feat/seen"], missingCheckouts: [], removedTasks: [], remotes: [:])
         let controller = AppController(preferences: .scratch(), git: git, scan: { _, _, _, _, _, _, _ in seen })

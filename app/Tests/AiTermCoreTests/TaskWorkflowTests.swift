@@ -110,8 +110,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let workflow = TaskWorkflow(git: recording)
-        let planned = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "feat/t", worktreePath: "", baseBranch: "", jira: nil,
-                               agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        let planned = TaskItem.make(project: project.id, title: "t", branch: "feat/t", baseBranch: "", createdAt: Date())
         #expect(try await workflow.hasUnsavedWork(task: planned, project: project) == false)
         try await workflow.archive(task: planned, project: project, force: false)
         #expect(try await workflow.remove(task: planned, project: project, deleteBranch: true, force: false).branchRefusal == nil)
@@ -369,9 +368,7 @@ import Testing
             return try await workflow.create(draft: draft, project: project).task
         }
         func row(_ title: String, at path: String, branch: String) -> TaskItem {
-            TaskItem(id: UUID(), projectId: project.id, title: title, branch: branch, worktreePath: path, baseBranch: "main",
-                     jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                     createdAt: Date(), windowId: nil)
+            TaskItem.make(project: project.id, title: title, branch: branch, worktreePath: path, createdAt: Date())
         }
         func dirty(_ task: TaskItem) throws {
             try "work".write(toFile: task.worktreePath + "/unsaved", atomically: true, encoding: .utf8)
@@ -490,7 +487,7 @@ import Testing
         let git = GitRunner.hermetic()
         try git.run(["init", "-q", "-b", "main"], in: repo)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"], in: repo)
-        let project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: repo, addedAt: Date())
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Migration")
         return (project, draft)
@@ -521,10 +518,9 @@ private struct ReviewRemovalFixture {
             try git.run(["branch", "-q", "-D", "feat/mr-branch"], in: repo)
         }
         let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
-        project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        review = TaskItem(id: UUID(), projectId: project.id, title: "Add gift card", branch: "feat/mr-branch", worktreePath: path,
-                          baseBranch: "main", jira: nil, kind: .review, mr: nil, agent: .claude, model: "sonnet", reasoning: nil,
-                          firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        project = Project.make(name: "Repo", path: repo, addedAt: Date())
+        review = TaskItem.make(project: project.id, title: "Add gift card", branch: "feat/mr-branch", worktreePath: path,
+            kind: .review, model: "sonnet", createdAt: Date())
     }
 
     func hasLocalBranch() throws -> Bool {

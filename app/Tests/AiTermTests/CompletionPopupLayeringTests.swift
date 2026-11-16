@@ -14,8 +14,7 @@ import Testing
 @Suite(.serialized, .blocking) struct CompletionPopupLayeringTests {
     @Test func popupDrawsOverTheCommandPreviewOnItsOwnFill() throws {
         let controller = AppController(preferences: .scratch())
-        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp", provider: .none,
-                              remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "AiTerm", path: "/tmp", provider: .none, addedAt: Date())
         var draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         draft.promptText = "One\nTwo\n/s"
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)

@@ -413,12 +413,8 @@ import Testing
         let (repo, first) = try makeRepo()
         let second = repo + "/.worktrees/other"
         try git.run(["worktree", "add", "-q", "-b", "feat/y", second], in: repo)
-        func task(_ path: String) -> TaskItem {
-            TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: path, baseBranch: "main",
-                     jira: nil, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                     createdAt: Date(), windowId: nil)
-        }
-        let a = task(first), b = task(second)
+        let a = TaskItem.make(project: UUID(), title: "t", branch: "b", worktreePath: first, createdAt: Date()),
+            b = TaskItem.make(project: UUID(), title: "t", branch: "b", worktreePath: second, createdAt: Date())
         let recording = RecordingGitRunner(forwardingTo: .hermetic()), commands = Commands(recording)
         let resolver = DiffStatResolver(git: recording, now: { Date(timeIntervalSince1970: 0) }, ttl: 5)
         #expect(resolver.diffs(for: [a, b]).count == 2)

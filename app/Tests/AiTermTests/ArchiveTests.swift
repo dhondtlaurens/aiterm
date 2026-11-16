@@ -481,9 +481,7 @@ import Testing
 
     @Test func removingAProjectSaysHowManyArchivedRowsItForgets() {
         func archived(_ kind: TaskKind) -> ArchivedTask {
-            ArchivedTask(task: TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
-                                        jira: nil, kind: kind, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
-                                        appendTicket: false, createdAt: Date(), windowId: nil), archivedAt: Date())
+            ArchivedTask(task: TaskItem.make(project: UUID(), title: "t", branch: "b", worktreePath: "/w", kind: kind, createdAt: Date()), archivedAt: Date())
         }
         #expect(ProjectActions.removalDetail(tasks: 0, archived: [])
                 == "Removes the project from AiTerm. Files are kept and terminal windows stay open.")

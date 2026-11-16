@@ -9,8 +9,8 @@ import Testing
 @MainActor @Suite(.blocking) struct TaskConversationsRecordingControllerTests {
     private func conversationTab(_ id: String, _ index: Int, _ agent: SessionAgent, _ conversation: String?,
                                  of task: TaskItem) -> SessionInfo {
-        SessionInfo(sessionId: id, windowId: "w1", tabIndex: index, taskId: task.id.uuidString, projectId: nil,
-                    agent: agent, model: nil, state: .idle, title: "", cwd: task.worktreePath, conversationId: conversation)
+        SessionInfo.make(id, tabIndex: index, task: task.id, agent: agent, cwd: task.worktreePath,
+            conversation: conversation)
     }
 
     @Test func aTaskKeepsItsConversationsWhenItsWindowsTabsGo() async throws {

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct ModelsTests {
     @Test func preservedWorkspaceValuesSaveBackByteIdentically() throws {
@@ -276,13 +277,9 @@ import Foundation
     }
 
     @Test func rowsAreFoundByTheirId() {
-        let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
-                              addedAt: Date(), collapsed: false)
+        let project = Project.make(name: "Repo", path: "/repo", addedAt: Date())
         let divider = SidebarDivider(id: UUID(), name: "Work")
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: "/repo/.worktrees/work", baseBranch: "main", jira: nil, agent: .claude,
-                            model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(),
-                            windowId: nil)
+        let task = TaskItem.make(project: project.id, worktreePath: "/repo/.worktrees/work", model: "opus", createdAt: Date())
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: nil, createdAt: Date())
         var state = AppState.empty
         state.append(divider: divider); state.append(project: project)
@@ -312,13 +309,9 @@ import Foundation
     /// A window iTerm2 no longer has leaves its row owed it — a task's and a terminal's alike, for
     /// `AppState.windowPlan` to settle; a stale report leaves a newer window be.
     @Test func aClosedWindowLeavesItsRowOwedIt() throws {
-        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git,
-                              remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
-                            worktreePath: "/tmp/repo/.worktrees/work", baseBranch: "main", jira: nil,
-                            agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: "Do the work",
-                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0),
-                            windowId: "w1")
+        let project = Project.make(name: "Repo", path: "/tmp/repo")
+        let task = TaskItem.make(project: project.id, worktreePath: "/tmp/repo/.worktrees/work", model: "sonnet",
+            firstPrompt: "Do the work", windowId: "w1")
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w2",
                                     createdAt: Date(timeIntervalSince1970: 0))
         var state = AppState.empty
@@ -424,8 +417,7 @@ import Foundation
     }
 
     private func project(_ name: String, id: UUID = UUID()) -> Project {
-        Project(id: id, name: name, path: "/" + name, provider: .git, remoteUrl: nil,
-                addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
+        Project.make(id: id, name: name, path: "/" + name)
     }
 
     @Test func testProjectsViewReadsThroughTheOrderedItems() {
@@ -517,9 +509,8 @@ import Foundation
     @Test func testTheRowCheckingOutABranchIsFoundByItsWorktree() {
         let project = UUID(), other = UUID()
         func item(_ title: String, bound branch: String, in projectId: UUID, kind: TaskKind = .task) -> TaskItem {
-            TaskItem(id: UUID(), projectId: projectId, title: title, branch: branch, worktreePath: "/wt/" + title, baseBranch: "main",
-                     jira: nil, kind: kind, agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                     createdAt: Date(), windowId: nil)
+            TaskItem.make(project: projectId, title: title, branch: branch, worktreePath: "/wt/" + title, kind: kind,
+                model: "sonnet", appendTicket: true, createdAt: Date())
         }
         let task = item("mine", bound: "feat/x", in: project), review = item("reviewing", bound: "feat/z", in: project, kind: .review)
         var state = AppState.empty
@@ -539,9 +530,8 @@ import Foundation
     /// nothing it has checked out, and the branch it did move to is its.
     @Test func testADriftedWorktreeOwnsTheBranchItIsOnNotTheOneItWasCreatedOn() {
         let project = UUID()
-        let task = TaskItem(id: UUID(), projectId: project, title: "A", branch: "feat/A", worktreePath: "/wt/a", baseBranch: "main",
-                            jira: nil, agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
-                            createdAt: Date(), windowId: nil)
+        let task = TaskItem.make(project: project, title: "A", branch: "feat/A", worktreePath: "/wt/a", model: "sonnet",
+            appendTicket: true, createdAt: Date())
         var state = AppState.empty
         state.tasks = [task]
         let drifted = [Worktree(path: "/repo", branch: "main", lockReason: nil), Worktree(path: "/wt/a", branch: "feat/B", lockReason: nil)]
