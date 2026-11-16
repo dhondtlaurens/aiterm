@@ -20,6 +20,8 @@ import Testing
         var sessionAgents: [String], sessionStates: [String]
         /// The codes a refused delivery can name (`DeliveryCode`).
         var deliveryCodes: [String]
+        /// The events a wake line may name (`WAKE_EVENTS`).
+        var wakeEvents: [String]
         /// The file, or files, that show each name.
         var fixtures: Fixtures
         struct Fixtures: Decodable { var events: [String: String], replies: [String: [String]], errors: [String: String] }
@@ -48,6 +50,7 @@ import Testing
         #expect(Set(manifest.sessionAgents) == Set(SessionAgent.allCases.map(\.rawValue)))
         #expect(Set(manifest.sessionStates) == Set(SessionState.allCases.map(\.rawValue)))
         #expect(Set(manifest.deliveryCodes) == Set(DeliveryCode.allCases.filter { $0 != .unknown }.map(\.rawValue)))
+        #expect(Set(manifest.wakeEvents) == Set(OperatorWakeEvent.allCases.map(\.rawValue)), "Every wake the app sends must be one the daemon types.")
     }
 
     @Test(arguments: DaemonEventName.allCases) func everyEventReadsAsItsName(_ name: DaemonEventName) throws {

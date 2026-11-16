@@ -178,5 +178,15 @@
     "idle",
     "needsInput",
     "working"
+  ],
+  "wakeEvents": [
+    "agent_choice",
+    "question_waiting",
+    "reconnected",
+    "session_recovered",
+    "settings_changed",
+    "signal_failed",
+    "task_blocked",
+    "worker_ended"
   ]
 }

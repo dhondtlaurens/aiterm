@@ -216,6 +216,14 @@ def _partial(why: Refusal) -> DeliveryResult:
 _QUOTES = "‘’“”"
 
 
+# The events the app wakes the Operator with (`OperatorWakeEvent`): app-owned names, never host
+# text. The wire manifest carries them, so app and daemon cannot drift apart again.
+WAKE_EVENTS: tuple[str, ...] = (
+    "worker_ended", "task_blocked", "agent_choice", "question_waiting", "reconnected", "signal_failed",
+    "settings_changed", "session_recovered",
+)
+
+
 def wake_text_problem(text: str) -> str | None:
     """Why `text` may not be typed as a wake line, or None when it may. A wake line is fixed and plain
     (the app's OperatorWaker): no digit and no one-letter word, which a menu opening as it arrives could
@@ -224,8 +232,7 @@ def wake_text_problem(text: str) -> str | None:
     # Signal wakes carry only an app-owned event and UUID, never a host title or key. Keep
     # the older prose form's digit restriction; this narrow grammar is the only exception.
     identity = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    if re.fullmatch(r"\[AiTerm\] (?:worker_ended|task_blocked|agent_choice|question_waiting|reconnected|signal_failed) "
-                    + identity + r"; call run_status", text):
+    if re.fullmatch(r"\[AiTerm\] (?:" + "|".join(WAKE_EVENTS) + ") " + identity + r"; call run_status", text):
         return None
     if any(ch.isdigit() for ch in text):
         return "a wake line may not carry a digit"

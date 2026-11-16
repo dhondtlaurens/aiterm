@@ -65,6 +65,9 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     public var weeklyUsage: [String: Int]
     /// The agents installed on this Mac that the Operator can start.
     public var installedAgents: [AgentKind]
+    /// What is going wrong between AiTerm and the Operator now, per source; `needsYou` says whether
+    /// the Operator row shows it to the person.
+    public var appIssues: [OperatorIssues.Issue]
     public var snags: [OperatorSnag]
     public var oracleRounds: [ChallengeRecord]
     public var skipped: [SignalSeen]
@@ -82,8 +85,9 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     public var questions: [OperatorSession.Question]
     public var waitingOnYou: Int
     public init(state: AppState, at: Date, oracleOn: Bool, task: UUID? = nil,
-                sessions: [SessionInfo] = [], instructions: String? = nil, usage: UsageSnapshot = .empty, installed: Set<AgentKind> = []) {
-        installedAgents = AgentCommand.operatedAgents.filter(installed.contains)
+                sessions: [SessionInfo] = [], instructions: String? = nil, usage: UsageSnapshot = .empty, installed: Set<AgentKind> = [],
+                issues: [OperatorIssues.Issue] = []) {
+        installedAgents = AgentCommand.operatedAgents.filter(installed.contains); appIssues = issues
         weeklyUsage = Dictionary(uniqueKeysWithValues: SidebarModel.weeklyUsage(usage, now: at).map { ($0.key.rawValue, $0.value) })
         snags = Array((state.operatorSession?.snags ?? []).suffix(100))
         oracleRounds = (state.operatorSession?.oracleRounds ?? []).filter { $0.stage != .acted }

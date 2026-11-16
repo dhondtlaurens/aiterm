@@ -101,7 +101,7 @@ extension SignalOperatorToolHandler {
     }
     func digest(task: UUID?) -> OperatorDigest {
         OperatorDigest(state: workspace.state, at: now(), oracleOn: ports.oracleEnabled(), task: task, sessions: ports.sessions(),
-                       instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
+                       instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents(), issues: ports.issues())
     }
     /// The Operator's row (and project) for a choosing stage, or a new row for a blocked one.
     private func chooseAgent(_ call: ToolCall, task: TaskItem, allowed: () -> Bool) async throws -> JSONValue {

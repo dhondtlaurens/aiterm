@@ -27,7 +27,9 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
     private let oracleOn: () -> Bool
     private let ports: Ports
     private var pass: UUID?
-    private(set) var lastError: String?
+    /// Each pass reports how it ended, as the Operator's `session` source.
+    var failed: @MainActor (String) -> Void = { _ in }
+    var succeeded: @MainActor () -> Void = {}
     init(workspace: WorkspaceStore, now: @escaping () -> Date, oracleOn: @escaping () -> Bool, ports: Ports) {
         self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
     }
@@ -56,7 +58,7 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                           workspace.state.operatorSession?.handover == .closing,
                           workspace.state.operatorSession?.window == session.window else { return }
                     workspace.mutate { $0.operatorSession?.startingFresh = false; $0.operatorSession?.handover = nil }
-                    workspace.flush(); lastError = nil
+                    workspace.flush(); succeeded()
                     return
                 }
                 guard holds(session, pass: key, allowPaused: allowPaused) else { return }
@@ -76,7 +78,7 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                 guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
             }
             if case .unknown = session.handover { return }
-            if session.handover == nil, ports.windowIsOpen(session) { return }
+            if session.handover == nil, ports.windowIsOpen(session) { succeeded(); return }
             let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
             let window = try await ports.open(session, digest)
             guard holds(session, pass: key, allowPaused: allowPaused) else { return }
@@ -84,8 +86,8 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                 state.operatorSession?.window = window; state.operatorSession?.startingFresh = false
                 state.operatorSession?.handover = nil
             }
-            workspace.flush(); lastError = nil
-        } catch { if pass == key { lastError = OperationIssue.reason(of: error) } }
+            workspace.flush(); succeeded()
+        } catch { if pass == key { failed(OperationIssue.reason(of: error)) } }
     }
     func freshIfDue(contextTokens: Int?, idle: Bool, wakePending: Bool) async {
         guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), let session = workspace.state.operatorSession,
