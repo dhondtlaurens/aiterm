@@ -218,7 +218,7 @@ TS tests-scripts.
 - [x] 0a. **Opus.** Full gate green on the starting commit; capture `build/refactor-before`
   snapshots and keep a copy of today's `operator-signals/state.json` there for the upgrade
   rehearsal; note all three under Record.
-- [ ] 0b. **Opus.** One signal journey test through `SignalWorld`: stub source returns an item, a
+- [x] 0b. **Opus.** One signal journey test through `SignalWorld`: stub source returns an item, a
   task starts, the worker's turn ends, the done condition holds, Then archives (TS section 4).
 - [ ] 0c. **Codex.** Tests build `TaskItem`, `Project` and `SessionInfo` through the shared
   builders; local copies of those builders go (TS F6). No assertion changes.
@@ -547,3 +547,7 @@ left.
   at that commit).
 - 0a differed from its brief in one point: the plan and the brief folder were already committed
   (`d9e9ccaa`), so the starting `git status` was clean rather than showing them untracked.
+- 0b: `SignalJourneyTests.aJiraMatchRunsToItsDoneConditionAndThenArchivesItsTask` added; three
+  filtered runs green; it fails at the archive expectations with Then `.keep` and with the ticket left
+  at `To Do`. The brief's evidence held. The test wraps the stub's `Mutex` in a small `Sendable`
+  class, because a noncopyable `Mutex` cannot be captured by the stub's escaping closure.

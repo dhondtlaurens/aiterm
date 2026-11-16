@@ -99,7 +99,10 @@ Keep full streams: a question written before a tool call still counts as chat, a
 never counts as behavior. Change the current brief deliberately with provenance and rerun capped
 comparisons; preserve the historical baseline.
 
-`SignalWorld`/`SignalHarness` cover routing and stage/claim races. Native adapter tests use scratch
+`SignalWorld`/`SignalHarness` cover routing and stage/claim races. `SignalJourneyTests` drives one
+signal from a Jira match through its worker's turn and done condition to its archived task, through
+the controller's own entry points, with fakes only at the daemon, HTTP, git and the clock; it must
+pass after every phase. Native adapter tests use scratch
 homes/defaults, recorded daemon commands, hermetic Git repositories and synthetic HTTP responses.
 They prove guard installation, conversation adoption, pause, actual command construction and
 cleanup ownership. Watching/cache/row redraw tests assert work budgets rather than elapsed-time
