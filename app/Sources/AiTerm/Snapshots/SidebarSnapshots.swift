@@ -30,7 +30,7 @@ enum SidebarSnapshots {
                 controller.focus.browse(.task(fixture.working.id))
                 return footer(controller).frame(width: Size.sidebarWidth).background(Palette.sidebar).surface(.sidebar)
             },
-            // The Mac's rows in every mode — its readings, and the backpack line's one colour — with
+            // The Mac's rows in every mode — its readings, and the Unplugged half's one colour — with
             // macOS's warnings on the last, for judging the inks by eye.
             Snapshot("sidebar-footer-mac.png") {
                 let modes: [MacMode] = [.desk, .turningOn, .on, .needsYou(.lostHotspot), .needsYou(.lowBattery(level: 13)), .turningOff]

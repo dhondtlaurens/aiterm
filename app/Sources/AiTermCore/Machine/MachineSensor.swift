@@ -77,8 +77,9 @@ public struct InertMachineSensor: MachineSensor {
     public func sample() -> MachineSample { .unknown }
 }
 
-/// The footer's readings row under `ctx`: `cpu ◔ 23% · ram ◔ 61%`, then `bat ◔ 64%` while the Mac
-/// runs on its battery — the reading Backpack Mode ends on. Proposal 1A, 6 Oct 2026.
+/// The footer's Mac readings under `ctx`: `cpu ◔ 23%` and `ram ◔ 61%` as the halves of its first
+/// row, then `bat ◔ 64%` on a second while the Mac runs on its battery — the reading Backpack Mode
+/// ends on. Proposal 1A, 6 Oct 2026; the halves, 15 Nov 2026.
 public enum MachineReadings {
     /// `previous` is the sample one interval ago: the CPU's share is the difference between the two,
     /// so the first sample draws no `cpu`. A reading the sensor could not take is left out.

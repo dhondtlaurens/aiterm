@@ -159,7 +159,7 @@ public enum SidebarEntry: Equatable, Identifiable, Sendable {
         }
     }
 }
-/// One segment of a footer row: `wk ◔ 84% Mon 21:00`. The ring beside the number is drawn from
+/// One reading, a half of a footer row: `wk ◔ 84% Mon 21:00`. The ring beside the number is drawn from
 /// `percent`, so there is no rendered bar to carry. `reset` is nil for a reading that never clears —
 /// the context fill, which is emptied by compaction rather than by the clock, and the Mac's own
 /// readings, which are now. `resetInFull` is the same time with its weekday spelt out, for `help`.
@@ -167,7 +167,7 @@ public struct UsageLine: Equatable, Sendable {
     /// What a segment measures: a conversation's context fill, one of a vendor's account windows, or
     /// one of the Mac's readings (`MachineReadings`). The footer prints `shortLabel`; the tooltip
     /// and VoiceOver say `name`.
-    public enum Window: Equatable, Sendable {
+    public enum Window: Equatable, Sendable, CaseIterable {
         case context, weekly, fiveHour
         case cpu, ram, battery
 

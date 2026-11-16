@@ -70,11 +70,10 @@ public enum Size {
     /// to `feat/f…t-side`; here the branch keeps its type, the ticket's prefix and its tail, and a
     /// branch without a ticket beside it nearly fits whole (proposal, 23 Sep 2026).
     public static let sidebarWidth: CGFloat = 420
-    /// The sidebar cannot be narrowed past this. It has to fit a vendor usage row's common case:
-    /// two windows under 100%, the 5-hour one resetting today and the weekly one on a later day.
-    /// Everything at 100% costs a digit per segment and clips — the accepted price of showing clock
-    /// times rather than a countdown.
-    /// `SidebarFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth` holds this honest.
+    /// The sidebar cannot be narrowed past this. Each sidebar footer row is two equal halves, and a
+    /// half has to fit its widest reading: a window at 100 %, resetting on a later day. A number
+    /// sits in the width of `100%` whatever it says, so no reading is wider than that one.
+    /// `SidebarFooterGeometryTests.theWidestHalfFitsTheMinimumSidebarWidth` holds this honest.
     /// The context row's widest case — a full window — fits too, held
     /// by `SidebarFooterGeometryTests.theWidestContextRowFitsTheMinimumSidebarWidth`.
     ///

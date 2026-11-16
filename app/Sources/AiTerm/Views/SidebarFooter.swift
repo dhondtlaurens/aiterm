@@ -3,12 +3,19 @@ import AiTermUI
 import AiTermCore
 
 /// The sidebar's foot, on the list's grid: System, then Usage, split by a rule. System is the
-/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill —
-/// then the Mac (proposal 1A · 2A · 3A, 6 Oct 2026): its readings, `cpu ◔ 23% · ram ◔ 61%` and
-/// `bat` on battery, under its `macbook` mark, and while Unplugged is on or switching, a line in a
-/// `SettingsTone` — `● unplugged`. At the desk there is no such line: the readings row is the
-/// Mac's row, and its click is ⌘U. Usage is one row per vendor with its account windows:
-/// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected System holds the Mac alone.
+/// selected task's or terminal's context, under its active tab's mark, then the Mac under its
+/// `macbook` mark. Usage is one row per vendor with its account windows. With nothing selected
+/// System holds the Mac alone.
+///
+/// Every row is its mark and two halves of equal width, `Space.gap` apart (proposal "Equal halves",
+/// 15 Nov 2026), and every half is one reading built the same way: its label, its ring, its number,
+/// its reset: `wk ◔ 61% Sat 12:00`. The label sits in the width of the widest label and the number
+/// in the width of `100%`, so the rings stand in two straight lines down the footer and the resets
+/// line up too, whatever the digits. The weekly window is a vendor's left half, being the one every
+/// vendor has: Codex reports nothing else, so a missing reading is always a right half, as on the
+/// context's row. The Mac's first row is `cpu | ram`; on battery, or while Unplugged is on or
+/// switching, a second row holds `bat` and the mode's line in its `SettingsTone`, `○ unplugged`,
+/// filling from the left. A click on the Mac's rows is ⌘U.
 ///
 /// Its labels keep their short lowercase forms (`ctx`, `wk`, `5h`, `cpu`, `ram`, `bat`), set with
 /// tabular figures in the system face (`Typography.help.tabular`), on a ground of its own a step
@@ -23,8 +30,6 @@ import AiTermCore
 /// Every window shows when it clears, so the row answers "how much is left, and until when?"
 /// without being hovered. `ctx` and the Mac's readings are the exception and carry no clock: a
 /// conversation's context is emptied by compaction, not by a reset time, and the Mac's are now.
-/// Paying for the clock times in width rather than in a wider fill keeps the numbers glanceable;
-/// ``Size/sidebarMinWidth`` is sized to the resulting common case.
 ///
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
@@ -48,32 +53,36 @@ struct SidebarFooter: View {
     static let systemHeading = "System"
     /// The Mac's mark on its readings row, as the Mac card draws it.
     static let macSymbol = "macbook"
+    /// The widest a number gets: every number sits in this width, so the resets after it line up.
+    static let widestNumber = "100%"
+
+    /// What one half of a row holds.
+    private enum Half {
+        case reading(UsageLine)
+        /// Words in an ink of their own: "No context yet".
+        case words(String, Color)
+        /// The Mac's mode while Unplugged is on or switching.
+        case mode(SettingsTone, String)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             group(Self.systemHeading) {
                 if let task {
-                    telemetryRow(mark: vendorMark(task.agent)) {
-                        if let context = task.context {
-                            usageWindows([context])
-                        } else if task.agent != .shell {
-                            // A shell has no context to wait for; an agent has not reported yet.
-                            Text("No context yet").foregroundStyle(Palette.muted)
-                        }
-                    }
+                    halves(mark: vendorMark(task.agent), Self.contextHalves(task))
                 }
-                macReadings
-                backpackLine
+                macRows
             }
             Hairline()
             group("Usage") {
                 ForEach(rows, id: \.vendor) { row in
-                    telemetryRow(mark: vendorMark(row.vendor.session)) {
-                        if let note = row.note {
+                    if let note = row.note {
+                        telemetryRow(mark: vendorMark(row.vendor.session)) {
                             Text(note).foregroundStyle(Self.noteInk(row))
-                        } else {
-                            usageWindows(row.lines)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                    } else {
+                        halves(mark: vendorMark(row.vendor.session), row.lines.map(Half.reading))
                     }
                 }
             }
@@ -83,36 +92,41 @@ struct SidebarFooter: View {
         .overlay(alignment: .top) { Hairline() }
     }
 
-    /// The Mac's readings under its mark, read out as one element: its readings in words, then the
-    /// mode. Before the first sample it is still the Mac's button, so it says "Mac".
-    private var macReadings: some View {
+    /// The context's half, "No context yet" while an agent has not reported, or nothing for a shell.
+    private static func contextHalves(_ task: UsageTaskRow) -> [Half] {
+        if let context = task.context { return [.reading(context)] }
+        return task.agent == .shell ? [] : [.words("No context yet", Palette.muted)]
+    }
+
+    /// The Mac's rows: its readings under its mark, read out as one element (before the first
+    /// sample it is still the Mac's button, so it says "Mac"); then, on battery or while Unplugged
+    /// is on or switching, the battery and the mode's line on a row of their own.
+    @ViewBuilder private var macRows: some View {
+        let parts = Self.macParts(machine)
         macControl(
-            telemetryRow(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark))) {
-                usageWindows(machine)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Self.readingsLabel(machine))
-            .accessibilityHint(mac.help)
+            halves(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark)), parts.readings.map(Half.reading))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Self.readingsLabel(parts.readings))
+                .accessibilityHint(mac.help)
         )
+        let mode: [Half] = if let tone = mac.mode.tone, let words = mac.mode.words { [.mode(tone, words)] } else { [] }
+        if !parts.battery.isEmpty || !mode.isEmpty {
+            macControl(
+                halves(mark: Color.clear.frame(width: scale(Size.vendorMark)), parts.battery.map(Half.reading) + mode)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel((parts.battery.map(\.help) + (mode.isEmpty ? [] : [mac.help])).joined(separator: ", "))
+            )
+        }
+    }
+
+    /// The Mac's readings split into its first row's and the battery, which goes on the second.
+    static func macParts(_ machine: [UsageLine]) -> (readings: [UsageLine], battery: [UsageLine]) {
+        (machine.filter { $0.window != .battery }, machine.filter { $0.window == .battery })
     }
 
     /// The readings row's VoiceOver label: each reading's words, or "Mac" while there are none.
     static func readingsLabel(_ machine: [UsageLine]) -> String {
         machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
-    }
-
-    /// While Unplugged is on or switching: its `ToneRing` centred in the marks' column, then its
-    /// words in the same tone. Nothing at the desk.
-    @ViewBuilder private var backpackLine: some View {
-        if let tone = mac.mode.tone, let words = mac.mode.words {
-            macControl(
-                telemetryRow(mark: ToneRing(tone: tone, size: scale(Size.statusMarkSmall)).frame(width: scale(Size.vendorMark))) {
-                    Text(words).foregroundStyle(tone.color)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(mac.help)
-            )
-        }
     }
 
     /// What makes a row the Mac's: a click is ⌘U, a right-click offers Mac Settings…, and the mode's
@@ -148,43 +162,73 @@ struct SidebarFooter: View {
 
     private func vendorMark(_ agent: SessionAgent) -> VendorMark { VendorMark(agent: agent, size: scale(Size.vendorMark)) }
 
-    /// One footer line: a mark in the ``Size/vendorMark`` column, then its readings in the
-    /// telemetry's face: the system's, with tabular figures so a changing number keeps its width.
-    private func telemetryRow(mark: some View, @ViewBuilder readings: () -> some View) -> some View {
+    /// One footer line: a mark in the ``Size/vendorMark`` column, `Space.inset`, then what it holds,
+    /// in the telemetry's face: the system's, with tabular figures so a changing number keeps its width.
+    private func telemetryRow(mark: some View, @ViewBuilder content: () -> some View) -> some View {
         HStack(alignment: .center, spacing: scale(Space.inset)) {
             mark
-            readings()
-            Spacer(minLength: 0)
+            content()
         }
         .font(Typography.help.tabular)
         .lineLimit(1)
         .frame(height: scale(Size.menuRow), alignment: .leading)
     }
 
-    /// A zero-spacing stack keeps punctuation and colour changes from adding invisible layout
-    /// gaps; each segment's own spaces live inside its `Text`, so the ring sits in the gap the
-    /// four-cell bar used to occupy. `usageVendorRows` supplies wk before 5h; this renderer
-    /// preserves that order. Every window names itself, the context row's `ctx` included.
-    private func usageWindows(_ lines: [UsageLine]) -> some View {
-        HStack(spacing: 0) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                if index > 0 { Text(" · ").foregroundStyle(Palette.muted).accessibilityHidden(true) }
-                // One element per window — label, ring, number and reset — read and hovered as its
-                // words: the glyphs alone say "wk", a ring and "Sat".
-                HStack(spacing: 0) {
-                    Text(line.window.shortLabel + " ").foregroundStyle(Palette.muted)
-                    UsageRing(percent: line.percent, warning: line.warning, size: scale(Size.statusMark))
-                    Text(" \(line.percent)%")
-                        .foregroundStyle(line.warning ? Palette.amber : Palette.text)
-                    // The percentage is the number being watched; the reset recedes behind it.
-                    if let reset = line.reset { Text(" " + reset).foregroundStyle(Palette.muted) }
-                }
-                .contentShape(Rectangle())
-                .help(line.help)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(line.help)
+    /// A row's two halves, equal because both take all they are offered; a missing half is empty.
+    private func halves(mark: some View, _ parts: [Half]) -> some View {
+        telemetryRow(mark: mark) {
+            HStack(spacing: scale(Space.gap)) {
+                half(parts.first)
+                half(parts.dropFirst().first)
             }
         }
+    }
+
+    @ViewBuilder private func half(_ part: Half?) -> some View {
+        Group {
+            switch part {
+            case .reading(let line): reading(line)
+            case .words(let words, let ink): Text(words).foregroundStyle(ink)
+            case .mode(let tone, let words):
+                HStack(spacing: scale(Space.tight)) {
+                    ToneRing(tone: tone, size: scale(Size.statusMarkSmall))
+                    Text(words).foregroundStyle(tone.color)
+                }
+            case nil: Color.clear
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One reading — label, ring, number and reset — hovered and read as its words: the glyphs
+    /// alone say "wk", a ring and "Sat". A zero-spacing stack keeps colour changes from adding
+    /// invisible gaps; the spaces live inside the `Text`s.
+    private func reading(_ line: UsageLine) -> some View {
+        HStack(spacing: 0) {
+            Self.widest(line.window.shortLabel, among: UsageLine.Window.allCases.map(\.shortLabel))
+                .foregroundStyle(Palette.muted)
+                .padding(.trailing, scale(Space.tight))
+            UsageRing(percent: line.percent, warning: line.warning, size: scale(Size.statusMark))
+            Text(" ")
+            // The percentage is the number being watched; the reset recedes behind it.
+            Self.widest("\(line.percent)%", among: [Self.widestNumber])
+                .foregroundStyle(line.warning ? Palette.amber : Palette.text)
+            if let reset = line.reset { Text(" " + reset).foregroundStyle(Palette.muted) }
+        }
+        .contentShape(Rectangle())
+        .help(line.help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(line.help)
+    }
+
+    /// `text`, leading, in the width of the widest of `among`, so what follows it starts at the
+    /// same x on every row.
+    private static func widest(_ text: String, among: [String]) -> some View {
+        ZStack(alignment: .leading) {
+            ForEach(among, id: \.self) { Text($0).hidden() }
+            Text(text)
+        }
+        .accessibilityHidden(true)
     }
 }
 
