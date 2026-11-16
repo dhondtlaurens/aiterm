@@ -4,7 +4,7 @@ import AiTermCore
 
 @MainActor enum SignalSidebarSnapshots {
     static var all: [Snapshot] {
-        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "blocked", "done", "window-closed", "off", "removed"].map { state in
+        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "blocked", "done", "window-closed", "off", "removed", "section-folded"].map { state in
             Snapshot("signals-" + state + ".png", hostedOnly: true) { make(state) }
         }
     }
@@ -34,10 +34,13 @@ import AiTermCore
             state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now)
             if pose == "paused" { state.operatorSession?.paused = true }
             if pose == "fresh" { state.operatorSession?.startingFresh = true }
-            if pose == "questions" { state.operatorSession?.questions = [.init(id: "vat", task: fixture.working.id,
+            // The Operator's section open, but where the pose is the projects': a taken-over task is theirs, and
+            // section-folded is the default, OPERATOR folded with its amber count.
+            state.operatorOpen = !["taken-over", "section-folded"].contains(pose)
+            if ["questions", "section-folded"].contains(pose) { state.operatorSession?.questions = [.init(id: "vat", task: fixture.working.id,
                 text: "Block orders without a VAT number, or export them with the field empty?", openedAt: Snapshots.clock.now)] }
         }
-        if ["watching", "questions", "paused", "off", "blocked", "done", "window-closed"].contains(pose) { controller.live.sessions.removeAll { $0.taskUUID == fixture.working.id } }
+        if ["watching", "questions", "section-folded", "paused", "off", "blocked", "done", "window-closed"].contains(pose) { controller.live.sessions.removeAll { $0.taskUUID == fixture.working.id } }
         return SidebarView(controller: controller).frame(width: 420, height: 900)
     }
 }

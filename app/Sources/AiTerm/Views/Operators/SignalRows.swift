@@ -2,19 +2,31 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
+/// OPERATOR, above PROJECTS, and its "+" that adds a signal. While it has anything to show — a signal or
+/// its row — it folds into PROJECTS and back (`SectionFoldLabel`), folded by default: the Operator is
+/// something you set up, the projects what everyone uses.
 struct SignalOperatorHeading: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    @State private var hovering = false
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.countHeading("operator")
+        #endif
         HStack(spacing: scale(Space.base)) {
-            SidebarHeading("Operator")
-            Spacer()
+            SectionFoldLabel(title: "Operator", fold: controller.rows.operatorHeading, hovering: hovering,
+                             enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
+                             openAttention: { controller.openOperatorAttention() })
             AddMenu(help: "New signal", enabled: controller.canPresentNewSignal) {
                 Button("New Signal…") { controller.presentNewSignal() }
             }
         }
         .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
+        .onHover { hovering = $0 }
     }
 }
 

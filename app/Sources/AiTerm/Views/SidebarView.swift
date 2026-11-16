@@ -78,17 +78,16 @@ struct SidebarView: View {
         }
     }
 
-    /// The OPERATOR heading and, while a broadcast exists and its section is open, its group, as the list draws
-    /// them above the projects: the Operator's row — left out while it has nothing to watch
-    /// (`SignalOperatorRowValue.shown`) — the broadcast's lead, then the tasks it holds, the queued ones
-    /// last. The heading is off the arrow path, as a divider is; the rest is on it, the Operator's row with an id of
-    /// its own (`OperatorRow.id(of:)`), each task with its own.
+    /// The OPERATOR heading and, while its section is open (`SidebarProjection.operatorOpen`), what it holds, as the
+    /// list draws them above the projects: the Operator's row — left out while it has nothing to watch
+    /// (`SignalOperatorRowValue.shown`) — then each signal's heading and tasks. The heading is off the arrow path,
+    /// as a divider is; the rest is on it, the Operator's row with an id of its own (`OperatorRow.id(of:)`).
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SignalOperatorHeading(controller: controller).selectionDisabled()
-        ForEach(rows.signalOperator.shown ? [rows.signalOperator] : []) { value in
+        ForEach(rows.operatorOpen && rows.signalOperator.shown ? [rows.signalOperator] : []) { value in
             SignalOperatorRow(value: value, controller: controller).tag(value.id)
         }
-        ForEach(rows.signalSections) { section in
+        ForEach(rows.operatorOpen ? rows.signalSections : []) { section in
             SignalHeader(section: section, controller: controller).equatable()
             if !section.collapsed {
                 ForEach(section.tasks) { row in
@@ -98,12 +97,14 @@ struct SidebarView: View {
         }
     }
 
-    /// The PROJECTS heading and, unless they are folded into OPERATOR while the broadcast's section is open, every
-    /// entry's rows: what the list draws under the Operator's, and the snapshots stack.
+    /// The PROJECTS heading and, unless they are folded while the Operator's section is open, every entry's rows:
+    /// what the list draws under the Operator's, and the snapshots stack.
     @ViewBuilder static func projectRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SidebarHeader(controller: controller).selectionDisabled()
-        if !rows.hasProjects { SidebarEmptyState(controller: controller).selectionDisabled() }
-        ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
+        if !rows.operatorOpen {
+            if !rows.hasProjects { SidebarEmptyState(controller: controller).selectionDisabled() }
+            ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
+        }
     }
 
     var body: some View {

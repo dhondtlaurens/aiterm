@@ -1,6 +1,16 @@
 import Foundation
 import AiTermCore
 
+/// What the OPERATOR or PROJECTS heading draws of the fold between them: whether there is one — only
+/// while the Operator has something to show, a signal or its row — whether its section is the folded
+/// one, and, folded, how many of its rows need you. Its own value, so a status change elsewhere
+/// redraws neither heading.
+struct SectionFold: Equatable {
+    var folds = false
+    var folded = false
+    var attention = 0
+}
+
 /// Shared row derivation; equal inputs and equal projected values produce no observation writes.
 @Observable @MainActor final class SidebarProjection {
     private(set) var signalOperator = SignalOperatorRowValue.empty
@@ -9,6 +19,11 @@ import AiTermCore
     private(set) var sections: [ProjectSection] = []
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
+    /// Whether the Operator's section is the open one, the projects folded: the person's choice
+    /// (`AppState.operatorOpen`) while there is anything to fold, never otherwise.
+    private(set) var operatorOpen = false
+    private(set) var operatorHeading = SectionFold()
+    private(set) var projectsHeading = SectionFold()
     @ObservationIgnored private(set) var derivations = 0
     @ObservationIgnored var operatorIssue: () -> String? = { nil }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
@@ -17,6 +32,7 @@ import AiTermCore
         var failures: [String: String]
         var operatorRow: SignalOperatorRowValue
         var signals: [Signal]
+        var operatorOpen: Bool
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem], sessions: [SessionInfo]
         var branches: [String: String], projectBranches: [UUID: String], diffs: [UUID: DiffStat]
     }
@@ -25,10 +41,16 @@ import AiTermCore
         self.workspace = workspace; self.live = live; self.checkouts = checkouts; refresh()
     }
     var hasProjects: Bool { !sections.isEmpty }
-    var projectsNeedingAttention: [RowID] {
+    /// Every row waiting on you, the Operator's section first: what the Dock badge counts and Focus View steps through.
+    var projectsNeedingAttention: [RowID] { operatorNeedingAttention + projectSectionsNeedingAttention }
+    /// The rows under OPERATOR waiting on you: its own row, then its signals' tasks.
+    var operatorNeedingAttention: [RowID] {
         (signalOperator.status == .needsInput ? [.operation(OperatorSession.rowID)] : [])
             + signalSections.flatMap { $0.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) } }
-            + sections.flatMap { section in
+    }
+    /// The rows under PROJECTS waiting on you.
+    var projectSectionsNeedingAttention: [RowID] {
+        sections.flatMap { section in
             section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
                 + section.tasks.filter { $0.status.needsAttention }.map { RowID.task($0.id) }
         }
@@ -53,6 +75,7 @@ import AiTermCore
         let skipped = Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
             .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
         let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:], operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue()), signals: state.signals,
+            operatorOpen: state.operatorOpen,
             items: state.items, tasks: drawn, terminals: state.terminals, sessions: live.rowSessions,
             branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask)
         guard next != inputs else { return false }
@@ -60,7 +83,7 @@ import AiTermCore
         let all = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branches,
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
         let sidebar = SignalSidebar(state: state, entries: all)
-        let changed = signalOperator != next.operatorRow || signalSections != sidebar.signals || entries != sidebar.projects
+        var changed = signalOperator != next.operatorRow || signalSections != sidebar.signals || entries != sidebar.projects
         if signalOperator != next.operatorRow { signalOperator = next.operatorRow }
         if signalSections != sidebar.signals { signalSections = sidebar.signals }
         if entries != sidebar.projects { entries = sidebar.projects }
@@ -70,6 +93,12 @@ import AiTermCore
         if self.tasks != tasks { self.tasks = tasks }
         let terminals = Dictionary(next.terminals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if self.terminals != terminals { self.terminals = terminals }
+        let folds = signalOperator.shown || !signalSections.isEmpty, open = folds && next.operatorOpen
+        if operatorOpen != open { operatorOpen = open; changed = true }
+        let operatorFold = SectionFold(folds: folds, folded: folds && !open, attention: folds && !open ? operatorNeedingAttention.count : 0)
+        let projectsFold = SectionFold(folds: folds, folded: open, attention: open ? projectSectionsNeedingAttention.count : 0)
+        if operatorHeading != operatorFold { operatorHeading = operatorFold }
+        if projectsHeading != projectsFold { projectsHeading = projectsFold }
         return changed
     }
 

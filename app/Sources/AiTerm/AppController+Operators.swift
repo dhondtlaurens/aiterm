@@ -31,11 +31,36 @@ extension AppController {
         }
     }
 
+    /// The folded PROJECTS heading's amber count: the projects open, folding the Operator's section, and
+    /// their first row that needs you is selected, its window shown as the arrows show one.
     @discardableResult
     func openProjectsAttention() -> Task<Void, Never>? {
-        guard let first = rows.projectsNeedingAttention.first else { return nil }
+        guard let first = rows.projectSectionsNeedingAttention.first else { return nil }
         reveal(RowSelection(first))
         return focus.peek(RowSelection(first), force: true)
+    }
+
+    /// The folded OPERATOR heading's amber count: its section opens, folding the projects, at its first
+    /// row that needs you.
+    @discardableResult
+    func openOperatorAttention() -> Task<Void, Never>? {
+        guard let first = rows.operatorNeedingAttention.first else { return nil }
+        reveal(RowSelection(first))
+        return focus.peek(RowSelection(first), force: true)
+    }
+
+    /// A click on the OPERATOR or PROJECTS heading: the folded one opens, folding the other. Kept with
+    /// the workspace, as a project's fold is.
+    func toggleOperatorOpen() {
+        guard rows.operatorHeading.folds else { return }
+        setOperatorOpen(!rows.operatorOpen)
+    }
+
+    /// Stored even while there is nothing to fold, when the projection ignores it: a new signal opens the
+    /// section before its rows are derived.
+    func setOperatorOpen(_ open: Bool) {
+        guard canChangeWorkspace, state.operatorOpen != open else { return }
+        workspace.mutate { $0.operatorOpen = open }
     }
 
     var signalReadiness: SignalReadiness {
@@ -44,8 +69,18 @@ extension AppController {
                    messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm)
     }
 
+    /// A row selected from away from the list — a notification, Focus View, an amber count — opens what
+    /// hides it: the section it is in, folding the other, then its signal or project.
     func reveal(_ row: RowSelection) {
         guard canChangeWorkspace else { return }
+        if rows.operatorHeading.folds {
+            let underOperator = switch row {
+            case .operation, .signal: true
+            case .task(let id): state.task(id: id)?.signalTask.map { !$0.takenOver && $0.phase != .stopped } == true
+            case .project, .terminal: false
+            }
+            if underOperator != rows.operatorOpen { setOperatorOpen(underOperator) }
+        }
         if case .task(let id) = row, let task = state.task(id: id), let record = task.signalTask, !record.takenOver,
            let signal = state.signal(id: record.signal), signal.collapsed { toggleCollapsed(signal) }
         else if case .task(let id) = row, let task = state.task(id: id),

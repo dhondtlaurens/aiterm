@@ -150,6 +150,7 @@ explains ownership and the full reusable vocabulary.
 | Types | Responsibility |
 | --- | --- |
 | `SignalOperatorHeading`, `SignalOperatorRow`, `SignalHeader` | Add signals, open/pause the permanent chat, fold/source/count/menu headings on the project grid. |
+| `SectionFoldLabel`, `SectionFoldChevron` | OPERATOR and PROJECTS fold into each other, projects open by default: the heading's click switches; the chevron sits in the trailing slot before the "+", shown folded and, open, only under the pointer; folded, one amber `StatusCountChips` count opens the section at its first row that needs you. |
 | `TaskRowView`, `SignalBadgeLine`, `DecodeWordsView` | The same task row under projects/signals; whole badge-line act decode, minimum hold, hover return and Reduce Motion swap. |
 | `SteppedSheetFrame`, `SheetLayout`, `SheetStepper`, `CreationFooter`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
 | `NewTaskSheet`, `NewReviewSheet`, `SignalSheet` | Source/name/prompt/agent/finish in one order, omitting inapplicable steps. |

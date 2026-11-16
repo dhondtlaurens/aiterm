@@ -77,7 +77,9 @@ import Testing
         #expect(controller.focus.row(id: OperatorRow.id(of: OperatorSession.rowID)) == .operation(OperatorSession.rowID))
         #expect(controller.rows.signalSections.isEmpty)
     }
-    @Test func theOperatorRowAndSignalHeadersLeaveProjectsVisible() throws {
+    /// The projects are the default: with nothing to fold, OPERATOR is a heading and its "+"; once a signal exists the
+    /// two sections fold into each other, the Operator's folded until it is opened, which folds the projects.
+    @Test func theOperatorAndTheProjectsFoldIntoEachOtherTheProjectsOpenByDefault() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 420, height: 600))
@@ -85,16 +87,49 @@ import Testing
         settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 3 }
         let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(list.numberOfRows == 3, "Operator heading, Projects heading and empty state: no signal, no Operator row")
+        #expect(!controller.rows.operatorHeading.folds)
+        controller.toggleOperatorOpen()
+        #expect(!controller.state.operatorOpen, "Nothing to fold: the projects stay open")
+
         var world = SignalWorld(); _ = world.signal(); _ = world.workingTask(signal: world.state.signals[0].id)
         controller.workspace.mutate { $0 = world.state }
-        settle(host) { list.numberOfRows == 6 }
-        #expect(list.numberOfRows == 6, "A signal holds its task while its project remains visible")
-        controller.toggleCollapsed(world.state.signals[0])
+        settle(host) { list.numberOfRows == 3 }
+        #expect(list.numberOfRows == 3, "Operator heading folded, Projects heading, the project")
+        #expect(controller.rows.operatorHeading == SectionFold(folds: true, folded: true, attention: 0))
+        #expect(controller.rows.projectsHeading == SectionFold(folds: true, folded: false, attention: 0))
+
+        controller.toggleOperatorOpen()
         settle(host) { list.numberOfRows == 5 }
-        #expect(list.numberOfRows == 5)
+        #expect(list.numberOfRows == 5, "Operator heading, its row, the signal and its task, Projects heading folded")
+        #expect(controller.state.operatorOpen, "kept with the workspace")
         controller.toggleCollapsed(world.state.signals[0])
-        settle(host) { list.numberOfRows == 6 }
-        #expect(list.numberOfRows == 6)
+        settle(host) { list.numberOfRows == 4 }
+        #expect(list.numberOfRows == 4)
+        controller.toggleCollapsed(world.state.signals[0])
+        controller.toggleOperatorOpen()
+        settle(host) { list.numberOfRows == 3 }
+        #expect(list.numberOfRows == 3)
+    }
+
+    /// Folded, a section counts what needs you once; its count, or a row selected from elsewhere, opens it.
+    @Test func aRowNeedingYouInTheFoldedSectionIsCountedAndRevealed() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        let asked = world.now
+        world.state.operatorSession?.questions = [OperatorSession.Question(id: "q", task: id, text: "Which locale?", openedAt: asked)]
+        controller.workspace.mutate { $0 = world.state }
+        #expect(controller.rows.operatorHeading.attention == 2, "the Operator's row says it waits on you, and so does the task")
+        controller.openOperatorAttention()
+        #expect(controller.rows.operatorOpen)
+        #expect(controller.focus.selection == .operation(OperatorSession.rowID), "its first row that needs you")
+        #expect(controller.rows.operatorHeading.attention == 0, "open, the rows say it themselves")
+
+        controller.reveal(.project(world.project.id))
+        #expect(!controller.rows.operatorOpen, "a project row opens the projects")
+        controller.reveal(.operation(OperatorSession.rowID))
+        #expect(controller.rows.operatorOpen, "the Operator's row opens its section")
     }
     @Test func signalRowsDescribeActsQuestionsWatchingAndTheirOwnPause() throws {
         var world = SignalWorld(); let signal = world.signal(done: .hasReviewer); let id = world.workingTask(signal: signal)
