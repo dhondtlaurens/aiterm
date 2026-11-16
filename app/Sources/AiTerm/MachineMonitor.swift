@@ -7,8 +7,8 @@ import AiTermCore
 @MainActor
 @Observable
 final class MachineMonitor {
-    /// What the readings row draws, in its order: cpu, ram, then bat while on battery. Empty until
-    /// the first sample lands.
+    /// What the Mac's rows draw, in their order: cpu and ram, then bat, on a row of its own, while on
+    /// battery. Empty until the first sample lands.
     private(set) var lines: [UsageLine] = []
 
     @ObservationIgnored private let sensor: any MachineSensor

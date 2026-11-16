@@ -116,7 +116,7 @@ struct Fixture {
         controller.checkouts.refreshTask?.cancel()
         controller.live.usage = Self.usage("""
             {"claude":{"fiveHour":{"usedPercent":42,"resetsAt":\(Self.soon)},"sevenDay":{"usedPercent":61,"resetsAt":\(Self.later)},"spend":null,"updatedAt":\(Self.fresh)},
-             "codex":{"fiveHour":{"usedPercent":88,"resetsAt":\(Self.soon)},"sevenDay":null,"spend":null,"updatedAt":\(Self.fresh)}}
+             "codex":{"fiveHour":null,"sevenDay":{"usedPercent":88,"resetsAt":\(Self.later)},"spend":null,"updatedAt":\(Self.fresh)}}
             """)
         controller.focus.browse(.task(piTask.id))
         controller.helper.itermConnection = .connected(version: "3.7.2")
