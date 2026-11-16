@@ -131,6 +131,75 @@ import Testing
         controller.reveal(.operation(OperatorSession.rowID))
         #expect(controller.rows.operatorOpen, "the Operator's row opens its section")
     }
+    /// ↓ on the Operator's last row reaches the first project, folding the Operator; ↑ on the first project reaches
+    /// the Operator's last row, folding the projects. Anywhere else the list moves on its own.
+    @Test func theArrowsCrossTheFoldAtTheEdgeOfEachSection() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(); let task = world.workingTask(signal: signal)
+        let second = Project.make(name: "docs", path: "/synthetic/docs"); world.state.append(project: second)
+        world.state.operatorOpen = true
+        controller.workspace.mutate { $0 = world.state }
+        #expect(controller.rows.operatorPath == [.operation(OperatorSession.rowID), .signal(signal), .task(task)])
+
+        controller.focus.browse(.signal(signal))
+        #expect(!controller.crossSections(down: true), "the signal's task is still below it")
+        #expect(!controller.crossSections(down: false))
+        controller.focus.browse(.task(task))
+        #expect(!controller.crossSections(down: false), "↑ leaves the Operator's section only from the projects")
+        #expect(controller.crossSections(down: true))
+        #expect(controller.focus.selection == .project(world.project.id))
+        #expect(!controller.rows.operatorOpen, "the projects open, the Operator folds")
+
+        #expect(!controller.crossSections(down: true), "↓ on a project stays with the list")
+        controller.focus.browse(.project(second.id))
+        #expect(!controller.crossSections(down: false), "only the first project crosses")
+        controller.focus.browse(.project(world.project.id))
+        #expect(controller.crossSections(down: false))
+        #expect(controller.focus.selection == .task(task), "the Operator's last row")
+        #expect(controller.rows.operatorOpen, "the Operator opens, the projects fold")
+
+        controller.toggleCollapsed(world.state.signals[0])
+        #expect(controller.rows.operatorPath.last == .signal(signal), "a folded signal's heading is its last row")
+        controller.focus.browse(.signal(signal))
+        #expect(controller.crossSections(down: true))
+        #expect(controller.crossSections(down: false))
+        #expect(controller.focus.selection == .signal(signal))
+    }
+
+    /// The real key: a plain ↓ on the sidebar's list, at the edge, is taken before the table; ⇧↓ and a ↓ inside a
+    /// section are left to it.
+    @Test func aDownArrowOnTheListCrossesIntoTheProjects() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); let task = world.workingTask(signal: world.signal())
+        world.state.operatorOpen = true
+        controller.workspace.mutate { $0 = world.state }
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 420, height: 600), key: true)
+        defer { window.orderOut(nil) }
+        settle(host) { host.firstDescendant(NSTableView.self)?.numberOfRows == 5 }
+        let list = try #require(host.firstDescendant(NSTableView.self))
+        #expect(window.makeFirstResponder(list))
+        func press(_ modifiers: NSEvent.ModifierFlags = []) throws {
+            NSApp.sendEvent(try #require(keyDown("\u{F701}", code: 125, modifiers: modifiers.union([.numericPad, .function]), in: window)))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        controller.focus.browse(.task(task))
+        settle(host, describing: "the task selected in the table") { list.selectedRow == 3 }
+        try press(.shift)
+        #expect(controller.rows.operatorOpen, "⇧↓ is the table's")
+        #expect(controller.focus.selection == .task(task))
+        try press()
+        #expect(controller.focus.selection == .project(world.project.id))
+        #expect(!controller.rows.operatorOpen)
+        settle(host) { list.numberOfRows == 3 }
+        #expect(list.numberOfRows == 3, "Operator heading folded, Projects heading, the project")
+        #expect(SectionCrossing.direction(of: try #require(keyDown("\u{F700}", code: 126, modifiers: [.numericPad, .function], in: window))) == false)
+        #expect(SectionCrossing.direction(of: try #require(keyDown("a", code: 0, in: window))) == nil)
+    }
     @Test func signalRowsDescribeActsQuestionsWatchingAndTheirOwnPause() throws {
         var world = SignalWorld(); let signal = world.signal(done: .hasReviewer); let id = world.workingTask(signal: signal)
         func row() throws -> TaskRow {
