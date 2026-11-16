@@ -27,20 +27,6 @@ import Testing
                 "an owed window coming back says nothing: the row is drawn as it was")
     }
 
-    /// While the Operator holds a task and nothing on it is yours, the badge line folds away under its
-    /// status line; what is yours to act on unfolds it, and so does anything the caption says.
-    @Test func theBadgeLineFoldsUnderTheOperatorUntilItIsYours() {
-        let plain = TaskRowCaption(removal: nil, missing: false, failed: false)
-        for line in [OperatorLine("Operator watching", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c", look: .ended)] {
-            #expect(plain.folds(under: line), "\(line.text)")
-        }
-        #expect(!plain.folds(under: OperatorLine("waiting on you", look: .needsYou)))
-        #expect(!plain.folds(under: OperatorLine("left for you · 4f2a91c", look: .needsYou)))
-        #expect(!plain.folds(under: nil), "a task of your own keeps its badges")
-        let working = OperatorLine("Operator watching", look: .acting)
-        #expect(!TaskRowCaption(removal: .removing, missing: false, failed: false).folds(under: working), "Removing… is the badge line's")
-        #expect(!TaskRowCaption(removal: nil, missing: true, failed: false).folds(under: working), "the note takes the status line's place")
-    }
 }
 
 /// A task row's trailing mark: its status's `StatusMark`, the green check once the Operator's work on the task

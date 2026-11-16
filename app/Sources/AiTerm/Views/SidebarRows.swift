@@ -431,9 +431,6 @@ struct TaskRowView: View {
                         // A badge never squeezes, so a row too narrow for all of them draws the fullest
                         // fit that still leaves the status mark its slot (`TaskRowBadges.fits`), ahead of
                         // the branch, which shortens in what is left.
-                        SignalBadgeLine(line: caption.note == nil ? row.operatorLine : nil,
-                                        normalText: [badges.ticket?.label, badges.mergeRequest?.label, row.branch.name].compactMap { $0 }.joined(separator: " · "),
-                                        enabled: task?.signalTask.map { !$0.takenOver } == true) {
                         HStack(spacing: 0) {
                             ViewThatFits(in: .horizontal) {
                                 // "Absent, not disabled": no VS Code, no badge.
@@ -444,12 +441,13 @@ struct TaskRowView: View {
                             .layoutPriority(1)
                             BranchLabelView(label: row.branch)
                         }
-                        }
                     }
-                    // Why a removal stopped, or what the task is missing, comes first; else what the
-                    // Operator says of it: `queued · after PAY-232`, `Operator answering`, `done · 4f2a91c`.
+                    // Why a removal stopped, or what the task is missing, comes first; else, on a task the
+                    // Operator drives, what it says of it: `waiting on a reviewer`, `Operator answering`, `done`.
                     if let note = caption.note {
                         HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
+                    } else if caption.progress == nil, task?.signalTask.map({ !$0.takenOver }) == true {
+                        SignalStatusLine(line: row.operatorLine, working: [.working, .background].contains(row.status))
                     }
                 }
             } mark: {
@@ -795,15 +793,6 @@ struct TaskRowCaption: Equatable {
     /// In place of the badge line, while the row is being removed.
     var progress: String?
     var note: Note?
-
-    /// Whether the badge line folds away under a driven task's status line `line`: while the Operator
-    /// holds the task and nothing on it is yours to act on, the row is its title over that line, as tall
-    /// as one of your own. A request or a publication left for you (`needsYou`) unfolds it, and so does
-    /// anything this caption says, which takes the status line's place.
-    func folds(under line: OperatorLine?) -> Bool {
-        guard let line, progress == nil, note == nil else { return false }
-        return line.look != .needsYou
-    }
 
     init(progress: String?, note: Note?) {
         self.progress = progress
