@@ -429,12 +429,14 @@ public struct AppState: Codable, Equatable, Sendable {
     public var sidebarFrame: CGRect? = nil
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
-    /// The operations, in the order they were started (spec §5.1). The app is their only writer.
-    /// The broadcasts whose group in the sidebar is folded to its header (`setFolded(run:_:)`): where a
-    /// project's fold is kept, its `collapsed`, the sidebar's and not the run's.
+    /// The signals, in the order they were created. The app is their only writer.
     public var signals: [Signal] = []
     public var signalSeen: [SignalSeen] = []
     public var operatorSession: OperatorSession?
+    /// Whether the sidebar shows the Operator's section, the projects folded under their heading. The
+    /// two fold into each other, one open at a time; the projects are the default, so a workspace
+    /// that never opened the Operator, or was saved before this existed, opens on them.
+    public var operatorOpen = false
     public static let empty = AppState()
     public init() {}
 
@@ -496,7 +498,7 @@ public struct AppState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
-        case signals, signalSeen, operatorSession
+        case signals, signalSeen, operatorSession, operatorOpen
     }
 
     /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
@@ -517,6 +519,7 @@ public struct AppState: Codable, Equatable, Sendable {
         signals = try c.decodeIfPresent([Signal].self, forKey: .signals) ?? []
         signalSeen = try c.decodeIfPresent([SignalSeen].self, forKey: .signalSeen) ?? []
         operatorSession = try c.decodeIfPresent(OperatorSession.self, forKey: .operatorSession)
+        operatorOpen = try c.decodeIfPresent(Bool.self, forKey: .operatorOpen) ?? false
     }
 
     /// An agent as it was saved, known to this build or not. Neither a `String` nor
@@ -538,11 +541,12 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(sidebarFrame, forKey: .sidebarFrame)
         try c.encode(lastAgentByProject, forKey: .lastAgentByProject)
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
-        // Left out while there are none, so a workspace without operations is written as it always was.
-        // Left out while nothing is folded, so a workspace without one is written as it always was.
+        // Left out while there are none, so a workspace without signals is written as it always was.
         if !signals.isEmpty { try c.encode(signals, forKey: .signals) }
         if !signalSeen.isEmpty { try c.encode(signalSeen, forKey: .signalSeen) }
         try c.encodeIfPresent(operatorSession, forKey: .operatorSession)
+        // Left out while the projects are open, the default, so such a workspace is written as it always was.
+        if operatorOpen { try c.encode(true, forKey: .operatorOpen) }
     }
 
     /// A window iTerm2 no longer has: its row is owed it — a task's and a terminal's alike — and

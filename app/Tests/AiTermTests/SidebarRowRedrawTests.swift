@@ -75,7 +75,7 @@ import Testing
         record.phase = .working; record.configuration = signal
         sidebar.controller.workspace.mutate { state in
             state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Date())
-            state.tasks[0].signalTask = record
+            state.tasks[0].signalTask = record; state.operatorOpen = true
         }
         sidebar.settleRows(); sidebar.counter.reset()
         sidebar.controller.workspace.mutate { $0.operatorSession?.remember(key: "result", result: "ok", at: Date()) }
@@ -126,7 +126,7 @@ import Testing
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
         let operatorRow = OperatorRow.id(of: OperatorSession.rowID)
-        sidebar.controller.workspace.mutate { $0.operatorSession = OperatorSession(createdAt: Date()) }
+        sidebar.controller.workspace.mutate { $0.operatorSession = OperatorSession(createdAt: Date()); $0.operatorOpen = true }
         sidebar.settleRows()
         sidebar.counter.reset()
         sidebar.controller.workspace.mutate { $0.operatorSession?.questions = [
@@ -200,7 +200,8 @@ import Testing
         let session = SessionInfo.make("header-worker", window: "header-worker", task: task.id)
         sidebar.controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks[0] = task }
         sidebar.controller.live.sessions = [session]
-        sidebar.settleRows { sidebar.list.numberOfRows == 15 }
+        // OPERATOR folded by default, so the rows are the projects' as before.
+        sidebar.settleRows { sidebar.list.numberOfRows == 13 }
         sidebar.counter.reset()
         var changed = session; changed.state = .working
         sidebar.controller.live.sessions = [changed]

@@ -6,8 +6,14 @@ worker your prompt. Polling itself uses no model tokens.
 
 The Operator has one Claude Code chat. Its row is always first under **Operator**; click it to
 open the chat. Each signal is a heading like a project, with the same task rows underneath.
-Projects remain visible. Fold a signal to see its status counts, or hover its heading for its
-conditions, skipped items and source failures.
+Fold a signal to see its status counts, or hover its heading for its conditions, skipped items
+and source failures.
+
+The **Operator** and **Projects** sections fold into each other, one open at a time: click either
+heading to switch. Projects are open by default, so the Operator stays one folded line until you
+open it, and with no signal it is only its heading and **+**. A folded section shows an amber count
+of what needs you; click it to open the section at that row. Creating a signal opens the Operator's
+section, and a notification or Focus View opens whichever section holds the row it selects.
 
 ## Create a signal
 

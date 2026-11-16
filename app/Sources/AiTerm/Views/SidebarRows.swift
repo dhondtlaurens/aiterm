@@ -41,9 +41,8 @@ struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, and the menu that adds a project or a divider. While a broadcast exists it folds into the OPERATOR
-/// heading and back (`OperatorHeading`): its click switches, its chevron shows folded and, open, under the pointer,
-/// and folded it says what needs you among the projects once, as an amber count, whose click opens them at the first.
+/// `PROJECTS`, and the menu that adds a project or a divider. While the Operator has anything to show it
+/// folds into the OPERATOR heading and back (`SectionFoldLabel`), the projects open by default.
 struct SidebarHeader: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
@@ -57,8 +56,9 @@ struct SidebarHeader: View {
         let _ = bodyCounter?.countHeading("projects")
         #endif
         HStack(spacing: scale(Space.base)) {
-            SidebarHeading("Projects")
-            Spacer(minLength: scale(Space.tight))
+            SectionFoldLabel(title: "Projects", fold: controller.rows.projectsHeading, hovering: hovering,
+                             enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
+                             openAttention: { controller.openProjectsAttention() })
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { Task { await controller.projects.addProject() } }
                 Button("Add Divider…") { controller.sheets.presentNewDivider() }
@@ -66,6 +66,56 @@ struct SidebarHeader: View {
         }
         .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
+        .onHover { hovering = $0 }
+    }
+}
+
+/// The OPERATOR or PROJECTS heading's words, and, while the two fold into each other, one open at a time:
+/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, what
+/// needs you in its section as one amber count, whose click opens the section at the first such row.
+/// Only the label folds; the heading's "+" keeps its own click.
+struct SectionFoldLabel: View {
+    let title: String
+    let fold: SectionFold
+    let hovering: Bool
+    let enabled: Bool
+    let toggle: () -> Void
+    let openAttention: () -> Void
+    @Environment(\.interfaceScale) private var scale
+
+    var body: some View {
+        HStack(spacing: scale(Space.base)) {
+            SidebarHeading(title)
+            Spacer(minLength: scale(Space.tight))
+            if fold.folds {
+                if fold.folded, fold.attention > 0 {
+                    Button(action: openAttention) {
+                        StatusCountChips(counts: [StatusCount(status: .needsInput, count: fold.attention)])
+                    }
+                    .buttonStyle(.plain)
+                }
+                SectionFoldChevron(folded: fold.folded, hovering: hovering)
+            }
+        }
+        .modifier(FoldOnTap(enabled: fold.folds && enabled, action: toggle))
+        .accessibilityLabel(title)
+        .accessibilityValue(fold.folded ? "folded" : "")
+    }
+}
+
+/// A section heading's disclosure chevron while the Operator's section and the projects fold into each other: a
+/// macOS sidebar section's, in the trailing column before the heading's "+", shown folded and, open, only under
+/// the pointer. The heading's click folds; the chevron is not a control of its own.
+struct SectionFoldChevron: View {
+    let folded: Bool
+    let hovering: Bool
+    @Environment(\.interfaceScale) private var scale
+
+    var body: some View {
+        HeaderChevron(collapsed: folded)
+            .frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
+            .opacity(folded || hovering ? 1 : 0)
+            .accessibilityHidden(true)
     }
 }
 
