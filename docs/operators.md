@@ -4,8 +4,9 @@ The Operator watches signals and drives their tasks in real iTerm2 windows. A si
 GitLab or GitHub. When an item matches, AiTerm starts a task in an existing project and gives its
 worker your prompt. Polling itself uses no model tokens.
 
-The Operator has one Claude Code chat. Its row is always first under **Operator**; click it to
-open the chat. Each signal is a heading like a project, with the same task rows underneath.
+The Operator keeps one Claude Code chat while it has unfinished tasks. Its row is first under
+**Operator**; click it to open the chat. When the workload finishes, the chat closes and its row
+disappears. Configured signals keep polling without a chat; the next match starts a fresh one. Each signal is a heading like a project, with the same task rows underneath.
 Fold a signal to see its status counts, or hover its heading for its conditions, skipped items
 and source failures.
 
@@ -28,7 +29,7 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
    /psg:implement and /psg:review`. Description checkboxes add only the ticket and/or merge request
    description, quoted as data beneath your prompt. `/` offers installed skills.
 4. **Agents:** list the permitted Agent · Model · Reasoning rows. With one row every task uses it.
-   With several, each task's row shows **Operator choosing its agent** while the Operator proposes
+   With several, the Operator’s activity caption shows that it is choosing the task’s agent while it proposes
    a row with a one-line reason, weighing the item, your prompt, the project, weekly usage per
    agent, the installed agents and your standing instructions; an agent at 80% weekly usage is
    avoided when another permitted agent has room. The Oracle agrees or critiques, for up to three
@@ -46,7 +47,7 @@ ten minutes; source failures back off to five minutes.
 
 AiTerm uses projects already in the sidebar; it never clones on pick-up. Link a project's Jira
 projects in **Add Project…** or **Edit Project…**. A ticket linked to several projects waits for
-the Operator to choose one: its row shows **Operator choosing its project**, and the Operator
+the Operator to choose one: the Operator’s activity caption says it is choosing the project, and the Operator
 decides it alone, or together with the agent row when there are several rows. Merge requests map
 by repository remote. Items without a project are skipped with their reason in the signal's
 tooltip and activity log. No acknowledgement is written
@@ -112,9 +113,11 @@ Select All.
 
 ## Pause, switch off and take over
 
-Use **Pause** on the Operator row to pause all signals. The row shows while there is a signal, a
-task the Operator still drives, or something it needs from you; with no signal configured only the
-OPERATOR heading and its + remain. Existing workers receive a note to finish
+Use **Pause Operator** in the Operator heading’s **+** menu to pause all signals, and **Resume Operator**
+there to resume even when its chat row is absent. The heading reads **Operator · paused** while paused. The row’s context menu offers the same control.
+Unfinished tasks retain the chat while
+paused. A configured signal alone does not show the chat row; its heading remains available,
+and with no signal configured only the OPERATOR heading and its + remain. Existing workers receive a note to finish
 their current turn and wait. **Resume** carries them on before stages advance. A signal's menu
 has **Switch Off** and **Switch On (starts n)**; switching it off pauses only its workers and source
 polling. Removing a signal leaves its existing tasks running with their saved instructions under
@@ -137,16 +140,23 @@ its time and source, and `run_status` lists the current ones under `appIssues`, 
 Operator why. A wake held because you are typing in its chat waits without counting; one pasted
 but not sent, or text left unsent in its chat, asks you to send or clear it there.
 
-While the Operator acts on a task, the whole badge line decodes into its action and back. Hover to
-read the badges. Reduce Motion uses a plain swap. There is no extra status line or board.
+Only the Operator row’s activity caption decodes. Each event retriggers it, even when the words
+repeat, and the words settle after half a second. Its title stays steady. Tasks keep their normal
+two-line layout and badges under projects and signals. Reduce Motion uses a plain swap.
 
 ## Session recovery and local records
 
 AiTerm keeps task journals, stages, questions, pending replies and source failures locally. The
-Operator reads status rather than relying on chat memory. When idle, after about 150,000 current
-context tokens or a day, it starts a fresh chat with current status and recent journal entries.
-It waits for active tools, wakes and Oracle jobs; a refused close leaves the current chat and its
-tools usable, and the old window closes before its token is revoked. A wake can combine updates
+Operator reads status rather than relying on chat memory. Choosing, launching, working, watching
+for a done condition and blocked tasks keep the same chat, as do pending stages and outstanding
+closeout. Completed, archived, stopped or taken-over tasks do not keep it after their remaining work
+finishes. Questions from completed or superseded stages no longer ask for attention.
+
+Once no work remains, AiTerm waits for tools, deliveries and Oracle jobs, then closes the chat before
+revoking its token. A refused close leaves the current chat and its tools usable. A new match during
+closure survives and starts in a fresh generation. While work remains, about 150,000 current context
+tokens trigger renewal at a safe boundary, carrying current status and recent journals. Age alone
+does not restart the chat. A wake can combine updates
 for several tasks, so read status without a task first before narrowing it.
 Reopening a worker resumes its saved conversation without repeating its stage prompt. Uncertain
 launches and deliveries require inspection rather than a blind duplicate.

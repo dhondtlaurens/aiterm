@@ -5,7 +5,7 @@ import AiTermUI
 /// The roles and standing instructions, staged until Settings' Save.
 struct OperatorSettingsPane: View {
     let model: OperatorSettingsModel
-    static let operatorHelp = "One Claude Code session, always on, that runs your signals. Its window is a chat: click its row in the sidebar."
+    static let operatorHelp = "One Claude Code chat while tasks remain. Click its sidebar row to open it. When work finishes the chat closes; signals keep watching and the next match starts a fresh chat."
     static let operatorDoes = [
         "Starts a task for each ticket or merge request a signal picks up, in its own worktree and window.",
         "Reads every turn a worker ends and tells it what’s next: the next step, a check, done.",

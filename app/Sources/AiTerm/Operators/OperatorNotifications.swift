@@ -19,7 +19,7 @@ struct OperatorNote: Equatable, Sendable {
 enum SignalQuestionNotification {
     static let id = "aiterm.operator.questions"
     static func make(state: AppState) -> OperatorNote? {
-        let questions = state.operatorSession?.questions.filter { $0.resolvedAt == nil } ?? []
+        let questions = state.currentOperatorQuestions
         guard !questions.isEmpty else { return nil }
         func name(_ question: OperatorSession.Question) -> String {
             guard let task = question.task.flatMap({ state.task(id: $0) }) else { return "Operator" }

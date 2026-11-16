@@ -168,7 +168,7 @@ import Foundation
 
     @Test func theCopyDescribesSignalsQuestionsAndHowToSteerThem() {
         typealias Pane = OperatorSettingsPane
-        #expect(Pane.operatorHelp.contains("One Claude Code session"))
+        #expect(Pane.operatorHelp.contains("One Claude Code chat"))
         #expect(Pane.operatorDoes.count == 3 && Pane.oracleAsks.count == 3)
         #expect(Pane.oracleNever.contains("every worker question comes to you"))
         #expect(!Pane.instructionsPlaceholder.contains("\n"), "A one-line hint of what goes there, not a worked example.")

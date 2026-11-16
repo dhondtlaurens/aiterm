@@ -9,6 +9,7 @@ import AiTermCore
     let frame: @MainActor () -> Frame
     let native: SignalWorkerIO, host: SignalHostIO, journal: SignalJournal, poller: SignalPoller
     let automatic: Bool
+    let activity = OperatorActivityTracker()
     var tabsKnown = false
     private(set) var profile = OperatorProfile(model: "", reasoning: nil)
     private(set) var sourceErrors: [UUID: String] = [:]
@@ -57,15 +58,31 @@ import AiTermCore
     @ObservationIgnored private var lastNote: OperatorNote?
     @ObservationIgnored lazy var router = ItemRouter(workspace: workspace, now: ports.now, workerIsWorking: native.busy)
     @ObservationIgnored lazy var stages = StageRunner(workspace: workspace, journal: journal, now: ports.now,
-        ports: .init(workerIsWorking: native.busy, prepare: native.prepare, launch: native.launch, restore: native.restore))
+        ports: .init(workerIsWorking: native.busy, prepare: { [weak self] task, signal in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.activity.during("preparing " + OperatorActivityTracker.name(task) + "’s worker") { try await self.native.prepare(task, signal: signal) }
+        }, launch: { [weak self] task, prompt in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.activity.during("starting " + OperatorActivityTracker.name(task) + "’s worker") { try await self.native.launch(task, prompt: prompt) }
+        }, restore: { [weak self] task in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.activity.during("restoring " + OperatorActivityTracker.name(task) + "’s checkout") { try await self.native.restore(task) }
+        }))
     @ObservationIgnored lazy var then = ThenRunner(workspace: workspace, journal: journal, stages: stages, now: ports.now,
         ports: .init(workerIsWorking: native.busy, archive: { [weak self] task, allowed in
-            guard let self else { return }; try await self.archive(task, allowed)
+            guard let self else { return }
+            try await self.activity.during("archiving " + OperatorActivityTracker.name(task)) { try await self.archive(task, allowed) }
         }, remove: { [weak self] task, allowed in
-            guard let self else { return }; try await self.remove(task, allowed); await self.host.deleteMergedBranch(of: task)
+            guard let self else { return }
+            try await self.activity.during("removing " + OperatorActivityTracker.name(task)) {
+                try await self.remove(task, allowed); await self.host.deleteMergedBranch(of: task)
+            }
         }))
     @ObservationIgnored lazy var watch = RequestWatch(workspace: workspace, stages: stages, then: then,
-        ports: .init(workerIsWorking: native.busy, read: host.read, oracleMerge: { [weak self] task, snapshot in
+        ports: .init(workerIsWorking: native.busy, read: { [weak self] task in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.activity.during("checking " + OperatorActivityTracker.name(task) + "’s completion") { try await self.host.read(task) }
+        }, oracleMerge: { [weak self] task, snapshot in
             guard let self, self.currentOracle.isOn else { return false }
             let prompt = """
             Judge this explicitly enabled automatic merge. AiTerm independently requires approvals,
@@ -75,7 +92,10 @@ import AiTermCore
             \(try SignalOperatorToolHandler.json(JSONValue(encoding: OperatorDigest(state: self.workspace.state, at: self.ports.now(), oracleOn: true, task: task.id))))
             """
             return (try? await self.oracle(prompt)).flatMap(ChallengeLaunch.verdict)?.approved == true
-        }, merge: host.merge))
+        }, merge: { [weak self] task, snapshot in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            try await self.activity.during("merging " + OperatorActivityTracker.name(task)) { try await self.host.merge(task, snapshot: snapshot) }
+        }))
     @ObservationIgnored lazy var questions = QuestionRounds(workspace: workspace, journal: journal, now: ports.now,
         ports: .init(oracleEnabled: { [weak self] in self?.currentOracle.isOn == true }, question: native.question,
             oracle: { [weak self] input in
@@ -189,6 +209,12 @@ import AiTermCore
             }, open: { [weak self] session, digest in
                 guard let self else { throw ActionUnavailable("The Operator stopped.") }
                 return try await self.open(session, digest: digest)
+            }, existingWindow: { [weak self] session in
+                guard let self, let daemon = self.daemon() else { throw ActionUnavailable("The helper is unavailable.") }
+                let snapshot = try await daemon.snapshot()
+                guard !self.isStopped, self.workspace.state.operatorSession?.id == session.id,
+                      self.workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
+                return snapshot.sessions.first { $0.taskUUID == session.id && $0.agent == .claude }?.windowId
             }, sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.currentInstructions }, usage: { [weak self] in self?.live.usage ?? .empty },
             installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }))
     }
@@ -213,8 +239,18 @@ import AiTermCore
         native.recoveryAllowed = { [weak self] id in self.map { !$0.stages.isRunning(id) } ?? false }
         native.onBlocked = { [weak self] id in self?.wake(.taskBlocked, id: id) }
         native.onTurn = { [weak self] id in self?.wake(.workerEnded, id: id) }
+        activity.changed = { [weak self] in self?.reconcileIfIdle(); self?.changed() }
+        keeper.activity = activity
         keeper.failed = { [weak self] reason in self?.fail(.session, reason) }
         keeper.succeeded = { [weak self] in self?.succeed(.session) }
+        keeper.finished = { [weak self] in
+            guard let self else { return }
+            self.opened = nil; self.wakeLeftUnsent = false
+            // These failures belonged to the retired chat. Other sources still recover through
+            // their own next success, including outstanding log writes and Take Over repairs.
+            self.succeed(.wake); self.succeed(.reply); self.succeed(.openWindow)
+            self.activity.pulse()
+        }
         native.recordSwitch = { [weak self] id, row in try await self?.journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
         router.changed = { [weak self] id, event in
             guard let self else { return }
@@ -227,6 +263,7 @@ import AiTermCore
             self.wakeIfWaiting(id)
             self.changed()
         }
+        watch.changed = { [weak self] _, _ in self?.activity.pulse() }
         questions.changed = { [weak self] in
             guard let self else { return }; self.wake(.questionWaiting, id: self.workspace.state.operatorSession?.id ?? UUID()); self.changed()
         }
@@ -250,6 +287,7 @@ import AiTermCore
             } }
             let ids = self.router.apply(observations: observations)
             for id in ids { self.schedule { await self.stages.run(id) } }
+            if !ids.isEmpty { self.schedule { await self.reconcile() } }
         }
         poller.onFailure = { [weak self] ids, reason in
             guard let self, !self.isStopped else { return }
@@ -268,12 +306,14 @@ import AiTermCore
         workspace.onChange { [weak self] in
             guard let self, !self.isStopped else { return }
             if self.normalized(self.workspace.state.signals) != self.lastSignals { self.schedule { await self.configure() } }
+            self.reconcileIfIdle()
             self.changed()
         }
     }
     func onChange(_ hook: @escaping () -> Void) { hooks.append(hook) }
     private func recordActivity(tool: String, task: UUID?, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String, line: String,
                                 at: Date? = nil) {
+        activity.pulse()
         writeActivity(ActivityEntry(at: at ?? ports.now(), tool: tool, task: task, taskLabel: nil, arguments: arguments,
                                     outcome: outcome, result: result, line: line, reason: outcome == .ok ? nil : result))
     }
@@ -392,7 +432,7 @@ import AiTermCore
             else { state.signals.append(signal) }
         }
         guard workspace.flush() else { throw ActionUnavailable("The signal could not be saved.") }
-        await pause.reconcile(); await configure(refresh: [signal.id]); await keeper.ensure()
+        await pause.reconcile(); await configure(refresh: [signal.id]); await reconcile()
     }
     func daemonAttached() { tabsKnown = false; settingsDue = .distantPast }
     func handle(_ event: DaemonEvent) {
@@ -407,7 +447,15 @@ import AiTermCore
     }
     private func respond(_ request: OperatorRequest) async {
         guard let daemon = daemon() else { return }
-        activeTools += 1; defer { activeTools -= 1 }
+        activeTools += 1
+        let task = request.arguments["task"]?.stringValue.flatMap(UUID.init(uuidString:)).flatMap { workspace.state.signalItem(id: $0) }
+        await activity.during(OperatorActivityTracker.words(for: request, task: task)) {
+            await answer(request, using: daemon)
+        }
+        activeTools -= 1
+        await reconcile()
+    }
+    private func answer(_ request: OperatorRequest, using daemon: any DaemonCommands) async {
         do {
             if request.tool == "gate_command" {
                 let result = await gate.respond(request)
@@ -439,12 +487,15 @@ import AiTermCore
                 case .error(let reason): try await daemon.replyToOperator(requestId: request.requestId, result: nil, error: reason)
                 }
             }
-            succeed(.reply)
+            if !isStopped, workspace.state.operatorSession?.id.uuidString == request.runId,
+               workspace.state.operatorSession?.generation == request.generation { succeed(.reply) }
         } catch {
             // Not resent: the Operator retries its timed-out call, and a keyed call replays its ledger result.
-            fail(.reply, "An answer could not be sent back to the Operator: " + OperationIssue.reason(of: error))
+            if !isStopped, workspace.state.operatorSession?.id.uuidString == request.runId,
+               workspace.state.operatorSession?.generation == request.generation {
+                fail(.reply, "An answer could not be sent back to the Operator: " + OperationIssue.reason(of: error))
+            }
         }
-        await reconcile()
     }
     func reconcile() async {
         guard !isStopped, !reconciling, workspace.canChangeWorkspace else { return }
@@ -452,7 +503,13 @@ import AiTermCore
         let now = ports.now()
         if now >= settingsDue { settingsDue = now.addingTimeInterval(60); prune(); await loadProfile(); await configure() }
         guard !isStopped, tabsKnown else { return }
-        if !workspace.state.signals.isEmpty || workspace.state.operatorSession != nil { await keeper.ensure() }
+        pruneQuestions()
+        // A durable retirement must complete before a new generation can serve a later match.
+        if workspace.state.operatorSession?.finishing == true
+            || (!workspace.state.operatorHasWork && workspace.state.operatorSession?.startingFresh == true) {
+            await keeper.finishIfIdle(idle: activeTools == 0 && oracleJobs.isEmpty, wakePending: waking)
+        }
+        if workspace.state.operatorHasWork { await keeper.ensure() }
         guard !isStopped else { return }
         rememberOperator()
         for id in Array(takeOverRepairs.keys) { await repairTakeOver(id) }
@@ -460,7 +517,11 @@ import AiTermCore
         await native.recoverLaunches()
         await native.refreshTurns()
         await pause.reconcile()
-        guard !isStopped, workspace.state.operatorSession?.paused != true else { return }
+        guard !isStopped else { return }
+        if workspace.state.operatorSession?.paused == true {
+            await finishSessionIfIdle()
+            return
+        }
         normalizeEarlierChoiceBlocks()
         for task in workspace.state.allSignalTasks {
             if task.signalTask?.phase == .launching { schedule { await self.stages.run(task.id) } }
@@ -468,13 +529,49 @@ import AiTermCore
                 schedule { try? await self.stages.finish(task.id, action: .advancePending) }
             }
         }
-        for task in workspace.state.tasks where task.signalTask?.canRunThen == true { schedule { await self.then.apply(task.id) } }
+        for task in workspace.state.tasks where task.signalTask?.canRunThen == true && task.signalTask?.thenApplied != true {
+            schedule { await self.activity.during("finishing " + OperatorActivityTracker.name(task)) { await self.then.apply(task.id) } }
+        }
         if now >= hostDue { hostDue = now.addingTimeInterval(60); schedule { await self.watch.pass() } }
+        if !workspace.state.operatorHasWork && !waking && workspace.state.operatorSession?.wakeAwaitingRead != true { wakePending = nil }
         await deliverWake()
-        if let session = workspace.state.operatorSession, let tab = operatorTab() {
+        await finishSessionIfIdle()
+        if workspace.state.operatorHasWork, let session = workspace.state.operatorSession, let tab = operatorTab() {
             await keeper.freshIfDue(contextTokens: tab.contextTokens, idle: tab.state.turnEnded && tab.stoppedOn == nil && oracleJobs.isEmpty && activeTools == 0,
                 wakePending: wakePending != nil || waking || session.wakeAwaitingRead == true || live.sessions.filter { $0.windowId == session.window }.count != 1)
         }
+    }
+    /// Completion, removal and Take Over can finish between minute ticks. Both state writes
+    /// and the end of tracked I/O recheck this, so the last closeout retires promptly.
+    private func reconcileIfIdle() {
+        guard !isStopped, !reconciling, activeTools == 0, !activity.isRunning,
+              !workspace.state.operatorHasWork, workspace.state.operatorSession?.window != nil else { return }
+        schedule { await self.reconcile() }
+    }
+    private func finishSessionIfIdle() async {
+        guard !workspace.state.operatorHasWork else { return }
+        let session = workspace.state.operatorSession
+        await keeper.finishIfIdle(idle: (operatorTab().map { $0.state.turnEnded && $0.stoppedOn == nil } ?? true)
+            && activeTools == 0 && oracleJobs.isEmpty && !activity.isRunning,
+            wakePending: waking || wakePending != nil || session?.wakeAwaitingRead == true)
+        // A signal may have matched while the old window was closing. Its task was saved first;
+        // it now gets the new generation, with no discarded wake or old conversation.
+        if workspace.state.operatorHasWork { await keeper.ensure() }
+    }
+    private func pruneQuestions() {
+        let obsolete = Set((workspace.state.operatorSession?.questions ?? []).filter {
+            $0.resolvedAt == nil && !workspace.state.isCurrentOperatorQuestion($0)
+        }.map(\.id))
+        guard !obsolete.isEmpty else { return }
+        let at = ports.now()
+        workspace.mutate { state in
+            for index in state.operatorSession?.questions.indices ?? 0..<0 {
+                if let id = state.operatorSession?.questions[index].id, obsolete.contains(id) {
+                    state.operatorSession?.questions[index].resolvedAt = at
+                }
+            }
+        }
+        workspace.flush()
     }
     private func prune() {
         let at = ports.now(), tasks = workspace.state.allSignalTasks
@@ -509,8 +606,8 @@ import AiTermCore
         }
     }
     func operatorTab() -> SessionInfo? {
-        guard let session = workspace.state.operatorSession else { return nil }
-        return live.sessions.first { $0.taskUUID == session.id && $0.agent == .claude && (session.window == nil || session.window == $0.windowId) }
+        guard let session = workspace.state.operatorSession, let window = session.window else { return nil }
+        return live.sessions.first { $0.taskUUID == session.id && $0.agent == .claude && $0.windowId == window }
     }
     private func rememberOperator() {
         guard let tab = operatorTab() else { return }
@@ -559,7 +656,11 @@ import AiTermCore
         }
         guard result.result == .delivered else { throw ActionUnavailable(result.reason ?? "The Operator could not close safely.") }
     }
-    private func wake(_ event: OperatorWakeEvent, id: UUID) { if wakePending == nil { wakePending = (event, id) } }
+    private func wake(_ event: OperatorWakeEvent, id: UUID) {
+        guard workspace.state.operatorHasWork else { return }
+        activity.pulse()
+        if wakePending == nil { wakePending = (event, id) }
+    }
     /// A blocked stage or one waiting for its agent choice is the Operator's to act on.
     private func wakeIfWaiting(_ id: UUID) {
         switch workspace.state.signalItem(id: id)?.signalTask?.phase {
@@ -584,7 +685,11 @@ import AiTermCore
     private func deliverWake() async {
         guard !waking, let (event, id) = wakePending, let session = workspace.state.operatorSession,
               !session.startingFresh, !session.paused, let tab = operatorTab(), tab.state.turnEnded, let daemon = daemon() else { return }
-        waking = true; defer { waking = false }
+        waking = true
+        await activity.during("waking its session") { await sendWake(event, id: id, session: session, tab: tab, daemon: daemon) }
+        waking = false
+    }
+    private func sendWake(_ event: OperatorWakeEvent, id: UUID, session: OperatorSession, tab: SessionInfo, daemon: any DaemonCommands) async {
         do {
             try await daemon.setOwnership(sessionId: tab.sessionId, ownership: session.generation)
             guard !isStopped, workspace.state.operatorSession?.generation == session.generation else { return }
@@ -600,6 +705,9 @@ import AiTermCore
                 wakeLeftUnsent = true
                 fail(.wake, "A wake line was pasted into the Operator's chat but not sent. Press Enter there.")
             case .refused:
+                // This attempt typed nothing. Without a previous uncertain paste there is no
+                // unread wake to keep a finished workload's chat alive.
+                if !wakeLeftUnsent { workspace.mutate { $0.operatorSession?.wakeAwaitingRead = nil }; workspace.flush() }
                 switch result.code {
                 case .typing?, .prompt?: break // Not now: the person is typing, or a prompt the session already shows is open.
                 case .unsentInput? where !wakeLeftUnsent: break
@@ -616,6 +724,9 @@ import AiTermCore
     private var currentInstructions: String { OperatorProfileStore.saved(ports.preferences)?.instructions ?? profile.instructions }
     private var currentOracle: OracleSetting { OperatorProfileStore.saved(ports.preferences)?.oracle ?? profile.oracle }
     private func oracle(_ prompt: String) async throws -> String {
+        try await activity.during("consulting the Oracle") { try await consultOracle(prompt) }
+    }
+    private func consultOracle(_ prompt: String) async throws -> String {
         guard !isStopped, currentOracle.isOn else { throw ActionUnavailable("The Oracle is off.") }
         let id = UUID(), setting = currentOracle, revision = OperatorProfileStore.oracleRevision(ports.preferences), instructions = currentInstructions; oracleJobs.insert(id); defer { oracleJobs.remove(id) }
         let folder = SignalOperatorCommand.folder(home: ports.home), projects = workspace.state.projects.map(\.path)
@@ -636,16 +747,18 @@ import AiTermCore
     }
     func takeOver(_ id: UUID) async {
         guard workspace.canChangeWorkspace, let task = workspace.state.task(id: id), let record = task.signalTask, !record.takenOver else { return }
-        workspace.mutate { state in
-            state.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1; $0.currentAct = nil }
-            state.updateProject(id: task.projectId) { $0.collapsed = false }
-            state.operatorSession?.questions.removeAll { $0.task == id }
-            state.operatorSession?.pausedWorkers?.removeAll { $0.task == id }
+        await activity.during("releasing " + OperatorActivityTracker.name(task)) {
+            workspace.mutate { state in
+                state.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1; $0.currentAct = nil }
+                state.updateProject(id: task.projectId) { $0.collapsed = false }
+                state.operatorSession?.questions.removeAll { $0.task == id }
+                state.operatorSession?.pausedWorkers?.removeAll { $0.task == id }
+            }
+            guard workspace.flush() else { return }
+            takeOverRepairs[id] = TakeOverRepair(guardScope: true, journal: true)
+            await repairTakeOver(id)
+            changed()
         }
-        guard workspace.flush() else { return }
-        takeOverRepairs[id] = TakeOverRepair(guardScope: true, journal: true)
-        await repairTakeOver(id)
-        changed()
     }
     /// The task is already the person's; its guard refresh and journal entry are retried until done.
     private func repairTakeOver(_ id: UUID) async {
@@ -675,7 +788,7 @@ import AiTermCore
         if takeOverRepairs.isEmpty { succeed(.takeOver) }
     }
     func openOperator() async {
-        await keeper.ensure(allowPaused: true)
+        if workspace.state.operatorHasWork { await keeper.ensure(allowPaused: true) }
         guard let window = workspace.state.operatorSession?.window, let daemon = daemon() else { return }
         do { try await daemon.activate(windowId: window); succeed(.openWindow) }
         catch { fail(.openWindow, OperationIssue.reason(of: error)) }

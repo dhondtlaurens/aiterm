@@ -2,11 +2,31 @@ import Foundation
 import AppKit
 import SwiftUI
 import Testing
+import AiTermUI
 @testable import AiTerm
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test func aSignalTaskKeepsTheOrdinaryTasksTwoLineHeight() throws {
+        let controller = AppController(preferences: .scratch()); try controller.workspace.load()
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.currentAct = "answering its worker" }
+        controller.workspace.mutate { $0 = world.state }
+        let driven = try #require(controller.rows.signalSections.first?.tasks.first)
+        let task = try #require(controller.state.task(id: id))
+        func height(_ row: TaskRow, _ item: TaskItem) -> CGFloat {
+            NSHostingView(rootView: TaskRowView(row: row, task: item, controller: controller)
+                .frame(width: Size.sidebarWidth).environment(\.motionStill, .snapshot).surface(.sidebar)).fittingSize.height
+        }
+        let drivenHeight = height(driven, task)
+        controller.workspace.mutate { $0.updateSignalTask(id) { $0.takenOver = true } }
+        let ordinary = try #require(controller.rows.sections.flatMap(\.tasks).first { $0.id == id })
+        #expect(drivenHeight == height(ordinary, try #require(controller.state.task(id: id))))
+        #expect(drivenHeight == Size.row)
+    }
+
     @Test func unsupportedSavedSignalsExplainWhyTheyCannotRunInTheirHeading() {
         var world = SignalWorld(); _ = world.signal()
         world.state.signals[0].source = .gitHub(RequestConditions(event: .unknown("future")))
@@ -32,6 +52,7 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.updateSignalTask(id) { $0.currentAct = "consulting the Oracle" }
         let own = OperatorServiceFixtures.session("operator", tag: world.state.operatorSession!.id, state: .needsInput)
+        world.state.operatorSession?.window = own.windowId
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: [own]).status == .needsInput)
     }
     @Test func anOperatorFailureIsADrawnFactInTheProjection() throws {
@@ -237,8 +258,7 @@ import Testing
             projectId: nil, agent: .claude, model: nil, state: .needsInput, title: "", cwd: "/")
         #expect(SignalOperatorRowValue.make(state: AppState(), sessions: [session]) == .empty)
     }
-    /// With no signal configured the Operator has nothing to watch, so its row is left out; a
-    /// signal, a task it still drives, or the Operator needing you brings it back.
+    /// Configured signals watch without a chat; unfinished work or real attention shows its row.
     @Test func theOperatorRowIsLeftOutWhileItHasNothingToWatch() throws {
         #expect(!SignalOperatorRowValue.make(state: AppState(), sessions: []).shown)
         var paused = AppState(); var session = OperatorSession(createdAt: Date()); session.paused = true; paused.operatorSession = session
@@ -246,7 +266,7 @@ import Testing
         #expect(SignalOperatorRowValue.make(state: AppState(), sessions: [], issue: "The Operator could not sign in.").shown)
 
         var world = SignalWorld(); let signal = world.signal()
-        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a signal with no task yet")
+        #expect(!SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a signal with no task yet")
         _ = world.workingTask(signal: signal); world.state.signals = []
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a task left from a removed signal")
     }

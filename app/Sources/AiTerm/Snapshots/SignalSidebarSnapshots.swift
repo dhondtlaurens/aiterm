@@ -5,7 +5,7 @@ import AiTermUI
 
 @MainActor enum SignalSidebarSnapshots {
     static var all: [Snapshot] {
-        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "choosing", "blocked", "issue", "done", "window-closed", "off", "removed", "section-folded",
+        ["sidebar", "acting", "watching", "questions", "paused", "idle-paused", "folded", "taken-over", "fresh", "choosing", "blocked", "issue", "idle", "done", "window-closed", "off", "removed", "section-folded",
          "worker-done", "approval", "threads", "waiting-folded"].map { state in
             Snapshot("signals-" + state + ".png", hostedOnly: true) { make(state) }
         } + [Snapshot("signals-waiting-marks.png", hostedOnly: true) { waitingMarks() }]
@@ -36,9 +36,9 @@ import AiTermUI
             if pose == "acting" { record.currentAct = "answering its worker" }
             if pose == "choosing" { record.phase = .choosing; record.choosableRows = signal.agents + [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")] }
             if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming." }
-            if pose == "done" { record.phase = .done }
+            if pose == "done" { record.phase = .done; record.thenApplied = true }
             if pose == "taken-over" { record.takenOver = true; record.ownership = 1 }
-            if let index = state.tasks.firstIndex(where: { $0.id == fixture.working.id }) { state.tasks[index].signalTask = record
+            if let index = state.tasks.firstIndex(where: { $0.id == fixture.working.id }) { state.tasks[index].signalTask = ["idle", "idle-paused"].contains(pose) ? nil : record
                 if waiting(pose) != nil { state.tasks[index].mr = MergeRequestRef(iid: 102, title: "Apple Pay", url: "https://git.example/shop/web/-/merge_requests/102") }
                 if pose == "window-closed" {
                     state.tasks[index].windowId = nil
@@ -47,7 +47,7 @@ import AiTermUI
             }
             if pose == "removed" { state.signals = [] }
             state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now)
-            if pose == "paused" { state.operatorSession?.paused = true }
+            if ["paused", "idle-paused"].contains(pose) { state.operatorSession?.paused = true }
             if pose == "fresh" { state.operatorSession?.startingFresh = true }
             // The Operator's section open, but where the pose is the projects': a taken-over task is theirs, and
             // section-folded is the default, OPERATOR folded with its amber count.
@@ -85,7 +85,7 @@ import AiTermUI
         controller.focus.browse(.task(fixture.working.id))
         let rows = controller.rows.signalSections.flatMap(\.tasks)
         let selected = rows.first { $0.id == fixture.working.id }!, plain = rows.first { $0.id == fixture.other.id }!
-        // The driven tasks as the workspace holds them: only a driven one draws the Operator's line.
+        // Driven tasks use the ordinary two-line row under the same status-mark rules.
         let working = controller.workspace.state.task(id: fixture.working.id), other = controller.workspace.state.task(id: fixture.other.id)
         return SnapshotColumn(width: Size.sidebarWidth + 2 * Space.inset, spacing: Space.base, horizontalInset: Space.inset, verticalInset: Space.base) {
             TaskRowView(row: plain, task: other, controller: controller)
