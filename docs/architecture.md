@@ -135,7 +135,7 @@ an atomic private write, and skips the write when that exact folder is already t
 `FixSession` owns an isolated clone through proposal, apply, landing and cleanup; quit cannot begin
 a new landing after an awaited agent reply.
 
-`BackpackController` owns Unplugged permissions, network/lid-sleep transitions and cleanup.
+`BackpackController` owns Backpack Mode permissions, network/lid-sleep transitions and cleanup.
 `MachineMonitor` samples in-process platform readings. `UpdateController` owns release lookup,
 validated download and replacement; development builds disable self-update. These platform owners
 keep their existing focused seams rather than using a generic job/workflow framework.

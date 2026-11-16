@@ -103,9 +103,9 @@ To start work automatically from Jira or a code host, [create a signal](docs/ope
   Oracle; providers such as Grok run through PI. [Agents](docs/configuration.md#agents).
 - **Recover from Git problems:** **Find a Fix** asks Claude to inspect an isolated clone and propose
   a fix for you to apply. [Help with problems](docs/configuration.md#help-with-problems).
-- **Keep work running with the lid closed:** **Unplugged** (⌘U) joins your phone's hotspot and needs
+- **Keep work running with the lid closed:** **Backpack Mode** (⌘B) joins your phone's hotspot and needs
   Lid sleep permission and Location access for network discovery. It stops at 10% battery and can
-  stop after your agents finish. [Unplugged setup](docs/configuration.md#mac-and-unplugged).
+  stop after your agents finish. [Backpack Mode setup](docs/configuration.md#mac-and-backpack-mode).
 
 See [configuration](docs/configuration.md) for settings, integration permissions and agent checks;
 the [keyboard reference](docs/keyboard.md), [window guide](docs/windows.md) and
