@@ -12,11 +12,12 @@ import AiTermCore
     var tabsKnown = false
     private(set) var profile = OperatorProfile(model: "", reasoning: nil)
     private(set) var sourceErrors: [UUID: String] = [:]
-    private(set) var lastError: String? { didSet { if oldValue != lastError { changed() } } }
+    /// One issue per source; each clears only on its own source's next success (`OperatorIssues`).
+    private(set) var issues = OperatorIssues() { didSet { if oldValue != issues { changed() } } }
+    /// What the Operator row shows as "needs you": an issue that needs the person, then the session's own.
     var statusIssue: String? {
         guard !isStopped else { return nil }
-        if let lastError { return lastError }
-        if let error = keeper.lastError { return error }
+        if let issue = issues.attention { return issue.sentence }
         if let stopped = operatorTab()?.stoppedOn { return "The Operator " + stopped.reason(now: ports.now()) + "." }
         if let opened, ports.now().timeIntervalSince(opened.at) >= 180,
            live.sessions.contains(where: { $0.windowId == opened.window && $0.taskUUID == workspace.state.operatorSession?.id && $0.agent == .shell }) {
@@ -37,10 +38,16 @@ import AiTermCore
     @ObservationIgnored private var reconciling = false
     @ObservationIgnored private var hostDue = Date.distantPast
     @ObservationIgnored private var settingsDue = Date.distantPast
-    @ObservationIgnored private var wakePending: (String, UUID)?
+    @ObservationIgnored private var wakePending: (OperatorWakeEvent, UUID)?
     @ObservationIgnored private var waking = false
     @ObservationIgnored private var opened: (window: String, generation: Int, at: Date)?
     @ObservationIgnored private var lastActivity: Task<Void, Never>?
+    @ObservationIgnored private var unwrittenActivity: [ActivityEntry] = []
+    /// After a partial wake, the Operator's unsent input is that wake line, not the person typing.
+    @ObservationIgnored private var wakeLeftUnsent = false
+    /// Take Over steps that failed after the task became the person's, retried on each reconcile.
+    @ObservationIgnored private var takeOverRepairs: [UUID: TakeOverRepair] = [:]
+    private struct TakeOverRepair { var guardScope = false, journal = false }
     @ObservationIgnored private var activeTools = 0
     @ObservationIgnored private var oracleJobs: Set<UUID> = []
     @ObservationIgnored private var hooks: [() -> Void] = []
@@ -155,7 +162,8 @@ import AiTermCore
                     + ChallengeLaunch.fenced(question) + "\n" + ChallengeLaunch.fenced(context))
             }, actionsAllowed: { [weak self] in self?.isStopped == false },
             sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.currentInstructions }, usage: { [weak self] in self?.live.usage ?? .empty },
-            installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }))
+            installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] },
+            issues: { [weak self] in self?.issues.current ?? [] }))
     }
     @ObservationIgnored lazy var gate = SignalShellGate(workspace: workspace, folder: SignalOperatorCommand.folder(home: ports.home),
         now: ports.now, validate: { [weak self] request in
@@ -203,8 +211,10 @@ import AiTermCore
         host.hostTimeout = ports.hostTimeout; host.hostCache = ports.hostCache; host.now = ports.now
         host.enabled = { [weak self] in self?.isStopped == false }
         native.recoveryAllowed = { [weak self] id in self.map { !$0.stages.isRunning(id) } ?? false }
-        native.onBlocked = { [weak self] id in self?.wake("task_blocked", id: id) }
-        native.onTurn = { [weak self] id in self?.wake("worker_ended", id: id) }
+        native.onBlocked = { [weak self] id in self?.wake(.taskBlocked, id: id) }
+        native.onTurn = { [weak self] id in self?.wake(.workerEnded, id: id) }
+        keeper.failed = { [weak self] reason in self?.fail(.session, reason) }
+        keeper.succeeded = { [weak self] in self?.succeed(.session) }
         native.recordSwitch = { [weak self] id, row in try await self?.journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
         router.changed = { [weak self] id, event in
             guard let self else { return }
@@ -218,7 +228,7 @@ import AiTermCore
             self.changed()
         }
         questions.changed = { [weak self] in
-            guard let self else { return }; self.wake("question_waiting", id: self.workspace.state.operatorSession?.id ?? UUID()); self.changed()
+            guard let self else { return }; self.wake(.questionWaiting, id: self.workspace.state.operatorSession?.id ?? UUID()); self.changed()
         }
         gate.changed = questions.changed
         tools.changed = { [weak self] in self?.changed() }
@@ -252,7 +262,7 @@ import AiTermCore
                 }
                 self.recordActivity(tool: "signal_read", task: nil, arguments: ["signal": .string(id.uuidString)], outcome: .failed,
                     result: reason, line: "A signal source could not be read.")
-                self.wake("signal_failed", id: id)
+                self.wake(.signalFailed, id: id)
             }
         }
         workspace.onChange { [weak self] in
@@ -262,24 +272,54 @@ import AiTermCore
         }
     }
     func onChange(_ hook: @escaping () -> Void) { hooks.append(hook) }
-    private func recordActivity(tool: String, task: UUID?, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String, line: String) {
-        let entry = ActivityEntry(at: ports.now(), tool: tool, task: task, taskLabel: nil, arguments: arguments,
-                                  outcome: outcome, result: result, line: line, reason: outcome == .ok ? nil : result)
+    private func recordActivity(tool: String, task: UUID?, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String, line: String,
+                                at: Date? = nil) {
+        writeActivity(ActivityEntry(at: at ?? ports.now(), tool: tool, task: task, taskLabel: nil, arguments: arguments,
+                                    outcome: outcome, result: result, line: line, reason: outcome == .ok ? nil : result))
+    }
+    /// Writes the entries a failed write kept, in order and with their own times, then `entry`.
+    private func writeActivity(_ entry: ActivityEntry?) {
         let previous = lastActivity, folder = SignalOperatorCommand.folder(home: ports.home)
         lastActivity = ports.work.start { [weak self] in
             await previous?.value
-            do {
-                try await BackgroundWork.run {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
-                                                            attributes: [.posixPermissions: 0o700])
-                    try ActivityLog.append(entry, runFolder: folder)
+            guard let self else { return }
+            let batch = self.unwrittenActivity + (entry.map { [$0] } ?? [])
+            guard !batch.isEmpty else { return }
+            let (written, failure) = await BackgroundWork.run { () -> (Int, String?) in
+                do {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                } catch { return (0, OperationIssue.reason(of: error)) }
+                for (index, item) in batch.enumerated() {
+                    do { try ActivityLog.append(item, runFolder: folder) } catch { return (index, OperationIssue.reason(of: error)) }
                 }
-            } catch {
-                guard let self, !self.isStopped else { return }
-                self.lastError = "The Operator activity could not be saved: " + OperationIssue.reason(of: error)
-                self.changed()
+                return (batch.count, nil)
             }
+            self.unwrittenActivity = Array(batch.dropFirst(written).suffix(Self.unwrittenActivityLimit))
+            guard !self.isStopped else { return }
+            if let failure { self.fail(.activity, "Its activity could not be saved: " + failure) } else { self.succeed(.activity) }
         }
+    }
+    static let unwrittenActivityLimit = 200
+    private func fail(_ source: OperatorIssues.Source, _ text: String) { record(issues.fail(source, text, at: ports.now())) }
+    private func succeed(_ source: OperatorIssues.Source) { record(issues.succeed(source, at: ports.now())) }
+    /// An issue's start, changed reason and recovery go to the activity log. The activity log's own
+    /// failure waits in the kept entries, since writing it now would fail too.
+    private func record(_ transition: OperatorIssues.Transition?) {
+        guard let transition else { return }
+        let entry: ActivityEntry
+        switch transition {
+        case .started(let issue), .changed(let issue):
+            entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, taskLabel: nil, arguments: ["source": .string(issue.source.rawValue)],
+                                  outcome: .failed, result: issue.text, line: issue.source.label + " failed.", reason: issue.text)
+        case .recovered(let issue):
+            entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, taskLabel: nil, arguments: ["source": .string(issue.source.rawValue)],
+                                  outcome: .ok, result: "Recovered after \(issue.attempts) failed \(issue.attempts == 1 ? "attempt" : "attempts") since \(issue.since.formatted(.iso8601)).",
+                                  line: issue.source.label + " recovered.", reason: nil)
+        }
+        if case .recovered = transition { writeActivity(entry) }
+        else if entry.arguments["source"] == .string(OperatorIssues.Source.activity.rawValue) {
+            unwrittenActivity = Array((unwrittenActivity + [entry]).suffix(Self.unwrittenActivityLimit))
+        } else { writeActivity(entry) }
     }
     private func changed() {
         if !isStopped {
@@ -300,14 +340,17 @@ import AiTermCore
             let owner = (notification.object as? UserDefaults).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
                 guard let self, owner == ObjectIdentifier(self.ports.preferences) else { return }
-                if let id = self.workspace.state.operatorSession?.id { self.wake("settings_changed", id: id) }
+                if let id = self.workspace.state.operatorSession?.id { self.wake(.settingsChanged, id: id) }
                 self.schedule { [weak self] in await self?.loadProfile() }
             }
         }
         if automatic { loop = PollLoop(interval: ports.reconcileInterval) { [weak self] in
             guard let self, !self.isStopped else { return nil }; await self.reconcile(); return self.ports.reconcileInterval
         } }
-        if workspace.state.operatorSession?.wakeAwaitingRead == true, let id = workspace.state.operatorSession?.id { wakePending = ("session_recovered", id) }
+        if workspace.state.operatorSession?.wakeAwaitingRead == true, let id = workspace.state.operatorSession?.id {
+            // The unread wake may sit pasted in the Operator's chat from before the relaunch.
+            wakePending = (.sessionRecovered, id); wakeLeftUnsent = true
+        }
         schedule {
             let delivered = await self.ports.notifications.readDelivered()
             if delivered.contains(SignalQuestionNotification.id) {
@@ -388,13 +431,19 @@ import AiTermCore
                 } else { answer = await tools.respond(request) }
                 if request.tool == "run_status", request.arguments["task"]?.stringValue == nil, case .result = answer {
                     wakePending = nil; workspace.mutate { $0.operatorSession?.wakeAwaitingRead = nil }; workspace.flush()
+                    // A global read acknowledges every wake, including one the person sent by pressing Enter.
+                    wakeLeftUnsent = false; succeed(.wake)
                 }
                 switch answer {
                 case .result(let value): try await daemon.replyToOperator(requestId: request.requestId, result: value, error: nil)
                 case .error(let reason): try await daemon.replyToOperator(requestId: request.requestId, result: nil, error: reason)
                 }
             }
-        } catch { lastError = OperationIssue.reason(of: error) }
+            succeed(.reply)
+        } catch {
+            // Not resent: the Operator retries its timed-out call, and a keyed call replays its ledger result.
+            fail(.reply, "An answer could not be sent back to the Operator: " + OperationIssue.reason(of: error))
+        }
         await reconcile()
     }
     func reconcile() async {
@@ -406,6 +455,8 @@ import AiTermCore
         if !workspace.state.signals.isEmpty || workspace.state.operatorSession != nil { await keeper.ensure() }
         guard !isStopped else { return }
         rememberOperator()
+        for id in Array(takeOverRepairs.keys) { await repairTakeOver(id) }
+        if !unwrittenActivity.isEmpty { writeActivity(nil) }
         await native.recoverLaunches()
         await native.refreshTurns()
         await pause.reconcile()
@@ -508,12 +559,12 @@ import AiTermCore
         }
         guard result.result == .delivered else { throw ActionUnavailable(result.reason ?? "The Operator could not close safely.") }
     }
-    private func wake(_ event: String, id: UUID) { if wakePending == nil { wakePending = (event, id) } }
+    private func wake(_ event: OperatorWakeEvent, id: UUID) { if wakePending == nil { wakePending = (event, id) } }
     /// A blocked stage or one waiting for its agent choice is the Operator's to act on.
     private func wakeIfWaiting(_ id: UUID) {
         switch workspace.state.signalItem(id: id)?.signalTask?.phase {
-        case .blocked: wake("task_blocked", id: id)
-        case .choosing: wake("agent_choice", id: id)
+        case .blocked: wake(.taskBlocked, id: id)
+        case .choosing: wake(.agentChoice, id: id)
         default: break
         }
     }
@@ -539,10 +590,28 @@ import AiTermCore
             guard !isStopped, workspace.state.operatorSession?.generation == session.generation else { return }
             workspace.mutate { $0.operatorSession?.wakeAwaitingRead = true }
             guard workspace.flush() else { return }
-            let result = try await daemon.deliver(sessionId: tab.sessionId, text: "[AiTerm] \(event) \(id.uuidString); call run_status",
+            let result = try await daemon.deliver(sessionId: tab.sessionId, text: event.line(id),
                 ownership: session.generation, wake: true, worktree: nil)
-            if result.result == .delivered, wakePending?.0 == event, wakePending?.1 == id { wakePending = nil }
-        } catch { lastError = OperationIssue.reason(of: error) }
+            switch result.result {
+            case .delivered:
+                if wakePending?.0 == event, wakePending?.1 == id { wakePending = nil }
+                wakeLeftUnsent = false; succeed(.wake)
+            case .partial:
+                wakeLeftUnsent = true
+                fail(.wake, "A wake line was pasted into the Operator's chat but not sent. Press Enter there.")
+            case .refused:
+                switch result.code {
+                case .typing?, .prompt?: break // Not now: the person is typing, or a prompt the session already shows is open.
+                case .unsentInput? where !wakeLeftUnsent: break
+                case .unsentInput?: fail(.wake, "Text waits unsent in the Operator's chat, so it cannot be woken. Send or clear it there.")
+                default: fail(.wake, "The helper refused the wake: " + (result.reason ?? result.code?.rawValue ?? "no reason given"))
+                }
+            }
+        } catch {
+            // The reply may be what was lost (a timeout after the paste): the line may sit unsent in the chat.
+            wakeLeftUnsent = true
+            fail(.wake, "The wake could not be sent: " + OperationIssue.reason(of: error))
+        }
     }
     private var currentInstructions: String { OperatorProfileStore.saved(ports.preferences)?.instructions ?? profile.instructions }
     private var currentOracle: OracleSetting { OperatorProfileStore.saved(ports.preferences)?.oracle ?? profile.oracle }
@@ -574,30 +643,46 @@ import AiTermCore
             state.operatorSession?.pausedWorkers?.removeAll { $0.task == id }
         }
         guard workspace.flush() else { return }
-        let home = ports.home, executable = ports.workerGuardExecutable, slots = ["main"] + record.extraTabs.map(\.key)
-        do {
-            try await BackgroundWork.run {
-                for slot in slots {
-                    if var scope = WorkerGuardLaunch.recordedScope(task: id, home: home, slot: slot) {
-                        scope.ownership = record.ownership + 1
-                        _ = try WorkerGuardLaunch.prepare(scope: scope, home: home, slot: slot, executable: executable)
+        takeOverRepairs[id] = TakeOverRepair(guardScope: true, journal: true)
+        await repairTakeOver(id)
+        changed()
+    }
+    /// The task is already the person's; its guard refresh and journal entry are retried until done.
+    private func repairTakeOver(_ id: UUID) async {
+        guard var repair = takeOverRepairs[id] else { return }
+        guard let task = workspace.state.signalItem(id: id), let record = task.signalTask, record.takenOver else {
+            takeOverRepairs[id] = nil; if takeOverRepairs.isEmpty { succeed(.takeOver) }; return
+        }
+        if repair.guardScope {
+            let home = ports.home, executable = ports.workerGuardExecutable, slots = ["main"] + record.extraTabs.map(\.key), ownership = record.ownership
+            do {
+                try await BackgroundWork.run {
+                    for slot in slots {
+                        if var scope = WorkerGuardLaunch.recordedScope(task: id, home: home, slot: slot) {
+                            scope.ownership = ownership
+                            _ = try WorkerGuardLaunch.prepare(scope: scope, home: home, slot: slot, executable: executable)
+                        }
                     }
                 }
-            }
-        } catch { lastError = "The task is yours, but its branch guard could not be refreshed: " + OperationIssue.reason(of: error) }
-        do { try await journal.append(.ours("The person took over this task."), task: id) }
-        catch { lastError = OperationIssue.reason(of: error) }
-        changed()
+                repair.guardScope = false
+            } catch { fail(.takeOver, "The task is yours, but its branch guard could not be refreshed: " + OperationIssue.reason(of: error)) }
+        }
+        if repair.journal {
+            do { try await journal.append(.ours("The person took over this task."), task: id); repair.journal = false }
+            catch { fail(.takeOver, "The task is yours, but its journal entry could not be saved: " + OperationIssue.reason(of: error)) }
+        }
+        takeOverRepairs[id] = repair.guardScope || repair.journal ? repair : nil
+        if takeOverRepairs.isEmpty { succeed(.takeOver) }
     }
     func openOperator() async {
         await keeper.ensure(allowPaused: true)
         guard let window = workspace.state.operatorSession?.window, let daemon = daemon() else { return }
-        do { try await daemon.activate(windowId: window); lastError = nil }
-        catch { lastError = OperationIssue.reason(of: error) }
+        do { try await daemon.activate(windowId: window); succeed(.openWindow) }
+        catch { fail(.openWindow, OperationIssue.reason(of: error)) }
     }
     func reopenWorker(_ id: UUID) async {
         guard let task = workspace.state.task(id: id) else { return }
-        do { try await native.reopen(task); lastError = nil }
-        catch { lastError = OperationIssue.reason(of: error) }
+        do { try await native.reopen(task); succeed(.reopenWorker) }
+        catch { fail(.reopenWorker, OperationIssue.reason(of: error)) }
     }
 }

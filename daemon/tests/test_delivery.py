@@ -1227,7 +1227,7 @@ async def test_close_idle_worker_refuses_changed_or_person_owned_input(rig, chan
     assert rig.iterm.sent == []
 
 
-@pytest.mark.parametrize("event", ["worker_ended", "task_blocked", "agent_choice", "question_waiting", "reconnected", "signal_failed"])
+@pytest.mark.parametrize("event", delivery.WAKE_EVENTS)
 def test_signal_wakes_accept_only_fixed_event_names_and_uuid_identifiers(event):
     identity = "2f9c4b7e-5a1d-4c3b-9e8f-0a1b2c3d4e5f"
     assert delivery.wake_text_problem(f"[AiTerm] {event} {identity}; call run_status") is None

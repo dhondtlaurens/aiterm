@@ -4,12 +4,14 @@ import AiTermCore
 
 @MainActor enum SignalSidebarSnapshots {
     static var all: [Snapshot] {
-        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "choosing", "blocked", "done", "window-closed", "off", "removed", "section-folded"].map { state in
+        ["sidebar", "acting", "watching", "questions", "paused", "folded", "taken-over", "fresh", "choosing", "blocked", "issue", "done", "window-closed", "off", "removed", "section-folded"].map { state in
             Snapshot("signals-" + state + ".png", hostedOnly: true) { make(state) }
         }
     }
     private static func make(_ pose: String) -> some View {
         let fixture = Fixture(), controller = fixture.controller()
+        // An issue that kept failing: the Operator row's own "needs you", its source and reason as tooltip.
+        if pose == "issue" { controller.rows.operatorIssue = { "Waking the Operator: The helper refused the wake: a wake line may not carry a digit" } }
         var signal = Signal(name: "Plan labelled tickets", createdAt: Snapshots.clock.now,
             source: .jira(JiraConditions(labels: ["operator"])), work: SignalWork(prompt: "/psg:plan"),
             agents: [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")],

@@ -17,6 +17,7 @@ import AiTermCore
         var instructions: @MainActor () -> String? = { nil }
         var usage: @MainActor () -> UsageSnapshot = { .empty }
         var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
+        var issues: @MainActor () -> [OperatorIssues.Issue] = { [] }
     }
     let workspace: WorkspaceStore
     let stages: StageRunner

@@ -289,6 +289,8 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         "sessionAgents": sorted(get_args(AgentKind)), "sessionStates": sorted(get_args(State)),
         # The codes a refused delivery can name: the app reads one it does not know as unknown.
         "deliveryCodes": sorted(get_args(delivery.RefusalCode)),
+        # The events a wake line may name: the app's `OperatorWakeEvent` must be exactly these.
+        "wakeEvents": sorted(delivery.WAKE_EVENTS),
         # Which files show each name: a reply can have more than one, a snapshot both refused and connected.
         "fixtures": {
             "events": {name: f"event.{name}.json" for name in sorted(events)},

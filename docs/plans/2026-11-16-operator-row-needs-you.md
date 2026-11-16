@@ -141,9 +141,9 @@ add poses to the same list, a one-line conflict for whichever merges second.
 
 ## To-dos
 
-- [ ] `OperatorWakeEvent`, the daemon's `WAKE_EVENTS` with the two missing events, the manifest and
+- [x] `OperatorWakeEvent`, the daemon's `WAKE_EVENTS` with the two missing events, the manifest and
       both parity tests.
-- [ ] `OperatorIssues` with its core tests.
-- [ ] The controller and keeper report per source; wake result classification; `statusIssue`,
+- [x] `OperatorIssues` with its core tests.
+- [x] The controller and keeper report per source; wake result classification; `statusIssue`,
       activity log and `run_status`; `SignalControllerTests`.
-- [ ] Snapshot pose, docs; read the PNG.
+- [x] Snapshot pose, docs; read the PNG.
