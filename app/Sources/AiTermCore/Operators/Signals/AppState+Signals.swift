@@ -1,7 +1,7 @@
 import Foundation
 
 public extension AppState {
-    /// Unplugged must bridge quiet turns while sources or retained stages can schedule work.
+    /// Backpack Mode must bridge quiet turns while sources or retained stages can schedule work.
     var operatorMayStartWork: Bool {
         guard operatorSession?.paused != true else { return false }
         if signals.contains(where: \.isRunnable) { return true }

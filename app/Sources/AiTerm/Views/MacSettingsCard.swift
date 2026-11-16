@@ -6,10 +6,10 @@ import AiTermCore
 enum MacCardPresentation {
     static func status(_ setup: BackpackSetup) -> SettingsStatus {
         switch (setup.sleepRule, setup.location) {
-        case (true, true): SettingsStatus(.ready, "Ready for Unplugged")
-        case (false, true): SettingsStatus(.attention, "Unplugged needs lid sleep")
-        case (true, false): SettingsStatus(.attention, "Unplugged needs network discovery")
-        case (false, false): SettingsStatus(.attention, "Unplugged needs lid sleep and network discovery")
+        case (true, true): SettingsStatus(.ready, "Ready for Backpack Mode")
+        case (false, true): SettingsStatus(.attention, "Backpack Mode needs lid sleep")
+        case (true, false): SettingsStatus(.attention, "Backpack Mode needs network discovery")
+        case (false, false): SettingsStatus(.attention, "Backpack Mode needs lid sleep and network discovery")
         }
     }
 
@@ -23,13 +23,13 @@ enum MacCardPresentation {
         }
     }
 
-    static let summary = "Unplugged keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again."
+    static let summary = "Backpack Mode keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again."
 
-    /// Under the permission rows the Unplugged sheet shows when one is missing.
+    /// Under the permission rows the Backpack Mode sheet shows when one is missing.
     static let alsoInSettings = "Also in Settings › Integrations › Mac."
 }
 
-/// Integrations › Core's second card: what Unplugged needs from this Mac. A harness card's
+/// Integrations › Core's second card: what Backpack Mode needs from this Mac. A harness card's
 /// anatomy — check chips, one action named by its state, the steps while something is missing.
 /// Allow… and Remove act at once, as a harness card's Install does; the card has no fields.
 struct MacSettingsCard: View {

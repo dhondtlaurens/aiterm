@@ -53,7 +53,7 @@ enum KeyBindings {
             KeyBinding(action: "Focus View", keys: ["⌘", "F"]),
             KeyBinding(action: "List View", keys: ["⌘", "L"]),
             KeyBinding(action: "Show Archive", keys: ["⌘", "A"]),
-            KeyBinding(action: "Unplugged", keys: ["⌘", "U"]),
+            KeyBinding(action: "Backpack Mode", keys: ["⌘", "B"]),
             KeyBinding(action: "Settings…", keys: ["⌘", ","]),
             KeyBinding(action: "Hide AiTerm", keys: ["⌘", "H"]),
             KeyBinding(action: "Hide Others", keys: ["⌥", "⌘", "H"]),

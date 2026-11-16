@@ -76,11 +76,11 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
 
     public var message: String {
         switch self {
-        case .needsSetup: "Unplugged needs setup: Settings › Integrations › Mac"
-        case .batteryLow(let level): "Battery at \(level) %: Unplugged stays off"
+        case .needsSetup: "Backpack Mode needs setup: Settings › Integrations › Mac"
+        case .batteryLow(let level): "Battery at \(level) %: Backpack Mode stays off"
         case .notInRange(let network): "\(network) isn’t showing its hotspot: open Personal Hotspot on the iPhone"
         case .joinFailed(let network): "Couldn’t join \(network): check its password"
-        case .quitting: "AiTerm is quitting: Unplugged stays off"
+        case .quitting: "AiTerm is quitting: Backpack Mode stays off"
         }
     }
 }

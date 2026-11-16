@@ -110,7 +110,7 @@ struct ReadmeDesktop: View {
             {"claude":{"fiveHour":{"usedPercent":42,"resetsAt":\(Fixture.soon)},"sevenDay":{"usedPercent":61,"resetsAt":\(Fixture.later)},"spend":null,"updatedAt":\(Fixture.fresh)},
              "codex":{"fiveHour":null,"sevenDay":{"usedPercent":17,"resetsAt":\(Fixture.later)},"spend":null,"updatedAt":\(Fixture.fresh)}}
             """)
-        // The Mac in the bag: Unplugged (Backpack Mode in the code) on over the hotspot, on battery, its readings fixed.
+        // The Mac in the bag: Backpack Mode on over the hotspot, on battery, its readings fixed.
         controller.backpack.preview(state: .on(BackpackStatus(network: "iPhone", joined: true,
                                                                power: PowerReading(level: 64, onBattery: true))),
                                     setup: BackpackSetup(sleepRule: true, location: true, network: "iPhone"))

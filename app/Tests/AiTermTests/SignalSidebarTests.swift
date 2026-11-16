@@ -13,7 +13,7 @@ import Testing
         let sidebar = SignalSidebar(state: world.state, entries: [])
         #expect(SignalHeadingValue(sidebar.signals[0]).help.contains("cannot run"))
     }
-    @Test func unpluggedWaitsForOrphanedStagesButNotUnsupportedSources() throws {
+    @Test func backpackModeWaitsForOrphanedStagesButNotUnsupportedSources() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
         defer { controller.shutdown() }
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)

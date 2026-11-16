@@ -18,7 +18,7 @@ Escape closes an open list before going back; clicking Cancel still cancels.
 | ⌘F | Focus View | Opens signals/projects with attention rows and peeks at the first. The Operator's chat questions count; ordinary unseen done rows still count. |
 | ⌘L | List View | Opens signals and projects; they remain visible together. |
 | ⌘A | Show Archive | Outside a text field. During text editing it stays Select All. |
-| ⌘U | Unplugged | Opens setup at the desk, plugs back in while unplugged. |
+| ⌘B | Backpack Mode | Opens setup at the desk, turns it off while on. |
 | ⌘Q | Quit | Flushes state and stops the helper; agents keep running in iTerm2. |
 | ⌘Z / ⇧⌘Z | Undo / Redo | Standard Edit menu, alongside Cut, Copy, Paste, Delete and Select All. |
 | ⌘H / ⌥⌘H | Hide AiTerm / Hide Others | Native application menu. |

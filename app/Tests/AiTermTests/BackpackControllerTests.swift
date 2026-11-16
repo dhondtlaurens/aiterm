@@ -397,7 +397,7 @@ import Testing
         #expect(toasts.lines.isEmpty, "no toast for a mode the quit already turned off")
     }
 
-    /// The gap the test above cannot hold open: quit lands after ⌘U set `busy` but before its work
+    /// The gap the test above cannot hold open: quit lands after ⌘B set `busy` but before its work
     /// reached the queue. That turn-on must find the mode closed.
     @Test func aTurnOnThatReachesTheQueueAfterShutdownDoesNothing() async {
         let fake = FakeBackpack()
@@ -551,7 +551,7 @@ import Testing
 @MainActor @Suite(.blocking) struct BackpackAppControllerTests {
     /// The sheet's actual popup follows workspace broadcasts, including one starting after the
     /// sheet opens. Ending a broadcast enables the option again and Connect carries that choice.
-    @Test func unpluggedChoicesFollowEnabledSignals() async throws {
+    @Test func backpackChoicesFollowEnabledSignals() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let fake = FakeBackpack()
@@ -598,10 +598,10 @@ import Testing
         #expect(model.backpack.state.until == .agentsStop)
     }
 
-    /// Signals enabled after Unplugged started must also bridge quiet turns. The cutoff
+    /// Signals enabled after Backpack Mode started must also bridge quiet turns. The cutoff
     /// still wins, and after the Operator pauses the normal idle grace resumes.
     @Test(arguments: [false, true])
-    func signalsHoldUnpluggedAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
+    func signalsHoldBackpackModeAwakeButNeverPastTheBatteryCutoff(cutoff: Bool) async {
         let fake = FakeBackpack(), clock = TestClock()
         fake.lidSensor.closed = true
         let operating = Mutex(false)
@@ -623,7 +623,7 @@ import Testing
         #expect(!backpack.isOn)
     }
 
-    /// The desk click opens the sheet once; ⌘U while it connects neither replaces the sheet, nor
+    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet, nor
     /// opens another once it is gone, nor turns anything off. The hotspot is out
     /// of range, so the connect keeps retrying and `busy` holds until the Cancel.
     @Test func toggleWhileConnectingDoesNothing() async {

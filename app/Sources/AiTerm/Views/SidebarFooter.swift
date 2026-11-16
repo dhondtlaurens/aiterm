@@ -14,8 +14,8 @@ import AiTermCore
 /// digits. The weekly window is a vendor's first column, being the one every vendor has: Codex
 /// reports nothing else, so a missing reading is always a later column, as on the context's row.
 /// The Mac's row is `cpu | ram | bat`, the battery only while it is the Mac's power; while
-/// Unplugged is on or switching, a second row holds the mode's line in its `SettingsTone`,
-/// `○ unplugged`, across the row. A click on the Mac's rows is ⌘U.
+/// Backpack Mode is on or switching, a second row holds the mode's line in its `SettingsTone`,
+/// `○ backpack mode`, across the row. A click on the Mac's rows is ⌘B.
 ///
 /// Its labels keep their short lowercase forms (`ctx`, `wk`, `5h`, `cpu`, `ram`, `bat`), set with
 /// tabular figures in the system face (`Typography.help.tabular`), on a ground of its own a step
@@ -36,7 +36,7 @@ import AiTermCore
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
 /// doing: an idle vendor's last reading is still its reading, and a dimmed ring beside a bright one
-/// reads as a different kind of mark. The Unplugged line is the one other colour.
+/// reads as a different kind of mark. The Backpack Mode line is the one other colour.
 struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
@@ -68,7 +68,7 @@ struct SidebarFooter: View {
         case reading(UsageLine)
         /// Words in an ink of their own: "No context yet".
         case words(String, Color)
-        /// The Mac's mode while Unplugged is on or switching.
+        /// The Mac's mode while Backpack Mode is on or switching.
         case mode(SettingsTone, String)
     }
 
@@ -106,7 +106,7 @@ struct SidebarFooter: View {
     }
 
     /// The Mac's rows: its readings under its mark, read out as one element (before the first
-    /// sample it is still the Mac's button, so it says "Mac"); then, while Unplugged is on or
+    /// sample it is still the Mac's button, so it says "Mac"); then, while Backpack Mode is on or
     /// switching, the mode's line on a row of its own.
     @ViewBuilder private var macRows: some View {
         macControl(
@@ -131,7 +131,7 @@ struct SidebarFooter: View {
         machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
     }
 
-    /// What makes a row the Mac's: a click is ⌘U, a right-click offers Mac Settings…, and the mode's
+    /// What makes a row the Mac's: a click is ⌘B, a right-click offers Mac Settings…, and the mode's
     /// sentence is its tooltip wherever a reading's own does not cover it.
     private func macControl(_ row: some View) -> some View {
         row

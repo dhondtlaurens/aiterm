@@ -113,7 +113,7 @@ public enum Size {
     public static let statusMark = trailingGlyph
     /// The smaller status mark drawn inside a count chip, where ``statusMark``'s usual size would
     /// overflow it; and a tone's ring, leading a Settings card's status line and the footer's
-    /// Unplugged line.
+    /// Backpack Mode line.
     public static let statusMarkSmall: CGFloat = 8
     /// The ink in the sidebar's trailing column, centred in a ``slot``.
     public static let trailingGlyph: CGFloat = 10
@@ -262,7 +262,7 @@ public enum Sheet {
     private static let screenMargin: CGFloat = 100
     public static let width: CGFloat = 560
     /// The sheets whose content runs past any one height and scrolls: New Signal and the
-    /// Archive; and the most a sheet that fits its content (`NameSheet`, Unplugged) grows to.
+    /// Archive; and the most a sheet that fits its content (`NameSheet`, Backpack Mode) grows to.
     public static let height: CGFloat = 560
     /// New Task's and New Review's every step, so the sheet does not jump from one to the next: their
     /// tallest ordinary step — the prompt, New Task's ticket checkbox, the command and where it opens,

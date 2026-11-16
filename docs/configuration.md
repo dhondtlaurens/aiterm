@@ -81,17 +81,17 @@ after you finish editing the fields. **Save** stores service tokens in the Keych
 | GitLab | Host URL and access token. Reading needs `read_api`; an Operator that opens or merges requests needs `api`. |
 | GitHub | Access token for the relevant repositories. Reading requests needs pull-request read access. An Operator that opens or merges them needs pull-request and contents write access, plus administration read access to inspect branch protection. |
 
-### Mac and Unplugged
+### Mac and Backpack Mode
 
-**Unplugged** (⌘U) connects to your phone's hotspot and keeps the Mac awake with the lid closed.
+**Backpack Mode** (⌘B) connects to your phone's hotspot and keeps the Mac awake with the lid closed.
 It needs **Lid sleep** permission and **Location** access for network discovery. Configure them in
-**Settings › Integrations › Mac**, or follow the setup shown when enabling Unplugged.
+**Settings › Integrations › Mac**, or follow the setup shown when enabling Backpack Mode.
 
 **Allow…** asks for the missing permissions. The lid-sleep permission installs
 `/etc/sudoers.d/aiterm`; **Remove** on the Mac card removes that rule. Choose the hotspot and enter
 its password when setting up the connection; the password is stored in the Keychain.
 
-Unplugged stops at 10% battery when running on battery power. With the option to stop when agents
+Backpack Mode stops at 10% battery when running on battery power. With the option to stop when agents
 stop, it turns off two minutes after the last working agent stops while the lid is closed. An open
 lid keeps that countdown from expiring.
 
@@ -170,6 +170,6 @@ The helper listens on `127.0.0.1:47821` for hook telemetry. The
 [data ownership reference](architecture.md#what-aiterm-writes-and-where) lists the files and local
 transports AiTerm uses. Agent requests use the selected provider's services and configuration.
 
-While signals can start work, Unplugged cannot stop merely because agent turns ended. Pause the
+While signals can start work, Backpack Mode cannot stop merely because agent turns ended. Pause the
 Operator before choosing “until agents are done”; pending workers still
 finish their current turn. This keeps source polling from starting new work after automatic sleep.

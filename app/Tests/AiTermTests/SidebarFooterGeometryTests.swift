@@ -297,7 +297,7 @@ extension SidebarFooterGeometryTests {
     }
 
     /// On battery the battery is the readings row's third column, so it adds no row: at the desk
-    /// the Mac is one row, and Unplugged's line is the only second one.
+    /// the Mac is one row, and Backpack Mode's line is the only second one.
     @Test(arguments: [(MacMode.desk, 1), (.on, 2)])
     func theBatteryJoinsTheReadingsRow(mode: MacMode, rows: Int) {
         let machine = [UsageLine(window: .cpu, percent: 23, warning: false), UsageLine(window: .ram, percent: 61, warning: false),

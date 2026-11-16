@@ -5,7 +5,7 @@ import Testing
     @Test func theRuleAllowsExactlyTheTwoPmsetCommandsForTheUser() throws {
         let text = try #require(SleepRule.text(user: "laurensdhondt"))
         #expect(text == """
-            # Installed by AiTerm for Unplugged. Remove with Settings > Integrations > Mac > Remove.
+            # Installed by AiTerm for Backpack Mode. Remove with Settings > Integrations > Mac > Remove.
             laurensdhondt ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1
 
             """)
