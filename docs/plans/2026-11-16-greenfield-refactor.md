@@ -240,7 +240,7 @@ TS tests-scripts.
   writes, thread replies, pipeline retry, user lookup, `JiraWrites`, `JiraAgile`, the confined
   search, the "outcome unknown" and "not sent" failures, `OperatorPorts.publisher`, `FakeMergeHost`,
   the dead thread prompt (HO F1, TS F1). `merge` stays as the one host write.
-- [ ] 1c. **Codex.** The push and publish stack, `LocalMerge`, `BranchDrift`, `BackgroundWork.within`,
+- [x] 1c. **Codex.** The push and publish stack, `LocalMerge`, `BranchDrift`, `BackgroundWork.within`,
   the `CommitId` wrapper (its one rule moves beside the worker guard with `sameLocation`,
   `shortBranch` and `folded`), `pushReason`, `saidAsWritten`, `LoginShellLocator.refresh`, the dead
   error case and the six unnoted `WorkMeter` cases (CG F1 to F3).
@@ -594,3 +594,13 @@ left.
   `retarget` line left. The Done-when grep for `func resolve(_` still matches
   `WatchedFileCache.resolve`, which the brief itself lists as unrelated (2b deletes the file).
   `JiraClient.approximateCount` has no source caller and is kept, as the brief says.
+- 1c: the push and publish stack, `LocalMerge`, `CommitId`, `BranchDrift`, `BackgroundWork.within`,
+  `pushReason`, `saidAsWritten`, `LoginShellLocator.refresh`, `WorktreeError.notARepository` and six
+  `WorkMeter` cases went; `isFullCommit`, `sameLocation`, `shortBranch` and `folded` moved unchanged
+  to `WorkerGuard+Names.swift`. Tests deleted with their behaviour: `LocalMergeTests`, the push tests
+  of `PublishPushTests`, three `GitErrorTests.pushReason*`, `LoginShellLocatorTests.aRefreshReplacesTheKnownPathOnlyWhenTheShellAnswers`
+  (`forgettingAsksTheShellAgain` stays), and the `CommitIdTests` merge and review rules. Survivors:
+  `WorkerGuardRulesTests.aDefaultBranchIsRecognisedUnderAnySpelling` (new; for the two default-branch
+  spelling tests), `WorkerGuardRulesTests.twoUrlsAreTheSamePlaceWhenHostAndPathAre` (moved table) and
+  `WorkerGuardNamesTests.aFullCommitIdIsFortyOrSixtyFourAsciiHexDigits` (for `onlyACommitIdIsPushed`).
+  `CommitIdTests` held two tests, not three.

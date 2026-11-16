@@ -45,7 +45,7 @@ public enum WorkerGuardCLI {
             case "push":
                 guard arguments.count == 4, scope.allowsPush else { throw WorkerGuard.GuardFailure("Publishing is not enabled for this worker.") }
                 let refs = try WorkerGuard.pushes(String(decoding: input, as: UTF8.self)), remote = arguments[3]
-                guard Repository.sameLocation(remote, scope.remote) else { throw WorkerGuard.GuardFailure("This push goes to another repository.") }
+                guard WorkerGuard.sameLocation(remote, scope.remote) else { throw WorkerGuard.GuardFailure("This push goes to another repository.") }
                 let head = try await BackgroundWork.run {
                     let branch = try dependencies.git.run(["symbolic-ref", "--short", "HEAD"], in: scope.worktree)
                     guard branch == scope.branch else { throw WorkerGuard.GuardFailure("The worktree is no longer on its task branch.") }

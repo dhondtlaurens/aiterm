@@ -21,9 +21,9 @@ a repository's lane. Jobs that block for seconds run on a `SerialThread`; one su
 `ThreadWork`. `FolderCheck` asks whether a folder exists on a thread of its own. `AgentProcess`
 separately owns long-running cancellable process groups.
 
-Commit ids, remote URLs, real paths and file stamps each have one Core home: `CommitId` (one rule
-for Git publication and guarded merge heads), `RemoteURL` (the provider's reading and the
-push's same-location key, which compares percent-decoded paths), `CanonicalPath` and
+Commit ids, remote URLs, real paths and file stamps each have one Core home: the worker guard's
+commit-id rule, `RemoteURL` (the provider's reading and the worker guard's same-location key,
+which compares percent-decoded paths), `CanonicalPath` and
 `FileStamps.Stamp`. Process and git output take an optional limit and report truncation.
 
 ## Workspace and observation
@@ -58,7 +58,7 @@ different.
 Git work that changes a repository runs on that repository's lane (`GitLanes`), keyed by its git
 common directory, so a project's folder and its worktrees share one and work on one repository never
 waits for another's. Manual creation, worker checkout, restore, removal, pull, rebase, Fix landing,
-local merge and the merged-branch check run there through `TaskWorkflow` or the lanes directly; a
+and the merged-branch check run there through `TaskWorkflow` or the lanes directly; a
 head or an unsaved-work question runs on the shared pool. `TaskCreator` owns branch/worktree
 creation; worker retry reuses the existing worktree and its original baseline. Scheduling, focus,
 claim validation and uncertainty belong to their callers.
