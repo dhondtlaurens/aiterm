@@ -28,6 +28,8 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var extraTabs: [ExtraTab] = []
     public var peopleReview: PeopleReview?
     public var watchedRequest: SignalRequestRef?
+    /// The reviewers and open threads the done check last read for this stage; a new stage clears it.
+    public var waitingOn: SignalWaitFacts?
     public var thenApplied: Bool?
     public var operatorJudged: Bool?
     public var currentAct: String?

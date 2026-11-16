@@ -45,6 +45,13 @@ section counted the task as working. The intent stays; the state gets its own na
   | `.myReviewPosted` | `waiting for you to post the review` | |
   | `.operatorJudges` | `waiting for the Operator` | |
   | phase `.working`, turns ended | `worker done · Operator to review` | |
+  | condition met, merge when ready still holding it | `waiting to merge · checks, threads` (what `canMerge` lacks) | `waiting to merge` |
+
+  A stage whose done condition is met (a judged `.operatorJudges`, an approved `.approved`) stays watching while
+  merge when ready waits to merge it; its line names what the merge lacks, not the met condition. `RequestWatch`
+  saves it (`SignalWaitFacts.mergeBlockers`) from the snapshot it already reads: approval as the request has it,
+  green checks, resolved threads, the local head pushed, and the host's own hold (`host check`) only when none of
+  those explains it.
 
 - **Operator row, Dock badge**: the Operator row's line comes from its own session and current act; the Dock badge
   counts needs-attention only. Pinned by tests; no change expected.
@@ -52,7 +59,8 @@ section counted the task as working. The intent stays; the state gets its own na
 ## Files
 
 - modify `app/Sources/AiTermCore/Sidebar/SidebarModel.swift`: the case, label, `statusOrder`, `statusCounts`,
-  `statusCountsLabel`; fix the stale `heldStatus`/`taskRow` comments.
+  `statusCountsLabel`; fix the stale `taskRow` comment and remove `heldStatus`, which nothing called and which
+  still stated the old rule (a held task at work whatever its tabs say).
 - create `app/Sources/AiTermCore/Sidebar/OperatorLine+Waiting.swift`: the wording and the 40-character cut.
 - modify `app/Sources/AiTermCore/Operators/Signals/DoneCheck.swift`, `SignalTask.swift`: facts and `waitingOn`.
 - modify `app/Sources/AiTermCore/CodeHost.swift`, `GitLab/GitLabClient.swift`, `GitHub/GitHubClient.swift`:
@@ -61,7 +69,7 @@ section counted the task as working. The intent stays; the state gets its own na
   save and clear the facts.
 - modify `app/Sources/AiTerm/SignalSidebar.swift`: `present()`.
 - modify `app/Sources/AiTerm/SidebarProjection.swift`: copy `waitingOn` into the reduced `SignalTask` that
-  `refresh()` compares, so a change to the names or count alone redraws the row (adversarial review, round 1).
+  `refresh()` compares, so a change to the names or count alone redraws the row.
 - modify `app/Sources/AiTerm/Views/StatusMark.swift`, `StatusCountChips.swift`, `SidebarRows.swift`
   (`TaskRowMark`): draw the new status.
 - modify `app/Sources/AiTerm/Snapshots/SignalSidebarSnapshots.swift` (and `SidebarSnapshots.swift` if the marks
@@ -86,12 +94,12 @@ section counted the task as working. The intent stays; the state gets its own na
 
 ## To-dos
 
-- [ ] `TaskStatus.waiting`: mark, chip, counts, label; tests in `SidebarModelTests`.
-- [ ] Wording function with its cut; unit tests.
-- [ ] Reviewers decoded from the existing request answers; open-thread count; `DoneCheck.Facts`,
+- [x] `TaskStatus.waiting`: mark, chip, counts, label; tests in `SidebarModelTests`.
+- [x] Wording function with its cut; unit tests.
+- [x] Reviewers decoded from the existing request answers; open-thread count; `DoneCheck.Facts`,
       `SignalTask.waitingOn`, saved by `RequestWatch`, cleared on a new stage; tests.
-- [ ] `SidebarProjection` carries `waitingOn`; integration test of a facts-only update.
-- [ ] `present()` uses all of it; `SignalSidebarPresentTests`; existing test updated.
-- [ ] Snapshots: fixtures, regenerate, look at plain, selected, accent and Reduce Motion.
-- [ ] `docs/design/ui-patterns.md` (and the AiTermUI README if needed).
-- [ ] `scripts/test.sh`, commit; `scripts/test.sh all` before the merge.
+- [x] `SidebarProjection` carries `waitingOn`; integration test of a facts-only update.
+- [x] `present()` uses all of it; `SignalSidebarPresentTests`; existing test updated.
+- [x] Snapshots: fixtures, regenerate, look at plain, selected, accent and Reduce Motion.
+- [x] `docs/design/ui-patterns.md` (and the AiTermUI README if needed).
+- [x] `scripts/test.sh`, commit; `scripts/test.sh all` before the merge.

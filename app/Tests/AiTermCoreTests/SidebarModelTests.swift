@@ -92,6 +92,17 @@ import Synchronization
                 == [StatusCount(status: .working, count: 3)])
     }
 
+    /// A driven task that waits on the Operator or a person: not yours to act on, not working, and its own chip
+    /// between working and needs-input when its section is folded.
+    @Test func aWaitingRowIsCountedOnItsOwnAndNeverAsWorking() {
+        #expect(!TaskStatus.waiting.needsAttention)
+        let counts = SidebarModel.statusCounts(tasks: [taskRow(.waiting), taskRow(.needsInput), taskRow(.working), taskRow(.waiting)])
+        #expect(counts == [StatusCount(status: .working, count: 1), StatusCount(status: .waiting, count: 2),
+                           StatusCount(status: .needsInput, count: 1)])
+        #expect(SidebarModel.statusCountsLabel(counts) == "1 working, 2 waiting, 1 needs input")
+        #expect(SidebarModel.needingAttention([ProjectSection(project: Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: true), tasks: [taskRow(.waiting)], terminals: [])]).isEmpty)
+    }
+
     func taskRow(_ status: TaskStatus) -> TaskRow {
         TaskRow(id: UUID(), title: "t", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: status)
     }

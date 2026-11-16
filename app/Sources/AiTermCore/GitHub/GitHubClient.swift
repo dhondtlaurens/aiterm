@@ -777,6 +777,8 @@ private struct PullPayload: Decodable {
     var state: String?, merged: Bool?
     /// Its description, where a ticket key may be.
     var body: String?
+    /// Who is still asked to review it: GitHub drops a reviewer from the list once they reviewed.
+    var requestedReviewers: [User]?
 
     /// A head in another repository — or in none, once its fork was deleted — is a fork's.
     var mergeRequest: MergeRequest {
@@ -785,7 +787,8 @@ private struct PullPayload: Decodable {
         return MergeRequest(iid: number, title: title, sourceBranch: head.ref, targetBranch: base.ref,
                             author: user?.login, state: merged == true ? "merged" : (state ?? "open"),
                             draft: draft ?? false, url: htmlUrl,
-                            forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil, description: body)
+                            forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil, description: body,
+                            reviewers: requestedReviewers?.compactMap(\.login))
     }
 }
 

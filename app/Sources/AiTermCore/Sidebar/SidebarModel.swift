@@ -5,7 +5,10 @@ import Synchronization
 /// `background`, which no tab reports: a turn that ended with work it left running, which wakes the agent again
 /// (proposal Background work on your own tasks B, 22 Oct 2026).
 public enum TaskStatus: Equatable, Hashable, Sendable, CaseIterable {
-    case idle, working, needsInput, background, done
+    /// `waiting`: a task the Operator drives that waits on a turn, the Operator or a person: its worker's turn ended
+    /// and the Operator is to read it, or its done condition is someone else's to meet. Only `SignalSidebar` sets it;
+    /// a tab never does.
+    case idle, working, needsInput, background, waiting, done
 
     /// A tab's state as a row's.
     public init(_ state: SessionState) {
@@ -23,12 +26,13 @@ public enum TaskStatus: Equatable, Hashable, Sendable, CaseIterable {
         case .working: return "Working"
         case .needsInput: return "Needs input"
         case .background: return "In background"
+        case .waiting: return "Waiting"
         case .done: return "Done"
         }
     }
 
     /// The two statuses that are yours to act on, which Focus View opens a project for. Not `background`: the
-    /// agent takes its turn up again by itself.
+    /// agent takes its turn up again by itself. Not `waiting`: the Operator or someone else moves next.
     public var needsAttention: Bool { self == .done || self == .needsInput }
 }
 
@@ -306,13 +310,14 @@ public enum SidebarModel {
 
     /// The order the chips are drawn in: a task's life, left to right. Not the urgency order
     /// `aggregate` uses — these sit still on a header, so a stable reading order beats ranking.
-    public static let statusOrder: [TaskStatus] = [.idle, .working, .needsInput, .done]
+    public static let statusOrder: [TaskStatus] = [.idle, .working, .waiting, .needsInput, .done]
 
     /// Per-status row counts for a collapsed project, empty statuses left out: a project with
     /// nothing waiting on it should draw no chip at all rather than a row of zeroes. A collapsed
     /// project hides terminal rows as well as task rows, so its summary includes both — which also
     /// keeps a coding agent launched in a plain terminal visible after collapse.
-    /// A row in the background counts with working: its agent takes the turn up again by itself.
+    /// A row in the background counts with working: its agent takes the turn up again by itself. A waiting row has
+    /// its own count: nothing of it runs.
     public static func statusCounts(tasks: [TaskRow], terminals: [TerminalRow] = []) -> [StatusCount] {
         statusCounts((tasks.map(\.status) + terminals.map(\.status)).map { $0 == .background ? .working : $0 })
     }
@@ -371,6 +376,7 @@ public enum SidebarModel {
             switch c.status {
             case .idle: return "\(c.count) idle"
             case .working, .background: return "\(c.count) working"
+            case .waiting: return "\(c.count) waiting"
             case .needsInput: return c.count == 1 ? "1 needs input" : "\(c.count) need input"
             case .done: return "\(c.count) done"
             }
@@ -498,9 +504,8 @@ public enum SidebarModel {
                               operatorTasks: held.count, operatorWorktrees: held.filter(\.hasCheckout).count)
     }
 
-    /// One task's row: its tabs' agents, branch and status, and, driven, the Operator's line, read from the same
-    /// tabs, so it says `ready for the Operator` once every worker ended its turn and `Operator watching · 2 tabs`
-    /// with several open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
+    /// One task's row: its tabs' agents, branch and status. A driven task's line and status are `SignalSidebar`'s to
+    /// set over these. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
     static func taskRow(_ task: TaskItem, tabs: Tabs, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
@@ -520,19 +525,6 @@ public enum SidebarModel {
     /// mark. One derivation for the sidebar's row and for the task's row on its broadcast's sheet (`BroadcastBoard.Card`).
     struct RowFacts: Equatable {
         var avatars: AvatarGroup, status: TaskStatus, queued: Bool, paused: Bool
-    }
-
-    /// `task`'s row facts from its `own` tabs and the Operator's `line` for it; `matched` is its worker tabs when a pass
-    /// matched them already.
-
-
-    /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct
-    /// 2026): at work, whatever its tabs say, so an idle tab or a turn's end shows the spinner and no done ring,
-    /// those being the Operator's to read. It needs you, amber, when its tab waits on input or its line does
-    /// (a prompt, a question, a block). A task you made, one you took over and an ended one keep their tabs'.
-    public static func heldStatus(_ status: TaskStatus, line: OperatorLine?) -> TaskStatus {
-        guard let line, line.look != .ended else { return status }
-        return line.look == .needsYou || status == .needsInput ? .needsInput : .working
     }
 
     /// Only a diff with something in it extends the badge; no base, no answer yet, or nothing

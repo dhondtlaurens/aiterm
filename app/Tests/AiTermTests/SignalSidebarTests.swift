@@ -215,8 +215,8 @@ import Testing
         #expect(try row().status == .needsInput)
         world.state.operatorSession?.questions = []
         world.state.updateSignalTask(id) { $0.phase = .watching(.hasReviewer) }
-        #expect(try row().operatorLine?.text == "waiting on a reviewer")
-        #expect(try row().status == .idle)
+        #expect(try row().operatorLine?.text == "waiting for a reviewer")
+        #expect(try row().status == .waiting)
         world.state.signals[0].enabled = false
         #expect(try row().operatorLine == .paused)
         #expect(try row().paused == true)

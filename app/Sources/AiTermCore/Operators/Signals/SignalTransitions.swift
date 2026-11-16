@@ -9,7 +9,7 @@ public enum SignalTransitions {
             next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.ownership += 1; next.startedAt = at
             next.configuration = stage.configuration; next.prompt = stage.prompt; next.thenApplied = nil
             next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil; next.operatorJudged = nil
-            next.choice = nil; next.choosableRows = nil
+            next.choice = nil; next.choosableRows = nil; next.waitingOn = nil
         }
         func startPending() {
             guard !next.pendingStages.isEmpty else { return }

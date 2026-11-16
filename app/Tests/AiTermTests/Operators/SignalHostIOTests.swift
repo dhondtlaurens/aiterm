@@ -33,6 +33,47 @@ import Testing
         #expect(try await io.read(try #require(h.workspace.state.task(id: id))).facts.hasReviewer)
         #expect(stub.requests.count == 2 && git.calls.isEmpty)
     }
+    /// The line's reviewers come from the request answer the done check reads anyway: no call of their own.
+    @Test(arguments: [false, true]) func anApprovalWatchReadsTheReviewersFromTheRequestItAlreadyFetches(github: Bool) async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved), id = world.workingTask(signal: signal)
+        let remote = github ? "git@github.com:shop/web.git" : "git@git.example:shop/web.git"
+        world.state.updateProject(id: world.project.id) { $0.remoteUrl = remote }
+        world.state.tasks[0].branch = "work"
+        world.state.tasks[0].mr = github ? .init(iid: 7, title: "Work", url: "https://github.com/shop/web/pull/7")
+                                         : .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            let path = request.url!.path
+            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[]}"#.utf8)) }
+            if path.hasSuffix("reviews") { return (200, Data("[]".utf8)) }
+            return (200, Data((github
+                ? #"{"number":7,"title":"Work","state":"open","html_url":"https://github.com/shop/web/pull/7","head":{"ref":"work","sha":"head","label":"shop:work","repo":{"full_name":"shop/web"}},"base":{"ref":"main","repo":{"full_name":"shop/web"}},"requested_reviewers":[{"login":"lawrence-ds"}]}"#
+                : #"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","reviewers":[{"name":"Lawrence De Spiegeleire","username":"lawrence"},{"username":"jan"}]}"#).utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), gitHub: GitHubConfig(token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.remote = { _, _ in remote }
+        let facts = try await io.read(try #require(h.workspace.state.task(id: id))).facts
+        #expect(facts.reviewers == (github ? ["lawrence-ds"] : ["Lawrence De Spiegeleire", "jan"]))
+        #expect(facts.openThreads == nil && !facts.approved)
+        #expect(stub.requests.count == 2, "The request and its approvals, as before")
+    }
+    @Test func aThreadsWatchCountsTheOpenThreadsItAlreadyReads() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .threadsResolved), id = world.workingTask(signal: signal)
+        world.state.tasks[0].branch = "work"; world.state.tasks[0].mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            if request.url!.path.hasSuffix("discussions") {
+                let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value
+                return (200, Data((page == "1" ? #"[{"id":"a","notes":[{"resolvable":true,"resolved":false}]},{"id":"b","notes":[{"resolvable":true,"resolved":true}]},{"id":"c","notes":[{"resolvable":true,"resolved":false}]}]"# : "[]").utf8))
+            }
+            return (200, Data(#"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened"}"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.remote = { _, _ in "git@git.example:shop/web.git" }
+        let facts = try await io.read(try #require(h.workspace.state.task(id: id))).facts
+        #expect(facts.openThreads == 2 && !facts.threadsResolved)
+        #expect(facts.reviewers == nil, "The answer listed none")
+    }
     @Test(arguments: [false, true]) func aMergeBeforeTheFirstWatchIsFoundFromItsBranch(github: Bool) async throws {
         var world = SignalWorld(); let signal = world.signal(done: .merged), id = world.workingTask(signal: signal)
         let remote = github ? "git@github.com:shop/web.git" : "git@git.example:shop/web.git"

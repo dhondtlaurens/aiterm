@@ -99,8 +99,8 @@ sizes. Settings' `InterfaceSize` maps to this UI environment.
 Round status marks are rings, never discs: `RingGeometry` supplies the stroke, 15% of their size,
 and the half-stroke inset that keeps a trimmed or centred stroke inside the box (`strokeBorder`
 insets by itself). `StatusMark`, `UsageRing` and `ToneRing` all read it.
-`StatusMark` draws idle, working arc/track, amber input, done and an eight-dash background-work ring
-rotating once per six seconds. Accent-ground marks use the surface's accent ink; marks on a selected
+`StatusMark` draws idle, working arc/track, amber input, done and an eight-dash ring rotating once per six
+seconds, for background work and for a driven task waiting on a turn, the Operator or a person. Accent-ground marks use the surface's accent ink; marks on a selected
 row keep their own colours. Reduce Motion
 keeps the shapes and removes rotation.
 
