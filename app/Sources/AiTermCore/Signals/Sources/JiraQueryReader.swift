@@ -11,7 +11,7 @@ public struct JiraQueryReader: SignalSourceReader {
         let at = now()
         var query = JQL.compile(conditions)
         // Jira enhanced search requires a bounded query. This covers its entire supported date
-        // range when the person deliberately picked no conditions.
+        // range for a signal saved with no conditions, before the sheet required one.
         if query.isEmpty { query = #"created >= "1970-01-01""# }
         if !full, let since {
             let minutes = max(2, Int(ceil(max(0, at.timeIntervalSince(since)) / 60)) + 2)

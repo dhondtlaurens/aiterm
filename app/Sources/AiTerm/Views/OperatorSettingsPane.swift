@@ -20,7 +20,7 @@ struct OperatorSettingsPane: View {
     ]
     static let oracleNever = "It never talks to a worker or to you. Turned off, every worker question comes to you in the Operator’s chat."
     static let instructionsHelp = "Standing instructions, in plain sentences. They hold in every signal; a signal’s own prompt comes on top."
-    static let instructionsExample = "Answer plan questions about naming yourself; ask me about scope.\nPrefer Codex for reviews.\nNever move a ticket to Done."
+    static let instructionsPlaceholder = "Rules the Operator follows in every signal, one per line."
     static func oracleFieldsDimmed(_ oracle: OracleSetting) -> Bool { !oracle.isOn }
     var body: some View {
         if model.isLoaded {
@@ -96,7 +96,7 @@ private struct OperatorInstructionsGroup: View {
                     .frame(height: Self.editorHeight)
                     .overlay(alignment: .topLeading) {
                         if model.instructions.isEmpty {
-                            Text(OperatorSettingsPane.instructionsExample).font(Typography.promptMono).foregroundStyle(Palette.placeholder)
+                            Text(OperatorSettingsPane.instructionsPlaceholder).font(Typography.promptMono).foregroundStyle(Palette.placeholder)
                                 .padding(.leading, PromptEditor.textInset.width + PromptEditor.lineFragmentPadding)
                                 .padding(.top, PromptEditor.textInset.height).allowsHitTesting(false).accessibilityHidden(true)
                         }
@@ -107,7 +107,7 @@ private struct OperatorInstructionsGroup: View {
                     }
                     .accessibilityLabel("Instructions")
             }
-            HelpText("Type / for skills. You can also say it in the Operator’s chat: “From now on, ask me before any merge.”")
+            HelpText("Type / for skills. You can also tell the Operator in its chat.")
         }
     }
 }

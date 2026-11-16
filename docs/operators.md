@@ -20,7 +20,7 @@ section, and a notification or Focus View opens whichever section holds the row 
 Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five steps are:
 
 1. **Signal:** name it and choose Jira, GitLab or GitHub.
-2. **Starts when:** pick the conditions. Jira offers labels, your open sprints, assignee, status and
+2. **Starts when:** pick at least one condition. Jira offers labels, your open sprints, assignee, status and
    Jira projects, or JQL. Code hosts offer **I'm asked to review** or **My merge request needs me**;
    the latter watches unanswered threads, a request sent back to you, or both. Projects are optional
    filters. The preview lists what starts when you create the signal.
