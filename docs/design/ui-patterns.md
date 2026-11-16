@@ -17,11 +17,13 @@ waiting count, errors and window recovery. `SignalHeader` uses project geometry 
 its `SignalHeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.
 
-`SignalBadgeLine` replaces the whole badge line with the current act. It holds an act at least three
-seconds and decodes back to the badges over half a second when it ends; under the pointer the badges
-return at once, with no decode. A
-new act replaces the previous act directly. `DecodeWordsView` keeps unsettled glyphs in the text's
-own case/ink and width. Reduce Motion swaps; snapshots remain still. No third row line is added.
+A driven task's row keeps its badge line as any task's and adds a third line, `SignalStatusLine`: the
+Operator's words in the operator badge, never in the badges' place and never behind a hover. It holds
+an act at least three seconds; a new act replaces the previous act directly and decodes in. While the
+Operator says nothing of a task that works the line reads a quiet `working`, otherwise it stays empty
+at its height, so a driven row never changes height. A caption note takes the line's place; a task you
+take over drops it. `DecodeWordsView` keeps unsettled glyphs in the text's own case/ink and width.
+Reduce Motion swaps; snapshots remain still.
 
 `TaskRowMarkView`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`, `BranchLabelView`
 and `QuietBadgeLine` share the status/agent/branch vocabulary. `BackgroundCardView` reuses the work

@@ -3,7 +3,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermCore
 
-struct SignalBadgeLineTests {
+struct SignalStatusLineTests {
     @Test func aShortActStaysReadableBeforeTheBadgesReturn() {
         var pose = SignalBadgePose()
         let act = OperatorLine("Operator answering its worker", look: .acting)
@@ -27,10 +27,13 @@ struct SignalBadgeLineTests {
         pose.update(nil, at: 14.1)
         #expect(pose.display == nil, "A quiet state needs no extra action hold")
     }
-    @Test func theBadgesDecodeOnlyWhenAnActEndsNeverUnderThePointer() {
-        #expect(SignalBadgePose.decodes(returning: true, hovering: false), "An ended act decodes back to the badges")
-        #expect(!SignalBadgePose.decodes(returning: true, hovering: true), "Hover shows the badges at once")
-        #expect(!SignalBadgePose.decodes(returning: false, hovering: true))
-        #expect(!SignalBadgePose.decodes(returning: false, hovering: false))
+    @Test func theLineSaysTheHeldActThenTheLineThenWorking() {
+        let act = OperatorLine("Operator answering its worker", look: .acting)
+        let waiting = OperatorLine("waiting on a reviewer")
+        #expect(SignalStatusLine.shown(held: act, line: nil, working: true) == act, "A held act outlasts the line")
+        #expect(SignalStatusLine.shown(held: nil, line: waiting, working: true) == waiting)
+        #expect(SignalStatusLine.shown(held: nil, line: nil, working: true) == SignalStatusLine.working)
+        #expect(SignalStatusLine.shown(held: nil, line: nil, working: false) == nil, "Empty, at its height")
+        #expect(SignalStatusLine.working.look == .quiet, "The worker works; the Operator does not act")
     }
 }
