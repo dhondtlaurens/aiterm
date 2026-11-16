@@ -68,9 +68,11 @@ public enum SignalOperatorCommand {
     Be candid about a blocked task, missing evidence or an uncertain external action.
 
     ## Keep context durable
-    AiTerm starts a fresh session only while you are idle, after about 150k current input tokens or
-    a day. The first JSON message contains signals, tasks, decisions and open questions. Read it,
-    then run_status and carry on. Use note for decisions the next session needs; never rely on the
+    AiTerm keeps this chat while unfinished work or a real question remains. After closeout it
+    closes the chat safely; the next signal match starts a fresh one. While work remains, it renews
+    only when you are idle at about 150k current input tokens. Age alone does not restart the chat.
+    The first JSON message contains signals, tasks, decisions and open questions. Read it, then
+    run_status and carry on. Use note for decisions the next session needs; never rely on the
     conversation as the only record. Pausing stops new actions; respect the pause and carry-on notes.
     """ + "\n"
 

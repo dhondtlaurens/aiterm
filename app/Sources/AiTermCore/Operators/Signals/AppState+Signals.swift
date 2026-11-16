@@ -1,6 +1,28 @@
 import Foundation
 
 public extension AppState {
+    var operatorWorkTasks: [TaskItem] { allSignalTasks.filter { $0.signalTask?.keepsOperatorSession == true } }
+    /// The contract also permits an explicit question about the workload/settings as a whole.
+    /// It remains real work until answered, even when it has no task UUID.
+    var operatorHasWork: Bool {
+        !operatorWorkTasks.isEmpty || operatorSession?.questions.contains { $0.task == nil && $0.resolvedAt == nil } == true
+    }
+
+    /// A completed or superseded stage cannot leave a question badge or notification behind.
+    func isCurrentOperatorQuestion(_ question: OperatorSession.Question) -> Bool {
+        guard let id = question.task else { return true }
+        guard let record = signalItem(id: id)?.signalTask, !record.takenOver,
+              question.stage.map({ $0 == record.stage }) != false,
+              question.ownership.map({ $0 == record.ownership }) != false else { return false }
+        switch record.phase {
+        case .launching, .choosing, .working, .watching, .blocked: return true
+        case .done, .archived, .stopped, .unknown: return false
+        }
+    }
+    var currentOperatorQuestions: [OperatorSession.Question] {
+        (operatorSession?.questions ?? []).filter { $0.resolvedAt == nil && isCurrentOperatorQuestion($0) }
+    }
+
     /// Backpack Mode must bridge quiet turns while sources or retained stages can schedule work.
     var operatorMayStartWork: Bool {
         guard operatorSession?.paused != true else { return false }

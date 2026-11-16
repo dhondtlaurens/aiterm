@@ -17,11 +17,15 @@ struct SignalOperatorHeading: View {
         let _ = bodyCounter?.countHeading("operator")
         #endif
         HStack(spacing: scale(Space.base)) {
-            SectionFoldLabel(title: "Operator", fold: controller.rows.operatorHeading, hovering: hovering,
+            SectionFoldLabel(title: controller.rows.operatorPaused ? "Operator · paused" : "Operator", fold: controller.rows.operatorHeading, hovering: hovering,
                              enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
                              openAttention: { controller.openOperatorAttention() })
-            AddMenu(help: "New signal", enabled: controller.canPresentNewSignal) {
+            AddMenu(help: "Operator actions", enabled: controller.canPresentNewSignal) {
                 Button("New Signal…") { controller.presentNewSignal() }
+                Divider()
+                Button(controller.rows.operatorPaused ? "Resume Operator" : "Pause Operator") {
+                    Task { await controller.signalController.setPaused(!controller.rows.operatorPaused) }
+                }
             }
         }
         .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
@@ -30,7 +34,7 @@ struct SignalOperatorHeading: View {
     }
 }
 
-/// The permanent row uses the same avatar, title, caption and trailing-mark grid as a task.
+/// The active workload’s row uses the same avatar, title, caption and trailing-mark grid as a task.
 struct SignalOperatorRow: View {
     let value: SignalOperatorRowValue
     let controller: AppController
@@ -49,7 +53,7 @@ struct SignalOperatorRow: View {
             SidebarRowContent(avatars: AvatarGroup(marks: [.claude], overflow: 0)) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle("Operator")
-                    OperatorBadge(line: line)
+                    OperatorActivityCaption(line: line, completed: value.completedActivity, event: value.event)
                 }.layoutPriority(1)
             } mark: {
                 TaskRowMarkView(mark: TaskRowMark(status: status, line: line, removing: false, paused: value.paused), size: SidebarRowLayout.trailingGlyph(scale))

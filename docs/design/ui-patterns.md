@@ -12,24 +12,25 @@ only the label; `SidebarHeadingInset` owns its gutter. Project headers use `Head
 under both projects and signals. Its actions resolve the current task at invocation; its body reads
 cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates.
 
-`SignalOperatorHeading` adds signals. `SignalOperatorRow` is the permanent chat row, with pause,
+`SignalOperatorHeading` shows global pause and offers New Signal / Pause / Resume in its + menu. `SignalOperatorRow` is the active workload’s chat row, with pause,
 waiting count, errors and window recovery. `SignalHeader` uses project geometry and source marks;
 its `SignalHeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.
 
-A driven task's row keeps its badge line as any task's and adds a third line, `SignalStatusLine`: the
-Operator's words in the operator badge, never in the badges' place and never behind a hover. It holds
-an act at least three seconds; a new act replaces the previous act directly and decodes in. While the
-Operator says nothing of a task that works the line reads a quiet `working`, otherwise it stays empty
-at its height, so a driven row never changes height. A caption note takes the line's place; a task you
-take over drops it. `DecodeWordsView` keeps unsettled glyphs in the text's own case/ink and width.
-Reduce Motion swaps; snapshots remain still.
+Signal tasks use the same two-line task row as ordinary tasks: title, badges and branch, with the
+same avatar and status grid. The Operator adds no status line and never replaces task badges.
+`OperatorBadge` on the Operator’s own row describes its current action. `OperatorActivityTracker`
+assigns a new identity to every start, result, failure and return to watching, including repeated
+words. `DecodeWordsView` decodes for 0.5 seconds, retaining the text’s case, ink and width, then
+stops. `OperatorActivityCaption` keeps a quick completed action readable for one second,
+including its decode, before returning to the current status; a new event replaces it immediately.
+The status mark always reflects current work. The title stays “Operator”. Reduce Motion swaps; snapshots remain still.
 
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on
 someone: a turn's background work that wakes the agent again (`background`), or a driven task that waits
 (`waiting`): its workers ended their turn and the Operator is to read it (`worker done · Operator to
 review`), or its done condition is someone else's to meet (`waiting on approval · Lawrence`, `waiting on
-3 open threads`). The line names whom or what where the done check already read it, and says the generic
+3 open threads`). The status tooltip names whom or what where the done check already read it, and says the generic
 words otherwise; it stays within 40 characters and the tooltip carries the whole sentence. The solid spinner
 is only for a worker or the Operator at work now. A waiting task is never counted as working: a folded
 section gives it its own chip, and neither Focus View nor the Dock badge counts it. Reduce Motion holds the

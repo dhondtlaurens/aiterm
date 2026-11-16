@@ -110,8 +110,8 @@ import Testing
         world.state.operatorSession?.questions[0].resolvedAt = askedAt
         #expect(SignalQuestionNotification.make(state: world.state) == nil)
     }
-    @Test func oneControllerStartsOnePersistentOperatorAndServesSignalStatus() async throws {
-        var world = SignalWorld(); _ = world.signal()
+    @Test func oneWorkloadKeepsOneOperatorAndServesSignalStatus() async throws {
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
         let controller = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,

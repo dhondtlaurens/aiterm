@@ -3,26 +3,12 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Everything the Operator says on a status line (spec §7, §13, §14): the words of an `OperatorLine` in
-/// `Typography.chip` (words, so the system face), no mark: where the line sits says whose it is. Always one `Size.chip` line: the
-/// words cut with an ellipsis rather than wrap, the whole of them in the tooltip and VoiceOver's label. The
-/// last line of a driven task's row and of the Operator's row, a card's last line on the board, the band
-/// under the board's title.
-///
-/// It reads its ground (`Surface`), as `HelpText` does:
-/// - quiet, and ended: no box, the words in the surface's secondary ink (an ended row's check is its
-///   trailing mark's, `TaskRowMark`, never the line's);
-/// - acting: no box, the words in the surface's ink. New words decode once (P3, decision 3, 21 Oct 2026):
-///   each letter and digit runs through letters and digits of its own case in the words' own ink (29 Oct 2026:
-///   no longer katakana, green and glowing), and they settle from the left over `decodeDuration`, then stand still
-///   (28 Oct 2026: the OPERATOR heading's decode, everywhere); the row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not redrawn per
-///   frame). At once under Reduce Motion and in the snapshots;
-/// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
-///   in `Palette.text`, never amber, on a selected row too (the neutral selection holds the amber pair);
-///   on `Surface.accent` the surface's `badgeWash` and ink, since an amber wash on the accent's blue reads
-///   as mud.
+/// The Operator row’s activity caption. New event identities decode even when their words repeat;
+/// ordinary view updates (selection, ink, layout) do not. Quiet/result/attention events keep their
+/// own ink and needs-you chrome. Reduce Motion and snapshots show the real words immediately.
 struct OperatorBadge: View {
     let line: OperatorLine
+    var event: UUID? = nil
     @Environment(\.surface) private var surface
     @Environment(\.interfaceScale) private var scale
     @Environment(\.motionStill) private var motionStill
@@ -33,9 +19,9 @@ struct OperatorBadge: View {
     /// The box a look draws, when it draws one.
     struct Box: Equatable { var fill: Color; var stroke: Color? }
 
-    /// Whether new words decode: only while acting, never under Reduce Motion, never in a snapshot.
-    static func decodes(_ look: OperatorLine.Look, motionStill: MotionStill?) -> Bool {
-        look == .acting && motionStill == nil
+    /// Acting words and explicit events decode, except under Reduce Motion or in a snapshot.
+    static func decodes(_ look: OperatorLine.Look, motionStill: MotionStill?, event: UUID? = nil) -> Bool {
+        (look == .acting || event != nil) && motionStill == nil
     }
 
     /// The words' ink, decoding or standing still.
@@ -55,7 +41,7 @@ struct OperatorBadge: View {
     }
 
     var body: some View {
-        let decoding = Self.decodes(line.look, motionStill: motionStill)
+        let decoding = Self.decodes(line.look, motionStill: motionStill, event: event)
         let box = Self.box(line.look, surface: surface)
         words(decoding: decoding)
             .padding(.horizontal, box == nil ? 0 : scale(Space.tight))
@@ -77,7 +63,7 @@ struct OperatorBadge: View {
             // Laid out by the final words, drawn by the decode's own view: a frame is never a SwiftUI update.
             text.opacity(0).overlay {
                 DecodeWords(text: line.text, font: Typography.chip.scaled(by: scale).nsFont,
-                            ink: Self.ink(.acting, surface: surface), duration: Self.decodeDuration)
+                            ink: Self.ink(line.look, surface: surface), duration: Self.decodeDuration, event: event)
             }
         } else {
             text.foregroundStyle(Self.ink(line.look, surface: surface))
@@ -85,10 +71,28 @@ struct OperatorBadge: View {
     }
 }
 
-/// A broadcast's status line as its row and its board's band say it: the `OperatorBadge`, then
-/// `· 2 of 8 done` in `Typography.chip.tabular` and the surface's secondary ink, outside the needs-you box.
-/// The progress keeps its width; the badge's words are what is cut.
+/// Keep a quick action readable even when its start and result land within one display frame.
+/// Only this caption holds it; status marks and task rows always show the current workload.
+struct OperatorActivityCaption: View {
+    let line: OperatorLine
+    var completed: OperatorLine?
+    var event: UUID?
+    @Environment(\.motionStill) private var motionStill
+    @State private var settledEvent: UUID?
+    /// One decode plus the same time reading its settled words, interrupted by any newer event.
+    private static let hold = 2 * OperatorBadge.decodeDuration
 
+    var body: some View {
+        let recent = motionStill != .snapshot && event != settledEvent ? completed : nil
+        OperatorBadge(line: recent ?? line, event: event)
+            .task(id: event) {
+                guard completed != nil, motionStill != .snapshot else { return }
+                try? await Task.sleep(for: .seconds(Self.hold))
+                guard !Task.isCancelled else { return }
+                settledEvent = event
+            }
+    }
+}
 
 #if DEBUG
 extension OperatorBadge {
@@ -108,6 +112,7 @@ struct DecodeWords: NSViewRepresentable {
     let duration: Double
     var kerning: CGFloat = 0
     var decodesFirst = true
+    var event: UUID? = nil
 
     func makeNSView(context: Context) -> DecodeWordsView { DecodeWordsView() }
 
@@ -115,7 +120,7 @@ struct DecodeWords: NSViewRepresentable {
         #if DEBUG
         OperatorBadge.decodeUpdates += 1
         #endif
-        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning, decodesFirst: decodesFirst)
+        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning, decodesFirst: decodesFirst, event: event)
     }
 }
 
@@ -151,6 +156,7 @@ final class DecodeWordsView: NSView {
     private var duration: CFTimeInterval = OperatorBadge.decodeDuration
     /// When the running decode began; nil once it settled.
     private var began: CFTimeInterval?
+    private var event: UUID?
     private var timer: Timer?
 
     var isDecoding: Bool { began != nil }
@@ -174,12 +180,12 @@ final class DecodeWordsView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// New words start a decode — the first ones too, unless `decodesFirst` is false; the same words in another ink
+    /// A new event or new words start a decode — the first ones too, unless `decodesFirst` is false; the same words in another ink
     /// or face are only redrawn.
-    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0, decodesFirst: Bool = true) {
-        let changed = text != self.text, first = self.font == nil
+    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0, decodesFirst: Bool = true, event: UUID? = nil) {
+        let changed = text != self.text || event != self.event, first = self.font == nil
         guard changed || font != self.font || ink != inkColor || duration != self.duration || kerning != self.kerning else { return }
-        self.text = text; self.font = font; inkColor = ink; self.duration = duration; self.kerning = kerning
+        self.text = text; self.font = font; inkColor = ink; self.duration = duration; self.kerning = kerning; self.event = event
         if changed && (decodesFirst || !first) { start() } else { if !isDecoding { shown = text }; paint() }
     }
 

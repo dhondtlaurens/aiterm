@@ -12,6 +12,44 @@ import AiTermUI
 /// when they change, then stand still (P3, decision 3): at once under Reduce Motion and in the snapshots.
 @MainActor
 struct OperatorBadgeTests {
+    @Test func aQuickCompletedActionIsReadableBeforeTheCaptionReturnsToWatching() async throws {
+        let watching = OperatorLine("watching 1 task in 1 signal")
+        let completed = OperatorLine("reading status", look: .acting)
+        let host = NSHostingView(rootView: OperatorActivityCaption(line: watching, completed: completed, event: UUID())
+            .frame(width: 280, height: Size.chip).surface(.sidebar))
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 280, height: Size.chip), styleMask: [.borderless])
+        window.contentView = host; window.orderFrontRegardless()
+        defer { window.close() }
+        settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
+        let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        #expect((words.words.string as? NSAttributedString)?.string == "reading status")
+        await eventually(describing: "the completed activity to return to watching") {
+            host.layoutSubtreeIfNeeded()
+            let current = host.firstDescendant(DecodeWordsView.self)
+            return current?.shown == watching.text && current?.isDecoding == false
+        }
+        #expect(host.firstDescendant(DecodeWordsView.self)?.shown == watching.text)
+    }
+
+    @Test func aNewEventRetriggersIdenticalWordsButSelectionDoesNot() {
+        var now: CFTimeInterval = 100
+        let view = DecodeWordsView(), first = UUID(), second = UUID()
+        view.now = { now }
+        let font = Typography.chip.nsFont, duration = OperatorBadge.decodeDuration
+        view.configure(text: "reading status", font: font, ink: .white, duration: duration, event: first)
+        now += duration; view.tick()
+        #expect(!view.isDecoding && view.shown == "reading status")
+        view.configure(text: "reading status", font: font, ink: .gray, duration: duration, event: first)
+        #expect(!view.isDecoding)
+        view.configure(text: "reading status", font: font, ink: .gray, duration: duration, event: second)
+        #expect(view.isDecoding && view.shown != "reading status")
+        #expect(OperatorBadge.decodes(.quiet, motionStill: nil, event: second))
+        #expect(OperatorBadge.decodes(.needsYou, motionStill: nil, event: second))
+        #expect(!OperatorBadge.decodes(.quiet, motionStill: .reduceMotion, event: second))
+        #expect(!OperatorBadge.decodes(.acting, motionStill: .snapshot, event: second))
+        now += duration; view.tick()
+    }
+
     private func fitting(_ line: OperatorLine, width: CGFloat? = nil) -> CGSize {
         let host = NSHostingView(rootView: OperatorBadge(line: line).frame(width: width, alignment: .leading)
             .surface(.sidebar).environment(\.motionStill, .snapshot))

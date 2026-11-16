@@ -36,7 +36,8 @@ import Testing
     }
     @Test(arguments: [DeliveryCode?.some(.unsentInput), .some(.itermRefused), .some(.sessionClosed), .some(.unknown), nil])
     func freshCloseOnlyRollsBackForAKnownRefusalBeforeTheCloseWasAttempted(code: DeliveryCode?) async throws {
-        var world = SignalWorld(); var session = OperatorSession(createdAt: world.now)
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
+        var session = OperatorSession(createdAt: world.now)
         session.window = "operator-window"; session.conversation = "op"; world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
@@ -93,7 +94,7 @@ import Testing
         #expect(h.workspace.state.operatorSession?.generation == 2)
         #expect(h.workspace.state.operatorSession?.startingFresh == false)
         #expect(daemon.requests("window.close").isEmpty, "A missing window must be confirmed, never closed by an old number.")
-        #expect(daemon.requests("window.createTask").count == 1)
+        #expect(daemon.requests("window.createTask").isEmpty, "A recovered handover with no workload retires without opening another chat.")
         root.stop()
     }
     @Test func nativeHandoverClosesRevokesAndOpensWithCurrentContextAndTheSavedDigest() async throws {

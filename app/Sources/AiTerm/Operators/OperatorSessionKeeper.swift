@@ -17,6 +17,7 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
         var close: @MainActor (String) async throws -> Void
         var revoke: @MainActor (UUID) async throws -> Void
         var open: @MainActor (OperatorSession, OperatorDigest) async throws -> String
+        var existingWindow: @MainActor (OperatorSession) async throws -> String? = { _ in nil }
         var sessions: @MainActor () -> [SessionInfo] = { [] }
         var instructions: @MainActor () -> String? = { nil }
         var usage: @MainActor () -> UsageSnapshot = { .empty }
@@ -30,34 +31,82 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
     /// Each pass reports how it ended, as the Operator's `session` source.
     var failed: @MainActor (String) -> Void = { _ in }
     var succeeded: @MainActor () -> Void = {}
+    var finished: @MainActor () -> Void = {}
+    var activity: OperatorActivityTracker?
     init(workspace: WorkspaceStore, now: @escaping () -> Date, oracleOn: @escaping () -> Bool, ports: Ports) {
         self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
     }
     func stop() { pass = nil }
     func ensure(allowPaused: Bool = false) async {
+        guard workspace.state.operatorSession?.finishing != true else { return }
+        await transition(finishing: false, allowPaused: allowPaused)
+    }
+    /// Keep source polling and its saved metadata, but release the chat when its workload ends.
+    /// Once closing was saved, finish that generation even if a new match arrived during the close.
+    func finishIfIdle(idle: Bool, wakePending: Bool) async {
+        guard let session = workspace.state.operatorSession else { return }
+        if session.finishing != true {
+            guard !workspace.state.operatorHasWork, idle, !wakePending,
+                  session.window != nil || session.conversation != nil || session.startingFresh else { return }
+        }
+        await transition(finishing: true, allowPaused: true)
+    }
+    private func transition(finishing: Bool, allowPaused: Bool) async {
         guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), (allowPaused || workspace.state.operatorSession?.paused != true) else { return }
         let key = UUID(); pass = key
         defer { if pass == key { pass = nil } }
         do {
             if workspace.state.operatorSession == nil {
+                guard !finishing else { return }
                 var session = OperatorSession(createdAt: now())
                 session.startingFresh = true; session.handover = .opening
                 workspace.mutate { $0.operatorSession = session }
                 guard workspace.flush() else { return }
             }
             guard var session = workspace.state.operatorSession else { return }
-            if session.paused && session.startingFresh { return }
+            if session.paused && session.startingFresh && !finishing { return }
+            // A retired record stays for source metadata and pause. Every later workload needs
+            // the same durable opening intent as the first chat, including a lost open reply.
+            if !finishing, session.handover == nil, session.window == nil, session.conversation == nil {
+                workspace.mutate { state in
+                    state.operatorSession?.startingFresh = true
+                    state.operatorSession?.handover = .opening
+                    state.operatorSession?.createdAt = now()
+                }
+                guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
+            }
+            if finishing {
+                // An opening may have completed before its reply or state save. Adopt without
+                // launching an empty chat, then use the same safe close path as a known window.
+                if session.window == nil, session.handover != .revoking {
+                    let window = try await ports.existingWindow(session)
+                    guard holds(session, pass: key, allowPaused: allowPaused) else { return }
+                    workspace.mutate { $0.operatorSession?.window = window }
+                    session.window = window
+                }
+                workspace.mutate { state in
+                    state.operatorSession?.finishing = true
+                    state.operatorSession?.startingFresh = true
+                    if session.handover == nil || session.handover == .opening { state.operatorSession?.handover = .closing }
+                }
+                guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
+            }
             if session.startingFresh, session.handover == nil {
                 workspace.mutate { $0.operatorSession?.handover = .closing }; session.handover = .closing
                 guard workspace.flush() else { return }
             }
             if session.handover == .closing {
-                do { if let window = session.window { try await ports.close(window) } }
+                do {
+                    if let window = session.window {
+                        if let activity { try await activity.during(finishing ? "finishing its session" : "closing its previous session") { try await ports.close(window) } }
+                        else { try await ports.close(window) }
+                    }
+                }
                 catch is SignalOperatorCloseDeferred {
                     guard holds(session, pass: key, allowPaused: allowPaused),
                           workspace.state.operatorSession?.handover == .closing,
                           workspace.state.operatorSession?.window == session.window else { return }
-                    workspace.mutate { $0.operatorSession?.startingFresh = false; $0.operatorSession?.handover = nil }
+                    workspace.mutate { $0.operatorSession?.startingFresh = false; $0.operatorSession?.handover = nil; $0.operatorSession?.finishing = nil }
                     workspace.flush(); succeeded()
                     return
                 }
@@ -66,21 +115,30 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                 guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
             }
             if session.handover == .revoking {
-                try await ports.revoke(session.id)
+                if let activity { try await activity.during("releasing its previous session") { try await ports.revoke(session.id) } }
+                else { try await ports.revoke(session.id) }
                 guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                 workspace.mutate { state in
                     state.operatorSession?.generation += 1
                     state.operatorSession?.createdAt = now()
                     state.operatorSession?.conversation = nil; state.operatorSession?.session = nil
-                    state.operatorSession?.handover = .opening
+                    state.operatorSession?.handover = finishing ? nil : .opening
+                    if finishing {
+                        state.operatorSession?.startingFresh = false
+                        state.operatorSession?.finishing = nil
+                        state.operatorSession?.wakeAwaitingRead = nil
+                    }
                     state.operatorSession?.prune(at: now())
                 }
                 guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
+                if finishing { succeeded(); finished(); return }
             }
             if case .unknown = session.handover { return }
             if session.handover == nil, ports.windowIsOpen(session) { succeeded(); return }
             let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
-            let window = try await ports.open(session, digest)
+            let window: String
+            if let activity { window = try await activity.during("starting its session") { try await ports.open(session, digest) } }
+            else { window = try await ports.open(session, digest) }
             guard holds(session, pass: key, allowPaused: allowPaused) else { return }
             workspace.mutate { state in
                 state.operatorSession?.window = window; state.operatorSession?.startingFresh = false

@@ -442,12 +442,9 @@ struct TaskRowView: View {
                             BranchLabelView(label: row.branch)
                         }
                     }
-                    // Why a removal stopped, or what the task is missing, comes first; else, on a task the
-                    // Operator drives, what it says of it: `waiting for a reviewer`, `Operator answering`, `done`.
+                    // Error captions follow the same rules under projects and signals.
                     if let note = caption.note {
                         HelpText(note.text, tone: note.warns ? .warning : .secondary, fixedVerticalSize: false).lineLimit(1)
-                    } else if caption.progress == nil, task?.signalTask.map({ !$0.takenOver }) == true {
-                        SignalStatusLine(line: row.operatorLine, working: [.working, .background].contains(row.status))
                     }
                 }
             } mark: {

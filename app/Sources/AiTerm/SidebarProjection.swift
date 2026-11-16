@@ -22,10 +22,12 @@ struct SectionFold: Equatable {
     /// Whether the Operator's section is the open one, the projects folded: the person's choice
     /// (`AppState.operatorOpen`) while there is anything to fold, never otherwise.
     private(set) var operatorOpen = false
+    private(set) var operatorPaused = false
     private(set) var operatorHeading = SectionFold()
     private(set) var projectsHeading = SectionFold()
     @ObservationIgnored private(set) var derivations = 0
     @ObservationIgnored var operatorIssue: () -> String? = { nil }
+    @ObservationIgnored var operatorActivity: () -> OperatorActivity? = { nil }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
     private struct Inputs: Equatable {
         var skipped: [UUID: [String]]
@@ -45,7 +47,7 @@ struct SectionFold: Equatable {
     var projectsNeedingAttention: [RowID] { operatorNeedingAttention + projectSectionsNeedingAttention }
     /// The rows under OPERATOR waiting on you: its own row, then its signals' tasks.
     var operatorNeedingAttention: [RowID] {
-        (signalOperator.status == .needsInput ? [.operation(OperatorSession.rowID)] : [])
+        (signalOperator.shown && signalOperator.status == .needsInput ? [.operation(OperatorSession.rowID)] : [])
             + signalSections.flatMap { $0.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) } }
     }
     /// The rows under PROJECTS waiting on you.
@@ -90,7 +92,7 @@ struct SectionFold: Equatable {
         }
         let skipped = Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
             .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
-        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:], operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue()), signals: state.signals,
+        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:], operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity()), signals: state.signals,
             operatorOpen: state.operatorOpen,
             items: state.items, tasks: drawn, terminals: state.terminals, sessions: live.rowSessions,
             branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask)
@@ -100,6 +102,7 @@ struct SectionFold: Equatable {
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
         let sidebar = SignalSidebar(state: state, entries: all)
         var changed = signalOperator != next.operatorRow || signalSections != sidebar.signals || entries != sidebar.projects
+        if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }
         if signalOperator != next.operatorRow { signalOperator = next.operatorRow }
         if signalSections != sidebar.signals { signalSections = sidebar.signals }
         if entries != sidebar.projects { entries = sidebar.projects }

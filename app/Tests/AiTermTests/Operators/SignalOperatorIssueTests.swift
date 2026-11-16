@@ -156,9 +156,26 @@ import Testing
         try Data().write(to: journals)
         await r.root.takeOver(r.task); await r.ports.work.settled()
         #expect(r.root.statusIssue?.hasPrefix("Take Over:") == true)
+        await r.root.openOperator()
+        #expect(r.daemon.requests("window.createTask").isEmpty, "A repair issue without work must not start a throwaway chat.")
         try FileManager.default.removeItem(at: journals)
         await r.pass()
         #expect(r.root.statusIssue == nil)
         #expect(try TaskJournal.read(task: r.task, folder: journals).contains { $0.text == .ours("The person took over this task.") })
+    }
+
+    @Test func aRetiredChatDoesNotKeepItsOldReplyFailureOrReappearFromAStaleSnapshot() async throws {
+        let r = try await Rig(); defer { r.cleanUp() }
+        r.daemon.failing["operator.reply"] = .timeout
+        for _ in 0..<3 { await r.request("run_status") }
+        #expect(r.root.statusIssue?.hasPrefix("Answering the Operator:") == true)
+        r.h.workspace.mutate { $0.updateSignalTask(r.task) { $0.phase = .done; $0.thenApplied = true } }
+        await r.pass(); await r.pass()
+        #expect(r.h.workspace.state.operatorSession?.window == nil)
+        #expect(r.root.statusIssue == nil && !r.row.shown)
+        #expect(r.root.operatorTab() == nil, "The old snapshot still lists the closed tab.")
+        #expect(r.daemon.requests("window.createTask").isEmpty)
+        for _ in 0..<3 { await r.request("run_status") }
+        #expect(r.root.statusIssue == nil && !r.row.shown, "Late reply failures from the retired generation cannot recreate attention.")
     }
 }

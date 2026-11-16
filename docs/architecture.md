@@ -96,11 +96,11 @@ enum kinds use inert unknown fallbacks rather than losing the workspace.
 | `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
 | `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
 | `ThenRunner`, `TaskArchiver`, `TaskRemover` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
-| `OperatorSessionKeeper` | Persist one session, generation/token handover, adoption and idle fresh starts. Close the old window before revoking its token. |
+| `OperatorSessionKeeper` | Persist workload-driven chat lifetime, close/revoke/idle retirement, generation/token handover and context renewal. Close the old window before revoking its token. |
 | `AgentChoiceRounds`, `OracleRoundLedger` | Bind the Operator's agent-row (and project) proposal for a stage or work tab to its stage/ownership and run up to three Oracle rounds; the outcome never asks the person. The ledger keeps the saved rounds both owners share. |
 | `QuestionRounds`, `SignalJournal` | Bind three-round answer discussions to the full worker question/conversation/stage/ownership; persist quoted answers/instructions and bounded state tails over append-only journals. |
 | `SignalOperatorToolHandler`, `SignalShellGate` | Validate fourteen tools, idempotency and current authority; handle the private gated shell route separately. Missing/stale tokens deny. |
-| `SignalOperatorController`, `OperatorWork` | Compose owners, schedule finite jobs, reconcile sources/workers, coalesce fixed event/task wake lines, cancel owned work on stop. |
+| `SignalOperatorController`, `OperatorWork`, `OperatorActivityTracker` | Compose owners, schedule finite jobs, reconcile sources/workers and chat lifetime, coalesce fixed event/task wake lines, publish runtime activity identities, cancel owned work on stop. |
 | `SignalPauseSignaller`, `SignalQuestionNotification` | Save pause/carry-on obligations and route counted human questions to the one chat. Worker permission prompts keep normal task notifications. |
 
 Every consequential effect rechecks task/stage/ownership, pause and cancellation after suspension.

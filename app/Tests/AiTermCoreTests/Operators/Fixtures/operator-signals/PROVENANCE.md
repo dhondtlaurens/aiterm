@@ -65,3 +65,19 @@ source text, twelve turns and six hundred seconds per run. All eighteen runs pas
 contract, and every stream resolved `claude-sonnet-5-5`. Full streams and `table.txt` are local at
 `app/build/operator-agent-choice-eval/`. The isolated stub contacted no running app, live daemon or
 host. These scenarios do not exercise the agent-row choice itself; `SignalAgentChoiceTests` does.
+
+## Workload-driven chat lifetime
+
+Changed deliberately on 16 Nov 2026 for `docs/plans/2026-11-16-operator-workload-lifetime.md`.
+Only the current brief’s “Keep context durable” paragraph and its source were edited together,
+by hand. The app now closes a chat after the workload’s closeout, starts fresh on the next match,
+and renews an ongoing workload at the existing context threshold without an age-based restart.
+The fourteen-tool schema, saved-format golden and historical broadcast/eval baseline are unchanged.
+
+The capped comparison passed all eighteen runs on `claude-sonnet-5-5` at explicit high effort:
+three repetitions per contract of unavailable app, product question and hostile source text,
+with twelve turns and six hundred seconds per run. Full streams, model replies, calls, grades
+and `table.txt` are local at `build/operator-workload-lifetime-eval/`. The isolated stub contacted
+no running app, live daemon or real project host. Every stream resolved `claude-sonnet-5-5`.
+These scenarios verify the role contract;
+`SignalOperatorLifetimeTests` and `SignalSessionKeeperTests` verify the chat lifetime itself.

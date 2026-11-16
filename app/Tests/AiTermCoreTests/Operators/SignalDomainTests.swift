@@ -134,7 +134,8 @@ import Testing
 
     @Test func freshStartOnlyWhileIdleWithNoWakeOrOracleWork() {
         let session = OperatorSession(createdAt: now.addingTimeInterval(-86400))
-        #expect(FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: nil, idle: true, wakePending: false))
+        #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: nil, idle: true, wakePending: false), "Age alone does not discard the workload's chat.")
+        #expect(FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: true, wakePending: false))
         #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: false, wakePending: false))
         #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: true, wakePending: true))
         #expect(!FreshStartPolicy.shouldStart(session: OperatorSession(createdAt: now), now: now, contextTokens: nil, idle: true, wakePending: false))

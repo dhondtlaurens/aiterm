@@ -240,6 +240,7 @@ final class AppController {
         // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
+        rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         signalController.onChange { [weak self] in self?.refreshRows() }
         sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
