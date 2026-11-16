@@ -215,7 +215,7 @@ TS tests-scripts.
 
 ### Phase 0. Safety net (no product change)
 
-- [ ] 0a. **Opus.** Full gate green on the starting commit; capture `build/refactor-before`
+- [x] 0a. **Opus.** Full gate green on the starting commit; capture `build/refactor-before`
   snapshots and keep a copy of today's `operator-signals/state.json` there for the upgrade
   rehearsal; note all three under Record.
 - [ ] 0b. **Opus.** One signal journey test through `SignalWorld`: stub source returns an item, a
@@ -526,3 +526,24 @@ Codex, read-only, through `psg:adversarial-review`.
 Filled while implementing: per phase, the gate result, findings dropped on re-reading with the
 reason, fixtures re-recorded, tests deleted with their survivors, and anything a step found and
 left.
+
+### Phase 0
+
+- Starting commit: `d9e9ccaa Plan the greenfield refactor: one owner per concept, no leftovers, no
+  compatibility, with a brief for each step`.
+- Gate: plain `scripts/test.sh all`, exit 0, wall time 549 s (log in
+  `build/refactor-before/gate.log`). Summary lines as printed: daemon
+  `1601 passed, 1 skipped in 23.87s`, `Success: no issues found in 92 source files`,
+  `All checks passed!`; after `Gate pass: main`,
+  `Test run with 1702 tests in 168 suites passed after 110.043 seconds with 3 known issues.`;
+  after `Gate pass: snapshots`, the closing line
+  `Test run with 1 test in 1 suite passed after 3.022 seconds.` Passed on the first run; no
+  flaky test.
+- Snapshots: `build/refactor-before/`, 109 PNGs from `scripts/snapshots.sh` in default mode;
+  `manifest.txt` beside them holds their SHA-256 sums, one line per PNG (109 lines).
+- Saved-state copy: `build/refactor-before/state.json`, copied from the `operator-signals` fixture
+  at `d9e9ccaa`, SHA-256
+  `73f5f19b3d1f81e1f785a5a15503e45a4e12dc674b17c84f8082b7e30c7c8475` (equal to the fixture's sum
+  at that commit).
+- 0a differed from its brief in one point: the plan and the brief folder were already committed
+  (`d9e9ccaa`), so the starting `git status` was clean rather than showing them untracked.
