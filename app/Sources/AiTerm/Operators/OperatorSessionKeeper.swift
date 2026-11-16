@@ -20,6 +20,7 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
         var sessions: @MainActor () -> [SessionInfo] = { [] }
         var instructions: @MainActor () -> String? = { nil }
         var usage: @MainActor () -> UsageSnapshot = { .empty }
+        var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
     }
     private let workspace: WorkspaceStore
     private let now: () -> Date
@@ -76,7 +77,7 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
             }
             if case .unknown = session.handover { return }
             if session.handover == nil, ports.windowIsOpen(session) { return }
-            let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage())
+            let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
             let window = try await ports.open(session, digest)
             guard holds(session, pass: key, allowPaused: allowPaused) else { return }
             workspace.mutate { state in

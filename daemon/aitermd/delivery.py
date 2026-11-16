@@ -224,7 +224,7 @@ def wake_text_problem(text: str) -> str | None:
     # Signal wakes carry only an app-owned event and UUID, never a host title or key. Keep
     # the older prose form's digit restriction; this narrow grammar is the only exception.
     identity = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    if re.fullmatch(r"\[AiTerm\] (?:worker_ended|task_blocked|question_waiting|reconnected|signal_failed) "
+    if re.fullmatch(r"\[AiTerm\] (?:worker_ended|task_blocked|agent_choice|question_waiting|reconnected|signal_failed) "
                     + identity + r"; call run_status", text):
         return None
     if any(ch.isdigit() for ch in text):

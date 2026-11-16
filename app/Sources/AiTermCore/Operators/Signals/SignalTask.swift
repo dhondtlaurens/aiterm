@@ -15,6 +15,10 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var configuration: Signal?
     public var prompt: String?
     public var candidateProjects: [UUID]?
+    /// While `choosing`: the rows the Operator may choose among, in the person's order.
+    public var choosableRows: [AgentChoice]?
+    /// The row and project this stage was given, and why. Cleared when a new stage starts.
+    public var choice: AgentChoiceRecord?
     public var phase: TaskPhase = .launching
     public var stage: Int = 1
     public var startedAt: Date

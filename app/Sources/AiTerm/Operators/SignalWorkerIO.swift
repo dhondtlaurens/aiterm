@@ -17,6 +17,8 @@ import AiTermCore
     var recoveryAllowed: @MainActor (UUID) -> Bool = { _ in true }
     var onBlocked: @MainActor (UUID) -> Void = { _ in }
     var onTurn: (UUID) -> Void = { _ in }
+    /// Journals a fallback row's launch-time agent switch for `run_status` and the person.
+    var recordSwitch: @MainActor (UUID, AgentChoice) async throws -> Void = { _, _ in }
     var connections: @MainActor () async -> SignalConnections = { SignalConnections() }
     init(workspace: WorkspaceStore, live: LiveSessions, work: WorkInFlight, ports: OperatorPorts,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame) {
@@ -217,15 +219,23 @@ import AiTermCore
     func launch(_ initial: TaskItem, prompt: String) async throws -> String {
         _ = try require(initial)
         var task = initial
+        // A row the Operator chose (with weekly usage in hand) launches as chosen. Only the row a
+        // three-round disagreement fell back to still moves off an agent at its weekly limit.
         if task.firstWorkerConversation == nil, (task.signalTask?.launch?.number ?? 1) == 1,
-           let configuration = task.signalTask?.configuration {
+           task.signalTask?.choice?.decided == .disagreed, let configuration = task.signalTask?.configuration {
             let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
             let choice = ModelChoice.launchChoice(planned: planned, pinned: false,
                 weekly: SidebarModel.weeklyUsage(live.usage, now: ports.now()), installed: ports.installedAgents(), rows: configuration.agents)
             if choice != planned {
-                workspace.mutate { $0.updateSignalItem(task.id) { $0.agent = choice.agent; $0.model = choice.model; $0.reasoning = choice.reasoning } }
-                guard workspace.flush(), let current = workspace.state.task(id: task.id) else { throw ActionUnavailable("The worker choice could not be saved.") }
-                task = current
+                workspace.mutate { $0.updateSignalItem(task.id) {
+                    $0.agent = choice.agent; $0.model = choice.model; $0.reasoning = choice.reasoning
+                    $0.signalTask?.choice?.launchSwitch = choice
+                } }
+                guard workspace.flush() else { throw ActionUnavailable("The worker choice could not be saved.") }
+                // Journaled as it is made, so a launch that fails or is recovered later cannot lose it.
+                try await recordSwitch(task.id, choice)
+                guard let current = workspace.state.task(id: task.id) else { throw ActionUnavailable("The task changed while its switch was journaled.") }
+                _ = try require(current); task = current
             }
         }
         guard !inFlight.contains(task.id), let daemon = daemon(), task.hasCheckout,

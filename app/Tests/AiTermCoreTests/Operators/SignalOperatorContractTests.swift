@@ -3,8 +3,8 @@ import Testing
 @testable import AiTermCore
 
 @Suite struct SignalOperatorContractTests {
-    @Test func theNewSurfaceHasThirteenToolsAndExplicitTraits() throws {
-        #expect(SignalOperatorTool.allCases.count == 13)
+    @Test func theSurfaceHasFourteenToolsAndExplicitTraits() throws {
+        #expect(SignalOperatorTool.allCases.count == 14)
         #expect(Set(SignalOperatorTool.allCases.filter { !$0.mutating }.map(\.rawValue)) == ["run_status", "read_task", "jira_search"])
         #expect(SignalOperatorTool.answerWorker.requiresKey && SignalOperatorTool.askOracle.requiresKey)
         let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/operator-signals")

@@ -9,6 +9,7 @@ public enum SignalTransitions {
             next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.ownership += 1; next.startedAt = at
             next.configuration = stage.configuration; next.prompt = stage.prompt; next.thenApplied = nil
             next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil; next.operatorJudged = nil
+            next.choice = nil; next.choosableRows = nil
         }
         func startPending() {
             guard !next.pendingStages.isEmpty else { return }
@@ -45,6 +46,12 @@ public enum SignalTransitions {
         case .block(let reason):
             guard task.phase.isActive else { throw SignalTransitionError.invalidEdge }
             next.phase = .blocked; next.blockedReason = reason
+        case .needChoice:
+            guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
+            next.phase = .choosing; next.currentAct = nil
+        case .chosen:
+            guard task.phase == .choosing else { throw SignalTransitionError.invalidEdge }
+            next.phase = .launching; next.ownership += 1; next.currentAct = nil; next.choosableRows = nil; next.candidateProjects = nil
         case .resume:
             guard task.phase == .blocked else { throw SignalTransitionError.invalidEdge }
             next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.currentAct = nil; next.pendingReplies = nil

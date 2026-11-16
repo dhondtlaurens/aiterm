@@ -45,9 +45,14 @@ import Testing
                 var task = task; task.worktreePath = "/synthetic/second/.worktrees/work"; return task
             }, launch: { _, _ in starts += 1; return "worker-window" }, restore: { $0 }))
         await runner.run(id)
-        #expect(starts == 0 && h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)
-        try await runner.resume(id, project: second.id, agent: codex)
+        let waiting = try #require(h.workspace.state.task(id: id)?.signalTask)
+        #expect(starts == 0 && waiting.phase == .choosing)
+        #expect(waiting.choosableRows == [SignalWorld.agent, codex] && waiting.candidateProjects?.contains(second.id) == true)
+        await #expect(throws: (any Error).self) { try await runner.resume(id, project: second.id, agent: codex) }
+        try await runner.choose(id, choice: AgentChoiceRecord(row: codex, project: second.id, reason: "Codex has room this week.",
+                                                              decided: .oracleAgreed, round: 1, note: nil, at: world.now))
         #expect(starts == 1 && h.workspace.state.task(id: id)?.projectId == second.id)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.choice?.row == codex)
     }
 
     @Test func aFailedPreparationCanBeResumedWithItsSavedIntent() async throws {

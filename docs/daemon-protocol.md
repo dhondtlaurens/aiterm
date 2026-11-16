@@ -74,7 +74,7 @@ Null is unknown. Counts are never promoted to sibling tabs and are cleared when 
 Older payloads that omit the field still decode.
 
 The single Operator's `operator.request` includes the token's required `generation`; the app checks
-it before acting. The token serves thirteen Signal tools. Task actions also carry stage/ownership;
+it before acting. The token serves fourteen Signal tools. Task actions also carry stage/ownership;
 the shell gate is a separate private route. A missing/revoked token always denies `/operator/gate`,
 including revocation while waiting for the app. The app also returns a real gate denial for stale
 session/claim data. An unavailable Oracle follows the explicit unchallenged shell policy; it never

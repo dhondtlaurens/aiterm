@@ -118,20 +118,28 @@ import Testing
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == (activeWorker ? .working : .blocked))
         #expect(io.busy(id) == activeWorker, "Inspection must be able to resume a blocked launch.")
     }
-    @Test func aFirstLaunchUsesTheAllowedAgentBelowItsWeeklyLimit() async throws {
+    /// A chosen row launches as chosen even at the weekly limit; only a three-round fallback row
+    /// moves to the other permitted agent, and the switch is recorded on the choice.
+    @Test(arguments: [AgentChoiceRecord.Decided.oracleAgreed, .disagreed]) func onlyAFallbackRowMovesOffAnAgentAtItsWeeklyLimit(decided: AgentChoiceRecord.Decided) async throws {
         let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
         var world = SignalWorld(); let signal = world.signal(agents: [SignalWorld.agent, codex]), id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
-        h.workspace.mutate { $0.updateSignalItem(id) { $0.worktreePath = h.folder.path; $0.windowId = nil; $0.signalTask?.phase = .launching } }
+        let choice = AgentChoiceRecord(row: SignalWorld.agent, project: nil, reason: "Planning suits Opus.", decided: decided, round: 1, note: nil, at: world.now)
+        h.workspace.mutate { $0.updateSignalItem(id) { $0.worktreePath = h.folder.path; $0.windowId = nil; $0.signalTask?.phase = .launching; $0.signalTask?.choice = choice } }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
         defer { try? FileManager.default.removeItem(at: ports.home) }
         live.usage = UsageSnapshot(claude: Usage(fiveHour: nil, sevenDay: .init(usedPercent: 80, resetsAt: nil), spend: nil, updatedAt: 1),
             codex: Usage(fiveHour: nil, sevenDay: .init(usedPercent: 20, resetsAt: nil), spend: nil, updatedAt: 1))
         let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
             daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        var recorded: [AgentChoice] = []
+        io.recordSwitch = { _, row in recorded.append(row) }
         _ = try await io.launch(try #require(h.workspace.state.task(id: id)), prompt: "Work.")
-        #expect(h.workspace.state.task(id: id)?.agent == .codex)
-        #expect((daemon.requests("window.createTask").first?.params["agentCommand"] as? String)?.contains("launch-codex.sh") == true)
+        let switched = decided == .disagreed
+        #expect(recorded == (switched ? [codex] : []), "The switch is journaled as it is made, before the window opens.")
+        #expect(h.workspace.state.task(id: id)?.agent == (switched ? .codex : .claude))
+        #expect(h.workspace.state.task(id: id)?.signalTask?.choice?.launchSwitch == (switched ? codex : nil))
+        #expect((daemon.requests("window.createTask").first?.params["agentCommand"] as? String)?.contains(switched ? "launch-codex.sh" : "launch-claude.sh") == true)
     }
     @Test(arguments: [false, true]) func anApiFailureBlocksTheStageInsteadOfReusingAnEarlierQuestion(hasConversation: Bool) async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)

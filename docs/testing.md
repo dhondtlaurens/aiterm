@@ -81,7 +81,7 @@ synthetic inputs and model proof. They are not regenerated to accommodate incide
 | Fixture | Always-on reader |
 | --- | --- |
 | `operator-signals/state.json` | `SignalSavedFormatTests`: save through `StateStore`, exact bytes and reload, pending stages, archive, reply intent, generation, questions and idempotency. |
-| `operator-signals/brief.md`, `tools.json` | `SignalOperatorContractTests`: the stable role prompt and thirteen-tool schema contract. |
+| `operator-signals/brief.md`, `tools.json` | `SignalOperatorContractTests`: the stable role prompt and fourteen-tool schema contract. |
 | `AiTermTests/Fixtures/operator-saved-format/state.json` | `SignalRetiredKeysTests`: old broadcast/task keys load as ordinary tasks and disappear on the next save, including archived tasks. |
 | `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, generation, context size and field parity. |
 | `daemon/tests/codex_reference.py` | `test_codex_sessions.py`: reference rollout parser used to compare bounded-tail answers. |

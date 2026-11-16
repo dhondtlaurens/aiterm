@@ -98,8 +98,7 @@ baseline.
 - `Operators/ItemRouter.swift` — modify: new tasks and continued stages ask `AgentChoiceNeed`;
   `choosing` instead of `blocked`, including multi-project tickets.
 - `Operators/StageRunner.swift` — modify: `finish` enters `choosing` the same way; new `choose`
-  applies a decided row/project, journals it and runs the stage; after a launch that switched agent,
-  journal the switch; `resume` refuses `choosing` and keeps the current permitted row by default.
+  applies a decided row/project, journals it and runs the stage; `resume` refuses `choosing` and keeps the current permitted row by default.
 - `Operators/OracleRoundLedger.swift` — create: the round bookkeeping extracted from `QuestionRounds`
   (open round by binding, `challengeId` continuity, round count, discussion history, mark and clear).
 - `Operators/QuestionRounds.swift` — modify: use the ledger; behaviour unchanged.
@@ -113,7 +112,7 @@ baseline.
   discussion; YES or NO); wake `agent_choice`; prune stale choice rounds; normalize old choice
   blocks to `choosing` once on reconcile.
 - `Operators/SignalWorkerIO.swift` — modify: `launchChoice` only for a fallback row; record the
-  switch on the task's choice.
+  switch on the task's choice and journal it as it is made, so a failed or recovered launch keeps it.
 - `SignalSidebar.swift` — modify: `choosing` draws "Operator choosing its agent" (or "its project")
   with the acting look and working status, so it counts toward nothing that needs the person.
 - `Snapshots/SignalSidebarSnapshots.swift` — modify: a `choosing` pose; the `blocked` pose gets a
@@ -124,7 +123,10 @@ baseline.
 
 - `daemon/aitermd/signal_tools.json` — modify: add `choose_agent`; `open_tab` gains `challengeId`;
   `resume_task` described as for blocked tasks.
-- `daemon/tests/test_operator_mcp.py` — modify: fourteen tools.
+- `daemon/tests/test_operator_mcp.py`, `test_operator_session.py`, `test_operator_surface.py` — modify:
+  fourteen tools.
+- `daemon/aitermd/delivery.py`, `daemon/tests/test_delivery.py` — modify: `agent_choice` joins the
+  wake grammar the daemon accepts (found by the change review).
 - `app/Tests/AiTermTests/Operators/SignalSelectionTests.swift`, `SignalEngineTests.swift` — modify:
   the cases that expect choice blocks and `resume_task` selection move to `choosing` and
   `choose_agent`.
@@ -175,15 +177,15 @@ baseline.
 
 ## To-dos
 
-- [ ] The rule and the phase: `AgentChoiceNeed`, `ChosenRow`, `choosing`, its transitions and sparse
+- [x] The rule and the phase: `AgentChoiceNeed`, `ChosenRow`, `choosing`, its transitions and sparse
       fields, with their core tests. Nothing routes into it yet.
-- [ ] Extract `OracleRoundLedger` from `QuestionRounds`; `SignalQuestionRoundsTests` stay green
+- [x] Extract `OracleRoundLedger` from `QuestionRounds`; `SignalQuestionRoundsTests` stay green
       unchanged.
-- [ ] `choose_agent` end to end: schema, handler, `AgentChoiceRounds`, `StageRunner.choose`, router and
+- [x] `choose_agent` end to end: schema, handler, `AgentChoiceRounds`, `StageRunner.choose`, router and
       `finish` entering `choosing`, the `agent_choice` wake, digest fields, the sidebar row, the
       fallback-only launch switch, `resume_task` changes, the upgrade normalization; in the same
       step the brief, `brief.md`/`tools.json` fixtures, the daemon tool test and the rewritten
       `SignalSelectionTests`/`SignalEngineTests` cases, so the gate stays green;
       `SignalAgentChoiceTests` and the journey.
-- [ ] `open_tab` through the rounds for multi-row signals, with its schema fixture and tests.
-- [ ] Provenance, docs and snapshots; read the PNGs; capped eval on the go.
+- [x] `open_tab` through the rounds for multi-row signals, with its schema fixture and tests.
+- [x] Provenance, docs and snapshots; read the PNGs; capped eval on the go.

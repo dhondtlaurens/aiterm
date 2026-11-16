@@ -67,11 +67,7 @@ import AiTermCore
                     var task = Self.makeTask(item: item, signal: signal, project: project, at: at)
                     task.signalTask?.pendingStages = pending.map(configured)
                     let candidates = ItemProjectMapper.projects(for: match.item, in: state.projects).map(\.id)
-                    if candidates.count > 1 {
-                        task.signalTask?.candidateProjects = candidates
-                        task.signalTask?.phase = .blocked
-                        task.signalTask?.blockedReason = "Choose which linked project should hold this ticket."
-                    }
+                    task.prepareLaunch(configuration: signal, candidates: candidates, at: at)
                     state.tasks.append(task); launches.append(task.id)
                     seen(match.signal, match.item, .started)
                     for stage in pending { seen(stage.signal, stage.item, .started) }
@@ -95,17 +91,15 @@ import AiTermCore
                             if task.jira == nil { task.jira = item.ticket.map(JiraRef.init) }
                         }
                         if record.phase == .launching {
-                            if let configuration = startingConfiguration, configuration.agents.count == 1, let choice = configuration.agents.first {
-                                task.agent = choice.agent; task.model = choice.model; task.reasoning = choice.reasoning
-                            } else {
-                                task.signalTask?.phase = .blocked
-                                task.signalTask?.blockedReason = "Choose a permitted agent and model for this stage."
-                            }
+                            if let configuration = startingConfiguration { task.prepareLaunch(configuration: configuration, candidates: nil, at: at) }
+                            else { task.signalTask?.phase = .blocked; task.signalTask?.blockedReason = AgentChoiceNeed.unavailableReason }
                         }
                     }
                     if state.signalItem(id: id)?.signalTask?.phase == .launching { launches.append(id) }
                     seen(stage.signal, stage.item, .started)
-                    events.append((id, record.phase == .launching ? "A signal continued this item." : "A signal queued the next stage."))
+                    let phase = state.signalItem(id: id)?.signalTask?.phase
+                    events.append((id, phase == .launching ? "A signal continued this item."
+                                   : phase == .choosing ? "A signal continued this item; the Operator chooses its agent." : "A signal queued the next stage."))
                 }
             }
             let live = Set(state.allSignalTasks.compactMap { $0.signalTask?.item.identity })
@@ -137,9 +131,6 @@ import AiTermCore
                             appendTicket: false, createdAt: at, windowId: nil)
         var record = SignalTask(signal: signal.id, item: item.item, startedAt: at)
         record.configuration = signal; record.prompt = prompt(signal: signal, item: item)
-        if signal.agents.count != 1 || !AgentCommand.operatedAgents.contains(agent.agent) || agent.model.isEmpty {
-            record.phase = .blocked; record.blockedReason = "Choose a permitted agent and model for this task."
-        }
         task.signalTask = record
         return task
     }
