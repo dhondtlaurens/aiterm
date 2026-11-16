@@ -231,7 +231,7 @@ TS tests-scripts.
 
 ### Phase 1. Delete what nothing calls (after 0)
 
-- [ ] 1a. **Codex.** The broadcast eval baseline, the two unread `operator-current` folders,
+- [x] 1a. **Codex.** The broadcast eval baseline, the two unread `operator-current` folders,
   `operator-records`, the retired-keys test, `operator-saved-format` and the `retired:` key lists;
   the eval keeps the current contract; `AGENTS.md`, `docs/testing.md`, `daemon/README.md`,
   `scripts/test-routes.tsv` and the provenance notes follow. The suite's `operatorOpen` test moves
@@ -567,3 +567,18 @@ left.
   daemon suite and lint, snapshots). Codex adversarial review of the phase's change: no findings,
   "ready" (static review). `main` had not moved since the branch (`247b305d`); merged to `main`.
   No manual check is owed for phase 0.
+
+### Phase 1
+
+- 1a: the broadcast eval baseline, the two unread `operator-current` folders, `operator-records`,
+  `operator-saved-format`, `operator-current-tools.json` and the `retired:` key lists are gone; the
+  live eval runs the current brief only. Tests deleted: `SignalRetiredKeysTests.anOldWorkspaceLoadsAndItsNextSaveDropsEveryBroadcastKey`
+  and `ModelsTests.aTaskSavedWithLastSelectedAtStillDecodes` (behaviour deleted; unknown-key
+  preservation is now held by `aKeyThisBuildDoesNotKnowOnATaskSurvivesASave` and
+  `aKeyThisBuildDoesNotKnowOnAWorkspaceSurvivesASave`). `theProjectsAreTheDefaultSectionAndAnOpenOperatorIsKept`
+  moved to `SignalSavedFormatTests`. Differences from the brief: `daemon/tests/wire/PROVENANCE.md`
+  also named the deleted fixtures, so its sentence "The separate frozen operator-current tool and
+  workspace fixtures were not regenerated." went (no fixture bytes changed); the eval's
+  `read_task/lastMessage` replies went too, because the current `read_task` has no `what`
+  argument and the stub could only match them under the old contract. `docs/testing.md` still names
+  a nonexistent `OperatorWorkBudgetTests`; left for 9a.

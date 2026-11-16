@@ -3,23 +3,20 @@ import Foundation
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The Operator's brief, live (spec §5): each scenario of `OperatorEvalGrading` run through `claude -p` three times on
-/// each brief, the current structured baseline captured at f152f6e9 and the brief now
-/// (`OperatorCommand.brief`, with the daemon's tools now), against the stub MCP server
-/// (`daemon/tools/operator_stub.py`), and graded on the calls and the final reply. Uses quota, so it runs only with
-/// `AITERM_LIVE_OPERATOR=1`.
+/// Evaluates each scenario three times on the current Operator brief through `claude -p`,
+/// against the stub MCP server (`daemon/tools/operator_stub.py`). Calls and chat are graded.
+/// Uses quota, so it is enabled only with `AITERM_LIVE_OPERATOR=1`.
 ///
-/// It runs on the Operator's model from Settings › Operator, at its reasoning, as the person's broadcasts do;
-/// `AITERM_EVAL_MODEL` overrides the model, with no reasoning flag. Each run's brief, replies, calls and reply are kept
+/// Uses the Operator's model and reasoning from Settings > Operator. `AITERM_EVAL_MODEL` overrides
+/// the model, with no reasoning flag. Each evaluation's brief, replies, calls and chat are kept
 /// in `AITERM_EVAL_OUT`, or a folder in the temporary directory, whose path it prints.
 ///
-/// It prints a table, scenario by scenario, and fails for each scenario the new brief misses on any of its three runs; the
-/// baseline is reported separately. A miss is a finding about the brief, as in `FixLiveTests`:
+/// Prints a table by scenario and reports each failure. A miss is a finding about the brief:
 /// change the brief, not the scenario.
 ///
-/// Beyond the Operator's own command, each run passes `--max-turns` and a timeout, so a run that loops can't hang the
-/// suite; `--no-session-persistence`, so the runs leave no conversations behind; and `disableAllHooks`, so AiTerm's own
-/// hooks don't report every run to the AiTerm that may be open.
+/// Each invocation passes `--max-turns` and a timeout to bound the evaluation,
+/// `--no-session-persistence` to leave no conversations behind, and `disableAllHooks`
+/// so AiTerm's hooks do not report the evaluation to the app that may be open.
 enum OperatorEvalRunner {
     static let runsPerBrief = 3, maxTurns = 12, atOnce = 3
     static let runTimeout: TimeInterval = 600

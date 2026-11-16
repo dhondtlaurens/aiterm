@@ -37,8 +37,7 @@ switching to Signals, as described in
 [releasing](workflow/release.md).
 
 `AppState` stores projects, tasks, terminals, the archive, signals, seen items and one Operator
-session. `runs`, `foldedRuns` and task `operated` are retired, including in archived tasks; unknown
-non-retired keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
+session. Unknown keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
 and `SidebarProjection` scope observation to drawn facts. Signal headings compare `SignalHeadingValue`;
 menus resolve saved tasks at action time. Journals, reply markers and launch history do not redraw
 rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No leaf `body`

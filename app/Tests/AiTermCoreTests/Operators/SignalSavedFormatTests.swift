@@ -21,6 +21,18 @@ import Testing
         #expect(loaded.operatorSession?.waitingOnYou == 1)
         #expect(loaded.operatorSession?.oracleRounds.count == 1)
     }
+    /// A workspace saved before the Operator's section could be open,
+    /// opens on the projects; the Operator open is kept, and the default is written as it always was.
+    @Test func theProjectsAreTheDefaultSectionAndAnOpenOperatorIsKept() throws {
+        let decoder = JSONDecoder(), encoder = JSONEncoder()
+        let old = try decoder.decode(AppState.self, from: Data(#"{"items":[],"tasks":[],"terminals":[]}"#.utf8))
+        #expect(!old.operatorOpen)
+        let plain = try #require(JSONSerialization.jsonObject(with: encoder.encode(old)) as? [String: Any])
+        #expect(plain["operatorOpen"] == nil)
+        var open = old; open.operatorOpen = true
+        #expect(try decoder.decode(AppState.self, from: encoder.encode(open)).operatorOpen)
+    }
+
     private static func state() -> AppState {
         func id(_ n: Int) -> UUID { UUID(uuidString: "E7A1C0DE-0000-4000-8000-" + String(format: "%012X", n))! }
         let at = Date(timeIntervalSince1970: 1_794_657_600)

@@ -127,11 +127,9 @@ struct PreservedFields: Equatable, Sendable {
     }
     private var values: [String: JSONValue] = [:]
     init() {}
-    /// `retired`: keys an older build wrote and this one dropped on purpose — not a newer build's, so
-    /// they go on the next save instead of being kept.
-    init<K: CodingKey>(_ decoder: Decoder, known: K.Type, retired: Set<String> = []) throws {
+    init<K: CodingKey>(_ decoder: Decoder, known: K.Type) throws {
         let c = try decoder.container(keyedBy: Key.self)
-        for key in c.allKeys where K(stringValue: key.stringValue) == nil && !retired.contains(key.stringValue) {
+        for key in c.allKeys where K(stringValue: key.stringValue) == nil {
             values[key.stringValue] = try c.decode(JSONValue.self, forKey: key)
         }
     }
@@ -312,8 +310,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// the whole workspace load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // `lastSelectedAt` was written on every click and never read; a workspace saved with it loses it.
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["lastSelectedAt", "operated"])
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         projectId = try c.decode(UUID.self, forKey: .projectId)
         title = try c.decode(String.self, forKey: .title)
@@ -505,7 +502,7 @@ public struct AppState: Codable, Equatable, Sendable {
     /// their projects become the list, in order. Same mechanism as `TerminalItem.init(from:)`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["runs", "foldedRuns"])
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         if let stored = try c.decodeIfPresent([SidebarItem].self, forKey: .items) { items = stored }
         else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []

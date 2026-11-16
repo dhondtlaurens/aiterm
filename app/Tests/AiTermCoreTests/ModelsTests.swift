@@ -260,20 +260,26 @@ import Foundation
         #expect(term.windowId == "w1")
     }
 
-    /// `lastSelectedAt` was written on every click and never read, and is gone; a workspace saved
-    /// while it existed still loads, and loses the key on its next save.
-    @Test func aTaskSavedWithLastSelectedAtStillDecodes() throws {
+    /// A field this build does not know survives decoding and saving alongside the task.
+    @Test func aKeyThisBuildDoesNotKnowOnATaskSurvivesASave() throws {
         let json = """
         {"id":"1EB4C0DE-0000-0000-0000-000000000001","projectId":"1EB4C0DE-0000-0000-0000-000000000002",\
         "title":"Work","branch":"feat/work","worktreePath":"/repo/.worktrees/work","baseBranch":"main",\
         "agent":"claude","model":"opus","appendTicket":true,"createdAt":"1970-01-01T00:00:01Z",\
-        "windowId":"w1","lastSelectedAt":"1970-01-01T00:00:02Z"}
+        "windowId":"w1","fromANewerBuild":"kept"}
         """
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let task = try decoder.decode(TaskItem.self, from: Data(json.utf8))
         #expect(task.title == "Work" && task.windowId == "w1")
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        #expect(!String(decoding: try encoder.encode(task), as: UTF8.self).contains("lastSelectedAt"))
+        let encoded = try #require(JSONSerialization.jsonObject(with: encoder.encode(task)) as? [String: Any])
+        #expect(encoded["fromANewerBuild"] as? String == "kept")
+    }
+
+    @Test func aKeyThisBuildDoesNotKnowOnAWorkspaceSurvivesASave() throws {
+        let state = try JSONDecoder().decode(AppState.self, from: Data(#"{"items":[],"foldedRuns":["kept"]}"#.utf8))
+        let encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        #expect(encoded["foldedRuns"] as? [String] == ["kept"])
     }
 
     @Test func rowsAreFoundByTheirId() {

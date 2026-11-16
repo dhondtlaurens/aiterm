@@ -24,12 +24,11 @@ let package = Package(
                 linkerSettings: [.linkedFramework("AppKit")]),
         // Process proofs of the real worker guard with fixed host facts; not built into AiTerm.
         .executableTarget(name: "AiTermWorkerGuardProbe", dependencies: ["AiTermCore"], path: "Tests/AiTermWorkerGuardProbe"),
-        // The Operator evals' baseline (Fixtures/) is read by path from the checkout, not as a resource bundle.
+        // The Operator evals' fixtures are read by path from the checkout, not as a resource bundle.
         .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport", "AiTermWorkerGuardProbe"], path: "Tests/AiTermCoreTests",
                     exclude: ["Operators/Fixtures"]),
         .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI", "AiTermTestSupport"], path: "Tests/AiTermUITests"),
-        .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests",
-                    exclude: ["Fixtures"]),
+        .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests"),
     ],
     swiftLanguageModes: [.v6]
 )

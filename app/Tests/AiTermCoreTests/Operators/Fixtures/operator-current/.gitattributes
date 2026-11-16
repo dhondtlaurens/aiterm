@@ -1,3 +1,0 @@
-# Captured model-facing prompts retain their original trailing spaces verbatim.
-brief-*.md whitespace=-blank-at-eol
-eval-brief.md whitespace=-blank-at-eol

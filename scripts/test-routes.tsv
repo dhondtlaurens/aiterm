@@ -100,5 +100,3 @@ scripts/compat-check.sh	none
 # The agents' skills (.claude/skills is a link to .agents/skills).
 .claude/skills	none
 .agents/*	none
-
-app/Tests/AiTermTests/Fixtures/operator-saved-format/state.json	suite:AiTermCoreTests.SignalRetiredKeysTests
