@@ -13,6 +13,7 @@ import Foundation
 final class RecordingDaemon: DaemonCommands {
     struct Request { let method: String; let params: [String: Any] }
     private(set) var requests: [Request] = []
+    var snapshotValue: DaemonSnapshot?
     var onRequest: (String) -> Void = { _ in }
     /// An individual reply can be held after entry, before its current failure/result is read.
     var beforeReply: (@MainActor (String) async -> Void)?
@@ -74,7 +75,7 @@ final class RecordingDaemon: DaemonCommands {
 
     func snapshot() async throws -> DaemonSnapshot {
         try await answer("workspace.snapshot", [:])
-        return DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
+        return snapshotValue ?? DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
     }
 
     func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String {

@@ -180,19 +180,7 @@ import AiTermCore
         defer { work.end(token); work.end(projectToken) }
         let result: TaskItem
         if task.mr != nil {
-            let links = await connections(); _ = try require(task)
-            let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
-            guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
-                throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
-            }
-            _ = try require(task)
-            let git = ports.git, reserved = workspace.state.reservedWorktreeSlugs(projectId: project.id)
-            result = try await BackgroundWork.run(on: GitLanes.shared.lane(for: project.path)) {
-                var draft = ReviewDraft(mr: nil, agent: task.agent, model: task.model, reasoning: task.reasoning)
-                draft.apply(mr: request); draft.setTitle(task.title)
-                let made = try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: git)
-                var value = task; value.worktreePath = made.task.worktreePath; return value
-            }
+            result = try await requestCheckout(task, project: project, check: { _ = try self.require(task) }).task
         } else {
             let git = ports.git
             let start = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
@@ -208,6 +196,61 @@ import AiTermCore
             workspace.flush()
         }
         _ = try require(task); return result
+    }
+    /// The manual opener holds the task's work token. It needs the same request/fork validation
+    /// and source-branch checkout as a worker, without granting the Operator authority again.
+    func prepareTakenOverRequest(_ task: TaskItem) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
+        func check() throws {
+            guard workspace.canChangeWorkspace, !Task.isCancelled, let current = workspace.state.task(id: task.id),
+                  current.signalTask?.takenOver == true, current.signalTask?.ownership == task.signalTask?.ownership,
+                  current.projectId == task.projectId, current.branch == task.branch, current.worktreePath == task.worktreePath else {
+                throw ActionUnavailable("This task changed before its checkout opened.")
+            }
+        }
+        try check()
+        guard let project = workspace.state.project(id: task.projectId), task.mr != nil else { throw ActionUnavailable("This task has no request to check out.") }
+        return try await requestCheckout(task, project: project, check: check)
+    }
+    private func requestCheckout(_ task: TaskItem, project: Project, check: @MainActor () throws -> Void) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
+        let links = await connections(); try check()
+        let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
+        guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
+            throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
+        }
+        try check()
+        let git = ports.git, reserved = workspace.state.reservedWorktreeSlugs(projectId: project.id)
+        return try await BackgroundWork.run(on: GitLanes.shared.lane(for: project.path)) {
+            if task.signalTask?.takenOver == true {
+                let repository = Repository(project.path, git: git)
+                let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: request.sourceBranch), in: project.path,
+                    reserved: reserved, registered: try repository.registeredWorktreeFolders())
+                var value = task
+                value.worktreePath = try repository.addReviewWorktree(slug: slug, branch: request.sourceBranch)
+                value.baseBranch = request.targetBranch
+                return (value, WorktreeInclude.copy(from: repository, into: value.worktreePath))
+            }
+            var draft = ReviewDraft(mr: nil, agent: task.agent, model: task.model, reasoning: task.reasoning)
+            draft.apply(mr: request); draft.setTitle(task.title)
+            let made = try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: git)
+            var value = task; value.worktreePath = made.task.worktreePath; value.baseBranch = made.task.baseBranch
+            return (value, made.worktreeInclude)
+        }
+    }
+    /// Take Over revokes the Operator's authority, while resumed agents keep their branch guard.
+    /// Each conversation gets its own launch script, including multiple tabs running the same CLI.
+    func takenOverResumeCommands(_ task: TaskItem) async throws -> [String] {
+        let conversations = task.conversations.filter { TaskConversation.isResumable($0.id) }
+        let commands = task.resumeCommands, home = ports.home, executable = ports.workerGuardExecutable, git = ports.git
+        let remote = workspace.state.project(id: task.projectId)?.remoteUrl
+        return try await BackgroundWork.run {
+            try zip(conversations, commands).map { conversation, command in
+                var worker = task; worker.agent = conversation.agent
+                let slot = task.signalTask?.extraTabs.first(where: { $0.conversation == conversation.id })?.key
+                    ?? (conversation == task.firstWorkerConversation ? "main" : "resumed-" + conversation.agent.rawValue + "-" + conversation.id)
+                return try WorkerGuardLaunch.command(command, task: worker, remote: remote, home: home,
+                    executable: executable, git: git, slot: slot, publishes: task.kind != .review)
+            }
+        }
     }
     func restore(_ task: TaskItem) async throws -> TaskItem {
         _ = try require(task)

@@ -8,6 +8,151 @@ import Testing
 /// once: the daemon only raises the window inside iTerm2, and the app itself is brought forward
 /// after. A new task or review, whose agent is already at work, leaves the keyboard in the sidebar.
 @MainActor @Suite(.blocking) struct ItermFocusControllerTests {
+    enum TakenOverWindow: CaseIterable { case notStarted, queued, shell, conversations }
+
+    @Test(arguments: TakenOverWindow.allCases)
+    func clickingATakenOverTaskOpensItsWindowAndBringsItermForward(window: TakenOverWindow) async throws {
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
+        let server = RecordingDaemon()
+        focus.server = server
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        var task = window == .notStarted || window == .queued
+            ? TaskItem.make(project: fixture.project.id, branch: "feat/work", worktreePath: "", windowId: nil)
+            : try await fixture.addTask(windowId: nil)
+        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        task.signalTask?.phase = window == .queued ? .launching : .blocked
+        task.signalTask?.takenOver = true
+        task.signalTask?.ownership = 1
+        task.firstPrompt = "The Operator's original instruction must not be replayed."
+        if window == .conversations {
+            task.conversations = [.init(agent: task.agent, id: "saved-main"), .init(agent: .claude, id: "saved-companion")]
+        }
+        controller.workspace.mutate { $0.tasks = [task] }
+        #expect(controller.workspace.flush())
+
+        await controller.choose(task: task.id)?.value
+
+        let current = try #require(controller.state.task(id: task.id))
+        #expect(current.hasCheckout)
+        #expect(current.windowId == "reopened")
+        #expect(focus.seen.count == 1)
+        #expect(server.requests("window.activate").last?.params["windowId"] as? String == "reopened")
+        let opened = try #require(server.requests("window.createTask").first)
+        #expect(opened.params["cwd"] as? String == current.worktreePath)
+        if window == .conversations {
+            #expect(try guardedWorkerCommand(opened.params["agentCommand"] as? String)?.contains("saved-main") == true)
+            #expect(try guardedWorkerCommand(server.requests("tab.create").first?.params["agentCommand"] as? String)?.contains("saved-companion") == true)
+            let scope = WorkerGuardLaunch.recordedScope(task: task.id, home: controller.signalController.ports.home)
+            #expect(scope?.ownership == 1 && scope?.allowsPush == true && scope?.branch == task.branch)
+        } else {
+            #expect(opened.params["agentCommand"] == nil)
+        }
+        let git = fixture.git, path = current.worktreePath
+        let branch = try await BackgroundWork.run { try git.run(["branch", "--show-current"], in: path) }
+        #expect(branch.trimmingCharacters(in: .whitespacesAndNewlines) == task.branch)
+    }
+
+    @Test(arguments: [false, true])
+    func aTakenOverWindowOpeningFollowsTheLatestClick(clickAgain: Bool) async throws {
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
+        let server = RecordingDaemon(holding: "window.createTask")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        var task = try await fixture.addTask(windowId: nil)
+        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        task.signalTask?.takenOver = true
+        controller.workspace.mutate { $0.tasks = [task] }
+
+        let first = controller.choose(task: task.id)
+        try await server.received("window.createTask")
+        let latest: Task<Void, Never>?
+        if clickAgain { latest = controller.choose(task: task.id) }
+        else { latest = nil; controller.focus.browse(.project(fixture.project.id)) }
+        server.release()
+        await first?.value
+        await latest?.value
+
+        #expect(server.requests("window.createTask").count == 1)
+        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
+        #expect(focus.seen.count == (clickAgain ? 1 : 0))
+    }
+
+    @Test(arguments: [false, true])
+    func aTakenOverTaskChecksForALiveWindowBeforeResuming(connected: Bool) async throws {
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        var task = try await fixture.addTask(windowId: nil)
+        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        task.signalTask?.takenOver = true
+        task.conversations = [.init(agent: task.agent, id: "still-running")]
+        controller.workspace.mutate { $0.tasks = [task] }
+        server.snapshotValue = DaemonSnapshot(protocolVersion: 1, connected: connected,
+            sessions: connected ? [.stub("live", window: "still-open", task: task, state: .working)] : [], usage: .empty)
+
+        await controller.choose(task: task.id)?.value
+
+        #expect(server.requests("window.createTask").isEmpty)
+        #expect(controller.state.task(id: task.id)?.windowId == (connected ? "still-open" : nil))
+        #expect(focus.seen.count == (connected ? 1 : 0))
+        if !connected { #expect(controller.issue != nil) }
+    }
+
+    @Test(arguments: [false, true])
+    func aTakenOverRequestOpensItsSourceBranchAndRefusesAFork(fork: Bool) async throws {
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() }, provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller, git = fixture.git, repo = fixture.repo.path
+        let remote = fixture.root.appendingPathComponent("origin.git").path
+        let sourceHead = try await BackgroundWork.run {
+            try git.run(["init", "--bare", "-q", remote], in: repo)
+            try git.run(["remote", "add", "origin", remote], in: repo)
+            try git.run(["push", "-q", "origin", "main"], in: repo)
+            try git.run(["checkout", "-q", "-b", "review-source"], in: repo)
+            try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "request change"], in: repo)
+            let head = try git.run(["rev-parse", "HEAD"], in: repo)
+            try git.run(["push", "-q", "origin", "review-source"], in: repo)
+            try git.run(["checkout", "-q", "main"], in: repo)
+            try git.run(["branch", "-D", "review-source"], in: repo)
+            return head
+        }
+        let stub = StubSession { _ in
+            (200, Data("[{\"iid\":7,\"title\":\"Request\",\"source_branch\":\"review-source\",\"target_branch\":\"main\",\"state\":\"opened\",\"web_url\":\"https://git.example/shop/web/-/merge_requests/7\",\"source_project_id\":\(fork ? 2 : 1),\"target_project_id\":1}]".utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        controller.signalController.readConnections = { links }
+        controller.helper.setDaemonClient(server)
+        var task = TaskItem.make(project: fixture.project.id, branch: "review-source", model: "")
+        task.mr = .init(iid: 7, title: "Request", url: "https://git.example/shop/web/-/merge_requests/7")
+        task.signalTask = SignalTask(signal: UUID(), item: .request(remote: "git@git.example:shop/web.git", number: 7), startedAt: Date())
+        task.signalTask?.takenOver = true
+        controller.workspace.mutate { $0.tasks = [task] }
+
+        await controller.choose(task: task.id)?.value
+
+        let current = try #require(controller.state.task(id: task.id))
+        if fork {
+            #expect(!current.hasCheckout && current.windowId == nil)
+            #expect(server.requests("window.createTask").isEmpty && controller.issue != nil)
+        } else {
+            #expect(current.hasCheckout && current.windowId == "reopened")
+            let path = current.worktreePath
+            let openedHead = try await BackgroundWork.run { try git.run(["rev-parse", "HEAD"], in: path) }
+            #expect(openedHead == sourceHead)
+            #expect(focus.seen.count == 1)
+        }
+    }
+
     @Test func choosingATaskBringsItermForwardOnceItsWindowIsActive() async throws {
         let focus = ControllerItermFocus()
         let fixture = try await RaceFixture(activateIterm: { focus.activate() })

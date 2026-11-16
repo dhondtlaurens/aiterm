@@ -248,11 +248,15 @@ final class AppController {
         focus.setReopenOperatorWindow { [weak signalController] _ in
             Task { await signalController?.openOperator() }
         }
-        // A driven task whose window you closed: its conversation resumed by the operator controller,
-        // never a second worker beside a live one (integration decision 7). The row raises the window
-        // it opened once the reopen is done.
-        focus.setReopenWorkerWindow { [weak signalController] id in
-            Task { await signalController?.reopenWorker(id) }
+        // A driven task resumes through the Operator; a taken-over task opens through the manual
+        // launcher. Both reuse a live window, and the row raises it once opening is done.
+        focus.setReopenWorkerWindow { [weak self] id in
+            guard let self else { return nil }
+            if self.state.task(id: id)?.signalTask?.takenOver == true {
+                return self.launcher.openTakenOverWindow(id, prepareRequest: self.signalController.native.prepareTakenOverRequest,
+                    resume: self.signalController.native.takenOverResumeCommands)
+            }
+            return Task { await self.signalController.reopenWorker(id) }
         }
         // A notification's click on a waiting plan, a done or a blocked broadcast opens its board:
         // D7 records the request on the operator controller; this presents it, and any made before now.

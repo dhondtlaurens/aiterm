@@ -128,14 +128,14 @@ final class RowFocus {
         operatorWindowOwed = open
     }
 
-    /// Sets who reopens a driven task's window when its row is chosen — a click or Return — without one. A single
-    /// slot, as `setRestoreOwedRow`.
+    /// Sets who opens a Signal task's window, driven or taken over, when chosen without one.
+    /// A single slot, as `setRestoreOwedRow`.
     func setReopenWorkerWindow(_ reopen: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
         operatedTaskOwed = reopen
     }
 
-    /// The restore a row chosen without a window waits for: a driven task's is the operator
-    /// controller's, every other row's the reconciler's; a row on its way out gets none.
+    /// Signal tasks use their driven or taken-over opener; other rows use the reconciler.
+    /// A row on its way out gets none.
     private func owedRestore(_ row: RowSelection) -> Task<Void, Never>? {
         if isRemoving(row.id) { return nil }
         if case .task(let id) = row, workspace.state.task(id: id)?.signalTask != nil { return operatedTaskOwed?(id) }
@@ -197,15 +197,15 @@ final class RowFocus {
     /// only selected: it has no window. So is a task the Operator has queued (2B, 21 Oct 2026): nothing opens,
     /// not even the error a window it does not have yet would raise. The Operator's row without a window, or
     /// whose window turns out gone, asks the operator controller for it, in front
-    /// (`setReopenOperatorWindow`); a driven task's row without one asks it too
-    /// (`setReopenWorkerWindow`), and its reopened window is then raised as any other.
+    /// (`setReopenOperatorWindow`). A Signal task uses its driven or taken-over opener
+    /// (`setReopenWorkerWindow`), and its opened window is then raised as any other.
     @discardableResult
     func select(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
         case .project, .signal:
             browse(row)
             return nil
-        case .task(let id) where workspace.state.task(id: id).map({ $0.signalTask?.phase == .launching && !$0.hasCheckout }) == true:
+        case .task(let id) where workspace.state.task(id: id).map({ $0.signalTask?.takenOver == false && $0.signalTask?.phase == .launching && !$0.hasCheckout }) == true:
             browse(row)
             return nil
         default:
