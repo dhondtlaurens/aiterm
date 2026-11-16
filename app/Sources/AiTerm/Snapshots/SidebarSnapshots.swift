@@ -30,6 +30,14 @@ enum SidebarSnapshots {
                 controller.focus.browse(.task(fixture.working.id))
                 return footer(controller).frame(width: Size.sidebarWidth).background(Palette.sidebar).surface(.sidebar)
             },
+            // A window's reset, raised under the pointer over the Claude row's weekly reading.
+            Snapshot("sidebar-footer-reset.png") {
+                let fixture = Fixture(), controller = fixture.controller()
+                controller.focus.browse(.task(fixture.working.id))
+                var footer = footer(controller)
+                footer.hovering = .fiveHour
+                return footer.frame(width: Size.sidebarWidth).background(Palette.sidebar).surface(.sidebar)
+            },
             // The Mac's rows in every mode — its readings, and the Unplugged half's one colour — with
             // macOS's warnings on the last, for judging the inks by eye.
             Snapshot("sidebar-footer-mac.png") {

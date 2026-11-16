@@ -70,10 +70,11 @@ public enum Size {
     /// to `feat/f…t-side`; here the branch keeps its type, the ticket's prefix and its tail, and a
     /// branch without a ticket beside it nearly fits whole (proposal, 23 Sep 2026).
     public static let sidebarWidth: CGFloat = 420
-    /// The sidebar cannot be narrowed past this. Each sidebar footer row is two equal halves, and a
-    /// half has to fit its widest reading: a window at 100 %, resetting on a later day. A number
-    /// sits in the width of `100%` whatever it says, so no reading is wider than that one.
-    /// `SidebarFooterGeometryTests.theWidestHalfFitsTheMinimumSidebarWidth` holds this honest.
+    /// The sidebar cannot be narrowed past this. Each sidebar footer row is three equal columns, and
+    /// a column has to fit its widest reading: a window at 100 %. A number sits in the width of
+    /// `100%` whatever it says, and a reset waits under the pointer in a chip of its own, so no
+    /// reading is wider than that one.
+    /// `SidebarFooterGeometryTests.theWidestColumnFitsTheMinimumSidebarWidth` holds this honest.
     /// The context row's widest case — a full window — fits too, held
     /// by `SidebarFooterGeometryTests.theWidestContextRowFitsTheMinimumSidebarWidth`.
     ///
