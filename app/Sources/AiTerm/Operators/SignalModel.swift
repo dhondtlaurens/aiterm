@@ -14,22 +14,19 @@ import AiTermCore
     nonisolated let id = UUID()
     static let steps = CreationSteps(count: 5, agentStep: nil, agentsListStep: 4, promptSteps: [2, 3], summarizesOnlyOnLast: true)
     static let stepNames = ["Signal", "Starts when", "Prompt", "Agents", "Done"]
-    static let jiraPrompt = "/psg:plan, then /psg:implement and /psg:review. Ask me only about scope."
-    static let ownRequestPrompt = "/psg:review. Answer every open thread, then run the tests."
-    static let reviewPrompt = "/psg:peer-review. Post only Critical and Important findings."
     let projects: [Project], context: SignalContext
     private let original: Signal?, createdAt: Date
     private let seen: [SignalSeen]
     var name = ""
     private(set) var sourceKind = SourceKind.jira
     var queryMode = QueryMode.conditions
-    var jira = JiraConditions(labels: ["operator"], inOpenSprints: true)
+    var jira = JiraConditions()
     var jql = ""
     private(set) var event = RequestConditions.Event.reviewRequested
     var waitingOnMyReply = true
     var sentBackToMe = true
     var requestProjects: [String] = []
-    var prompt = SignalModel.jiraPrompt
+    var prompt = ""
     var ticketDescription = true
     var requestDescription = true
     private(set) var agentRows: [AgentChoiceRow]
@@ -98,6 +95,11 @@ import AiTermCore
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         return (try? encoder.encode(source)).map { String(decoding: $0, as: UTF8.self) } ?? ""
     }
+    /// A Jira signal starts nothing until it says which tickets: an empty query would match every ticket the account can see.
+    var hasJiraQuery: Bool {
+        if queryMode == .jql { return !jql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var conditions = jira; conditions.jql = nil; return !JQL.compile(conditions).isEmpty
+    }
     var doneChoices: [DoneWhen] { SignalFinish.choices(for: source) }
     var offersMerge: Bool { done != .merged && (sourceKind == .jira || event == .myRequest) }
     var finish: SignalFinish {
@@ -107,17 +109,14 @@ import AiTermCore
     }
     func selectSource(_ kind: SourceKind) {
         guard kind != sourceKind else { return }
-        let old = defaultPrompt; sourceKind = kind
-        if prompt == old { prompt = defaultPrompt }
+        sourceKind = kind
         resetDone()
     }
     func setEvent(_ event: RequestConditions.Event) {
         guard event != self.event else { return }
-        let old = defaultPrompt; self.event = event
-        if prompt == old { prompt = defaultPrompt }
+        self.event = event
         resetDone()
     }
-    private var defaultPrompt: String { sourceKind == .jira ? Self.jiraPrompt : event == .reviewRequested ? Self.reviewPrompt : Self.ownRequestPrompt }
     private func resetDone() {
         done = sourceKind == .jira ? .hasReviewer : event == .reviewRequested ? .myReviewPosted : .threadsResolved
         mergeWhenReady = false
@@ -147,7 +146,7 @@ import AiTermCore
     func canAdvance(step: Int) -> Bool {
         guard !starting, TaskCreator.isNamed(name), original?.source.isSupported != false else { return false }
         if step == 1 { return true }
-        guard sourceKind != .jira || queryMode != .jql || !jql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        guard sourceKind != .jira || hasJiraQuery,
               sourceKind == .jira || event == .reviewRequested || waitingOnMyReply || sentBackToMe else { return false }
         if step == 2 { return true }
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
@@ -173,8 +172,8 @@ import AiTermCore
         let key = UUID(), expected = source; previewKey = key
         previewing = true; previewItems = []; startCount = nil; previewError = nil
         defer { if previewKey == key { previewing = false } }
-        guard sourceKind != .jira || queryMode != .jql || !jql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            previewError = "Enter a JQL query to check matches."; return
+        guard sourceKind != .jira || hasJiraQuery else {
+            previewError = queryMode == .jql ? "Enter a JQL query to check matches." : "Add a condition to check matches."; return
         }
         do {
             let read = try await readPreview(expected)

@@ -103,7 +103,8 @@ private struct SignalTextChoices: View {
                             .sorted().map { Choice(id: $0) }
                     }, mark: { _ in .brand(Palette.jira) }, label: { labels[$0.id] ?? $0.id },
                     row: { Text(labels[$0.id] ?? $0.id).font(Typography.caption).foregroundStyle(Palette.text) },
-                    onPick: { values.append($0.id); query = "" }, onRemove: { pick in values.removeAll { $0 == pick.id } }, query: $query)
+                    onPick: { values.append($0.id); query = "" }, onRemove: { pick in values.removeAll { $0 == pick.id } }, query: $query,
+                    inlineResults: true)
     }
 }
 
@@ -119,7 +120,8 @@ private struct SignalAssigneePicker: View {
                         [Choice(id: "me", name: "Me")] + model.assignees.map { Choice(id: $0.accountId, name: $0.displayName) }
                     }, mark: { _ in .brand(Palette.jira) }, label: \.name,
                     row: { Text($0.name).font(Typography.caption).foregroundStyle(Palette.text) },
-                    onPick: { model.jira.assignee = $0.id }, onRemove: { _ in model.jira.assignee = nil }, query: $query, selectionLimit: 1)
+                    onPick: { model.jira.assignee = $0.id }, onRemove: { _ in model.jira.assignee = nil }, query: $query, selectionLimit: 1,
+                    inlineResults: true)
             .task(id: query) {
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
                 await model.searchAssignees(query)

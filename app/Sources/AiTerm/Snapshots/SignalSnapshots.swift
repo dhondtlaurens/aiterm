@@ -62,6 +62,9 @@ import AiTermUI
         let model = SignalModel(projects: [project], context: context, at: Snapshots.clock.now, preview: { _ in read }, metadata: { metadata }, save: { _ in })
         model.selectSource(kind); model.setEvent(event)
         model.name = kind == .jira ? "Sprint tickets" : event == .myRequest ? "My merge requests" : "Reviews"
+        model.jira = JiraConditions(labels: ["operator"], inOpenSprints: true)
+        model.prompt = kind == .jira ? "Plan the ticket, build it and open a merge request."
+            : event == .myRequest ? "Answer every open thread, then run the tests." : "Review it and post only the important findings."
         if kind != .jira, event == .myRequest { model.mergeWhenReady = true }
         if kind != .jira, event == .reviewRequested, let row = model.agentRows.first(where: { $0.choice.agent == .claude }) { model.removeAgent(row.id) }
         model.received(metadata: metadata); try! model.received(preview: read)

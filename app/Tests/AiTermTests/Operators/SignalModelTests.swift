@@ -19,6 +19,8 @@ import Testing
         #expect(!model.canAdvance(step: 1))
         model.name = "Sprint tickets"
         #expect(model.canAdvance(step: 1))
+        model.jira.labels = ["ready"]
+        model.prompt = "Plan, build and review it."
         await model.loadPreview()
         #expect(saved.isEmpty && previewed == 1)
         #expect(model.startCount == 1 && model.previewItems.count == 2)
@@ -40,12 +42,27 @@ import Testing
         model.setEvent(.reviewRequested)
         #expect(model.doneChoices == [.myReviewPosted, .mergedOrClosed, .operatorJudges])
         #expect(!model.offersMerge && !model.finish.mergesWhenReady)
-        #expect(model.prompt == SignalModel.reviewPrompt)
         model.prompt = "Our own review instructions."
         model.setEvent(.myRequest)
         #expect(model.prompt == "Our own review instructions.")
         model.waitingOnMyReply = false; model.sentBackToMe = false
         #expect(!model.canAdvance(step: 2))
+    }
+    @Test func aNewSignalStartsBlankAndNeedsAConditionAndAPrompt() async {
+        var previewed = 0
+        let model = SignalModel(projects: [], context: context, preview: { _ in previewed += 1; return SignalRead(items: [], complete: true) },
+                                save: { _ in })
+        #expect(model.jira == JiraConditions() && model.prompt.isEmpty && model.jql.isEmpty)
+        model.name = "Tickets"
+        #expect(model.canAdvance(step: 1) && !model.canAdvance(step: 2), "No condition would match every ticket the account can see.")
+        await model.loadPreview()
+        #expect(previewed == 0 && model.previewError != nil)
+        model.jira.inOpenSprints = true
+        #expect(model.canAdvance(step: 2) && !model.canAdvance(step: 3))
+        model.prompt = "Fix it."
+        #expect(model.canAdvance(step: 3))
+        model.selectSource(.gitLab)
+        #expect(model.prompt == "Fix it.")
     }
     @Test func editingKeepsIdentityAndAnIncompletePreviewPublishesNoPartialCount() async throws {
         var world = SignalWorld(); let id = world.signal()
@@ -57,6 +74,8 @@ import Testing
         #expect(model.startCount == nil && model.previewItems.isEmpty && model.previewError != nil)
         model.name = "Updated"; model.done = .merged; model.then = .remove; model.deleteMergedBranch = true
         #expect(!model.offersMerge)
+        #expect(await model.create() == false && saved == nil, "A signal saved with no conditions gets one before it saves again.")
+        model.jira.labels = ["ready"]
         #expect(await model.create())
         #expect(saved?.id == original.id && saved?.createdAt == original.createdAt)
         #expect(saved?.finish.deletesMergedBranch == true && saved?.finish.mergesWhenReady == false)

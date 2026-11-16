@@ -171,7 +171,7 @@ import Foundation
         #expect(Pane.operatorHelp.contains("One Claude Code session"))
         #expect(Pane.operatorDoes.count == 3 && Pane.oracleAsks.count == 3)
         #expect(Pane.oracleNever.contains("every worker question comes to you"))
-        #expect(Pane.instructionsExample.contains("Never move a ticket to Done."))
+        #expect(!Pane.instructionsPlaceholder.contains("\n"), "A one-line hint of what goes there, not a worked example.")
         let copy = [Pane.operatorHelp, Pane.operatorNever, Pane.oracleHelp, Pane.oracleNever, Pane.instructionsHelp]
             + Pane.operatorDoes + Pane.oracleAsks
         #expect(copy.allSatisfy { !$0.contains("broadcast") && !$0.contains("slice") && !$0.contains("digest") })

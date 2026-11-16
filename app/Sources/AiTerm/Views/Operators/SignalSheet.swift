@@ -39,14 +39,15 @@ struct SignalSheet: View {
                          : "A task when you’re asked to review, or when your own merge request needs you. You pick which on the next step.")
             }
             FormField("Name") {
-                Input(placeholder: model.sourceKind == .jira ? "Sprint tickets" : "My merge requests", text: $model.name)
+                Input(placeholder: "Name the signal", text: $model.name)
                 HelpText("Its heading under Operator in the sidebar.")
             }
         case 2:
             SignalStartsStep(model: model, projectsOpen: $projectsOpen)
         case 3:
-            PromptStep(text: $model.prompt, agent: .claude, completions: model.completions, label: "Prompt", placeholder: nil,
-                       help: "What the worker does with each item, start to end. Put the check in it too, such as /psg:review. Type / for skills, @ for files.") {
+            PromptStep(text: $model.prompt, agent: .claude, completions: model.completions, label: "Prompt",
+                       placeholder: "Describe what the worker does with each \(model.sourceKind == .jira ? "ticket" : "merge request").",
+                       help: "Start to end, including how the work is checked. Type / for skills, @ for files.") {
                 if model.sourceKind == .jira { ticketToggle; requestToggle }
                 else { requestToggle; ticketToggle }
             }

@@ -48,6 +48,9 @@ struct PickChip: View {
 /// never covers the fields under it before the person asks for it. A pick joins the chips and the field stays
 /// for the next one. The caller
 /// keeps `open`, since the sheet closes the list from outside: ⎋, and a click past it.
+///
+/// `inlineResults` lays the list out under the field instead of over what follows: a popover is sized to its content
+/// and clips anything hanging past its edge, so there the list must take room of its own.
 struct ChipsPicker<Item: Identifiable, Row: View>: View {
     let placeholder: String
     let picks: [Item]
@@ -60,6 +63,7 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     let onRemove: (Item) -> Void
     private let externalQuery: Binding<String>?
     private let selectionLimit: Int?
+    private let inlineResults: Bool
     @State private var query: String = ""
     @State private var index: Int = 0
     @State private var focused: Bool = false
@@ -69,10 +73,11 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
 
     init(placeholder: String, picks: [Item], open: Binding<Bool>, matches: @escaping (String) -> [Item],
          mark: @escaping (Item) -> IconSource, label: @escaping (Item) -> String, @ViewBuilder row: @escaping (Item) -> Row,
-         onPick: @escaping (Item) -> Void, onRemove: @escaping (Item) -> Void, query: Binding<String>? = nil, selectionLimit: Int? = nil) {
+         onPick: @escaping (Item) -> Void, onRemove: @escaping (Item) -> Void, query: Binding<String>? = nil, selectionLimit: Int? = nil,
+         inlineResults: Bool = false) {
         self.placeholder = placeholder; self.picks = picks; self._open = open; self.matches = matches
         self.mark = mark; self.label = label; self.row = row; self.onPick = onPick; self.onRemove = onRemove
-        self.externalQuery = query; self.selectionLimit = selectionLimit
+        self.externalQuery = query; self.selectionLimit = selectionLimit; self.inlineResults = inlineResults
     }
 
     private var text: Binding<String> { externalQuery ?? $query }
@@ -80,6 +85,20 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     private var visible: [Item] { Array(matches(text.wrappedValue).prefix(Self.visibleLimit)) }
 
     var body: some View {
+        Group {
+            if inlineResults {
+                VStack(alignment: .leading, spacing: Space.tight) { field; results }
+            } else {
+                // Under the field, `Space.tight` below it, however many lines the chips take.
+                field.overlay(alignment: .bottomLeading) {
+                    results.alignmentGuide(.bottom) { $0[.top] - Space.tight }
+                }
+            }
+        }
+        .onChange(of: open, initial: true) { _, open in if open { index = 0 } }
+    }
+
+    private var field: some View {
         ChipFlow(spacing: Space.tight, hasField: canAdd) {
             ForEach(picks) { item in PickChip(mark: mark(item), label: label(item)) { onRemove(item) } }
             if canAdd { SearchField(placeholder: placeholder,
@@ -92,11 +111,6 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
         .contentShape(Rectangle())
         .onTapGesture { if canAdd { focused = true; open = true } }
         .fieldBox(focused: focused)
-        // Under the field, `Space.tight` below it, however many lines the chips take.
-        .overlay(alignment: .bottomLeading) {
-            results.alignmentGuide(.bottom) { $0[.top] - Space.tight }
-        }
-        .onChange(of: open, initial: true) { _, open in if open { index = 0 } }
     }
 
     @ViewBuilder private var results: some View {

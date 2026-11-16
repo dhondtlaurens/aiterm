@@ -13,12 +13,12 @@ struct SignalStartsStep: View {
                 }
             }
             if model.queryMode == .jql {
-                PromptStep(text: $model.jql, agent: .claude, completions: model.jqlCompletions, label: "JQL", placeholder: "labels = operator",
+                PromptStep(text: $model.jql, agent: .claude, completions: model.jqlCompletions, label: "JQL", placeholder: "Enter a JQL query",
                            help: "Your query as written, in the Jira projects you can see. AiTerm checks every minute.")
             } else {
                 FormField("Conditions") {
                     SignalConditionPicker(model: model)
-                    HelpText("A ticket must meet every condition, in any Jira project and on any board. AiTerm checks every minute.")
+                    HelpText("Add at least one. A ticket must meet every condition, in any Jira project and on any board. AiTerm checks every minute.")
                 }
             }
         } else {

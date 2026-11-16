@@ -71,7 +71,7 @@ extension NameSheet {
     /// Add divider, as the sidebar and the snapshots both build it.
     static func newDivider(canSubmit: Bool, submit: @escaping (String) -> Void) -> NameSheet {
         NameSheet(title: "Add divider", subtitle: "Groups the projects under it in the sidebar.",
-                  fieldLabel: "Name (optional)", placeholder: "Work", help: "Empty: a plain line.",
+                  fieldLabel: "Name (optional)", placeholder: "Heading for the projects under it", help: "Empty: a plain line.",
                   closing: { $0.isEmpty ? "Adds a plain line between projects." : "Adds a heading over the projects under it." },
                   confirmLabel: "Add Divider", initialName: "", canSubmit: canSubmit, submit: submit)
     }
