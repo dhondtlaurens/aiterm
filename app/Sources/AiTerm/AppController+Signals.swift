@@ -64,8 +64,8 @@ extension AppController {
         guard canChangeWorkspace else { return }
         workspace.mutate { state in
             if let index = state.signals.firstIndex(where: { $0.id == signal.id }) { state.signals[index].collapsed.toggle() }
-            else { for task in state.tasks where task.signalTask?.signal == signal.id {
-                state.updateSignalTask(task.id) { $0.configuration?.collapsed = !signal.collapsed }
+            else { for task in state.tasks where task.signalTask?.current.signal == signal.id {
+                state.updateSignalTask(task.id) { $0.current.configuration.collapsed = !signal.collapsed }
             } }
         }
     }

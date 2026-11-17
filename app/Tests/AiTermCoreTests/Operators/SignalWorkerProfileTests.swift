@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct SignalWorkerProfileTests {
     @Test func publishingWorkersKeepQuestionAndMergeLimitsWhileOperatorRemainsReadOnly() {
@@ -19,7 +20,7 @@ import AiTermCore
         #expect(!resume.contains("Bash(git push:*"))
     }
     @Test func anInspectedBlockedWorkerCanResumeWithoutAnObsoleteReplyIntent() throws {
-        var record = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        var record = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         record.phase = .blocked
         record.pendingReplies = ["main": SignalWorkerReply(at: Date(), fingerprint: "old-reply")]
         let resumed = try SignalTransitions.apply(.resume, to: record, at: Date())

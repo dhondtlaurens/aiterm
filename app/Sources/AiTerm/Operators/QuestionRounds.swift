@@ -13,57 +13,49 @@ import AiTermCore
             fingerprint ?? SHA256.hash(data: Data(message.utf8)).map { String(format: "%02x", $0) }.joined()
         }
     }
-    struct Input: Sendable {
-        var task: TaskItem, question: Question, proposal: String, round: Int, discussion: [String]
-    }
-    enum Verdict: Equatable, Sendable { case agreed(String), critique(String), person(String), unavailable(String) }
     struct Ports {
-        var oracleEnabled: @MainActor () -> Bool
         var question: @MainActor (UUID, String) -> Question?
-        var oracle: @MainActor (Input) async throws -> Verdict
         var deliver: @MainActor (TaskItem, Question, String) async throws -> Void
     }
+    static let tool = "answer_worker"
     private let workspace: WorkspaceStore
     private let journal: SignalJournal
     private let now: () -> Date
+    private let oracle: OracleConsult
     private let ports: Ports
-    private var running: Set<String> = []
-    private var activeQuestions: Set<String> = []
-    private var rounds: OracleRoundLedger { OracleRoundLedger(workspace: workspace, now: now, tool: "answer_worker") }
+    private let effects: OperatorInFlight
+    /// Where a round shows as its task's act.
+    private let activity: OperatorActivityTracker
     var changed: () -> Void = {}
-    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports) {
-        self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports
+    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports,
+         effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
+        self.workspace = workspace; self.journal = journal; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects
+        self.activity = activity
     }
-    func answer(task id: UUID, key: String, proposal: String, tab: String = "main", challenge: String? = nil,
+    /// One `answer_worker` call. The tool handler makes it idempotent by its key; this owner saves
+    /// only the Oracle rounds and the agreed round that makes a restart ask the person.
+    func answer(task id: UUID, proposal: String, tab: String = "main", challenge: String? = nil,
                 fromQuestion: String? = nil, person: Bool = false) async throws -> JSONValue {
-        guard workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, !key.isEmpty, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              workspace.state.operatorSession?.startingFresh == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
+        guard workspace.canChangeWorkspace, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              workspace.state.operatorSession?.lifecycle.isChanging == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
         let operatorID = workspace.state.operatorSession?.id, operatorGeneration = workspace.state.operatorSession?.generation
-        let ledgerKey = "answer_worker:" + key
+        // What an Oracle round saves as the call it checked.
         let arguments = try Self.json(["task": .string(id.uuidString), "tab": .string(tab), "proposal": .string(proposal),
                                        "challenge": challenge.map(JSONValue.string) ?? .null,
                                        "fromQuestion": fromQuestion.map(JSONValue.string) ?? .null, "person": .bool(person)])
-        if let cached = workspace.state.operatorSession?.ledger.first(where: { $0.key == ledgerKey }) {
-            guard cached.arguments == arguments else { throw ActionUnavailable("This key was already used for a different answer.") }
-            var result: JSONValue?
-            workspace.mutate { result = $0.operatorSession?.cached(key: ledgerKey, at: now()) }
-            if let result { return result }
-        }
-        guard !running.contains(ledgerKey) else { return ["status": "pending"] }
-        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), task.signalTask?.phase == .working,
+        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), task.signalTask?.phase == .working,
               let question = ports.question(id, tab) else { throw ActionUnavailable("This worker has no current unanswered question.") }
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
                                       "session": .string(question.session), "conversation": question.conversation.map(JSONValue.string) ?? .null,
                                       "tab": .string(question.tab), "fingerprint": .string(question.identity)])
-        guard !activeQuestions.contains(binding) else { return ["status": "pending"] }
         func stillAsks() -> Bool {
-            workspace.canChangeWorkspace && !Task.isCancelled && claim.canAct(in: workspace.state)
-                && ports.question(id, tab) == question && workspace.state.operatorSession?.startingFresh == false
-                && workspace.state.operatorSession?.paused != true
+            claim.allows(in: workspace)
+                && ports.question(id, tab) == question && workspace.state.operatorSession?.lifecycle.isChanging == false
                 && workspace.state.operatorSession?.id == operatorID && workspace.state.operatorSession?.generation == operatorGeneration
         }
-        running.insert(ledgerKey); activeQuestions.insert(binding)
-        defer { running.remove(ledgerKey); activeQuestions.remove(binding) }
+        // The round holds the task from its start through delivering the agreed answer.
+        guard effects.claim(id) else { return ["status": "pending"] }
+        defer { effects.release(id) }
         var humanAnswer = false
         if let fromQuestion {
             guard let asked = workspace.state.operatorSession?.questions.first(where: { $0.id == fromQuestion }),
@@ -73,84 +65,91 @@ import AiTermCore
             }
             humanAnswer = true
         }
+        let round = OracleConsult.Binding.Round(key: binding, arguments: arguments, proposal: proposal)
+        func markPerson(_ reason: String, replacing: OracleRound? = nil) {
+            oracle.markPerson(tool: Self.tool, key: binding, arguments: arguments, reason: reason, replacing: replacing)
+        }
         var previous: OracleRound?
         if !humanAnswer {
             if let asked = workspace.state.operatorSession?.questions.first(where: {
                 $0.task == id && $0.stage == claim.stage && $0.ownership == claim.ownership && $0.tab == tab
                     && $0.workerBinding == binding && $0.resolvedAt == nil
             }) {
-                return try remember(["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
-                                     "next": "Wait for the person's answer in your chat."], key: ledgerKey, arguments: arguments)
+                return ["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
+                        "next": "Wait for the person's answer in your chat."]
             }
-            if let open = rounds.open(binding: binding) {
-                if open.stage == .unanswered || (open.round ?? 0) >= OracleRoundLedger.maximumRounds {
-                    return try remember(askPerson(question, reason: open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds."), key: ledgerKey, arguments: arguments)
+            if let open = oracle.saved(tool: Self.tool, key: binding) {
+                if open.stage == .unanswered {
+                    return askPerson(question, reason: open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds.")
                 }
-                if open.stage == .running || open.stage == .ready {
-                    markForPerson(open.id, reason: "The earlier attempt was interrupted; check the worker before answering again.")
-                    return try remember(askPerson(question, reason: "The earlier attempt was interrupted; check the worker before answering again."), key: ledgerKey, arguments: arguments)
+                if open.stage == .ready {
+                    markPerson("The earlier attempt was interrupted; check the worker before answering again.", replacing: open)
+                    return askPerson(question, reason: "The earlier attempt was interrupted; check the worker before answering again.")
                 }
                 guard challenge == open.id else {
-                    return try remember(["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
-                                         "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")], key: ledgerKey, arguments: arguments)
+                    return ["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
+                            "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")]
                 }
                 previous = open
             } else if challenge != nil { throw ActionUnavailable("That Oracle round does not belong to this worker's current question.") }
-            if person || !ports.oracleEnabled() {
+            if person || !oracle.isOn {
                 let reason = person ? "The Operator says this is your decision." : "The Oracle is off."
-                rounds.marker(binding: binding, arguments: arguments, reason: reason)
-                return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+                markPerson(reason, replacing: previous)
+                return askPerson(question, reason: reason)
             }
         }
-        if previous == nil, let challenge { rounds.clear(challenge) }
-        let (roundID, round, discussion) = try rounds.begin(binding: binding, arguments: arguments, proposal: proposal, previous: previous)
-        workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = humanAnswer ? "answering its worker" : "consulting the Oracle" } }
-        guard workspace.flush() else { throw ActionUnavailable("The Oracle round couldn’t be saved.") }
-        defer {
-            workspace.mutate { state in
-                if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } }
+        if previous == nil, let challenge { oracle.clear(challenge) }
+        return try await activity.acting(task: id, act: humanAnswer ? "answering its worker" : "consulting the Oracle") {
+            try await journal.append(.quoted(SignalQuote(source: "worker", text: question.text)), task: id)
+            guard stillAsks() else { throw ActionUnavailable("The task or its question changed.") }
+            let outcome: OracleConsult.Outcome
+            if humanAnswer { outcome = .agreed("The person answered in the Operator's chat.", round: 0) }
+            else {
+                outcome = await oracle.consult(.workerAnswer(question: question.text, workerMessage: question.message, proposal: proposal,
+                                                             brief: task.signalTask?.current.prompt ?? ""),
+                                               binding: .init(claim: claim, round: round), continuing: previous)
             }
-        }
-        try await journal.append(.quoted(SignalQuote(source: "worker", text: question.text)), task: id)
-        guard stillAsks() else { clear(roundID); throw ActionUnavailable("The task or its question changed.") }
-        let verdict: Verdict
-        if humanAnswer { verdict = .agreed("The person answered in the Operator's chat.") }
-        else {
-            do { verdict = try await ports.oracle(Input(task: task, question: question, proposal: proposal, round: round, discussion: discussion)) }
-            catch { verdict = .unavailable(OperationIssue.reason(of: error)) }
-        }
-        guard stillAsks() else { clear(roundID); throw ActionUnavailable("The task or its question changed while the Oracle read it.") }
-        switch verdict {
-        case .agreed:
-            // A crash after this marker may have delivered. A restart asks the person instead of
-            // typing the same answer twice into a worker that may already be at work again.
-            rounds.ready(roundID)
-            workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "answering its worker" } }
-            guard workspace.flush() else { throw ActionUnavailable("The answer intent couldn’t be saved.") }
-            try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
-            guard stillAsks(), let current = workspace.state.task(id: id) else { clear(roundID); throw ActionUnavailable("The task or question changed.") }
-            try await ports.deliver(current, question, proposal)
-            guard claim.canAct(in: workspace.state), !Task.isCancelled, workspace.state.operatorSession?.id == operatorID,
-                  workspace.state.operatorSession?.generation == operatorGeneration else { clear(roundID); throw ActionUnavailable("The task changed while its answer was delivered.") }
-            if let fromQuestion {
-                workspace.mutate { state in
-                    if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
-                        state.operatorSession?.questions[index].deliveredAt = now()
+            guard stillAsks() else {
+                if case .critique(_, _, let saved?) = outcome { oracle.clear(saved) }
+                throw ActionUnavailable("The task or its question changed while the Oracle read it.")
+            }
+            switch outcome {
+            case .agreed(_, let number):
+                // A crash after this marker may have delivered. A restart asks the person instead of
+                // typing the same answer twice into a worker that may already be at work again.
+                let readyID = oracle.saveReady(tool: Self.tool, binding: round, round: number)
+                guard workspace.flush() else { throw ActionUnavailable("The answer intent couldn’t be saved.") }
+                return try await activity.acting(task: id, act: "answering its worker") {
+                    try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
+                    guard stillAsks(), let current = workspace.state.task(id: id) else { oracle.clear(readyID); throw ActionUnavailable("The task or question changed.") }
+                    try await ports.deliver(current, question, proposal)
+                    guard claim.allows(in: workspace), workspace.state.operatorSession?.id == operatorID,
+                          workspace.state.operatorSession?.generation == operatorGeneration else { oracle.clear(readyID); throw ActionUnavailable("The task changed while its answer was delivered.") }
+                    if let fromQuestion {
+                        workspace.mutate { state in
+                            if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
+                                state.operatorSession?.questions[index].deliveredAt = now()
+                            }
+                        }
                     }
+                    oracle.clear(readyID)
+                    return ["status": "answered"]
                 }
+            case .critique(let text, let number, let challengeID?):
+                return ["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text)]
+            case .critique(let text, _, nil):
+                let reason = "The Operator and Oracle still disagree after three rounds. " + text
+                markPerson(reason)
+                return askPerson(question, reason: reason)
+            case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+                markPerson(reason)
+                return askPerson(question, reason: reason)
+            case .unavailable(.off):
+                markPerson("The Oracle is off.")
+                return askPerson(question, reason: "The Oracle is off.")
+            case .retry:
+                return ["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key."]
             }
-            clear(roundID)
-            return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
-        case .critique(let text):
-            if round >= OracleRoundLedger.maximumRounds {
-                markForPerson(roundID, reason: "The Operator and Oracle still disagree after three rounds. " + text)
-                return try remember(askPerson(question, reason: "The Operator and Oracle still disagree after three rounds. " + text), key: ledgerKey, arguments: arguments)
-            }
-            rounds.critique(roundID, proposal: proposal, text: text, discussion: discussion)
-            return try remember(["status": "challenged", "challengeId": .string(roundID), "round": .int(round), "critique": .string(text)], key: ledgerKey, arguments: arguments)
-        case .person(let reason), .unavailable(let reason):
-            markForPerson(roundID, reason: reason)
-            return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
         }
     }
     func askYou(key: String, task: UUID? = nil, text: String, tab: String = "main") throws {
@@ -176,7 +175,7 @@ import AiTermCore
             state.operatorSession?.questions.append(question)
             if let binding {
                 state.operatorSession?.oracleRounds.removeAll {
-                    $0.tool == "answer_worker" && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unanswered)
+                    $0.tool == Self.tool && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unanswered)
                 }
             }
             state.operatorSession?.prune(at: now())
@@ -198,13 +197,6 @@ import AiTermCore
         }
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
         changed()
-    }
-    private func markForPerson(_ id: String, reason: String) { rounds.unanswered(id, reason: reason) }
-    private func clear(_ id: String) { rounds.clear(id) }
-    private func remember(_ result: JSONValue, key: String, arguments: String) throws -> JSONValue {
-        workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }
-        guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
-        return result
     }
     private func askPerson(_ question: Question, reason: String) -> JSONValue {
         ["status": "ask_you", "question": .string(question.text), "reason": .string(reason),

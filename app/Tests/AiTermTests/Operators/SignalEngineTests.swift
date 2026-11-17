@@ -19,7 +19,7 @@ import Testing
         busy = false
         let launches = router.apply(signals: [latest], read: read)
         let task = try #require(h.workspace.state.task(id: id))
-        #expect(task.signalTask?.signal == first && task.signalTask?.phase == .launching)
+        #expect(task.signalTask?.current.signal == first && task.signalTask?.phase == .launching)
         #expect(task.agent == SignalWorld.agent.agent && task.model == SignalWorld.agent.model && task.reasoning == SignalWorld.agent.reasoning)
         #expect(task.signalTask?.pendingStages.map(\.signal) == [latest])
         #expect(launches == [id])
@@ -33,7 +33,7 @@ import Testing
         let ids = router.apply(observations: [.init(signals: [newer], read: read), .init(signals: [oldest], read: read)])
         let task = try #require(h.workspace.state.tasks.first)
         #expect(ids == [task.id] && h.workspace.state.tasks.count == 1)
-        #expect(task.signalTask?.signal == oldest)
+        #expect(task.signalTask?.current.signal == oldest)
         #expect(task.signalTask?.pendingStages.map(\.signal) == [newer])
     }
 
@@ -52,6 +52,24 @@ import Testing
         h.workspace.mutate { $0.signals[0].enabled = true }
         await runner.run(id)
         #expect(launches == 1)
+    }
+
+    @Test func aLaunchErrorAfterTheStageWasBlockedLeavesTheFirstReason() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .launching }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now },
+            ports: .init(workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { task, _ in
+                try h.workspace.mutate { state in
+                    try state.updateSignalTask(task.id) { $0 = try SignalTransitions.apply(.block("Its worker stopped first."), to: $0, at: world.now) }
+                }
+                throw ActionUnavailable("The terminal could not open.")
+            }, restore: { $0 }))
+        var changes: [String] = []; runner.changed = { _, line in changes.append(line) }
+        await runner.run(id)
+        let record = try #require(h.workspace.state.task(id: id)?.signalTask)
+        #expect(record.phase == .blocked && record.blockedReason == "Its worker stopped first.")
+        #expect(changes.isEmpty)
     }
 
     @Test func aCompleteMatchSavesItsStageBeforePreparingAndLaunchingAWorker() async throws {
@@ -111,7 +129,7 @@ import Testing
         try await runner.finish(id, action: .finish(.operatorJudges))
         #expect(prompts.count == 2 && prompts.last?.contains("/psg:review") == true)
         #expect(h.workspace.state.tasks.count == 1)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.signal == second)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.current.signal == second)
         #expect(h.workspace.state.task(id: id)?.signalTask?.canRunThen == false)
     }
 

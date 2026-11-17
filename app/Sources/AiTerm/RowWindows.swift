@@ -5,8 +5,8 @@ import AiTermCore
 /// Operator's chat. A window iTerm2 reports gone leaves its row without one, and nothing else changes;
 /// a row takes a window its tag is in (`AppState.windowPlan`); and a chosen row without a window has it
 /// opened by the opener its kind needs (`open(_:)`). Nothing opens by itself: not after a close, not
-/// when iTerm2 or AiTerm restarts. The chat's window is the Operator's own to write while a handover
-/// runs, and is left be then.
+/// when iTerm2 or AiTerm restarts. The chat's window is the Operator's own to write while its lifecycle
+/// changes (opening, closing, revoking), and is left be then.
 @MainActor
 final class RowWindows {
     private let workspace: WorkspaceStore
@@ -176,7 +176,7 @@ final class RowWindows {
             return run(row, ending: token) { [self] in await open(terminal, with: daemon) }
         case .operatorChat:
             return run(row) { [signalController, notices] in
-                do { try await signalController.openChat() }
+                do { try await signalController.chat.open() }
                 catch { notices.report(OperationIssue(title: "Couldn’t open the Operator’s chat.", error: error)) }
             }
         }

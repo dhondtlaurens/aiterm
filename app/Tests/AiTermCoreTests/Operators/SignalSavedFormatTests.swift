@@ -19,6 +19,7 @@ import Testing
         #expect(loaded.archive[0].task.signalTask?.phase == .archived)
         #expect(loaded.tasks[1].takenOver && loaded.tasks[1].signalTask == nil && !loaded.tasks[0].takenOver)
         #expect(loaded.operatorSession?.generation == 2)
+        #expect(loaded.operatorSession?.lifecycle == .open(since: Date(timeIntervalSince1970: 1_794_657_600), wake: nil))
         #expect(loaded.operatorSession?.waitingOnYou == 1)
         #expect(loaded.operatorSession?.oracleRounds.count == 1)
     }
@@ -51,10 +52,11 @@ import Testing
             worktreePath: "/synthetic/shop/.worktrees/pay-1", jira: JiraRef(key: "PAY-1", summary: "Make retries safe", url: "https://jira.example/browse/PAY-1"),
             model: claude.model, reasoning: claude.reasoning, firstPrompt: first.work.prompt, createdAt: at, windowId: "worker-window")
         task.conversations = [TaskConversation(agent: .claude, id: "worker-conversation")]
-        var record = SignalTask(signal: first.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: at)
-        record.phase = .working; record.configuration = first; record.prompt = first.work.prompt
+        var record = SignalTask(current: SignalStage(signal: first.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), matchedAt: at,
+            configuration: first, prompt: first.work.prompt), startedAt: at)
+        record.phase = .working
         record.launch = LaunchAttempt(number: 1, requestedAt: at, openedAt: at, workerPending: false)
-        record.pendingStages = [SignalStage(signal: next.id, item: record.item, matchedAt: at, configuration: next)]
+        record.pendingStages = [SignalStage(signal: next.id, item: record.current.item, matchedAt: at, configuration: next)]
         record.pendingReplies = ["main": SignalWorkerReply(at: at, fingerprint: "previous-reply")]
         record.extraTabs = [ExtraTab(key: "inspect", agent: .codex, model: codex.model, reasoning: codex.reasoning,
             modelReason: "Inspect the boundary.", brief: "Inspect the retry boundary.", launch: LaunchAttempt(number: 1, requestedAt: at), sessionId: "extra-session")]
@@ -64,7 +66,7 @@ import Testing
         archived.branch = "feat/pay-2"; archived.worktreePath = "/synthetic/shop/.worktrees/pay-2"
         archived.conversations = [TaskConversation(agent: .claude, id: "archived-conversation")]
         archived.jira = JiraRef(key: "PAY-2", summary: "Earlier work", url: "https://jira.example/browse/PAY-2")
-        archived.signalTask?.item = .ticket(site: "https://jira.example", key: "PAY-2")
+        archived.signalTask?.current.item = .ticket(site: "https://jira.example", key: "PAY-2")
         archived.signalTask?.phase = .archived; archived.signalTask?.pendingStages = []; archived.signalTask?.pendingReplies = nil
         archived.signalTask?.extraTabs = []; archived.signalTask?.thenApplied = true
         // A task the person took over: an ordinary task of its project, its record gone and the mark on it.
@@ -74,14 +76,16 @@ import Testing
         taken.takenOver = true
         var session = OperatorSession(id: id(7), createdAt: at); session.generation = 2
         session.window = "operator-window"; session.session = "operator-session"; session.conversation = "operator-conversation"
+        session.lifecycle = .open(since: at, wake: nil)
         var question = OperatorSession.Question(id: "locale", task: task.id, text: "Which locale?", openedAt: at)
         question.stage = 1; question.ownership = 0; question.tab = "main"; question.workerQuestion = "Which locale?"
         session.questions = [question]
-        session.oracleRounds = [OracleRound(id: "round", tool: "answer_worker", askedAt: at, askedEvidence: "question-bound", round: 1)]
+        session.oracleRounds = [OracleRound(id: "round", tool: "answer_worker", stage: .delivered, critique: "Use the order's locale.",
+                                            askedAt: at, askedEvidence: "question-bound", round: 1)]
         session.remember(key: "tool:note:note", result: ["status": "recorded"], at: at, arguments: "{}")
         var state = AppState(); state.append(project: project); state.signals = [first, next]; state.tasks = [task, taken]
         state.archive = [ArchivedTask(task: archived, archivedAt: at)]; state.operatorSession = session
-        state.signalSeen = [SignalSeen(signal: first.id, item: record.item, disposition: .started, at: at)]
+        state.signalSeen = [SignalSeen(signal: first.id, item: record.current.item, disposition: .started, at: at)]
         return state
     }
 }

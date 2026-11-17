@@ -5,9 +5,8 @@ public enum SignalTransitions {
         var next = task
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
-            next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.ownership += 1; next.startedAt = at
-            next.configuration = stage.configuration; next.prompt = stage.prompt; next.thenApplied = nil
-            next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil; next.operatorJudged = nil
+            next.current = stage; next.stage += 1; next.ownership += 1; next.startedAt = at; next.thenApplied = nil
+            next.phase = .launching; next.launch = nil; next.blockedReason = nil; next.operatorJudged = nil
             next.choice = nil; next.choosableRows = nil; next.waitingOn = nil
         }
         func startPending() {
@@ -45,24 +44,40 @@ public enum SignalTransitions {
         case .block(let reason):
             guard task.phase.isActive else { throw SignalTransitionError.invalidEdge }
             next.phase = .blocked; next.blockedReason = reason
+        case .launchFailed(let reason):
+            guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
+            next.phase = .blocked; next.blockedReason = reason
+        case .adopted:
+            let lostReply = task.phase == .blocked && task.launch?.workerPending == true && task.launch?.openedAt == nil
+            guard task.phase == .launching || lostReply else { throw SignalTransitionError.invalidEdge }
+            next.phase = .working; next.blockedReason = nil
+            next.launch?.openedAt = at; next.launch?.workerPending = false
         case .needChoice:
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
-            next.phase = .choosing; next.currentAct = nil
+            next.phase = .choosing
         case .chosen:
             guard task.phase == .choosing else { throw SignalTransitionError.invalidEdge }
-            next.phase = .launching; next.ownership += 1; next.currentAct = nil; next.choosableRows = nil; next.candidateProjects = nil
+            next.phase = .launching; next.ownership += 1; next.choosableRows = nil; next.candidateProjects = nil
         case .resume:
             guard task.phase == .blocked else { throw SignalTransitionError.invalidEdge }
-            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.currentAct = nil; next.pendingReplies = nil
+            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.pendingReplies = nil
         case .archive:
             guard task.canRunThen else { throw SignalTransitionError.invalidEdge }
             next.phase = .archived
-        case .stop: next.phase = .stopped; next.currentAct = nil
         }
-        if next.phase != task.phase || next.stage != task.stage {
-            next.edges.append(SignalEdge(from: task.phase, to: next.phase, stage: next.stage, at: at))
-        }
-        next.edges = Array(next.edges.suffix(SignalTask.edgeLimit))
         return next
     }
 }
+
+public enum SignalAction: Equatable, Sendable {
+    case workerStarted, workRequested, matched(SignalStage), watch(DoneWhen), finish(DoneWhen), advancePending
+    case block(String), resume, archive
+    /// A launching stage whose worker could not start blocks with the reason.
+    case launchFailed(String)
+    /// A worker found running after its launch reply was lost: the stage works on in it.
+    case adopted
+    /// A launching stage waits for the Operator's agent-row or project choice; `chosen` launches it.
+    case needChoice, chosen
+}
+
+public enum SignalTransitionError: Error, Equatable { case invalidEdge, workerIsWorking }

@@ -69,8 +69,8 @@ import Synchronization
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         #expect(workspace.state.tasks.count == 1)
         let task = try #require(workspace.state.tasks.first)
-        #expect(task.signalTask?.signal == signal.id)
-        #expect(task.signalTask?.item == item)
+        #expect(task.signalTask?.current.signal == signal.id)
+        #expect(task.signalTask?.current.item == item)
         #expect(task.jira?.key == "PAY-1")
         #expect(task.signalTask?.phase == .working)
         let worktree = task.worktreePath, branch = task.branch

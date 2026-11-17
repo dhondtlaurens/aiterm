@@ -16,26 +16,29 @@ import AiTermCore
     private let journal: SignalJournal
     private let now: () -> Date
     private let ports: Ports
-    private var running: Set<UUID> = []
+    private let effects: OperatorInFlight
+    /// Where a launch shows as its task's act.
+    private let activity: OperatorActivityTracker
     private var isStopped = false
     private var generation = UUID()
     func start() { isStopped = false }
     func stop() { isStopped = true; generation = UUID() }
-    func isRunning(_ id: UUID) -> Bool { running.contains(id) }
     var changed: (UUID, String) -> Void = { _, _ in }
-    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports) {
-        self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports
+    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports,
+         effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
+        self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports; self.effects = effects; self.activity = activity
     }
+    /// Whether `id`'s worker is at work or another Operator effect holds the task.
+    private func atWork(_ id: UUID) -> Bool { ports.workerIsWorking(id) || effects.holds(id) }
+    /// Launches a launching stage, holding the task from its restore through its launch.
     func run(_ id: UUID) async {
-        guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, !running.contains(id), !ports.workerIsWorking(id),
-              let initial = workspace.state.signalItem(id: id), let claim = SignalClaim(initial), claim.canAct(in: workspace.state),
-              let record = initial.signalTask, record.phase == .launching,
-              let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else { return }
+        guard !isStopped, !ports.workerIsWorking(id),
+              let initial = workspace.state.signalItem(id: id), let claim = SignalClaim(initial), claim.allows(in: workspace),
+              let record = initial.signalTask, record.phase == .launching, record.current.configuration.isRunnable,
+              effects.claim(id) else { return }
+        let signal = record.current.configuration
         let launchGeneration = generation
-        running.insert(id); defer {
-            running.remove(id)
-            workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } } }
-        }
+        defer { effects.release(id) }
         do {
             // The row comes back to the sidebar with its worktree, even when the claim was lost meanwhile.
             if workspace.state.archived(id: id) != nil {
@@ -43,39 +46,40 @@ import AiTermCore
                 guard holds(claim, generation: launchGeneration) else { return }
             }
             guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id) else { return }
-            let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
-            workspace.mutate { state in
-                state.updateSignalItem(id) { task in
-                    task.firstPrompt = task.signalTask?.prompt ?? signal.work.prompt
-                    task.signalTask?.launch = attempt
-                    task.signalTask?.currentAct = "starting its worker"
+            let launched: String? = try await activity.acting(task: id, act: "starting its worker") {
+                let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
+                workspace.mutate { state in
+                    state.updateSignalItem(id) { task in
+                        task.firstPrompt = task.signalTask?.current.prompt ?? signal.work.prompt
+                        task.signalTask?.launch = attempt
+                    }
                 }
+                guard workspace.flush() else { return nil }
+                try await journal.append(.ours("Starting stage \(record.stage) from \(signal.name)."), task: id)
+                guard holds(claim, generation: launchGeneration), let before = workspace.state.task(id: id) else { return nil }
+                // The checkout saves itself on the task, even once the claim is lost.
+                if !before.hasCheckout { _ = try await ports.prepare(before, signal) }
+                guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return nil }
+                let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
+                return try await ports.launch(task, prompt)
             }
-            guard workspace.flush() else { return }
-            try await journal.append(.ours("Starting stage \(record.stage) from \(signal.name)."), task: id)
-            guard holds(claim, generation: launchGeneration), let before = workspace.state.task(id: id) else { return }
-            // The checkout saves itself on the task, even once the claim is lost.
-            if !before.hasCheckout { _ = try await ports.prepare(before, signal) }
-            guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return }
-            let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
-            let window = try await ports.launch(task, prompt)
-            guard holds(claim, generation: launchGeneration) else { return }
+            guard let window = launched, holds(claim, generation: launchGeneration) else { return }
             let at = now()
             try workspace.mutate { state in
                 try state.updateSignalItem(id) { task in
                     guard let record = task.signalTask else { return }
                     task.signalTask = try SignalTransitions.apply(.workerStarted, to: record, at: at)
                     task.signalTask?.launch?.openedAt = at
-                    task.signalTask?.currentAct = nil; task.windowId = window
+                    task.windowId = window
                 }
             }
             workspace.flush()
             changed(id, "Its stage started.")
         } catch {
-            guard !Task.isCancelled, !isStopped, generation == launchGeneration, claim.canAct(in: workspace.state) else { return }
-            workspace.mutate { $0.updateSignalTask(id) { record in
-                record.phase = .blocked; record.blockedReason = OperationIssue.reason(of: error); record.currentAct = nil
-            } }
+            guard !isStopped, generation == launchGeneration, claim.allows(in: workspace),
+                  let record = workspace.state.signalItem(id: id)?.signalTask,
+                  let next = try? SignalTransitions.apply(.launchFailed(OperationIssue.reason(of: error)), to: record, at: now()) else { return }
+            workspace.mutate { $0.updateSignalTask(id) { $0 = next } }
             workspace.flush()
             changed(id, "Its worker could not start.")
         }
@@ -86,11 +90,12 @@ import AiTermCore
         if workspace.state.signalItem(id: id)?.signalTask?.phase == .choosing {
             throw ActionUnavailable("This stage waits for its agent choice. Use choose_agent.")
         }
-        guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
-              record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
+        guard !atWork(id), !isStopped,
+              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
+              record.phase == .blocked, record.current.configuration.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")
         }
+        let signal = record.current.configuration
         let current = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
         if let project, project != task.projectId { throw ActionUnavailable("resume_task keeps the task's project. Use choose_agent to change it.") }
         if let agent, agent != current { throw ActionUnavailable("resume_task keeps the decided agent row. Use choose_agent to change it.") }
@@ -102,13 +107,13 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The resume intent couldn’t be saved.") }
         await run(id)
     }
-    /// Applies a decided row and project to a choosing stage, or to a blocked stage that resumes on
-    /// a new row, journals the choice and starts the stage. The caller validated the choice.
+    /// Applies a decided row (or its weekly-usage switch) and project to a choosing stage, or to a
+    /// blocked stage that resumes on a new row, journals the choice and starts the stage. The caller
+    /// validated the choice.
     func choose(_ id: UUID, choice: AgentChoiceRecord) async throws {
-        guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
-              record.phase == .choosing || record.phase == .blocked,
-              let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
+        guard !atWork(id), !isStopped,
+              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
+              record.phase == .choosing || record.phase == .blocked, record.current.configuration.isRunnable else {
             throw ActionUnavailable("Only a choosing or blocked task of the Operator takes an agent choice.")
         }
         if let project = choice.project, project != task.projectId {
@@ -119,24 +124,27 @@ import AiTermCore
         workspace.mutate { $0.updateSignalItem(id) { task in
             task.signalTask = next; task.signalTask?.candidateProjects = nil; task.signalTask?.choice = choice
             if let project = choice.project { task.projectId = project }
-            task.agent = choice.row.agent; task.model = choice.row.model; task.reasoning = choice.row.reasoning
+            let row = choice.launchSwitch ?? choice.row
+            task.agent = row.agent; task.model = row.model; task.reasoning = row.reasoning
         } }
         guard workspace.flush() else { throw ActionUnavailable("The agent choice couldn’t be saved.") }
         try await journal.append(.ours(choice.journalLine), task: id)
+        if let row = choice.launchSwitch { try await journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
         changed(id, "The Operator chose its agent.")
         await run(id)
     }
+    /// Records a stage result. Any result, a block included, is refused while another Operator effect holds the task.
     func finish(_ id: UUID, action: SignalAction, judged: Bool = false) async throws {
-        guard !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask else {
+        guard !isStopped, let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask else {
             throw ActionUnavailable("The task is no longer the Operator’s.")
         }
-        var next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: ports.workerIsWorking(id))
+        guard !effects.holds(id) else { throw SignalTransitionError.workerIsWorking }
+        var next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: atWork(id))
         if judged, next.stage == record.stage { next.operatorJudged = true }
-        let configuration = next.configuration ?? workspace.state.signal(id: next.signal)
         workspace.mutate { state in
             state.updateSignalItem(id) { task in
                 task.signalTask = next
-                if next.phase == .launching, let configuration { task.prepareLaunch(configuration: configuration, candidates: nil, at: now()) }
+                if next.phase == .launching { task.prepareLaunch(candidates: nil, at: now()) }
             }
         }
         guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }
@@ -146,8 +154,7 @@ import AiTermCore
         else if workspace.state.signalItem(id: id)?.signalTask?.phase == .blocked { changed(id, "This stage cannot start.") }
     }
     private func holds(_ claim: SignalClaim, generation expected: UUID) -> Bool {
-        !isStopped && generation == expected && workspace.state.operatorSession?.paused != true
-            && workspace.canChangeWorkspace && claim.canAct(in: workspace.state)
-            && workspace.state.signalItem(id: claim.task)?.signalTask?.phase == .launching && !Task.isCancelled
+        !isStopped && generation == expected && claim.allows(in: workspace)
+            && workspace.state.signalItem(id: claim.task)?.signalTask?.phase == .launching
     }
 }

@@ -95,3 +95,22 @@ No key was added; no brief or tool bytes changed. `brief.md` and `tools.json` we
 ## Take Over makes an ordinary task
 
 Re-recorded in step 4e of the greenfield refactor: Take Over removes a task's signal record and marks the task `takenOver`; `signalTask` no longer has a `takenOver` key.
+
+## The edge history left the task record
+
+5a (greenfield refactor): re-recorded; the unread `edges` history left the saved task record.
+
+## The current stage is held whole
+
+5b (greenfield refactor): re-recorded; a task's record holds its current stage whole under `current`, with a configuration that is always present.
+
+## Only finished Oracle rounds are saved
+
+5c (greenfield refactor): re-recorded; only finished Oracle rounds are saved, so the sample round is a critique waiting for a revision.
+
+## One chat lifecycle; acts are runtime
+
+Step 5f replaced `startingFresh`, `finishing`, `handover` and `wakeAwaitingRead` with one `lifecycle`
+and removed the saved `currentAct`; re-recorded by
+`AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`. The sample
+session is saved open. No brief or tool bytes changed; `brief.md` and `tools.json` were not touched.

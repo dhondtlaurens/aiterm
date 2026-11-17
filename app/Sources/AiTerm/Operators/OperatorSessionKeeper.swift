@@ -8,8 +8,9 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
     var errorDescription: String? { reason }
 }
 
-/// One Operator, with a persisted close → revoke → open handover. Retrying an opening uses the
-/// same session generation; its I/O port adopts the window and token already prepared for it.
+/// One Operator chat, its life saved as `OperatorSession.Lifecycle`: a generation opens, and an old chat
+/// is closed, its token revoked, and then a fresh one opens (renew) or none does (retire). Retrying an
+/// opening uses the same session generation; its I/O port adopts the window and token already prepared for it.
 @MainActor @Observable final class OperatorSessionKeeper {
     struct Ports {
         var canOpen: @MainActor () -> Bool
@@ -36,128 +37,148 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
         self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
     }
     func stop() { pass = nil }
-    /// Keeps the chat as its workload needs it: a new generation opens, and an established chat whose
-    /// window was closed opens again only when `reopen` (the person chose its row, or the Operator has
-    /// something to type into it).
+    /// Keeps the chat as its workload needs it: a new generation opens, a renewal continues, and an open
+    /// chat whose window was closed opens again only when `reopen` (the person chose its row, or the
+    /// Operator has something to type into it). Nothing while a retirement runs.
     func ensure(allowPaused: Bool = false, reopen: Bool = false) async {
-        guard workspace.state.operatorSession?.finishing != true else { return }
-        await transition(finishing: false, allowPaused: allowPaused, reopen: reopen)
+        guard workspace.state.operatorSession?.lifecycle.isRetiring != true else { return }
+        await transition(retire: false, allowPaused: allowPaused, reopen: reopen)
     }
-    /// Keep source polling and its saved metadata, but release the chat when its workload ends.
-    /// Once closing was saved, finish that generation even if a new match arrived during the close.
-    func finishIfIdle(idle: Bool, wakePending: Bool) async {
+    /// Keep source polling and its saved metadata, but retire the chat when its workload ended and the chat
+    /// is `idle` (`OperatorSession.chatIsIdle`). A retirement already saved continues whatever the rule
+    /// says, even if a new match arrived during the close.
+    func finishIfIdle(idle: Bool) async {
         guard let session = workspace.state.operatorSession else { return }
-        if session.finishing != true {
-            guard !workspace.state.operatorHasWork, idle, !wakePending,
-                  session.window != nil || session.conversation != nil || session.startingFresh else { return }
+        if !session.lifecycle.isRetiring {
+            guard !workspace.state.operatorHasWork, idle, session.lifecycle != .idle else { return }
         }
-        await transition(finishing: true, allowPaused: true, reopen: false)
+        await transition(retire: true, allowPaused: true, reopen: false)
     }
-    private func transition(finishing: Bool, allowPaused: Bool, reopen: Bool) async {
+    /// One pass through the lifecycle, each step saved before the next effect: close before revoke, revoke
+    /// before the generation increments. `retire` turns a renewal under way into a retirement.
+    private func transition(retire: Bool, allowPaused: Bool, reopen: Bool) async {
         guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), (allowPaused || workspace.state.operatorSession?.paused != true) else { return }
         let key = UUID(); pass = key
         defer { if pass == key { pass = nil } }
         do {
             if workspace.state.operatorSession == nil {
-                guard !finishing else { return }
-                var session = OperatorSession(createdAt: now())
-                session.startingFresh = true; session.handover = .opening
+                guard !retire else { return }
+                var session = OperatorSession(createdAt: now()); session.lifecycle = .opening
                 workspace.mutate { $0.operatorSession = session }
                 guard workspace.flush() else { return }
             }
             guard var session = workspace.state.operatorSession else { return }
-            if session.paused && session.startingFresh && !finishing { return }
-            // A retired record stays for source metadata and pause. Every later workload needs
-            // the same durable opening intent as the first chat, including a lost open reply.
-            if !finishing, session.handover == nil, session.window == nil, session.conversation == nil {
-                workspace.mutate { state in
-                    state.operatorSession?.startingFresh = true
-                    state.operatorSession?.handover = .opening
-                    state.operatorSession?.createdAt = now()
-                }
-                guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
-            }
-            if finishing {
-                // An opening may have completed before its reply or state save. Adopt without
-                // launching an empty chat, then use the same safe close path as a known window.
-                if session.window == nil, session.handover != .revoking {
-                    let window = try await ports.existingWindow(session)
-                    guard holds(session, pass: key, allowPaused: allowPaused) else { return }
-                    workspace.mutate { $0.operatorSession?.window = window }
-                    session.window = window
-                }
-                workspace.mutate { state in
-                    state.operatorSession?.finishing = true
-                    state.operatorSession?.startingFresh = true
-                    if session.handover == nil || session.handover == .opening { state.operatorSession?.handover = .closing }
-                }
-                guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
-            }
-            if session.startingFresh, session.handover == nil {
-                workspace.mutate { $0.operatorSession?.handover = .closing }; session.handover = .closing
-                guard workspace.flush() else { return }
-            }
-            if session.handover == .closing {
-                do {
-                    if let window = session.window {
-                        if let activity { try await activity.during(finishing ? "finishing its session" : "closing its previous session") { try await ports.close(window) } }
-                        else { try await ports.close(window) }
+            if !retire, session.paused, session.lifecycle.isChanging { return }
+            while true {
+                switch session.lifecycle {
+                case .unknown: return
+                case .idle:
+                    guard !retire else { return }
+                    // A retired record stays for source metadata and pause. Every later workload needs
+                    // the same durable opening intent as the first chat, including a lost open reply.
+                    guard let next = save({ $0.lifecycle = .opening; $0.createdAt = now() }) else { return }
+                    session = next
+                case .opening where retire:
+                    // An opening may have completed before its reply or state save. Adopt without
+                    // launching an empty chat, then use the same safe close path as a known window.
+                    var window = session.window
+                    if window == nil {
+                        window = try await ports.existingWindow(session)
+                        guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                     }
-                }
-                catch is SignalOperatorCloseDeferred {
-                    guard holds(session, pass: key, allowPaused: allowPaused),
-                          workspace.state.operatorSession?.handover == .closing,
-                          workspace.state.operatorSession?.window == session.window else { return }
-                    workspace.mutate { $0.operatorSession?.startingFresh = false; $0.operatorSession?.handover = nil; $0.operatorSession?.finishing = nil }
+                    guard let next = save({ $0.window = window; $0.lifecycle = .closing(then: .retire) }) else { return }
+                    session = next
+                case .opening:
+                    let window = try await open(session)
+                    guard holds(session, pass: key, allowPaused: allowPaused) else { return }
+                    workspace.mutate { state in
+                        state.operatorSession?.window = window; state.operatorSession?.lifecycle = .open(since: now(), wake: nil)
+                    }
                     workspace.flush(); succeeded()
                     return
-                }
-                guard holds(session, pass: key, allowPaused: allowPaused) else { return }
-                workspace.mutate { $0.operatorSession?.window = nil; $0.operatorSession?.handover = .revoking }
-                guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
-            }
-            if session.handover == .revoking {
-                if let activity { try await activity.during("releasing its previous session") { try await ports.revoke(session.id) } }
-                else { try await ports.revoke(session.id) }
-                guard holds(session, pass: key, allowPaused: allowPaused) else { return }
-                workspace.mutate { state in
-                    state.operatorSession?.generation += 1
-                    state.operatorSession?.createdAt = now()
-                    state.operatorSession?.conversation = nil; state.operatorSession?.session = nil
-                    state.operatorSession?.handover = finishing ? nil : .opening
-                    if finishing {
-                        state.operatorSession?.startingFresh = false
-                        state.operatorSession?.finishing = nil
-                        state.operatorSession?.wakeAwaitingRead = nil
+                case .open(_, let wake):
+                    if retire {
+                        guard let next = save({ $0.lifecycle = .closing(then: .retire) }) else { return }
+                        session = next
+                        continue
                     }
-                    state.operatorSession?.prune(at: now())
+                    if session.window != nil { succeeded(); return }
+                    guard reopen else { return }
+                    let window = try await open(session)
+                    guard holds(session, pass: key, allowPaused: allowPaused) else { return }
+                    workspace.mutate { state in
+                        state.operatorSession?.window = window; state.operatorSession?.lifecycle = .open(since: now(), wake: wake)
+                    }
+                    workspace.flush(); succeeded()
+                    return
+                case .closing(let then):
+                    if retire, then == .renew {
+                        guard let next = save({ $0.lifecycle = .closing(then: .retire) }) else { return }
+                        session = next
+                        continue
+                    }
+                    do {
+                        if let window = session.window {
+                            try await tracked(then == .retire ? "finishing its session" : "closing its previous session") { try await ports.close(window) }
+                        }
+                    } catch is SignalOperatorCloseDeferred {
+                        guard holds(session, pass: key, allowPaused: allowPaused),
+                              workspace.state.operatorSession?.lifecycle == session.lifecycle,
+                              workspace.state.operatorSession?.window == session.window else { return }
+                        workspace.mutate { $0.operatorSession?.lifecycle = .open(since: now(), wake: nil) }
+                        workspace.flush(); succeeded()
+                        return
+                    }
+                    guard holds(session, pass: key, allowPaused: allowPaused),
+                          let next = save({ $0.window = nil; $0.lifecycle = .revoking(then: then) }) else { return }
+                    session = next
+                case .revoking(let then):
+                    if retire, then == .renew {
+                        guard let next = save({ $0.lifecycle = .revoking(then: .retire) }) else { return }
+                        session = next
+                        continue
+                    }
+                    try await tracked("releasing its previous session") { try await ports.revoke(session.id) }
+                    guard holds(session, pass: key, allowPaused: allowPaused) else { return }
+                    // The daemon refuses the revoked generation's token for good: the next chat, renewed
+                    // or for a later workload, opens as the next generation.
+                    guard let next = save({ record in
+                        record.generation += 1
+                        record.createdAt = now()
+                        record.conversation = nil; record.session = nil
+                        record.lifecycle = then == .retire ? .idle : .opening
+                        record.prune(at: now())
+                    }) else { return }
+                    session = next
+                    if then == .retire { succeeded(); finished(); return }
                 }
-                guard workspace.flush(), let current = workspace.state.operatorSession else { return }; session = current
-                if finishing { succeeded(); finished(); return }
             }
-            if case .unknown = session.handover { return }
-            if session.handover == nil {
-                if session.window != nil { succeeded(); return }
-                guard reopen else { return }
-            }
-            let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
-            let window: String
-            if let activity { window = try await activity.during("starting its session") { try await ports.open(session, digest) } }
-            else { window = try await ports.open(session, digest) }
-            guard holds(session, pass: key, allowPaused: allowPaused) else { return }
-            workspace.mutate { state in
-                state.operatorSession?.window = window; state.operatorSession?.startingFresh = false
-                state.operatorSession?.handover = nil
-            }
-            workspace.flush(); succeeded()
         } catch { if pass == key { failed(OperationIssue.reason(of: error)) } }
     }
-    func freshIfDue(contextTokens: Int?, idle: Bool, wakePending: Bool) async {
+    /// Starts a fresh conversation for an open, idle chat whose context is due for it.
+    func freshIfDue(contextTokens: Int?, idle: Bool) async {
         guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), let session = workspace.state.operatorSession,
-              FreshStartPolicy.shouldStart(session: session, now: now(), contextTokens: contextTokens, idle: idle, wakePending: wakePending) else { return }
-        workspace.mutate { $0.operatorSession?.startingFresh = true; $0.operatorSession?.handover = .closing }
+              FreshStartPolicy.shouldStart(session: session, now: now(), contextTokens: contextTokens, idle: idle) else { return }
+        workspace.mutate { $0.operatorSession?.lifecycle = .closing(then: .renew) }
         guard workspace.flush() else { return }
         await ensure()
+    }
+    /// Saves `change` to the session; the session as saved, or nil when the save failed.
+    private func save(_ change: (inout OperatorSession) -> Void) -> OperatorSession? {
+        workspace.mutate { state in
+            guard var session = state.operatorSession else { return }
+            change(&session); state.operatorSession = session
+        }
+        guard workspace.flush() else { return nil }
+        return workspace.state.operatorSession
+    }
+    private func open(_ session: OperatorSession) async throws -> String {
+        let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
+        return try await tracked("starting its session") { try await ports.open(session, digest) }
+    }
+    private func tracked<Result>(_ words: String, _ body: @MainActor () async throws -> Result) async rethrows -> Result {
+        if let activity { return try await activity.during(words, body) }
+        return try await body()
     }
     private func holds(_ session: OperatorSession, pass key: UUID, allowPaused: Bool = false) -> Bool {
         pass == key && !Task.isCancelled && workspace.canChangeWorkspace && ports.canOpen()

@@ -32,8 +32,9 @@ struct SignalWorld {
     @discardableResult mutating func workingTask(signal: UUID) -> UUID {
         var task = TaskItem.make(project: project.id, worktreePath: project.path + "/.worktrees/work",
                                  model: Self.agent.model, reasoning: Self.agent.reasoning, firstPrompt: "/psg:plan", createdAt: now, windowId: "worker-window")
-        var record = SignalTask(signal: signal, item: ticket().item, startedAt: now)
-        record.phase = .working; record.configuration = state.signal(id: signal)
+        let stage = SignalStage(signal: signal, item: ticket().item, matchedAt: now, configuration: state.signal(id: signal)!)
+        var record = SignalTask(current: stage, startedAt: now)
+        record.phase = .working
         task.signalTask = record; state.tasks.append(task)
         if state.operatorSession == nil { state.operatorSession = OperatorSession(createdAt: now) }
         return task.id

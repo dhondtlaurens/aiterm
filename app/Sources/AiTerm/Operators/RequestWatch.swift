@@ -30,6 +30,7 @@ import AiTermCore
     struct Ports {
         var workerIsWorking: @MainActor (UUID) -> Bool
         var read: @MainActor (TaskItem) async throws -> Snapshot
+        /// Whether the Oracle agrees to merge the task now; anything else means no merge this pass.
         var oracleMerge: @MainActor (TaskItem, Snapshot) async throws -> Bool
         var merge: @MainActor (TaskItem, Snapshot) async throws -> Void
     }
@@ -37,41 +38,51 @@ import AiTermCore
     private let stages: StageRunner
     private let then: ThenRunner
     private let ports: Ports
-    private var running = false
+    private let effects: OperatorInFlight
+    /// Where the merge's Oracle veto and the merge show as the task's act.
+    private let activity: OperatorActivityTracker
     var changed: (UUID, String) -> Void = { _, _ in }
-    init(workspace: WorkspaceStore, stages: StageRunner, then: ThenRunner, ports: Ports) {
-        self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports
+    init(workspace: WorkspaceStore, stages: StageRunner, then: ThenRunner, ports: Ports, effects: OperatorInFlight = OperatorInFlight(),
+         activity: OperatorActivityTracker = OperatorActivityTracker()) {
+        self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports; self.effects = effects; self.activity = activity
     }
+    /// One pass over the working and watching tasks. A task whose worker is at work or that another effect holds is
+    /// skipped this pass; the merge holds its task from the Oracle's veto through the confirming read. A task whose
+    /// stage leaves the phase it was read in, a block included, is left alone from then on.
     func pass() async {
-        guard !running, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true else { return }
-        running = true; defer { running = false }
         var cache: [String: Snapshot] = [:]
-        let ids = workspace.state.tasks.compactMap { task -> UUID? in
-            guard let record = task.signalTask else { return nil }
-            if record.phase == .working { return task.id }
-            if case .watching = record.phase { return task.id }
-            return nil
-        }
+        let ids = workspace.state.tasks.filter { $0.signalTask.map { Self.isRead($0.phase) } == true }.map(\.id)
         for id in ids {
-            guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
-                  let signal = record.configuration ?? workspace.state.signal(id: record.signal), !ports.workerIsWorking(id) else { continue }
-            let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.item.identity ?? id.uuidString
+            guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
+                  Self.isRead(record.phase),
+                  !ports.workerIsWorking(id), !effects.holds(id) else { continue }
+            let phase = record.phase
+            let signal = record.current.configuration
+            let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.current.item.identity ?? id.uuidString
             let snapshot: Snapshot
             do {
                 if let saved = cache[key] { snapshot = saved }
                 else { let value = try await ports.read(task); cache[key] = value; snapshot = value }
-                guard allowed(claim) else { continue }
-                try await check(snapshot, task: task, claim: claim, signal: signal)
+                guard still(claim, in: phase) else { continue }
+                try await check(snapshot, task: task, claim: claim, phase: phase, signal: signal)
             } catch {
                 // A failed host read is unknown. Existing work and its phase stay as they are.
             }
         }
     }
-    private func allowed(_ claim: SignalClaim) -> Bool {
-        workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true && !Task.isCancelled
-            && claim.canAct(in: workspace.state) && !ports.workerIsWorking(claim.task)
+    /// The phases a pass reads a task in, working and watching, and so the only ones a merge starts from.
+    private static func isRead(_ phase: TaskPhase) -> Bool {
+        if case .watching = phase { return true }
+        return phase == .working
     }
-    private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, signal: Signal) async throws {
+    private func allowed(_ claim: SignalClaim) -> Bool {
+        claim.allows(in: workspace) && !ports.workerIsWorking(claim.task)
+    }
+    /// `allowed`, with the stage still in `phase`, the phase this pass read it in.
+    private func still(_ claim: SignalClaim, in phase: TaskPhase) -> Bool {
+        allowed(claim) && workspace.state.task(id: claim.task)?.signalTask?.phase == phase
+    }
+    private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, phase: TaskPhase, signal: Signal) async throws {
         var snapshot = first
         let merges = signal.finish.mergesWhenReady
         // The done condition met and only merge when ready holding the task: the line names what the merge lacks.
@@ -91,31 +102,29 @@ import AiTermCore
             }
         } }
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
-        if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
-            let roundID = UUID().uuidString, generation = workspace.state.operatorSession?.generation
-            let round = OracleRound(id: roundID, tool: "merge_when_ready",
-                                        askedAt: Date(), askedEvidence: task.id.uuidString)
-            workspace.mutate { state in
-                state.operatorSession?.oracleRounds.removeAll { $0.tool == "merge_when_ready" && $0.askedEvidence == task.id.uuidString }
-                state.operatorSession?.oracleRounds.append(round)
-                state.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" }
+        if merges, snapshot.canMerge, workspace.state.operatorSession?.lifecycle.isChanging != true {
+            // The merge goes on only while the stage is still in the phase the pass read it in: a block stops it.
+            guard still(claim, in: phase), effects.claim(task.id) else { return }
+            defer { effects.release(task.id) }
+            let generation = workspace.state.operatorSession?.generation
+            let merging = { [self] in still(claim, in: phase) }
+            let agreed: Snapshot? = try await activity.acting(task: task.id, act: "consulting the Oracle") { [snapshot] in
+                guard try await ports.oracleMerge(task, snapshot), merging(),
+                      workspace.state.operatorSession?.generation == generation else { return nil }
+                let verified = try await ports.read(task)
+                guard merging(), verified.canMerge, verified.head == snapshot.head, verified.reference == snapshot.reference else { return nil }
+                return verified
             }
-            guard workspace.flush() else { return }
-            defer {
-                workspace.mutate { state in
-                    state.operatorSession?.oracleRounds.removeAll { $0.id == roundID }
-                    if claim.holds(in: state) { state.updateSignalTask(task.id) { $0.currentAct = nil } }
-                }
+            guard let verified = agreed else { return }
+            let merged: Snapshot? = try await activity.acting(task: task.id, act: "merging it") {
+                try await ports.merge(task, verified)
+                guard merging() else { return nil }
+                let confirmed = try await ports.read(task)
+                guard merging(), confirmed.reference == verified.reference else { return nil }
+                return confirmed
             }
-            guard try await ports.oracleMerge(task, snapshot), allowed(claim),
-                  workspace.state.operatorSession?.generation == generation else { return }
-            let verified = try await ports.read(task)
-            guard allowed(claim), verified.canMerge, verified.head == snapshot.head, verified.reference == snapshot.reference else { return }
-            workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "merging it" } }
-            try await ports.merge(task, verified)
-            guard allowed(claim) else { return }
-            snapshot = try await ports.read(task)
-            guard allowed(claim), snapshot.reference == verified.reference else { return }
+            guard let merged else { return }
+            snapshot = merged
         }
         // Merge when ready is part of this stage's finish. A separate done condition becoming
         // true must not archive the task and stop its merge watch before checks turn green.

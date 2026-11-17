@@ -13,10 +13,17 @@ import Testing
     /// One harness with a scripted Oracle and recorded launches and tabs.
     @MainActor final class Rig {
         let world: SignalWorld, h: SignalHarness
-        var oracleOn = true
-        var verdicts: [AgentChoiceRounds.Verdict] = []
-        var oracleError: (any Error)?
-        var inputs: [AgentChoiceRounds.Input] = []
+        /// The Oracle's answers in order; once they run out it agrees.
+        var answers: [OracleRunner.Verdict] = []
+        lazy var oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { [world] in world.now }) { [unowned self] _ in
+            self.answers.isEmpty ? .critique("YES") : self.answers.removeFirst()
+        }
+        var oracleOn: Bool {
+            get { oracle.settings.oracle.isOn }
+            set { oracle.settings.oracle.isOn = newValue }
+        }
+        /// What each check quoted to the Oracle.
+        var asked: [JSONValue] { get throws { try oracle.prompts.indices.map(oracle.quoted) } }
         var launched: [(UUID, AgentKind, String)] = []
         var tabs: [(String, AgentChoice)] = []
         var tabReasons: [String] = []
@@ -28,21 +35,19 @@ import Testing
             },
             launch: { [unowned self] task, _ in self.launched.append((task.id, task.agent, task.model)); return "window-" + task.id.uuidString },
             restore: { $0 }))
-        lazy var choices = AgentChoiceRounds(workspace: h.workspace, now: { [world] in world.now }, ports: .init(
-            oracleEnabled: { [unowned self] in self.oracleOn },
-            oracle: { [unowned self] input in
-                self.inputs.append(input)
-                if let error = self.oracleError { throw error }
-                return self.verdicts.isEmpty ? .agreed("YES") : self.verdicts.removeFirst()
-            }))
+        /// Weekly usage per agent, in percent, as the choice reads it.
+        var weekly: [AgentKind: Int] = [:]
+        lazy var choices = AgentChoiceRounds(workspace: h.workspace, now: { [world] in world.now }, oracle: oracle.consult, ports: .init(
+            weeklyUsage: { [unowned self] in self.weekly }, installedAgents: { [.claude, .codex] }))
         lazy var handler: SignalOperatorToolHandler = {
-            let questions = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { [world] in world.now }, ports: .init(
-                oracleEnabled: { false }, question: { _, _ in nil }, oracle: { _ in .unavailable("Off") }, deliver: { _, _, _ in }))
+            let off = ScriptedOracle(h.workspace, folder: h.folder, now: { [world] in world.now }, on: false)
+            let questions = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { [world] in world.now }, oracle: off.consult, ports: .init(
+                question: { _, _ in nil }, deliver: { _, _, _ in }))
             return SignalOperatorToolHandler(workspace: h.workspace, stages: stages, questions: questions, choices: choices, journal: h.journal,
                 now: { [world] in world.now }, ports: .init(oracleEnabled: { [unowned self] in self.oracleOn }, workerQuestion: { _, _ in false },
                     read: { _ in [:] }, message: { _, _, _, _ in },
                     openTab: { [unowned self] _, key, row, _, why, _ in self.tabs.append((key, row)); self.tabReasons.append(why); return ["status": "opened", "tab": .string(key)] },
-                    jiraSearch: { _ in [] }, oracle: { _, _, _ in "" }, installedAgents: { [.claude, .codex] }))
+                    jiraSearch: { _ in [] }, consult: { _, _ in .agreed("", round: 1) }, installedAgents: { [.claude, .codex] }))
         }()
         init(_ world: SignalWorld) throws { self.world = world; h = try SignalHarness(world) }
         var router: ItemRouter { ItemRouter(workspace: h.workspace, now: { [world] in world.now }) }
@@ -73,7 +78,7 @@ import Testing
     }
     func rig(agents: [AgentChoice] = [SignalWorld.agent, Self.codex], configure: (inout SignalWorld) -> Void = { _ in }) throws -> (Rig, UUID) {
         var world = SignalWorld(); let signal = world.signal(agents: agents)
-        world.state.operatorSession = OperatorSession(createdAt: world.now); world.state.operatorSession?.startingFresh = false
+        world.state.operatorSession = .open(createdAt: world.now)
         configure(&world)
         return (try Rig(world), signal)
     }
@@ -85,7 +90,9 @@ import Testing
         let answer = await r.choose(id, key: "c1", row: Self.codex)
         #expect(answer.value?["status"] == "chosen" && answer.value?["decided"] == "oracleAgreed")
         #expect(r.launched.map(\.1) == [.codex] && r.record(id)?.phase == .working)
-        #expect(r.inputs.count == 1 && r.inputs[0].proposal.row == Self.codex && r.inputs[0].rows == [SignalWorld.agent, Self.codex])
+        let asked = try r.asked
+        #expect(asked.count == 1 && asked[0]["proposal"]?["row"]?.stringValue == Self.codex.label)
+        #expect(asked[0]["permittedRows"] == .array([SignalWorld.agent, Self.codex].map { .string($0.label) }))
         #expect(try r.journal(id).contains { $0.contains("Agent row: Codex · gpt-6-astra · medium") && $0.contains("Codex has room this week.") && $0.contains("the Oracle agreed") })
         let status = try #require(await r.call("run_status", id, key: "s", [:]).value)
         let line = try #require(status["tasks"]?.arrayValue?.first)
@@ -96,23 +103,23 @@ import Testing
     @Test func aCritiqueReturnsAChallengeAndTheRevisedProposalIsAgreedInRoundTwo() async throws {
         let (r, signal) = try rig(); defer { r.h.cleanUp() }
         let id = try #require(r.route(signal).first)
-        r.verdicts = [.critique("NO: Claude is at 92% this week; take Codex.")]
+        r.answers = [.critique("NO: Claude is at 92% this week; take Codex.")]
         let first = await r.choose(id, key: "c1", row: SignalWorld.agent, reason: "Planning suits Opus.")
         #expect(first.value?["status"] == "challenged" && first.value?["round"] == 1)
         let challenge = try #require(first.value?["challengeId"]?.stringValue)
         #expect(r.launched.isEmpty && r.record(id)?.phase == .choosing)
         let unnamed = await r.choose(id, key: "c2", row: Self.codex)
-        #expect(unnamed.value?["status"] == "challenged" && r.inputs.count == 1, "A revision must name the open round.")
+        #expect(unnamed.value?["status"] == "challenged" && r.oracle.prompts.count == 1, "A revision must name the open round.")
         let revised = await r.choose(id, key: "c3", row: Self.codex, challenge: challenge)
         #expect(revised.value?["status"] == "chosen" && r.record(id)?.choice?.round == 2)
-        #expect(r.inputs.last?.discussion.count == 2 && r.launched.map(\.1) == [.codex])
+        #expect(try r.asked.last?["discussion"]?.arrayValue?.count == 2 && r.launched.map(\.1) == [.codex])
         #expect(r.h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
     }
 
     @Test func threeDisagreeingRoundsFallBackToTheFirstPermittedRowAndSaySo() async throws {
         let (r, signal) = try rig(); defer { r.h.cleanUp() }
         let id = try #require(r.route(signal).first)
-        r.verdicts = [.critique("NO 1"), .critique("NO 2"), .critique("NO 3: still Opus.")]
+        r.answers = [.critique("NO 1"), .critique("NO 2"), .critique("NO 3: still Opus.")]
         var challenge: String?
         for round in 1...2 {
             let answer = await r.choose(id, key: "c\(round)", row: Self.codex, challenge: challenge)
@@ -127,24 +134,45 @@ import Testing
         #expect(r.h.workspace.state.operatorSession?.questions.isEmpty == true, "The choice never comes to the person.")
     }
 
+    /// A chosen row launches as chosen even at the weekly limit; only a three-round fallback row moves
+    /// to the other permitted agent, and the switch is recorded on the choice and journaled after it.
+    @Test(arguments: [false, true]) func onlyAFallbackRowMovesOffAnAgentAtItsWeeklyLimit(disagreed: Bool) async throws {
+        let (r, signal) = try rig(); defer { r.h.cleanUp() }
+        r.weekly = [.claude: 80, .codex: 20]
+        let id = try #require(r.route(signal).first)
+        if disagreed {
+            r.answers = [.critique("NO 1"), .critique("NO 2"), .critique("NO 3")]
+            var challenge: String?
+            for round in 1...3 { challenge = await r.choose(id, key: "c\(round)", row: Self.codex, challenge: challenge).value?["challengeId"]?.stringValue }
+        } else {
+            #expect(await r.choose(id, key: "c1", row: SignalWorld.agent, reason: "Planning suits Opus.").value?["status"] == "chosen")
+        }
+        #expect(r.record(id)?.choice?.decided == (disagreed ? .disagreed : .oracleAgreed) && r.record(id)?.choice?.row == SignalWorld.agent)
+        #expect(r.record(id)?.choice?.launchSwitch == (disagreed ? Self.codex : nil))
+        #expect(r.launched.map(\.1) == [disagreed ? .codex : .claude] && r.launched.map(\.2) == [disagreed ? Self.codex.model : SignalWorld.agent.model])
+        let journal = try r.journal(id), row = try #require(journal.firstIndex { $0.hasPrefix("Agent row:") })
+        let switchLine = AgentChoiceRecord.switchLine(Self.codex)
+        #expect(disagreed ? journal[row + 1] == switchLine : !journal.contains(switchLine))
+    }
+
     @Test(arguments: [false, true]) func withTheOracleOffOrUnavailableTheProposalApplies(unavailable: Bool) async throws {
         let (r, signal) = try rig(); defer { r.h.cleanUp() }
         let id = try #require(r.route(signal).first)
-        if unavailable { r.oracleError = ActionUnavailable("The Oracle timed out.") } else { r.oracleOn = false }
+        if unavailable { r.answers = [.unanswered("The Oracle timed out.")] } else { r.oracleOn = false }
         let answer = await r.choose(id, key: "c1", row: Self.codex)
         #expect(answer.value?["decided"] == (unavailable ? "oracleUnavailable" : "oracleOff"))
-        #expect(r.inputs.count == (unavailable ? 1 : 0) && r.launched.map(\.1) == [.codex])
+        #expect(r.oracle.prompts.count == (unavailable ? 1 : 0) && r.launched.map(\.1) == [.codex])
         if unavailable { #expect(r.record(id)?.choice?.note?.contains("timed out") == true) }
     }
 
     @Test func aCheckInvalidatedByChangedSettingsKeepsTheTaskChoosingAndAsksForANewProposal() async throws {
         let (r, signal) = try rig(); defer { r.h.cleanUp() }
         let id = try #require(r.route(signal).first)
-        r.oracleError = SignalOracleSettingsChanged()
+        r.oracle.answer = { [unowned oracle = r.oracle] _ in oracle.settings.revision += 1; return .critique("YES") }
         let answer = await r.choose(id, key: "c1", row: Self.codex)
         #expect(answer.value?["status"] == "retry" && r.record(id)?.phase == .choosing && r.launched.isEmpty)
         #expect(r.h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
-        r.oracleError = nil
+        r.oracle.answer = { _ in .critique("YES") }
         #expect(await r.choose(id, key: "c2", row: Self.codex).value?["status"] == "chosen")
     }
 
@@ -153,7 +181,7 @@ import Testing
         let id = try #require(r.route(signal).first)
         #expect(r.record(id)?.phase == .launching)
         await r.stages.run(id)
-        #expect(r.launched.map(\.1) == [.claude] && r.inputs.isEmpty && r.record(id)?.choice == nil)
+        #expect(r.launched.map(\.1) == [.claude] && r.oracle.prompts.isEmpty && r.record(id)?.choice == nil)
         #expect(try r.journal(id).allSatisfy { !$0.contains("Agent row") })
     }
 
@@ -170,7 +198,7 @@ import Testing
         let task = try #require(id)
         for signal in [try #require(later), try #require(keep)] {
             let configuration = try #require(r.h.workspace.state.signal(id: signal))
-            r.h.workspace.mutate { $0.updateSignalTask(task) { $0.pendingStages.append(SignalStage(signal: signal, item: $0.item, matchedAt: r.world.now, configuration: configuration, prompt: "Next.")) } }
+            r.h.workspace.mutate { $0.updateSignalTask(task) { $0.pendingStages.append(SignalStage(signal: signal, item: $0.current.item, matchedAt: r.world.now, configuration: configuration, prompt: "Next.")) } }
         }
         try await r.stages.finish(task, action: .finish(.operatorJudges))
         #expect(r.record(task)?.phase == .choosing && r.record(task)?.choosableRows == [SignalWorld.agent, Self.sonnet])
@@ -180,7 +208,7 @@ import Testing
         r.h.workspace.mutate { $0.updateSignalTask(task) { $0.phase = .working } }
         try await r.stages.finish(task, action: .finish(.operatorJudges))
         #expect(r.launched.map(\.2) == ["claude-sonnet-5-5", "claude-opus-5-5"] && r.record(task)?.choice == nil)
-        #expect(r.inputs.count == 1, "One Claude row for a Claude conversation: no proposal, no round.")
+        #expect(r.oracle.prompts.count == 1, "One Claude row for a Claude conversation: no proposal, no round.")
     }
 
     @Test func oneCallSettlesBothTheProjectAndTheRowAndAProjectAloneNeedsNoOracle() async throws {
@@ -193,7 +221,8 @@ import Testing
         #expect(r.record(id)?.phase == .choosing && r.record(id)?.candidateProjects?.count == 2)
         #expect(await r.choose(id, key: "c0", row: Self.codex).message?.contains("candidates") == true)
         let answer = await r.choose(id, key: "c1", row: Self.codex, project: second.id, reason: "The admin repository holds this screen.")
-        #expect(answer.value?["status"] == "chosen" && r.inputs.first?.projects?.count == 2 && r.inputs.first?.proposal.project == second.id)
+        let asked = try #require(try r.asked.first)
+        #expect(answer.value?["status"] == "chosen" && asked["candidateProjects"]?.arrayValue?.count == 2 && asked["project"]?["id"]?.stringValue == second.id.uuidString)
         #expect(r.h.workspace.state.task(id: id)?.projectId == second.id && r.launched.map(\.1) == [.codex])
 
         let (alone, single) = try rig(agents: [SignalWorld.agent]) { world in
@@ -205,7 +234,7 @@ import Testing
         let entries = SidebarModel.entries(state: alone.h.workspace.state, sessions: [], branchByCwd: [:], projectBranch: [:])
         #expect(SignalSidebar(state: alone.h.workspace.state, entries: entries).signals.first?.tasks.first?.operatorLine?.text == "Operator choosing its project")
         let picked = await alone.call("choose_agent", task, key: "p", ["project": .string(second.id.uuidString), "reason": "The admin repository."])
-        #expect(picked.value?["decided"] == "operatorAlone" && alone.inputs.isEmpty && alone.launched.count == 1)
+        #expect(picked.value?["decided"] == "operatorAlone" && alone.oracle.prompts.isEmpty && alone.launched.count == 1)
     }
 
     @Test func twoRowsAndThreeTicketsStartThreeWorkersWithoutEverNeedingThePerson() async throws {
@@ -235,11 +264,12 @@ import Testing
         }
         defer { r.h.cleanUp() }
         let task = try #require(id)
-        r.verdicts = [.critique("NO: Codex is at 95%.")]
+        r.answers = [.critique("NO: Codex is at 95%.")]
         var extra: [String: JSONValue] = ["agent": "codex", "model": .string(Self.codex.model), "reasoning": "medium", "prompt": "Review the edge.", "why": "A second pair of eyes."]
         let first = await r.call("open_tab", task, key: "second", extra)
         #expect(first.value?["status"] == "challenged" && r.tabs.isEmpty)
-        #expect(r.inputs.first?.scope == .tab && r.inputs.first?.work == "Review the edge.", "The Oracle judges the row against the tab's own work.")
+        let asked = try #require(try r.asked.first)
+        #expect(asked["choosing"] == "the agent row for a new work tab" && asked["brief"] == "Review the edge.", "The Oracle judges the row against the tab's own work.")
         extra = ["agent": "claude", "model": .string(SignalWorld.agent.model), "reasoning": "high", "prompt": "Review the edge.", "why": "Claude has room.",
                  "challengeId": first.value!["challengeId"]!]
         #expect(await r.call("open_tab", task, key: "third", extra).value?["status"] == "opened")
@@ -254,7 +284,7 @@ import Testing
         }
         defer { r.h.cleanUp() }
         let task = try #require(id)
-        r.verdicts = [.critique("NO 1"), .critique("NO 2"), .critique("NO 3")]
+        r.answers = [.critique("NO 1"), .critique("NO 2"), .critique("NO 3")]
         var challenge: JSONValue?
         for key in ["t1", "t2", "t3"] {
             var extra: [String: JSONValue] = ["agent": "codex", "model": .string(Self.codex.model), "reasoning": "medium", "prompt": "Review.", "why": "Codex has more quota."]
@@ -278,7 +308,7 @@ import Testing
         #expect(r.launched.map(\.1) == [.claude])
         r.h.workspace.mutate { $0.updateSignalTask(task) { $0.phase = .blocked } }
         #expect(await r.choose(task, key: "c1", row: Self.codex).value?["status"] == "chosen")
-        #expect(r.launched.map(\.1) == [.claude, .codex] && r.inputs.count == 1)
+        #expect(r.launched.map(\.1) == [.claude, .codex] && r.oracle.prompts.count == 1)
 
         let (other, signal) = try rig(); defer { other.h.cleanUp() }
         let choosing = try #require(other.route(signal).first)
@@ -289,9 +319,11 @@ import Testing
         let (r, signal) = try rig(); defer { r.h.cleanUp() }
         let id = try #require(r.route(signal).first)
         let entered = TestLatch(), release = TestLatch()
-        let rounds = AgentChoiceRounds(workspace: r.h.workspace, now: { r.world.now }, ports: .init(oracleEnabled: { true }, oracle: { _ in
-            entered.signal(); await release.wait(); return .agreed("YES")
-        }))
+        let held = ScriptedOracle(r.h.workspace, folder: r.h.folder, now: { r.world.now }) { _ in
+            entered.signal(); await release.wait(); return .critique("YES")
+        }
+        let rounds = AgentChoiceRounds(workspace: r.h.workspace, now: { r.world.now }, oracle: held.consult, ports: .init(
+            weeklyUsage: { [:] }, installedAgents: { [.claude, .codex] }))
         let task = try #require(r.h.workspace.state.task(id: id))
         let pending = Task { try await rounds.decide(task: task, scope: .stage, rows: [SignalWorld.agent, Self.codex], projects: nil,
                                                      proposal: .init(row: Self.codex, project: nil, reason: "r"), challenge: nil) }

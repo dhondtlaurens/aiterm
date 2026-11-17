@@ -34,7 +34,7 @@ import Testing
         live.sessions[1].state = .done
         await root.reconcile(); await ports.work.settled()
         #expect(launches == 1)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.signal == next)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.current.signal == next)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
         #expect(h.workspace.state.task(id: id)?.signalTask?.pendingStages.isEmpty == true)
         await root.reconcile(); await ports.work.settled()
@@ -43,7 +43,7 @@ import Testing
     }
     @Test func aSourceFailureIsSavedLoggedAndWokenOnlyWhenItsReasonChangesAndAPassClearsIt() async throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"
+        let session = OperatorSession.open(createdAt: world.now)
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
@@ -54,7 +54,7 @@ import Testing
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
         defer { root.stop() }
         func entries() -> [ActivityEntry] {
-            ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries.filter { $0.tool == "signal_read" }
+            ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries.filter { $0.tool == "signal_read" }
         }
         for _ in 0..<2 {
             root.poller.onFailure([signal], "The source is unavailable.")
@@ -72,6 +72,55 @@ import Testing
         #expect(h.workspace.state.operatorSession?.sourceFailures?[signal.uuidString] == nil)
         await root.reconcile(); await ports.work.settled()
         #expect(entries().count == 2 && daemon.requests("session.deliver").count == 2)
+    }
+    /// Polling needs no iTerm2: the tick reads a configured source while it is not connected.
+    @Test func theTickPollsAConfiguredSourceWhileITerm2IsNotConnected() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var ports = OperatorPorts.scratch(); let clock = TestClock(world.now)
+        ports.clock.now = { clock.now }
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let reader = CountingSignalReader()
+        root.sourceRegistrations = { signals in signals.map {
+            SignalPoller.Registration(id: $0.id, sourceHost: "jira.example", readKey: "tickets", isJira: true, reader: reader)
+        } }
+        root.start(); await ports.work.settled()
+        defer { root.stop() }
+        #expect(!root.tabsKnown)
+        #expect(await reader.calls.count == 1)
+        clock.advance(by: 61)
+        await root.reconcile(); await ports.work.settled()
+        #expect(await reader.calls.count == 2)
+    }
+    /// A save that lands while a tick runs reads the edited signal's source at once, not a minute later.
+    @Test func aSaveWhileATickRunsReadsTheEditedSignalBeforeTheNextMinute() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var ports = OperatorPorts.scratch(); let clock = TestClock(world.now)
+        ports.clock.now = { clock.now }
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let reader = CountingSignalReader(), entered = TestLatch(), release = TestLatch()
+        var holdNext = false
+        root.sourceRegistrations = { signals in
+            if holdNext { holdNext = false; entered.signal(); await release.wait() }
+            return signals.map { SignalPoller.Registration(id: $0.id, sourceHost: "jira.example", readKey: "tickets", isJira: true, reader: reader) }
+        }
+        root.tabsKnown = true; root.start(); await ports.work.settled()
+        defer { root.stop() }
+        #expect(await reader.calls.count == 1)
+        // A reattached helper makes the settings step due at once; the tick holds there.
+        holdNext = true; root.daemonAttached()
+        let tick = Task { await root.reconcile() }
+        await entered.wait()
+        var edited = h.workspace.state.signals[0]; edited.name = "Plan tickets again"
+        try await root.save(edited); await ports.work.settled()
+        #expect(await reader.calls.map(\.full) == [true, true], "The edit reads its source again in full, with the clock unchanged.")
+        release.signal(); await tick.value; await ports.work.settled()
+        #expect(await reader.calls.count == 2)
     }
     @Test func unsupportedPersistedSettingsCannotBeCreatedThroughTheSignalSaveBoundary() async throws {
         var world = SignalWorld(); _ = world.signal()
@@ -109,7 +158,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, ports = controller.signalController.ports
         var task = try await fixture.addTask(windowId: "worker-window")
-        var record = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        var record = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         record.phase = .working; record.ownership = 2
         record.extraTabs = [ExtraTab(key: "review", agent: .claude, model: "model", reasoning: nil, modelReason: "", brief: "",
                                      launch: LaunchAttempt(number: 1, requestedAt: Date()))]
@@ -222,10 +271,19 @@ import Testing
             tool: "run_status", arguments: [:], generation: session.generation))
         _ = controller.router.apply(signals: [signal], read: SignalRead(items: [world.ticket("NOPE-1")], complete: true, full: true))
         await ports.work.settled()
-        let entries = ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries
+        let entries = ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries
         #expect(Set(entries.map(\.tool)) == ["run_status", "signal_match"])
         #expect(entries.contains { $0.line.contains("NOPE-1") && $0.line.contains("No project") })
         #expect(h.workspace.state.tasks.isEmpty)
     }
 
+}
+
+private actor CountingSignalReader: SignalSourceReader {
+    struct Call: Sendable { var since: Date?; var full: Bool }
+    var calls: [Call] = []
+    func poll(since: Date?, full: Bool) async throws -> SignalRead {
+        calls.append(Call(since: since, full: full))
+        return SignalRead(items: [], complete: true, full: full)
+    }
 }

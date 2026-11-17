@@ -359,36 +359,36 @@ TS tests-scripts.
 
 ### Phase 5. Operator (after 4)
 
-- [ ] 5a. **Opus.** Every phase change goes through the stage machine, with actions for the
+- [x] 5a. **Opus.** Every phase change goes through the stage machine, with actions for the
   recovered worker and the failed launch; the unreachable `stopped` phase, the unused `stop` action
   and the unread edge history go. One claim check covers workspace, pause, signal enabled and
   cancellation; the thirteen repeated pause checks go (RT F5, OC F2).
-- [ ] 5b. **Opus.** A task's record holds its current stage whole with a configuration that is
+- [x] 5b. **Opus.** A task's record holds its current stage whole with a configuration that is
   always present; the eighteen `configuration ?? signal` fallbacks and the field-by-field stage
   copy go; one "question still pending" rule (OC F7 part b). Saved format re-recorded.
-- [ ] 5c. **Opus.** One Oracle owner: one consult with a kind, a binding and a round limit,
+- [x] 5c. **Opus.** One Oracle owner: one consult with a kind, a binding and a round limit,
   returning agreed, critique, the person's call, unavailable or retry. Worker answers, agent
   choice, the merge veto, `ask_oracle` and the shell gate all go through it; every prompt lives in
   Core beside the invocation; a settings change discards the answer and retries; no in-flight
   marker is left behind by a crash (RT F3, OC F6). Prompts move byte for byte except where this
   plan changes them.
-- [ ] 5d. **Opus.** The controller composes owners and runs one ordered reconcile. Wake policy,
+- [x] 5d. **Opus.** The controller composes owners and runs one ordered reconcile. Wake policy,
   the chat's window and session, the activity writer and retention each get one owner; Take Over
   already left in phase 4 (RT F1).
-- [ ] 5e. **Opus.** One tick with the existing event triggers: source polling, the host watch and
+- [x] 5e. **Opus.** One tick with the existing event triggers: source polling, the host watch and
   settings are steps that ask whether they are due; one in-flight set per task shared by stage,
   Then, delivery and rounds; the 180-second grace has one name (RT F2). `busy` becomes a pure
   question and the live-work set is computed once per tick (RT F13).
-- [ ] 5f. **Opus.** The chat's lifecycle is one saved state with its generation; the three flags
+- [x] 5f. **Opus.** The chat's lifecycle is one saved state with its generation; the three flags
   and four memory flags go; one idle rule (RT F8, OC F2). A row's current activity is runtime-only
   and leaves the saved task and the task line of `run_status` (RT F9).
-- [ ] 5g. **Opus.** The tool handler's ledger is the only ledger of calls: `answer_worker`'s second
+- [x] 5g. **Opus.** The tool handler's ledger is the only ledger of calls: `answer_worker`'s second
   ledger entry and its own running set go, and the wake acknowledgement moves into the handler.
   The uniqueness rules on records stay with their owners, because those records outlive the
   ledger: a question id is recorded once, a resolved question keeps its answer, a snag key and a
   note key each name one record. The launch-time agent switch and `open_tab`'s choice move to the
   agent-choice owner (RT F7, F12). Changed refusal texts are listed in the commit.
-- [ ] 5h. **Codex.** `Signals/` regrouped by concept into about fourteen files with the source
+- [x] 5h. **Codex.** `Signals/` regrouped by concept into about fourteen files with the source
   readers beside them; one helper for kind-tagged enums and one for open string enums with the
   same bytes; one JSON-lines appender for the activity log and the journals; delivery checks,
   `ClosingWait` and the merged-branch check move to their real homes; the task row's Operator
@@ -1051,3 +1051,146 @@ left.
   the refactor's own merges; merged to `main`. No manual check is owed for phase 4 by the plan. From
   this merge on, `main` and the installed app cannot read each other's Operator records: run
   `scripts/reset-operator-state.sh` with AiTerm quit before switching between them.
+
+### Phase 5
+
+- 5a: every phase change goes through `SignalTransitions`, with new actions `launchFailed` and
+  `adopted` for the failed launch and the recovered worker; the unreachable `stopped` phase (a saved
+  one decodes as `.unknown`), the `stop` action and the unread `edges` history went. One claim check,
+  `SignalClaim.allows(in:)`, covers workspace, cancellation, pause, signal enabled, configuration and
+  phase; the repeated pause checks went. Fixture re-recorded: `operator-signals/state.json` with
+  `AITERM_RECORD_SIGNAL_STATE=1` (only the two empty `edges` arrays removed), provenance section added.
+  Test deleted: `SignalRetentionTests.repeatedStagesRetainOnlyTheNewestTransitionTail` (behaviour
+  deleted; its ownership count survives in `blockAndResumeRespectAuthority`). Added
+  `SignalClaimTests`, three `SignalDomainTests` and
+  `SignalEngineTests.aLaunchErrorAfterTheStageWasBlockedLeavesTheFirstReason`. Noticed and left: the
+  doc comment of `LaunchAttempt.workerPending` names a `WorkerStarter.checkLaunches` that no longer exists.
+- 5b: a task's record holds its current stage whole (`SignalTask.current: SignalStage`, whose
+  `configuration` is always present); the `configuration ?? signal` fallbacks and the field-by-field
+  stage copy went; `continueStage` makes the first pending stage the current one; one
+  `Question.isPending` rule. Fixture re-recorded: `operator-signals/state.json` with
+  `AITERM_RECORD_SIGNAL_STATE=1` (both records move signal, item, configuration and prompt under
+  `current`, which gains `matchedAt`; nothing else), provenance section added. No test deleted; added
+  two `SignalDomainTests` and `SignalRetentionTests.aQuestionIsPendingWhileOpenOrWhileAWorkersAnswerIsUndelivered`;
+  new test builders `Signal.make` and `SignalTask.make`. Snapshots in `build/refactor-5b`
+  byte-identical to `build/refactor-phase4`. Differences: two refusals for a missing signal now read
+  "The task is no longer the Operator’s." for a task with no record (no test, fixture or doc names
+  them); the drawn copy always carries the configuration. Found, not this step's: the signal sidebar
+  snapshot fixtures (`Snapshots/SignalSidebarSnapshots.swift`) use real people's names as reviewers,
+  in a public repository; changing them changes drawn pixels, so it is left to the maintainer.
+- 5c: one Oracle owner, `OracleConsult`: one `consult(_:binding:continuing:)` with a kind
+  (`OracleLaunch.Question`), a claim binding and a round limit, returning agreed, critique, the
+  person's call, unavailable or retry. Worker answers, agent choice, the merge veto, `ask_oracle` and
+  the shell gate all go through it; every prompt and parser lives in `OracleLaunch` (byte for byte,
+  proven by new Core prompt tests); a settings or standing-instructions change discards the answer and
+  retries; only finished rounds are saved (`OracleRound.Stage` lost `running`), so a crash leaves no
+  in-flight marker. `OracleRoundLedger` and `SignalOracleSettingsChanged` went; one
+  `JSONValue.canonicalJSON()`. Fixture re-recorded: `operator-signals/state.json` (the sample round
+  is now a delivered critique), provenance line added. Model-facing strings changed: `answer_worker`
+  and `ask_oracle` return `{"status":"retry", ...}` when settings changed mid-check (before: to the
+  person / "could not answer"); the shell gate denies with "The Oracle settings changed. Check this
+  command again." when the Oracle was switched off while it read (before: allowed unchecked); two
+  flush errors now say "The question couldn’t be saved." and "The choice couldn’t be saved." (orchestrator
+  review round). No test deleted; added `OracleConsultTests` (8), prompt and parser tests in
+  `OracleLaunchTests`, and three held-check tests. Differences: the code's names (`unanswered`, "unchecked")
+  were kept over the brief's; a person marker now replaces the round it continues; the round-limit check
+  in `QuestionRounds` went (nothing at the limit is saved). Left for 5f: the merge veto still sets
+  `currentAct`.
+- 5d: the controller composes owners and runs one ordered reconcile (678 to 445 lines; the rest is
+  owner construction and wiring): `OperatorWaker` owns waking, `OperatorChat` the chat's window and
+  session (keeper, open, close), `ActivityWriter` the activity log and the issue record; retention is
+  `AppState.pruneOperator(at:)` and `withdrawObsoleteQuestions(at:)` in Core. With Take Over gone,
+  `OperatorIssues.Source.retried` and the non-retried branch went. No test deleted; added two
+  `SignalRetentionTests`. Differences: the chat's opener was `openChat()` (3b), now `OperatorChat.open()`;
+  the chat's parameter is labelled `wakeWaiting:` (the brief's grep matches `wakePending`). Left: `ItemRouter`
+  also prunes seen items. The orchestrator's first plain gate failed once in
+  `SignalWorkerIOTests.takeOverDuringARequestCheckoutKeepsItsFolderAndBaseBranchWithoutLaunchingAWorker`
+  (its wait for the checkout reaching git timed out at a load average near 10); the rerun was green.
+  That test is timing-sensitive on a loaded machine.
+- 5e: one tick: `reconcile()` (name kept) runs the settings step, then the poll step (`poller.tick()`,
+  even while iTerm2 is not connected), then the host watch when due, then 5d's steps; the per-host poll
+  loops and `TickPass` went. One in-flight set per task, `OperatorInFlight`, shared by stage, Then,
+  delivery, question and agent-choice rounds and the tool handler's message and open_tab; `busy` is a
+  pure question and the live-work set is computed once per tick. The 180-second grace is
+  `OperatorTiming.openingGrace`. No test deleted (`TickPass` behaviour stays in
+  `SignalPollerTests.stopDropsALateReadAndOverlappingTicksStartNoDuplicate`); added five tests
+  (tick polls while iTerm2 is away, a save mid-tick reads the edited signal, a worker-answer round
+  holds its task, a stage queued during Then waits, busy has no side effect). Differences: a signal
+  edited outside Save also polls at once (as before); `canPoll` also requires the workspace to be
+  changeable. Two older test races, exposed under load (load average up to 10.6), were fixed test-side
+  in this step after the gate went red: (attempt 1) attaching the daemon starts a checkout pass that
+  adopted the fixture repository's real remote (none) over the declared GitLab remote, so a request stage
+  that read the project afterwards refused before git; the three request-stage tests now use a scanner
+  that keeps the declared remote and await the attach's pass; (attempt 2) tests that swap the workspace
+  backup for a directory raced the teardown's debounced save; `ArchiveTests`, `CheckoutCleanupTests`
+  and `ScratchController.breakSaving()` now flush first. Five filtered runs of each and the plain gate
+  were green.
+- 5f: the chat's lifecycle is one saved state, `OperatorSession.lifecycle` (idle, opening,
+  `open(since:wake:)`, `closing(then:)`, `revoking(then:)`, unknown) with its generation; the saved
+  `startingFresh`, `finishing`, `handover` and `wakeAwaitingRead`, and the runtime open record, waker
+  flags and Oracle in-flight count went; one idle rule (`OperatorSession.chatIsIdle`). Retirement and
+  renewal both advance the generation (asserted by `aMatchDuringTheLastChatsCloseStartsFreshAndIsNotLost`).
+  A row's current activity is runtime-only (`OperatorActivityTracker.acting`), out of the saved task
+  and `run_status`. Fixture re-recorded: `operator-signals/state.json` (`startingFresh` out, `lifecycle`
+  in), provenance section added; `brief.md` and `tools.json` unchanged. Model-facing: `run_status`
+  `tasks[].currentAct` removed; the two flush errors from 5c's review round went with the act's flush.
+  No test deleted; added `OperatorLifecycleTests` and four keeper, activity and issue tests. Snapshots
+  in `build/refactor-5f` byte-identical to `build/refactor-5b`; the Operator section poses are
+  hosted-only (they need `AITERM_SNAPSHOT_HOSTED=1`, which opens windows), so they were not compared
+  here: for 9c. Behaviour notes: retirement also waits for tracked acts, an unread wake and a window
+  holding one tab (the one idle rule); an open chat closed before its conversation was recorded no
+  longer reopens by itself.
+- 5g: the tool handler's ledger is the only ledger of calls: `answer_worker`'s second ledger entry and
+  its running set went; the wake acknowledgement (a scoped `run_status` refused while a wake is unread,
+  a global one acknowledging it) moved into the handler; the controller routes `gate_command` to the
+  shell gate and everything else to the handler. The record rules stay with their owners. The
+  launch-time agent switch at the weekly limit and `open_tab`'s choice of rows moved to
+  `AgentChoiceRounds` (decided at choice time, never for a tab or a stage with a saved conversation).
+  Changed refusal texts: reusing an `answer_worker` key with other arguments now says "This key already
+  names a different call. Use the original arguments to retry." (was "This key was already used for a
+  different answer."); a failed save of its result says "The tool result couldn’t be saved." (was "The
+  answer couldn’t be saved."). Tests deleted: `SignalQuestionRoundsTests.agreementAnswersOnceAndTheSavedKeySurvivesARestart`
+  (survivor `SignalToolHandlerTests.anAgreedWorkerAnswerReplaysAfterARestartFromTheHandlersLedgerAlone`),
+  `SignalWorkerIOTests.onlyAFallbackRowMovesOffAnAgentAtItsWeeklyLimit` (survivor of the same name in
+  `SignalAgentChoiceTests`); added `onlyAGlobalStatusAcknowledgesAnUnreadWake`. No fixture changed.
+  Noticed and left: `OracleRound.askedArguments` is written and never read.
+- 5h decision (orchestrator, before implementation): Codex stopped because 5h's shared helper for
+  kind-tagged enums throws "Missing … value" while 5f's `OperatorSession.Lifecycle` (written after the
+  5h brief) decodes a known kind with a missing or invalid value as `.unknown(raw)` and keeps its bytes,
+  protected by `OperatorLifecycleTests`. Decided within the plan's intent (the workspace file tolerates
+  what it does not know; 5f's behaviour is decided and tested): the lifecycle keeps its behaviour. The
+  helper applies the brief's rule to the enums the brief lists; the lifecycle uses the helper only if
+  the helper can express "missing or invalid value becomes `.unknown`", else keeps its own decoder.
+- 5h: `Operators/Signals/` regrouped by concept into fourteen files with the source readers beside
+  them (`AiTermCore/Signals/` gone); one helper for kind-tagged enums and one for open string enums
+  (`SavedEnums.swift`, bytes unchanged, pinned by the new `SavedEnumBytesTests`), with the lifecycle's
+  unknown-value policy expressed through the same decoder (the decision above); one JSON-lines appender
+  (`JSONLines.swift`) for the activity log and the journals; `DeliveryCheck`, `AgentVersions`,
+  `ClosingWait` and the merged-branch check moved to their homes; the task row's Operator wording is
+  built in Core (`OperatorLine+Task.swift`). Saved bytes and every snapshot unchanged. Tests deleted:
+  `ActivityLogTests.aMalformedLineIsSkipped`, `aTornLastLineWaits`, `aMissingFileIsEmpty` (the product no
+  longer reads the activity log; survivors in the new `JSONLinesTests`, `SignalJournalRecoveryTests`).
+- Phase close: plain `scripts/test.sh all` green on `572d5035`. Snapshots in `build/refactor-phase5`
+  identical to `build/refactor-phase4`. Review round 1 (Codex, `main..HEAD`): one Important finding,
+  confirmed: while the automatic merge's Oracle veto held a working task, a `finish_stage` with outcome
+  blocked or failed still went through (the block transition ignores the held flag) and the merge then
+  proceeded on the blocked stage. Fixed by the 5e implementer: `StageRunner.finish` refuses any result
+  while another effect holds the task, and the merge's checks after the veto require the phase it
+  started from. Added `SignalWatchTests.aStageResultIsRefusedWhileTheMergeHoldsItsTaskAndTheMergeGoesAhead`
+  and `aStageBlockedWhileTheVetoIsOutStopsTheMerge` (each fails without its fix). Noticed and left: a
+  `SignalTransitionError` reaches the Operator as Foundation's generic "The operation couldn’t be
+  completed." (no description of its own; older than this phase; giving it words changes Operator-visible
+  text, so it is left for the maintainer).
+- Review round 2: the same gap one step earlier, confirmed: a block during the watch's first host read
+  (before the merge claims the task) was taken as the phase the merge started from. Fixed by the 5e
+  implementer: the watch captures the phase before the first read (only working or watching) and every
+  check from the read on requires the stage still in it. Added
+  `SignalWatchTests.aStageBlockedWhileThePassReadsTheRequestIsNeverMerged` (fails without the fix).
+- Review round 3: no findings, "ready". Plain `scripts/test.sh all` green on `e90cbbb1`. No bundle
+  check is due after phase 5. `main` had only the refactor's own merges; merged to `main`.
+- Owed to the maintainer for phase 5: the live Operator eval (`AITERM_LIVE_OPERATOR=1`): the Oracle's
+  prompts moved into `OracleLaunch` (byte for byte), `answer_worker` and `ask_oracle` can now answer
+  `retry`, the shell gate denies when the Oracle was switched off mid-read, `run_status` lost
+  `tasks[].currentAct`, and two refusal texts of `answer_worker` changed (5c, 5f, 5g). Also for 9c: the
+  hosted-only Operator section snapshot poses (they need `AITERM_SNAPSHOT_HOSTED=1`, which opens
+  windows) were not captured during this phase.

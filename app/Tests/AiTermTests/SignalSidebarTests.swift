@@ -12,8 +12,8 @@ import AiTermUI
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
         defer { controller.shutdown() }
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
-        world.state.updateSignalTask(id) { $0.currentAct = "answering its worker" }
         controller.workspace.mutate { $0 = world.state }
+        _ = controller.signalController.activity.begin(task: id, act: "answering its worker")
         let driven = try #require(controller.rows.signalSections.first?.tasks.first)
         let task = try #require(controller.state.task(id: id))
         func height(_ row: TaskRow, _ item: TaskItem) -> CGFloat {
@@ -50,10 +50,10 @@ import AiTermUI
     }
     @Test func theOperatorsOwnPermissionPromptOutranksItsTaskAct() {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
-        world.state.updateSignalTask(id) { $0.currentAct = "consulting the Oracle" }
         let own = OperatorServiceFixtures.session("operator", tag: world.state.operatorSession!.id, state: .needsInput)
-        world.state.operatorSession?.window = own.windowId
-        #expect(SignalOperatorRowValue.make(state: world.state, sessions: [own]).status == .needsInput)
+        world.state.operatorSession = .open(id: world.state.operatorSession!.id, createdAt: world.now, window: own.windowId)
+        let act = OperatorAct(task: id, words: "consulting the Oracle")
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: [own], latestAct: act).status == .needsInput)
     }
     @Test func anOperatorFailureIsADrawnFactInTheProjection() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
@@ -67,7 +67,7 @@ import AiTermUI
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
         defer { controller.focus.cancel(); controller.shutdown() }
         controller.workspace.mutate { state in
-            var session = OperatorSession(createdAt: Date()); session.window = "operator-window"; state.operatorSession = session
+            state.operatorSession = .open(createdAt: Date())
         }
         controller.helper.setDaemonClient(RecordingDaemon())
         controller.signalController.ports.notifications.onOpen?(.operatorWindow)
@@ -223,13 +223,11 @@ import AiTermUI
     }
     @Test func signalRowsDescribeActsQuestionsWatchingAndTheirOwnPause() throws {
         var world = SignalWorld(); let signal = world.signal(done: .hasReviewer); let id = world.workingTask(signal: signal)
-        func row() throws -> TaskRow {
+        func row(acts: [UUID: String] = [:]) throws -> TaskRow {
             let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])
-            return try #require(SignalSidebar(state: world.state, entries: entries).signals.first?.tasks.first)
+            return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).signals.first?.tasks.first)
         }
-        world.state.updateSignalTask(id) { $0.currentAct = "answering its worker" }
-        #expect(try row().operatorLine == OperatorLine("Operator answering its worker", look: .acting))
-        world.state.updateSignalTask(id) { $0.currentAct = nil }
+        #expect(try row(acts: [id: "answering its worker"]).operatorLine == OperatorLine("Operator answering its worker", look: .acting))
         let questionAt = world.now
         world.state.operatorSession?.questions = [OperatorSession.Question(id: "locale", task: id, text: "Which locale?", openedAt: questionAt)]
         #expect(try row().operatorLine?.text == "waiting on you")
@@ -272,10 +270,8 @@ import AiTermUI
     @Test func theOperatorNamesItsActAndCountsTheSignalsStillHoldingTasks() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         world.state.tasks[0].jira = JiraRef(key: "PAY-1", summary: "Retries", url: "https://jira.example/browse/PAY-1")
-        world.state.updateSignalTask(id) { $0.currentAct = "answering its worker" }
-        let acting = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        let acting = SignalOperatorRowValue.make(state: world.state, sessions: [], latestAct: OperatorAct(task: id, words: "answering its worker"))
         #expect(acting.line.text.contains("answering") && acting.line.text.contains("PAY-1"))
-        world.state.updateSignalTask(id) { $0.currentAct = nil }
         world.state.signals = []
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).line.text == "watching 1 task in 1 signal")
     }

@@ -18,9 +18,9 @@ public enum MatchDecision: Equatable, Sendable {
         }.sorted { ranks[$0.signal, default: .max] < ranks[$1.signal, default: .max] }
         var decisions: [Self] = [], started: [String: Int] = [:], handled = Set<String>()
         for match in ordered {
-            guard let identity = match.item.identity else { continue }
+            guard let identity = match.item.identity, let signal = enabled.first(where: { $0.id == match.signal }) else { continue }
             guard handled.insert(match.signal.uuidString + ":" + identity).inserted else { continue }
-            let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt)
+            let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt, configuration: signal)
             if let task = tasks.first(where: { candidate in
                 if matchesItem(match.item, task: candidate) { return true }
                 // A real Jira read can bind an existing request/manual branch before that task
@@ -46,7 +46,7 @@ public enum MatchDecision: Equatable, Sendable {
     }
 
     public static func matchesItem(_ item: ItemRef, task: TaskItem) -> Bool {
-        if let identity = item.identity, identity == task.signalTask?.item.identity { return true }
+        if let identity = item.identity, identity == task.signalTask?.current.item.identity { return true }
         switch item {
         case .ticket(let ticket):
             guard let jira = task.jira, jira.key.caseInsensitiveCompare(ticket.key) == .orderedSame else { return false }
@@ -60,6 +60,47 @@ public enum MatchDecision: Equatable, Sendable {
             if let split = path.range(of: "/-/merge_requests/") ?? path.range(of: "/pull/") { path = String(path[..<split.lowerBound]) }
             return ItemRef.repository("https://" + host + path) == ItemRef.repository(ref.remote)
         case .unknown: return false
+        }
+    }
+}
+
+public struct SignalMatch: Equatable, Sendable {
+    public var signal: UUID
+    public var item: ItemRef
+    public var project: UUID?
+    public var branch: String?
+    public var matchedAt: Date
+    public init(signal: UUID, item: ItemRef, project: UUID?, matchedAt: Date, branch: String? = nil) {
+        self.signal = signal; self.item = item; self.project = project; self.matchedAt = matchedAt; self.branch = branch
+    }
+}
+
+public struct SignalSeen: Codable, Equatable, Sendable {
+    public enum Disposition: OpenStringEnum, Hashable, Sendable {
+        case started, skipped
+        case unknown(String)
+        static let knownCases: [Self] = [.started, .skipped]
+        var savedName: String {
+            switch self {
+            case .started: "started"
+            case .skipped: "skipped"
+            case .unknown(let value): value
+            }
+        }
+    }
+    public var signal: UUID
+    public var item: ItemRef
+    public var disposition: Disposition
+    public var at: Date
+    public var reason: String?
+    public var isMatching: Bool
+    public init(signal: UUID, item: ItemRef, disposition: Disposition, at: Date, reason: String? = nil, isMatching: Bool = true) {
+        self.signal = signal; self.item = item; self.disposition = disposition; self.at = at; self.reason = reason
+        self.isMatching = isMatching
+    }
+    public static func pruned(_ values: [Self], liveItems: Set<String>, now: Date) -> [Self] {
+        values.filter { value in
+            value.item.identity.map(liveItems.contains) == true || now.timeIntervalSince(value.at) <= 90 * 86400
         }
     }
 }

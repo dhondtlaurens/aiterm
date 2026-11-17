@@ -49,9 +49,9 @@ does. Owners publish changes through `HookList`, whose hooks return removal toke
 slot says so in its name. `SheetCoordinator` owns the single sheet slot and cancels stale
 preparation. Creation models share `CreationModel`, `CreationSheet` and model/reasoning controls;
 provider lookup and missing-model policy remain with the caller. `LatestTask` replaces a prior
-request, whereas `TickPass` drops overlapping polling passes, and `DebouncedSearch` keeps the latest
-search after a pause for the pickers and the ticket field. These lifetimes are deliberately
-different.
+request, polling passes run from the Operator's tick, one per host and none while that host's last
+pass still reads, and `DebouncedSearch` keeps the latest search after a pause for the pickers and the
+ticket field. These lifetimes are deliberately different.
 
 ## Task and window operations
 
@@ -96,11 +96,12 @@ enum kinds use inert unknown fallbacks rather than losing the workspace.
 | `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
 | `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
 | `ThenRunner`, `TaskTeardown` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
-| `OperatorSessionKeeper` | Persist workload-driven chat lifetime, close/revoke/idle retirement, generation/token handover and context renewal. Close the old window before revoking its token. |
-| `AgentChoiceRounds`, `OracleRoundLedger` | Bind the Operator's agent-row (and project) proposal for a stage or work tab to its stage/ownership and run up to three Oracle rounds; the outcome never asks the person. The ledger keeps the saved rounds both owners share. |
+| `OperatorSessionKeeper` | Persist workload-driven chat lifetime as one saved lifecycle (idle, opening, open, closing and revoking before a renewal or a retirement): close/revoke/idle retirement, generation/token handover and context renewal. Close the old window before revoking its token. |
+| `AgentChoiceRounds`, `OracleConsult` | Bind the Operator's agent-row (and project) proposal for a stage or work tab to its stage/ownership and run up to three Oracle rounds; the outcome never asks the person. `OracleConsult` runs every Oracle use (worker answers, agent choices, the merge veto, `ask_oracle` and the shell gate), discards a check whose settings changed while it ran, and saves only finished rounds. |
 | `QuestionRounds`, `SignalJournal` | Bind three-round answer discussions to the full worker question/conversation/stage/ownership; persist quoted answers/instructions and bounded state tails over append-only journals. |
 | `SignalOperatorToolHandler`, `SignalShellGate` | Validate fourteen tools, idempotency and current authority; handle the private gated shell route separately. Missing/stale tokens deny. |
-| `SignalOperatorController`, `OperatorWork`, `OperatorActivityTracker` | Compose owners, schedule finite jobs, reconcile sources/workers and chat lifetime, coalesce fixed event/task wake lines, publish runtime activity identities, cancel owned work on stop. |
+| `SignalOperatorController`, `OperatorWork`, `OperatorActivityTracker` | Compose the owners and wire them, route daemon events and Operator requests, schedule finite jobs, and run one ordered reconcile, the Operator's one-minute tick whose steps each run when due; hold one in-flight set (`OperatorInFlight`) that every Operator effect on a task claims; publish runtime activity identities and each task's running act, cancel owned work on stop. Retention is pure Core: `AppState.pruneOperator(at:)` each minute and `AppState.withdrawObsoleteQuestions(at:)` each reconcile. |
+| `OperatorChat`, `OperatorWaker`, `ActivityWriter` | The chat's window and session I/O (open, adopt, remember, close with its delivery-code classification) around `OperatorSessionKeeper`, and the session's own row issue; one pending fixed event/task wake line, typed only into an idle chat and acknowledged by a global `run_status`; the activity log, written in order as recorded, and the per-source `OperatorIssues` it logs. |
 | `SignalPauseSignaller`, `SignalQuestionNotification` | Save pause/carry-on obligations and route counted human questions to the one chat. Worker permission prompts keep normal task notifications. |
 
 Every consequential effect rechecks task/stage/ownership, pause and cancellation after suspension.
@@ -111,7 +112,7 @@ AiTerm guards worker pushes and owns automatic merges. The Oracle is read-only a
 workspace state. Current saved settings/instructions govern each new check; a changed in-flight
 Oracle setting or instruction invalidates its answer.
 
-State tails are bounded: twenty journal entries per task, one hundred edges/snags, fifty closed
+State tails are bounded: twenty journal entries per task, one hundred snags, fifty closed
 questions and five hundred/seven days of idempotency. Unresolved questions and current undelivered
 answers survive. Default status gives one journal entry per task; task-specific status gives the
 full state tail and prompt. Descriptions arrive only as quoted data on demand. There is no task

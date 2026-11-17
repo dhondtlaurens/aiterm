@@ -11,7 +11,7 @@ struct SignalStatusBudgetTests {
         for index in 0..<1000 {
             let id = world.workingTask(signal: signal)
             let item = world.ticket("PAY-\(index + 1)").item
-            world.state.updateSignalTask(id) { $0.item = item; $0.phase = .done; $0.journal = entries }
+            world.state.updateSignalTask(id) { $0.current.item = item; $0.phase = .done; $0.journal = entries }
         }
         let digest = OperatorDigest(state: world.state, at: world.now, oracleOn: true)
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601

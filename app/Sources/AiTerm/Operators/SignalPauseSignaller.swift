@@ -14,7 +14,7 @@ import AiTermCore
         self.workspace = workspace; self.live = live; self.native = native; self.enabled = enabled; self.now = now
     }
     func paused(_ task: TaskItem) -> Bool {
-        workspace.state.operatorSession?.paused == true || task.signalTask.flatMap { workspace.state.signal(id: $0.signal) }?.enabled == false
+        workspace.state.operatorSession?.paused == true || task.signalTask.flatMap { workspace.state.signal(id: $0.current.signal) }?.enabled == false
     }
     func reconcile() async {
         guard enabled(), workspace.canChangeWorkspace, !running else { return }

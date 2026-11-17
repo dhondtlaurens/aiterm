@@ -35,6 +35,33 @@ extension TaskItem {
     }
 }
 
+extension Signal {
+    /// A Jira signal that plans tickets on `agents` and is done when the Operator judges it.
+    static func make(id: UUID = UUID(), name: String = "Plan tickets", createdAt: Date = Build.epoch,
+                     agents: [AgentChoice] = Build.agents) -> Signal {
+        Signal(id: id, name: name, createdAt: createdAt, source: .jira(JiraConditions()), work: SignalWork(prompt: "/psg:plan"),
+               agents: agents, finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+    }
+}
+
+extension SignalTask {
+    /// A driven task's record whose current stage runs `signal`'s configuration on `item`.
+    static func make(signal: Signal = .make(), item: ItemRef, startedAt: Date = Build.epoch) -> SignalTask {
+        SignalTask(current: SignalStage(signal: signal.id, item: item, matchedAt: startedAt, configuration: signal), startedAt: startedAt)
+    }
+}
+
+extension OperatorSession {
+    /// The Operator's chat open in `window` since `createdAt`, with its conversation when given.
+    static func open(id: UUID = UUID(), createdAt: Date = Build.epoch, window: String? = "operator-window",
+                     conversation: String? = nil, wake: Lifecycle.Wake? = nil) -> OperatorSession {
+        var session = OperatorSession(id: id, createdAt: createdAt)
+        session.window = window; session.conversation = conversation
+        session.lifecycle = .open(since: createdAt, wake: wake)
+        return session
+    }
+}
+
 extension SessionInfo {
     /// A tab as the daemon lists it, tagged with `task` when it belongs to a task.
     static func make(_ sessionId: String = "s", window: String = "w1", tabIndex: Int = 0, task: UUID? = nil,

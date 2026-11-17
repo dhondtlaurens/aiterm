@@ -9,7 +9,7 @@ public struct LaunchAttempt: Codable, Equatable, Sendable {
     public var openedAt: Date?
     /// True from just before AiTerm asks for this attempt's window or tab, where its agent command is typed, until a first
     /// worker running an agent is listed for the task; nil otherwise, and in every record from before it existed. A pending
-    /// attempt whose window was seen `OperatorTiming.firstWorkerOpening` ago with still no agent is a launch that failed:
+    /// attempt whose window was seen `OperatorTiming.openingGrace` ago with still no agent is a launch that failed:
     /// AiTerm blocks the task and says so (`WorkerStarter.checkLaunches`), never leaving it working with no worker.
     public var workerPending: Bool?
     public init(number: Int, requestedAt: Date, openedAt: Date? = nil, workerPending: Bool? = nil) {
@@ -46,20 +46,6 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     }
 }
 
-public enum ClosingWait: String, Codable, Sendable, LocalizedError {
-    case turn, agentTurn, helper
-
-    public var text: String {
-        switch self {
-        case .turn: "Waiting for your turn to end"
-        case .agentTurn: "Waiting for its turn to end"
-        case .helper: "Waiting for the helper"
-        }
-    }
-
-    public var errorDescription: String? { text }
-}
-
 public struct GateRequest: Codable, Equatable, Sendable {
     public var command: String
     public var directory: String
@@ -80,8 +66,10 @@ public struct OperatorSnag: Codable, Equatable, Sendable {
 }
 
 public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
+    /// Only finished rounds are saved: an agreed worker answer about to be delivered, a critique waiting for a
+    /// revised proposal, or a binding that went to the person.
     public enum Stage: String, Codable, CaseIterable, Sendable {
-        case running, ready, delivered
+        case ready, delivered
         case unanswered = "unchallenged"
     }
     private enum CodingKeys: String, CodingKey {
@@ -108,7 +96,7 @@ public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
     /// The Operator's proposal or reply to the Oracle, which the next round reads.
     public var reply: String?
 
-    public init(id: String, tool: String, stage: OracleRound.Stage = .running, critique: String? = nil,
+    public init(id: String, tool: String, stage: OracleRound.Stage, critique: String? = nil,
                 askedArguments: String? = nil, unansweredReason: String? = nil,
                 result: String? = nil, askedAt: Date, askedEvidence: String? = nil, round: Int? = nil) {
         self.id = id; self.tool = tool; self.stage = stage; self.critique = critique

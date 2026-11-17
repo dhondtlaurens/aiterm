@@ -180,7 +180,9 @@ import Testing
 
         let archiving = Task { try? await controller.teardown.archive(task, consent: .ask) }
         try await server.received("window.close")
-        // Saving breaks while the window closes: a directory stands where the backup goes.
+        // Saving breaks while the window closes: a directory stands where the backup goes. The save the teardown's
+        // change asked for is made first, so none can write the backup between its removal and the directory.
+        controller.workspace.flush()
         let backup = controller.workspace.file.backupURL
         try? FileManager.default.removeItem(at: backup)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)

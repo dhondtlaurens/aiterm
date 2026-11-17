@@ -8,7 +8,7 @@ import Testing
     @Test func aScopedStatusCannotAcknowledgeCoalescedUpdatesForOtherTasks() async throws {
         var world = SignalWorld(); let signal = world.signal(), first = world.workingTask(signal: signal)
         let second = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op")
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
@@ -19,26 +19,25 @@ import Testing
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
         root.native.onTurn(first); root.native.onTurn(second)
         await root.reconcile(); await ports.work.settled()
-        #expect(h.workspace.state.operatorSession?.wakeAwaitingRead == true)
+        #expect(h.workspace.state.operatorSession?.lifecycle.wake == .sent)
         root.handle(.operatorRequest(.init(requestId: "scoped", operatorId: session.id.uuidString, tool: "run_status",
             arguments: ["task": .string(first.uuidString)], generation: 1)))
         await ports.work.settled()
-        #expect(h.workspace.state.operatorSession?.wakeAwaitingRead == true)
+        #expect(h.workspace.state.operatorSession?.lifecycle.wake == .sent)
         #expect((daemon.requests("operator.reply").last?.params["error"] as? String)?.contains("without task") == true)
-        let recorded = ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
+        let recorded = ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
         #expect(recorded?.outcome != .ok && recorded?.result.contains("without task") == true)
         root.handle(.operatorRequest(.init(requestId: "all", operatorId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
         await ports.work.settled()
         let result = daemon.requests("operator.reply").last?.params["result"] as? JSONValue
         #expect(result?["tasks"]?.arrayValue?.count == 2)
-        #expect(h.workspace.state.operatorSession?.wakeAwaitingRead != true)
+        #expect(h.workspace.state.operatorSession?.lifecycle == .open(since: world.now, wake: nil))
         root.stop()
     }
     @Test(arguments: [DeliveryCode?.some(.unsentInput), .some(.itermRefused), .some(.sessionClosed), .some(.unknown), nil])
     func freshCloseOnlyRollsBackForAKnownRefusalBeforeTheCloseWasAttempted(code: DeliveryCode?) async throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now)
-        session.window = "operator-window"; session.conversation = "op"; world.state.operatorSession = session
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op"); world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
         var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
@@ -52,8 +51,8 @@ import Testing
         tab.contextTokens = 150_000; live.sessions = [tab]
         await root.reconcile(); await ports.work.settled()
         let certain = code == .unsentInput
-        #expect(h.workspace.state.operatorSession?.startingFresh == !certain)
-        #expect(h.workspace.state.operatorSession?.handover == (certain ? nil : .closing))
+        // A deferred close puts the chat back open, saved; any other refusal leaves the renewal's close for the next pass.
+        #expect(try h.file.load().operatorSession?.lifecycle == (certain ? .open(since: now, wake: nil) : .closing(then: .renew)))
         #expect(h.workspace.state.operatorSession?.generation == 1 && h.workspace.state.operatorSession?.window == "operator-window")
         #expect(daemon.requests("operator.revoke").isEmpty)
         let answer = await root.tools.respond(.init(requestId: "reply", operatorId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
@@ -82,7 +81,7 @@ import Testing
     }
     @Test func aLostCloseReplyCanFinishItsSavedHandoverAfterRestart() async throws {
         var world = SignalWorld(); var session = OperatorSession(createdAt: world.now)
-        session.window = "already-closed"; session.startingFresh = true; session.handover = .closing
+        session.window = "already-closed"; session.lifecycle = .closing(then: .renew)
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
@@ -92,19 +91,17 @@ import Testing
         root.tabsKnown = true; root.sourceRegistrations = { _ in [] }
         root.start(); await ports.work.settled()
         #expect(h.workspace.state.operatorSession?.generation == 2)
-        #expect(h.workspace.state.operatorSession?.startingFresh == false)
+        #expect(h.workspace.state.operatorSession?.lifecycle == .idle)
         #expect(daemon.requests("window.close").isEmpty, "A missing window must be confirmed, never closed by an old number.")
         #expect(daemon.requests("window.createTask").isEmpty, "A recovered handover with no workload retires without opening another chat.")
         root.stop()
     }
     @Test func nativeHandoverClosesRevokesAndOpensWithCurrentContextAndTheSavedDigest() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now)
-        session.window = "old-window"; session.conversation = "old-conversation"
+        var session = OperatorSession.open(createdAt: world.now, window: "old-window", conversation: "old-conversation")
         session.questions = [.init(id: "scope", task: id, text: "Which scope?", openedAt: world.now)]
-        var round = OracleRound(id: "waiting-round", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
-        round.stage = .delivered; round.critique = "Check the original scope before answering."
-        session.oracleRounds = [round]
+        session.oracleRounds = [OracleRound(id: "waiting-round", tool: "answer_worker", stage: .delivered,
+                                            critique: "Check the original scope before answering.", askedArguments: "{}", askedAt: world.now)]
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
@@ -155,12 +152,12 @@ import Testing
                 ? ["command": "./deploy", "directory": .string(h.folder.path)]
                 : ["key": "check", "question": "Is this sound?", "context": "Inspect the current head."], generation: 1)
         if shell { #expect(await root.gate.respond(request)["decision"] == "deny") }
-        else { #expect(await root.tools.respond(request).value?["status"] == "ask_you") }
+        else { #expect(await root.tools.respond(request).value?["status"] == "retry") }
         root.stop(); await ports.work.settled()
     }
     @Test func acceptingAWakeDoesNotMakeItsStillIdleSnapshotSafeToRotate() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op")
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()

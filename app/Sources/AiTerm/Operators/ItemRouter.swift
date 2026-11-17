@@ -40,10 +40,7 @@ import AiTermCore
             }
             func configured(_ stage: SignalStage) -> SignalStage {
                 var stage = stage
-                stage.configuration = state.signal(id: stage.signal)
-                if let signal = stage.configuration, let item = stage.item.identity.flatMap({ items[$0] }) {
-                    stage.prompt = Self.prompt(signal: signal, item: item)
-                }
+                if let item = stage.item.identity.flatMap({ items[$0] }) { stage.prompt = Self.prompt(signal: stage.configuration, item: item) }
                 return stage
             }
             func seen(_ signal: UUID, _ item: ItemRef, _ disposition: SignalSeen.Disposition, reason: String? = nil) {
@@ -64,33 +61,27 @@ import AiTermCore
                     var task = Self.makeTask(item: item, signal: signal, project: project, at: at)
                     task.signalTask?.pendingStages = pending.map(configured)
                     let candidates = ItemProjectMapper.projects(for: match.item, in: state.projects).map(\.id)
-                    task.prepareLaunch(configuration: signal, candidates: candidates, at: at)
+                    task.prepareLaunch(candidates: candidates, at: at)
                     state.tasks.append(task); launches.append(task.id)
                     seen(match.signal, match.item, .started)
                     for stage in pending { seen(stage.signal, stage.item, .started) }
                     events.append((task.id, "A signal matched a new item."))
                 case .continueTask(let id, let proposed):
                     let stage = configured(proposed)
-                    guard let task = state.signalItem(id: id), let signal = stage.configuration else { continue }
-                    var record = task.signalTask ?? SignalTask(signal: stage.signal, item: stage.item, startedAt: at)
-                    if task.signalTask == nil {
-                        record.configuration = signal; record.prompt = stage.prompt
-                    } else {
+                    guard let task = state.signalItem(id: id) else { continue }
+                    var record = task.signalTask ?? SignalTask(current: stage, startedAt: at)
+                    if task.signalTask != nil {
                         guard let next = try? SignalTransitions.apply(.matched(stage), to: record, at: at,
                                                                       workerIsWorking: workerIsWorking(id)) else { continue }
                         record = next
                     }
-                    let startingConfiguration = record.configuration ?? state.signal(id: record.signal)
                     state.updateSignalItem(id) { task in
                         task.signalTask = record
                         if let item = stage.item.identity.flatMap({ items[$0] }) {
                             if let request = item.mergeRequest { task.mr = MergeRequestRef(iid: request.iid, title: request.title, url: request.url) }
                             if task.jira == nil { task.jira = item.ticket.map(JiraRef.init) }
                         }
-                        if record.phase == .launching {
-                            if let configuration = startingConfiguration { task.prepareLaunch(configuration: configuration, candidates: nil, at: at) }
-                            else { task.signalTask?.phase = .blocked; task.signalTask?.blockedReason = AgentChoiceNeed.unavailableReason }
-                        }
+                        if record.phase == .launching { task.prepareLaunch(candidates: nil, at: at) }
                     }
                     if state.signalItem(id: id)?.signalTask?.phase == .launching { launches.append(id) }
                     seen(stage.signal, stage.item, .started)
@@ -99,7 +90,7 @@ import AiTermCore
                                    : phase == .choosing ? "A signal continued this item; the Operator chooses its agent." : "A signal queued the next stage."))
                 }
             }
-            let live = Set(state.allSignalTasks.compactMap { $0.signalTask?.item.identity })
+            let live = Set(state.allSignalTasks.compactMap { $0.signalTask?.current.item.identity })
             state.signalSeen = SignalSeen.pruned(state.signalSeen, liveItems: live, now: at)
         }
         guard workspace.flush() else { return [] }
@@ -126,9 +117,8 @@ import AiTermCore
                             mr: item.mergeRequest.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },
                             agent: agent.agent, model: agent.model, reasoning: agent.reasoning, firstPrompt: nil,
                             appendTicket: false, createdAt: at, windowId: nil)
-        var record = SignalTask(signal: signal.id, item: item.item, startedAt: at)
-        record.configuration = signal; record.prompt = prompt(signal: signal, item: item)
-        task.signalTask = record
+        let stage = SignalStage(signal: signal.id, item: item.item, matchedAt: at, configuration: signal, prompt: prompt(signal: signal, item: item))
+        task.signalTask = SignalTask(current: stage, startedAt: at)
         return task
     }
 }

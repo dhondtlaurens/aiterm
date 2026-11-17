@@ -245,6 +245,10 @@ final class AppController {
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
         rows.leaving = { [weak teardown] in teardown?.leaving ?? [] }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
+        rows.operatorActs = { [weak self] in
+            guard let activity = self?.signalController.activity else { return ([:], nil) }
+            return (activity.actsByTask, activity.latestAct)
+        }
         signalController.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
     }

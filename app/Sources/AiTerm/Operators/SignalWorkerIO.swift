@@ -8,22 +8,23 @@ import AiTermCore
     let daemon: @MainActor () -> (any DaemonCommands)?
     let frame: @MainActor () -> Frame
     let transcripts: TranscriptLocator
-    private(set) var inFlight: Set<UUID> = []
+    /// The tasks an Operator effect runs on. `launch`, `message` and `openTab` run under their caller's claim.
+    let effects: OperatorInFlight
     private(set) var replies: [UUID: [String: WorkerTranscript.Reply]] = [:]
-    private var reading = false
+    /// The tasks the last `refreshTurns` saw with live work; one that has none at the next gets a `worker_ended` wake.
     private var awaitingLiveWork: Set<UUID> = []
     var enabled: @MainActor () -> Bool = { true }
     var additionalContext: @MainActor (TaskItem) async throws -> String = { _ in "" }
-    var recoveryAllowed: @MainActor (UUID) -> Bool = { _ in true }
     var onBlocked: @MainActor (UUID) -> Void = { _ in }
     var onTurn: (UUID) -> Void = { _ in }
-    /// Journals a fallback row's launch-time agent switch for `run_status` and the person.
-    var recordSwitch: @MainActor (UUID, AgentChoice) async throws -> Void = { _, _ in }
     init(workspace: WorkspaceStore, live: LiveSessions, work: WorkInFlight, ports: OperatorPorts,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame) {
+         daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame,
+         effects: OperatorInFlight = OperatorInFlight()) {
         self.workspace = workspace; self.live = live; self.work = work; self.ports = ports; self.daemon = daemon; self.frame = frame
+        self.effects = effects
         transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
     }
+    /// Whether `id`'s workers are at work, asking, paused, stopped or owe a reply. It changes nothing.
     func busy(_ id: UUID) -> Bool {
         guard let task = workspace.state.signalItem(id: id) else { return false }
         // StageRunner saves its intent before prepare/launch. Only a sent launch can be
@@ -39,10 +40,9 @@ import AiTermCore
         let anyLiveWork = live.sessions.contains { session in
             session.taskUUID == id && isLiveWork(session)
         }
-        if anyLiveWork { awaitingLiveWork.insert(id) }
         return anyLiveWork || workspace.state.operatorSession?.questions.contains { $0.task == id && $0.resolvedAt == nil } == true
             || workspace.state.operatorSession?.pausedWorkers?.contains { $0.task == id } == true
-            || inFlight.contains(id) || (task.signalTask?.phase.isActive == true && !(task.signalTask?.pendingReplies?.isEmpty ?? true))
+            || (task.signalTask?.phase.isActive == true && !(task.signalTask?.pendingReplies?.isEmpty ?? true))
             || tabs.contains { (task.signalTask?.phase.isActive == true || $0.session?.agent.agentKind != nil) && ($0.isStillAtWork || $0.status == .needsInput) }
             || (task.signalTask?.phase == .working && tabs.contains { $0.session?.stoppedOn != nil })
             || (task.signalTask?.phase == .working && tabs.contains { tab in
@@ -56,7 +56,7 @@ import AiTermCore
             || !session.background.isEmpty || session.testActivity?.isActive == true
     }
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
-        guard !inFlight.contains(id), workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
+        guard workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
               let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.endsWithQuestion(reply.text) else { return nil }
         return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text, conversation: worker.conversation, fingerprint: reply.fingerprint)
@@ -66,54 +66,52 @@ import AiTermCore
     func recoverLaunches() {
         guard enabled(), workspace.canChangeWorkspace else { return }
         for task in workspace.state.tasks {
-            guard recoveryAllowed(task.id), !inFlight.contains(task.id), SignalClaim(task) != nil,
+            guard !effects.holds(task.id), SignalClaim(task) != nil,
                   let record = task.signalTask, let launch = record.launch, launch.workerPending == true,
                   launch.openedAt == nil, record.phase == .launching || record.phase == .blocked,
                   live.sessions.contains(where: { $0.taskUUID == task.id }) else { continue }
             if let worker = task.firstWorker(in: live.sessions), worker.agent.agentKind == task.agent {
+                guard let adopted = try? SignalTransitions.apply(.adopted, to: record, at: ports.now()) else { continue }
                 workspace.mutate { $0.updateSignalItem(task.id) { value in
                     value.windowId = worker.windowId
-                    value.signalTask?.edges.append(SignalEdge(from: record.phase, to: .working, stage: record.stage, at: ports.now()))
-                    value.signalTask?.phase = .working; value.signalTask?.launch?.openedAt = ports.now()
-                    value.signalTask?.launch?.workerPending = false; value.signalTask?.currentAct = nil; value.signalTask?.blockedReason = nil
+                    value.signalTask = adopted
                     if let conversation = worker.conversationId {
                         let saved = TaskConversation(agent: task.agent, id: conversation)
                         if !value.conversations.contains(saved) { value.conversations.insert(saved, at: 0) }
                     }
                 } }
-            } else if record.phase != .blocked {
-                workspace.mutate { $0.updateSignalTask(task.id) {
-                    $0.phase = .blocked; $0.currentAct = nil
-                    $0.blockedReason = "A terminal is already open from an interrupted launch. Inspect it before resuming this stage."
-                } }
+            } else if let blocked = try? SignalTransitions.apply(
+                .launchFailed("A terminal is already open from an interrupted launch. Inspect it before resuming this stage."), to: record, at: ports.now()) {
+                workspace.mutate { $0.updateSignalTask(task.id) { $0 = blocked } }
                 onBlocked(task.id)
             }
             workspace.flush()
         }
     }
+    /// The tick's worker reads. Unkeyed companion tabs have no transcript the Operator owns, but a task whose live work
+    /// the last tick saw and this one does not is woken, so a stage that waited on that work moves on.
     func refreshTurns() async {
-        guard !reading else { return }; reading = true; defer { reading = false }
         let tasks = workspace.state.tasks.filter { $0.signalTask?.needsWorkerReads == true }
         let ids = Set(tasks.map(\.id))
-        let liveWork = Set(live.sessions.filter(isLiveWork).compactMap(\.taskUUID))
-        // Include work observed by a refused action between ticks. Unkeyed companion tabs do
-        // not have transcripts owned by the Operator, but ending their work must release its wait.
+        let liveWork = Set(live.sessions.filter(isLiveWork).compactMap(\.taskUUID)).intersection(ids)
         let ended = awaitingLiveWork.intersection(ids).subtracting(liveWork)
-        awaitingLiveWork = awaitingLiveWork.union(liveWork).intersection(ids).subtracting(ended)
+        awaitingLiveWork = liveWork
         for id in ended { onTurn(id) }
         for task in tasks {
             guard let claim = SignalClaim(task) else { continue }
             let workers = task.workerTabs(in: live.sessions)
             let failedOpening = task.signalTask?.pendingReplies?.contains { key, pending in
-                guard ports.now().timeIntervalSince(pending.at) >= 180 else { return false }
+                guard ports.now().timeIntervalSince(pending.at) >= OperatorTiming.openingGrace else { return false }
                 let worker = workers.first { $0.reference.name == key }
                 // A live CLI may legitimately work longer than the opening grace period.
                 return worker?.session?.agent.agentKind == nil || worker?.conversation == nil
             } == true
             if failedOpening {
-                workspace.mutate { $0.updateSignalTask(task.id) {
-                    $0.phase = .blocked; $0.currentAct = nil
-                    $0.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming."
+                workspace.mutate { $0.updateSignalTask(task.id) { record in
+                    if let next = try? SignalTransitions.apply(.block("Its worker did not start after its saved launch. Inspect its window before resuming."),
+                                                               to: record, at: ports.now()) {
+                        record = next
+                    }
                 } }
                 replies[task.id] = nil; workspace.flush(); onBlocked(task.id); continue
             }
@@ -123,7 +121,7 @@ import AiTermCore
                     workspace.mutate { state in
                         state.updateSignalTask(task.id) { record in
                             if let next = try? SignalTransitions.apply(.block("Its worker " + stopped.reason(now: ports.now()) + "."), to: record, at: ports.now()) {
-                                record = next; record.currentAct = nil
+                                record = next
                             }
                         }
                     }
@@ -137,9 +135,10 @@ import AiTermCore
                 if let pending {
                     if let reply, reply.fingerprint != pending.fingerprint {
                         workspace.mutate { $0.updateSignalTask(task.id) { $0.pendingReplies?[key] = nil } }
-                    } else if ports.now().timeIntervalSince(pending.at) >= 180 {
-                        workspace.mutate { $0.updateSignalTask(task.id) {
-                            $0.phase = .blocked; $0.blockedReason = "Its worker has not replied to the saved message. Inspect its window before resuming."
+                    } else if ports.now().timeIntervalSince(pending.at) >= OperatorTiming.openingGrace {
+                        workspace.mutate { $0.updateSignalTask(task.id) { record in
+                            if let next = try? SignalTransitions.apply(.block("Its worker has not replied to the saved message. Inspect its window before resuming."),
+                                                                       to: record, at: ports.now()) { record = next }
                         } }
                     } else { continue }
                 }
@@ -160,11 +159,9 @@ import AiTermCore
         }
         replies = replies.filter { ids.contains($0.key) }
     }
-    /// Whether the Operator may still act on `task` as it read it: running, the workspace changeable, not paused, its
-    /// claim on the task able to act, and the work not cancelled.
+    /// Whether the Operator may still act on `task` as it read it: running, and its claim on the task allowed.
     func allows(_ task: TaskItem) -> Bool {
-        enabled() && workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true
-            && SignalClaim(task)?.canAct(in: workspace.state) == true && !Task.isCancelled
+        enabled() && SignalClaim(task)?.allows(in: workspace) == true
     }
     private func require(_ task: TaskItem) throws -> SignalClaim {
         guard allows(task), let claim = SignalClaim(task) else {
@@ -172,31 +169,11 @@ import AiTermCore
         }
         return claim
     }
-    func launch(_ initial: TaskItem, prompt: String) async throws -> String {
-        _ = try require(initial)
-        var task = initial
-        // A row the Operator chose (with weekly usage in hand) launches as chosen. Only the row a
-        // three-round disagreement fell back to still moves off an agent at its weekly limit.
-        if task.firstWorkerConversation == nil, (task.signalTask?.launch?.number ?? 1) == 1,
-           task.signalTask?.choice?.decided == .disagreed, let configuration = task.signalTask?.configuration {
-            let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
-            let choice = ModelChoice.launchChoice(planned: planned, pinned: false,
-                weekly: SidebarModel.weeklyUsage(live.usage, now: ports.now()), installed: ports.installedAgents(), rows: configuration.agents)
-            if choice != planned {
-                workspace.mutate { $0.updateSignalItem(task.id) {
-                    $0.agent = choice.agent; $0.model = choice.model; $0.reasoning = choice.reasoning
-                    $0.signalTask?.choice?.launchSwitch = choice
-                } }
-                guard workspace.flush() else { throw ActionUnavailable("The worker choice could not be saved.") }
-                // Journaled as it is made, so a launch that fails or is recovered later cannot lose it.
-                try await recordSwitch(task.id, choice)
-                guard let current = workspace.state.task(id: task.id) else { throw ActionUnavailable("The task changed while its switch was journaled.") }
-                _ = try require(current); task = current
-            }
-        }
-        guard !inFlight.contains(task.id), let daemon = daemon(), task.hasCheckout,
+    func launch(_ task: TaskItem, prompt: String) async throws -> String {
+        _ = try require(task)
+        guard let daemon = daemon(), task.hasCheckout,
               let token = work.begin(.opening, onTask: task.id) else { throw ActionUnavailable("Its worker cannot open now.") }
-        inFlight.insert(task.id); defer { inFlight.remove(task.id); work.end(token) }
+        defer { work.end(token) }
         try await checkDelivery(for: task, agent: task.agent)
         let fullPrompt = prompt + (try await additionalContext(task))
         _ = try require(task)
@@ -226,8 +203,7 @@ import AiTermCore
         return opening.id
     }
     private func command(for task: TaskItem, prompt: String, slot: String, conversation: String? = nil) async throws -> String {
-        guard let record = task.signalTask, let configuration = record.configuration ?? workspace.state.signal(id: record.signal),
-              configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) else {
+        guard task.signalTask?.current.configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) == true else {
             throw ActionUnavailable("This agent and model are not permitted by the task's signal.")
         }
         let git = ports.git, home = ports.home, executable = ports.workerGuardExecutable
@@ -261,10 +237,9 @@ import AiTermCore
     }
     func message(_ task: TaskItem, text: String, tab: String, allowed: @escaping @MainActor () -> Bool) async throws {
         _ = try require(task)
-        guard allowed(), !inFlight.contains(task.id), !(task.signalTask?.pendingReplies?.keys.contains(tab) ?? false),
+        guard allowed(), !(task.signalTask?.pendingReplies?.keys.contains(tab) ?? false),
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
               let session = worker.session, let daemon = daemon() else { throw ActionUnavailable("This worker is not idle and ready for a message.") }
-        inFlight.insert(task.id); defer { inFlight.remove(task.id) }
         try await daemon.setOwnership(sessionId: session.sessionId, ownership: task.signalTask?.ownership ?? 0)
         guard allowed() else { throw ActionUnavailable("The task changed before delivery.") }
         try await markPending(task, tab: tab, conversation: worker.conversation, workRequested: true)
@@ -293,7 +268,7 @@ import AiTermCore
                 workers.append(["tab": .string(tab.reference.name), "session": tab.session.map { .string($0.sessionId) } ?? .null,
                                 "state": tab.status.map { .string($0.rawValue) } ?? .null, "lastMessage": text.map(JSONValue.string) ?? .null])
             }
-            return ["workers": .array(workers), "savedPrompt": snapshot.signalTask?.prompt.map(JSONValue.string) ?? .null]
+            return ["workers": .array(workers), "savedPrompt": snapshot.signalTask?.current.prompt.map(JSONValue.string) ?? .null]
         }
     }
     func openTab(_ task: TaskItem, key: String, choice: AgentChoice, prompt: String, why: String,
@@ -306,8 +281,8 @@ import AiTermCore
                   old.brief == prompt, old.modelReason == why else { throw ActionUnavailable("That tab key names another launch.") }
             if let session = old.sessionId { return ["status": "opened", "session": .string(session), "tab": .string(key)] }
         }
-        guard !inFlight.contains(task.id), let token = work.begin(.reviewing, onTask: task.id) else { throw ActionUnavailable("This task is busy.") }
-        inFlight.insert(task.id); defer { inFlight.remove(task.id); work.end(token) }
+        guard let token = work.begin(.reviewing, onTask: task.id) else { throw ActionUnavailable("This task is busy.") }
+        defer { work.end(token) }
         if workspace.state.task(id: task.id)?.signalTask?.extraTabs.contains(where: { $0.key == key }) != true {
             let extra = ExtraTab(key: key, agent: choice.agent, model: choice.model, reasoning: choice.reasoning,
                 modelReason: why, brief: prompt, launch: LaunchAttempt(number: 1, requestedAt: ports.now()))

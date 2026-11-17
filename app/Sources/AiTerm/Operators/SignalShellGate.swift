@@ -7,14 +7,11 @@ import AiTermCore
     let workspace: WorkspaceStore, folder: URL
     let now: () -> Date
     let validate: (OperatorRequest) throws -> Void
-    let oracleEnabled: () -> Bool
-    let oracle: (String) async throws -> String?
+    let consult: (OracleLaunch.Question) async -> OracleConsult.Outcome
     var changed: () -> Void = {}
     init(workspace: WorkspaceStore, folder: URL, now: @escaping () -> Date,
-         validate: @escaping (OperatorRequest) throws -> Void, oracleEnabled: @escaping () -> Bool,
-         oracle: @escaping (String) async throws -> String?) {
-        self.workspace = workspace; self.folder = folder; self.now = now; self.validate = validate
-        self.oracleEnabled = oracleEnabled; self.oracle = oracle
+         validate: @escaping (OperatorRequest) throws -> Void, consult: @escaping (OracleLaunch.Question) async -> OracleConsult.Outcome) {
+        self.workspace = workspace; self.folder = folder; self.now = now; self.validate = validate; self.consult = consult
     }
     func respond(_ request: OperatorRequest) async -> JSONValue {
         func answer(_ decision: String, _ reason: String, rewrite: String? = nil) -> JSONValue {
@@ -43,24 +40,19 @@ import AiTermCore
         if let asked = state.operatorSession?.questions.first(where: { $0.gate == gate && $0.resolvedAt == nil }) {
             return answer("deny", "Ask the person in your chat, then resolve_question with question \(asked.id) and their exact answer.")
         }
-        guard oracleEnabled() else { return answer("allow", "unchecked: the Oracle is off") }
-        let status = (try? SignalOperatorToolHandler.json(JSONValue(encoding: OperatorDigest(state: state, at: now(), oracleOn: true)))) ?? "{}"
-        let prompt = OracleLaunch.gatePrompt(command: command, directory: directory,
-                                               reason: request.arguments["description"]?.stringValue, run: status)
-        let response: String?
-        do { response = try await oracle(prompt) }
-        catch {
-            if error is SignalOracleSettingsChanged, oracleEnabled() { return answer("deny", "The Oracle settings changed. Check this command again.") }
+        let outcome = await consult(.shellGate(command: command, directory: directory, reason: request.arguments["description"]?.stringValue,
+                                               status: OperatorDigest(state: state, at: now(), oracleOn: true)))
+        if outcome != .retry {
             do { try validate(request) } catch { return answer("deny", OperationIssue.reason(of: error)) }
-            return answer("allow", "unchecked: the Oracle could not answer")
         }
-        do { try validate(request) } catch { return answer("deny", OperationIssue.reason(of: error)) }
-        guard oracleEnabled() else { return answer("allow", "unchecked: the Oracle is off") }
-        switch response.map(OracleLaunch.gateVerdict) ?? .unparsed {
-        case .allow: return answer("allow", "The Oracle said yes.")
-        case .unparsed: return answer("allow", "unchecked: the Oracle gave no clear answer")
-        case .redirect(let reason): return answer("deny", "Send this to a worker with message_task. " + reason)
-        case .escalate(let reason):
+        switch outcome {
+        case .retry: return answer("deny", "The Oracle settings changed. Check this command again.")
+        case .agreed: return answer("allow", "The Oracle said yes.")
+        case .unavailable(.off): return answer("allow", "unchecked: the Oracle is off")
+        case .unavailable(.failed): return answer("allow", "unchecked: the Oracle could not answer")
+        case .unavailable(.unclear): return answer("allow", "unchecked: the Oracle gave no clear answer")
+        case .critique(let reason, _, _): return answer("deny", "Send this to a worker with message_task. " + reason)
+        case .person(let reason):
             let key = "gate-" + UUID().uuidString
             var question = OperatorSession.Question(id: key, task: nil,
                 text: "May the Operator run this command? " + reason + "\n" + command + "\nIn: " + directory, openedAt: now())

@@ -12,7 +12,7 @@ import Testing
         let live: LiveSessions, daemon = RecordingDaemon(), ports: OperatorPorts, root: SignalOperatorController
         init() async throws {
             var world = SignalWorld(); let signal = world.signal(); task = world.workingTask(signal: signal)
-            var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
+            let session = OperatorSession.open(createdAt: world.now, conversation: "op")
             world.state.operatorSession = session
             self.world = world; self.session = session
             h = try SignalHarness(world)
@@ -30,7 +30,7 @@ import Testing
             root.handle(.operatorRequest(.init(requestId: id, operatorId: session.id.uuidString, tool: tool, arguments: arguments, generation: 1)))
             await ports.work.settled()
         }
-        var activity: [ActivityEntry] { ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries }
+        var activity: [ActivityEntry] { ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries }
     }
 
     @Test func aWakeThatKeepsFailingNeedsYouAndTheNextDeliveredWakeClearsItWithoutOpeningAWindow() async throws {
@@ -54,7 +54,7 @@ import Testing
         r.daemon.deliveries = [Delivery(result: .refused, reason: "the person is typing", code: .typing)]
         r.root.native.onTurn(r.task)
         for _ in 0..<4 { await r.pass() }
-        #expect(r.root.issues.current.isEmpty, "Typing is not a failure.")
+        #expect(r.root.log.issues.current.isEmpty, "Typing is not a failure.")
         r.daemon.deliveries = [Delivery(result: .partial, reason: "Enter held", code: nil),
                                Delivery(result: .refused, reason: "unsent input", code: .unsentInput)]
         for _ in 0..<3 { await r.pass() }
@@ -79,8 +79,7 @@ import Testing
     }
     @Test func aRelaunchWithAnUnreadWakeCountsTheTextLeftInTheChat() async throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
-        session.wakeAwaitingRead = true; world.state.operatorSession = session
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op", wake: .sent); world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
         var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
@@ -90,8 +89,27 @@ import Testing
         let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
             daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        #expect(h.workspace.state.operatorSession?.lifecycle.wake == .maybeUnsent, "The relaunch saves that the line may sit unsent.")
         for _ in 0..<3 { await root.reconcile(); await ports.work.settled() }
         #expect(root.statusIssue?.contains("Send or clear it there") == true)
+        root.stop()
+    }
+    /// An open chat whose window holds its tagged tab only as a shell, past the opening grace, did not start. When it
+    /// opened is saved, so a relaunch says so as well.
+    @Test func anOpenChatWhoseWindowHoldsOnlyAShellDidNotStartPastTheGrace() async throws {
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op"); world.state.operatorSession = session
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
+        var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
+        let clock = TestClock(world.now); ports.clock.now = { clock.now }
+        live.sessions = [OperatorServiceFixtures.session("operator", window: "operator-window", tag: session.id, agent: .shell)]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        #expect(root.statusIssue == nil, "Within the opening grace the chat may still be starting.")
+        clock.advance(by: OperatorTiming.openingGrace)
+        #expect(root.statusIssue == "The Operator did not start in its window. Open the chat to inspect it.")
         root.stop()
     }
     @Test func twoSourcesFailingAndOneRecoveringKeepsTheOther() async throws {
@@ -102,10 +120,10 @@ import Testing
             await r.pass()
             await r.request("run_status", ["task": .string(r.task.uuidString)])
         }
-        #expect(Set(r.root.issues.current.filter(\.needsYou).map(\.source)) == [.wake, .reply])
+        #expect(Set(r.root.log.issues.current.filter(\.needsYou).map(\.source)) == [.wake, .reply])
         r.daemon.failing = ["operator.reply": .timeout]
         await r.pass()
-        #expect(r.root.issues.current.map(\.source) == [.reply] && r.root.statusIssue?.hasPrefix("Answering the Operator:") == true)
+        #expect(r.root.log.issues.current.map(\.source) == [.reply] && r.root.statusIssue?.hasPrefix("Answering the Operator:") == true)
         let status = await r.root.tools.respond(OperatorRequest(requestId: "s", operatorId: r.session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
         let issue = try #require(status.value?["appIssues"]?.arrayValue?.first)
         #expect(issue["source"] == "reply" && issue["needsYou"] == true && issue["text"]?.stringValue?.contains("could not be sent") == true)
@@ -117,10 +135,10 @@ import Testing
         r.daemon.failing = ["operator.reply": .timeout]
         await r.request("note", note)
         await r.request("note", note)
-        #expect(r.root.issues.current.first?.attempts == 2 && r.root.statusIssue == nil, "Two failed replies are not yet the person's.")
+        #expect(r.root.log.issues.current.first?.attempts == 2 && r.root.statusIssue == nil, "Two failed replies are not yet the person's.")
         r.daemon.failing = [:]
         await r.request("note", note)
-        #expect(r.root.issues.current.isEmpty)
+        #expect(r.root.log.issues.current.isEmpty)
         let notes = try TaskJournal.read(task: r.task, folder: OperatorLaunch.folder(home: r.ports.home).appendingPathComponent("journals"))
         #expect(notes.count == 1, "The ledger replays the note instead of writing it again.")
         r.daemon.failing = ["operator.reply": .timeout]
@@ -136,7 +154,7 @@ import Testing
         r.daemon.failing["session.deliver"] = .timeout
         r.root.native.onTurn(r.task)
         await r.pass()
-        #expect(r.root.issues.current.map(\.source).contains(.activity))
+        #expect(r.root.log.issues.current.map(\.source).contains(.activity))
         try FileManager.default.removeItem(at: log)
         await r.request("run_status")
         let logged = r.activity.filter { $0.tool == "app_issue" }.map(\.line)
@@ -144,7 +162,7 @@ import Testing
         #expect(logged.contains("The Operator's activity log recovered."))
         #expect(!logged.contains("The Operator's activity log failed."))
         #expect(!logged.contains("Waking the Operator failed."), "The failed entry is dropped.")
-        #expect(!r.root.issues.current.map(\.source).contains(.activity))
+        #expect(!r.root.log.issues.current.map(\.source).contains(.activity))
         r.daemon.failing = [:]
         await r.pass()
         #expect(r.activity.contains { $0.line == "Waking the Operator recovered." })
@@ -159,7 +177,7 @@ import Testing
         await r.pass(); await r.pass()
         #expect(r.h.workspace.state.operatorSession?.window == nil)
         #expect(r.root.statusIssue == nil && !r.row.shown)
-        #expect(r.root.operatorTab() == nil, "The old snapshot still lists the closed tab.")
+        #expect(r.root.chat.operatorTab() == nil, "The old snapshot still lists the closed tab.")
         #expect(r.daemon.requests("window.createTask").isEmpty)
         for _ in 0..<3 { await r.request("run_status") }
         #expect(r.root.statusIssue == nil && !r.row.shown, "Late reply failures from the retired generation cannot recreate attention.")

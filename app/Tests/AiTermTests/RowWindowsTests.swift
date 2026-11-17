@@ -15,8 +15,8 @@ import Testing
                             finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
         var task = checkout ? try await fixture.addTask(windowId: nil)
             : TaskItem.make(project: fixture.project.id, worktreePath: "", agent: .codex, model: "model", windowId: nil)
-        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        record.phase = phase; record.configuration = signal
+        var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = phase
         task.signalTask = record
         task.conversations = checkout ? [TaskConversation(agent: .codex, id: "worker-conversation")] : []
         fixture.controller.workspace.mutate { state in
@@ -31,9 +31,7 @@ import Testing
     /// An established chat with a question only the person can answer: work for the Operator, and no
     /// signal task for its passes to start.
     func establishedChat(_ controller: AppController, window: String? = nil) -> OperatorSession {
-        var session = OperatorSession(createdAt: Date())
-        session.window = window
-        session.conversation = "chat-conversation"
+        var session = OperatorSession.open(createdAt: Date(), window: window, conversation: "chat-conversation")
         session.questions = [.init(id: "global", task: nil, text: "Which project should future signals use?", openedAt: Date())]
         controller.workspace.mutate { $0.operatorSession = session }
         return session
@@ -113,7 +111,7 @@ import Testing
 
         #expect(controller.issue?.title == "Couldn’t reopen the window.")
         #expect(controller.issue?.subject == task.id)
-        #expect(controller.signalController.issues.current.isEmpty, "not an Operator issue")
+        #expect(controller.signalController.log.issues.current.isEmpty, "not an Operator issue")
     }
 
     @Test func choosingADrivenTaskStillLaunchingWithoutACheckoutOnlySelectsIt() async throws {
@@ -207,8 +205,8 @@ import Testing
     }
 
     /// iTerm2 restored the chat's window: its tab, tagged with the session's id, gives the chat that
-    /// window without opening another. Not while a handover runs: the old and new chats carry one tag.
-    @Test func aRestoredChatWindowIsTakenByItsTagExceptDuringAHandover() async throws {
+    /// window without opening another. Not while its lifecycle changes: the old and new chats carry one tag.
+    @Test func aRestoredChatWindowIsTakenByItsTagExceptWhileItsLifecycleChanges() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -223,7 +221,7 @@ import Testing
         controller.helper.handle(.snapshot(tagged(in: "restored")))
         #expect(controller.state.operatorSession?.window == "restored")
 
-        controller.workspace.mutate { $0.operatorSession?.handover = .closing }
+        controller.workspace.mutate { $0.operatorSession?.lifecycle = .closing(then: .renew) }
         controller.helper.handle(.snapshot(tagged(in: "newer")))
         #expect(controller.state.operatorSession?.window == "restored")
         #expect(server.requests("window.createTask").isEmpty)

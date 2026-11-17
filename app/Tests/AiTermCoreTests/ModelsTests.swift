@@ -307,20 +307,19 @@ import Foundation
         #expect(rows.first?.tasks.map(\.id) == [task.id])
     }
 
-    /// The Operator's chat window closing leaves the chat without one, except while a handover runs:
-    /// the handover writes it.
-    @Test func aClosedWindowClearsTheOperatorsChatOnlyOutsideAHandover() {
+    /// The Operator's chat window closing leaves the chat without one, except while its lifecycle changes:
+    /// the keeper writes it then. The chat stays open, without a window.
+    @Test func aClosedWindowClearsTheOperatorsChatOnlyWhileItsLifecycleIsSettled() {
         var state = AppState.empty
-        state.operatorSession = OperatorSession(createdAt: Date(timeIntervalSince1970: 0))
-        state.operatorSession?.window = "chat"
-        state.operatorSession?.handover = .closing
-        let duringHandover = state.closeWindow("chat")
-        #expect(!duringHandover && state.operatorSession?.window == "chat")
-        state.operatorSession?.handover = nil
+        state.operatorSession = .open(createdAt: Date(timeIntervalSince1970: 0), window: "chat")
+        state.operatorSession?.lifecycle = .closing(then: .renew)
+        let whileClosing = state.closeWindow("chat")
+        #expect(!whileClosing && state.operatorSession?.window == "chat")
+        state.operatorSession?.lifecycle = .open(since: Date(timeIntervalSince1970: 0), wake: nil)
         let other = state.closeWindow("other")
         #expect(!other)
         let closed = state.closeWindow("chat")
-        #expect(closed && state.operatorSession?.window == nil)
+        #expect(closed && state.operatorSession?.window == nil && state.operatorSession?.lifecycle.isOpen == true)
     }
 
     /// The regression guard for the whole saved workspace. Both new properties must stay `Optional`:
@@ -380,7 +379,7 @@ import Foundation
                             agent: .codex, model: "gpt-5.6", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
                             conversations: [TaskConversation(agent: .codex, id: "t-1"), TaskConversation(agent: .claude, id: "c-2")])
-        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
+        task.signalTask = SignalTask.make(item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         #expect(Set(keys) == ["id", "projectId", "title", "branch", "worktreePath", "baseBranch", "jira", "kind", "mr", "agent",

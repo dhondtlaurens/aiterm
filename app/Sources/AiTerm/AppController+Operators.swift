@@ -88,13 +88,13 @@ extension AppController {
         if rows.operatorHeading.folds {
             let underOperator = switch row {
             case .operatorChat, .signal: true
-            case .task(let id): state.task(id: id)?.signalTask.map { $0.phase != .stopped } == true
+            case .task(let id): state.task(id: id)?.signalTask != nil
             case .project, .terminal: false
             }
             if underOperator != rows.operatorOpen { setOperatorOpen(underOperator) }
         }
         if case .task(let id) = row, let task = state.task(id: id), let record = task.signalTask,
-           let signal = state.signal(id: record.signal), signal.collapsed { toggleCollapsed(signal) }
+           let signal = state.signal(id: record.current.signal), signal.collapsed { toggleCollapsed(signal) }
         else if case .task(let id) = row, let task = state.task(id: id),
                 let project = state.project(id: task.projectId), project.collapsed { projects.toggleCollapsed(project) }
     }

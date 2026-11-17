@@ -64,8 +64,9 @@ struct ReadmeDesktop: View {
                             agents: [AgentChoice(agent: .claude, model: "opus", reasoning: "high")],
                             finish: SignalFinish(doneWhen: .approved, then: .keep))
         for pair in [(weights.id, "ML-415"), (flag.id, "ML-416")] {
-            var record = SignalTask(signal: signal.id, item: .ticket(site: site.absoluteString, key: pair.1), startedAt: clock.now)
-            record.phase = .working; record.configuration = signal
+            let stage = SignalStage(signal: signal.id, item: .ticket(site: site.absoluteString, key: pair.1), matchedAt: clock.now, configuration: signal)
+            var record = SignalTask(current: stage, startedAt: clock.now)
+            record.phase = .working
             if pair.0 == weights.id { weights.signalTask = record } else { flag.signalTask = record }
         }
         let operatorSession = OperatorSession(createdAt: clock.now)

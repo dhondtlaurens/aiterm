@@ -80,7 +80,8 @@ agent/model/reasoning, and standing instructions under **Steer the Operator**. S
 reach the current chat and subsequent Oracle checks. You can also steer the Operator in its chat.
 
 The Oracle gives read-only second opinions, critiques answers and review threads, judges shell
-commands and vetoes automatic merges. Its settings are read for each check. Switching it off
+commands and vetoes automatic merges. Its settings are read for each check. A check whose Oracle
+settings or standing instructions changed while it ran is discarded and asked again. Switching it off
 routes worker answers to you and prevents automatic merges. For the Operator's shell gate,
 ordinary reads are allowed, prohibited writes are refused, and other commands are consulted;
 when that consultation is unavailable or off, they run unchecked and the result records why.
@@ -152,7 +153,7 @@ two-line layout and badges under projects and signals. Reduce Motion uses a plai
 AiTerm keeps task journals, stages, questions, pending replies and source failures locally. The
 Operator reads status rather than relying on chat memory. Choosing, launching, working, watching
 for a done condition and blocked tasks keep the same chat, as do pending stages and outstanding
-closeout. Completed, archived or stopped tasks do not keep it after their remaining work finishes, and
+closeout. Completed or archived tasks do not keep it after their remaining work finishes, and
 tasks you took over are no longer the Operator's. Questions from completed or superseded stages no
 longer ask for attention.
 

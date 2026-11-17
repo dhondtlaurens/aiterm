@@ -7,9 +7,9 @@ import Testing
 /// A driven task that waits, on a turn, the Operator or a person, draws the waiting ring and says what it waits for;
 /// only a worker or the Operator busy now draws the spinner (seen 16 Nov 2026 on two requests that read `working`).
 @Suite @MainActor struct SignalSidebarPresentTests {
-    private func row(_ world: SignalWorld, sessions: [SessionInfo] = []) throws -> TaskRow {
+    private func row(_ world: SignalWorld, sessions: [SessionInfo] = [], acts: [UUID: String] = [:]) throws -> TaskRow {
         let entries = SidebarModel.entries(state: world.state, sessions: sessions, branchByCwd: [:], projectBranch: [:])
-        return try #require(SignalSidebar(state: world.state, entries: entries).signals.first?.tasks.first)
+        return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).signals.first?.tasks.first)
     }
     private func tab(_ id: UUID, _ state: SessionState) -> SessionInfo {
         SessionInfo.make("worker", window: "worker-window", task: id, state: state)
@@ -33,8 +33,7 @@ import Testing
             #expect(row.operatorLine?.look == .quiet, "Nothing the Operator does yet")
         }
         #expect(try row(world).status == .waiting, "No worker tab at all is no worker at work either")
-        world.state.updateSignalTask(id) { $0.currentAct = "answering its worker" }
-        #expect(try row(world, sessions: [tab(id, .idle)]).status == .working, "An Operator act spins")
+        #expect(try row(world, sessions: [tab(id, .idle)], acts: [id: "answering its worker"]).status == .working, "An Operator act spins")
     }
     @Test func aWorkerAtWorkKeepsTheSpinnerAndItsBackgroundWorkItsRing() throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)

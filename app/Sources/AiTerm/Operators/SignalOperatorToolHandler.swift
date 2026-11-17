@@ -11,13 +11,18 @@ import AiTermCore
         var message: @MainActor (TaskItem, String, String, @escaping @MainActor () -> Bool) async throws -> Void
         var openTab: @MainActor (TaskItem, String, AgentChoice, String, String, @escaping @MainActor () -> Bool) async throws -> JSONValue
         var jiraSearch: @MainActor (String) async throws -> JSONValue
-        var oracle: @MainActor (TaskItem?, String, String) async throws -> String
+        /// An Oracle check, bound to the task's claim when there is a task.
+        var consult: @MainActor (TaskItem?, OracleLaunch.Question) async -> OracleConsult.Outcome
         var actionsAllowed: @MainActor () -> Bool = { true }
         var sessions: @MainActor () -> [SessionInfo] = { [] }
         var instructions: @MainActor () -> String? = { nil }
         var usage: @MainActor () -> UsageSnapshot = { .empty }
         var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
         var issues: @MainActor () -> [OperatorIssues.Issue] = { [] }
+        /// Whether a wake is outstanding: only a global `run_status` reads it.
+        var wakeUnread: @MainActor () -> Bool = { false }
+        /// A global `run_status` read every outstanding wake.
+        var acknowledgeWake: @MainActor () -> Void = {}
     }
     let workspace: WorkspaceStore
     let stages: StageRunner
@@ -26,13 +31,15 @@ import AiTermCore
     let journal: SignalJournal
     let now: () -> Date
     let ports: Ports
+    /// The tasks an Operator effect runs on: `message_task` and `open_tab` hold theirs while they type or open.
+    let effects: OperatorInFlight
     private var running: Set<String> = []
     var changed: () -> Void = {}
     var recorded: (OperatorRequest, ToolAnswer) -> Void = { _, _ in }
     init(workspace: WorkspaceStore, stages: StageRunner, questions: QuestionRounds, choices: AgentChoiceRounds, journal: SignalJournal,
-         now: @escaping () -> Date, ports: Ports) {
+         now: @escaping () -> Date, ports: Ports, effects: OperatorInFlight = OperatorInFlight()) {
         self.workspace = workspace; self.stages = stages; self.questions = questions; self.choices = choices
-        self.journal = journal; self.now = now; self.ports = ports
+        self.journal = journal; self.now = now; self.ports = ports; self.effects = effects
     }
     func respond(_ request: OperatorRequest) async -> ToolAnswer {
         let answer: ToolAnswer
@@ -46,9 +53,13 @@ import AiTermCore
         guard let tool = OperatorTool(rawValue: request.tool) else { throw ToolRefusal("Unknown Operator tool: \(request.tool).") }
         try requireSession(request, mutating: tool.mutating)
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
+        // A wake may coalesce several tasks, so only a global read can acknowledge it.
+        if tool == .runStatus, call.optionalString("task") != nil, ports.wakeUnread() {
+            throw ToolRefusal("A wake may include updates for other tasks. Call run_status without task first.")
+        }
         let key = tool.requiresKey ? try call.string("key") : nil
         let ledgerKey = key.map { "tool:\(tool.rawValue):" + $0 }
-        let arguments = try Self.json(request.arguments)
+        let arguments = try request.arguments.canonicalJSON()
         if let ledgerKey, let old = workspace.state.operatorSession?.ledger.first(where: { $0.key == ledgerKey && now().timeIntervalSince($0.at) <= 7 * 86400 }) {
             guard old.arguments == arguments else { throw ToolRefusal("This key already names a different call. Use the original arguments to retry.") }
             if running.contains(ledgerKey) { return ["status": "pending"] }
@@ -68,7 +79,7 @@ import AiTermCore
                     throw ToolRefusal("The task's stage or ownership changed. Read run_status again.")
                 }
             }
-            if tool.mutating, !claim.canAct(in: workspace.state) { throw ToolRefusal("Its signal is switched off or this task cannot be acted on.") }
+            if tool.mutating, !claim.allows(in: workspace) { throw ToolRefusal("Its signal is switched off or this task cannot be acted on.") }
             task = value
         } else {
             guard !tool.taskRequired else { throw ToolRefusal("\(tool.rawValue) needs `task`.") }
@@ -78,18 +89,10 @@ import AiTermCore
         let allowed: @MainActor () -> Bool = { [weak self] in
             guard let self, (try? self.requireSession(request, mutating: tool.mutating)) != nil, !Task.isCancelled else { return false }
             if tool == .messageTask, let task, self.ports.workerQuestion(task.id, call.optionalString("tab") ?? "main") { return false }
-            return claim.map { tool.mutating ? $0.canAct(in: self.workspace.state) : $0.holds(in: self.workspace.state) } ?? true
+            return claim.map { tool.mutating ? $0.allows(in: self.workspace) : $0.holds(in: self.workspace.state) } ?? true
         }
         if let ledgerKey { running.insert(ledgerKey) }
         defer { if let ledgerKey { running.remove(ledgerKey) } }
-        if let task, let act = tool.act {
-            workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = act } }
-        }
-        defer {
-            if let claim, claim.holds(in: workspace.state) {
-                workspace.mutate { $0.updateSignalTask(claim.task) { $0.currentAct = nil } }
-            }
-        }
         // These effects may have happened when a connection drops. Record uncertainty first;
         // the same key then asks for inspection instead of typing/opening a duplicate.
         if let ledgerKey, [.messageTask, .openTab, .askOracle, .resumeTask, .finishStage, .chooseAgent].contains(tool) {
@@ -106,12 +109,13 @@ import AiTermCore
             throw ToolRefusal("The task changed while this call ran.")
         }
         if let ledgerKey, result["status"] != "pending" { try remember(result, key: ledgerKey, arguments: arguments) }
+        if tool == .runStatus, task == nil { ports.acknowledgeWake() }
         if tool.mutating { changed() }
         return result
     }
     func requireSession(_ request: OperatorRequest, mutating: Bool) throws {
         guard let session = workspace.state.operatorSession, session.id.uuidString == request.operatorId,
-              session.generation == request.generation, !session.startingFresh else { throw ToolRefusal("This Operator session is no longer current.") }
+              session.generation == request.generation, !session.lifecycle.isChanging else { throw ToolRefusal("This Operator session is no longer current.") }
         if mutating {
             guard ports.actionsAllowed(), workspace.canChangeWorkspace, !session.paused, !Task.isCancelled else { throw ToolRefusal("The Operator is paused or the workspace is unavailable.") }
         }
@@ -119,9 +123,5 @@ import AiTermCore
     private func remember(_ result: JSONValue, key: String, arguments: String) throws {
         workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }
         guard workspace.flush() else { throw ToolRefusal("The tool result couldn’t be saved.") }
-    }
-    static func json(_ value: JSONValue) throws -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]; encoder.dateEncodingStrategy = .iso8601
-        return String(decoding: try encoder.encode(value), as: UTF8.self)
     }
 }

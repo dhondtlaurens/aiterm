@@ -11,7 +11,7 @@ import Testing
         var current = true
         let gate = SignalShellGate(workspace: h.workspace, folder: h.folder, now: { world.now }, validate: { _ in
             if !current { throw ActionUnavailable("The session changed.") }
-        }, oracleEnabled: { false }, oracle: { _ in Issue.record("Oracle is off"); return nil })
+        }, consult: { _ in .unavailable(.off) })
         let request = request(h, command: "git push origin HEAD")
         #expect(await gate.respond(request)["decision"] == "deny")
         #expect(await gate.respond(self.request(h, command: "cat README.md"))["decision"] == "allow")
@@ -25,7 +25,7 @@ import Testing
         var world = SignalWorld(); world.state.operatorSession = OperatorSession(createdAt: world.now)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let gate = SignalShellGate(workspace: h.workspace, folder: h.folder, now: { world.now }, validate: { _ in },
-                                   oracleEnabled: { true }, oracle: { _ in "ASK: The person decides." })
+                                   consult: { _ in .person("The person decides.") })
         let request = request(h, command: "./deploy")
         #expect(await gate.respond(request)["decision"] == "deny")
         #expect(h.workspace.state.operatorSession?.waitingOnYou == 1)

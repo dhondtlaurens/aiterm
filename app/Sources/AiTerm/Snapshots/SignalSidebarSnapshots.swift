@@ -31,9 +31,9 @@ import AiTermUI
         signal.enabled = pose != "off"
         controller.workspace.mutate { state in
             state.signals = [signal]
-            var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-142"), startedAt: Snapshots.clock.now)
-            record.phase = waiting(pose)?.0 ?? .working; record.waitingOn = waiting(pose)?.1; record.configuration = signal
-            if pose == "acting" { record.currentAct = "answering its worker" }
+            let stage = SignalStage(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-142"), matchedAt: Snapshots.clock.now, configuration: signal)
+            var record = SignalTask(current: stage, startedAt: Snapshots.clock.now)
+            record.phase = waiting(pose)?.0 ?? .working; record.waitingOn = waiting(pose)?.1
             if pose == "choosing" { record.phase = .choosing; record.choosableRows = signal.agents + [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")] }
             if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming." }
             if pose == "done" { record.phase = .done; record.thenApplied = true }
@@ -47,7 +47,7 @@ import AiTermUI
             if pose == "removed" { state.signals = [] }
             state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now)
             if ["paused", "idle-paused"].contains(pose) { state.operatorSession?.paused = true }
-            if pose == "fresh" { state.operatorSession?.startingFresh = true }
+            if pose == "fresh" { state.operatorSession?.lifecycle = .closing(then: .renew) }
             if pose == "taken-over" { state.takeOver(fixture.working.id) }
             // The Operator's section open, but where the pose is the projects': a taken-over task is theirs, and
             // section-folded is the default, OPERATOR folded with its amber count.
@@ -55,6 +55,7 @@ import AiTermUI
             if ["questions", "section-folded"].contains(pose) { state.operatorSession?.questions = [.init(id: "vat", task: fixture.working.id,
                 text: "Block orders without a VAT number, or export them with the field empty?", openedAt: Snapshots.clock.now)] }
         }
+        if pose == "acting" { _ = controller.signalController.activity.begin(task: fixture.working.id, act: "answering its worker") }
         if ["watching", "questions", "section-folded", "paused", "off", "choosing", "blocked", "done", "window-closed", "approval", "threads", "waiting-folded"].contains(pose) { controller.live.sessions.removeAll { $0.taskUUID == fixture.working.id } }
         // Every worker ended its turn and the Operator does nothing yet: the turn is the Operator's to read.
         if pose == "worker-done" { for index in controller.live.sessions.indices where controller.live.sessions[index].taskUUID == fixture.working.id { controller.live.sessions[index].state = .done } }
@@ -71,8 +72,8 @@ import AiTermUI
             state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now); state.operatorOpen = true
             for (offset, id) in [fixture.working.id, fixture.other.id].enumerated() {
                 guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { continue }
-                var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-14\(offset)"), startedAt: Snapshots.clock.now)
-                record.configuration = signal
+                let stage = SignalStage(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-14\(offset)"), matchedAt: Snapshots.clock.now, configuration: signal)
+                var record = SignalTask(current: stage, startedAt: Snapshots.clock.now)
                 record.phase = offset == 0 ? .watching(.approved) : .working
                 record.waitingOn = SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire", "Jan De Visscher"])
                 state.tasks[index].signalTask = record

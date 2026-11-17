@@ -19,26 +19,27 @@ extension SignalOperatorToolHandler {
             let text = try call.string("text")
             try await journal.append(.quoted(SignalQuote(source: "operator instruction", text: text)), task: task.id)
             guard allowed() else { throw ToolRefusal("The task changed before delivery.") }
+            guard effects.claim(task.id) else { throw ToolRefusal("This worker is not idle and ready for a message.") }
+            defer { effects.release(task.id) }
             try await ports.message(task, text, tab, allowed)
             return ["status": "sent"]
         case .openTab:
             let task = try requireTask(task), proposed = try choice(call, task: task)
             guard task.hasCheckout, task.windowId != nil else { throw ToolRefusal("A work tab needs the task's open window and checkout.") }
             let prompt = try call.string("prompt"), why = try call.string("why")
-            let rows = AgentChoiceNeed.decide(permitted: (task.signalTask?.configuration ?? task.signalTask.flatMap { workspace.state.signal(id: $0.signal) })?.agents ?? [],
-                                              projects: nil, conversationAgent: nil)
-            var row = proposed, reason = why
-            if case .choose(let choosable, _) = rows, choosable.count > 1 {
-                // Several permitted rows: the tab's row is a choice the Oracle checks first.
-                switch try await choices.decide(task: task, scope: .tab, rows: choosable, projects: nil,
-                                                proposal: .init(row: proposed, project: nil, reason: why), challenge: call.optionalString("challengeId"), work: prompt) {
-                case .reply(let reply): return reply
-                case .decided(let record):
-                    row = record.row; reason = record.reason
+            let row: AgentChoice, reason: String
+            switch try await choices.workTab(task: task, proposal: .init(row: proposed, project: nil, reason: why),
+                                             challenge: call.optionalString("challengeId"), prompt: prompt) {
+            case .reply(let reply): return reply
+            case .open(let decided, let because, let record):
+                row = decided; reason = because
+                if let record {
                     try await journal.append(.ours("Work tab \(key!): " + record.journalLine), task: task.id)
                     guard allowed() else { throw ToolRefusal("The task changed before its work tab opened.") }
                 }
             }
+            guard effects.claim(task.id) else { throw ToolRefusal("This task is busy.") }
+            defer { effects.release(task.id) }
             return try await ports.openTab(task, key!, row, prompt, reason, allowed)
         case .askYou:
             try questions.askYou(key: key!, task: task?.id, text: try call.string("text"), tab: call.optionalString("tab") ?? "main")
@@ -74,7 +75,7 @@ extension SignalOperatorToolHandler {
             return ["status": "resumed"]
         case .finishStage:
             let task = try requireTask(task), outcome = try call.string("outcome"), evidence = try call.string("evidence")
-            guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { throw ToolRefusal("The task's signal is missing.") }
+            guard let signal = task.signalTask?.current.configuration else { throw ToolRefusal("The task is no longer the Operator’s.") }
             let action: SignalAction
             switch outcome {
             case "done", "skipped": action = signal.finish.doneWhen == .operatorJudges && !signal.finish.mergesWhenReady ? .finish(.operatorJudges) : .watch(signal.finish.doneWhen)
@@ -90,11 +91,11 @@ extension SignalOperatorToolHandler {
             try await journal.note(try call.string("text"), key: key!, task: task.id)
             return ["status": "recorded"]
         case .answerWorker:
-            return try await questions.answer(task: try requireTask(task).id, key: key!, proposal: try call.string("proposal"),
+            return try await questions.answer(task: try requireTask(task).id, proposal: try call.string("proposal"),
                 tab: call.optionalString("tab") ?? "main", challenge: call.optionalString("challengeId"),
                 fromQuestion: call.optionalString("fromQuestion"), person: call.optionalBool("person") ?? false)
         case .askOracle:
-            return try await consult(call, task: task, key: key!, allowed: allowed)
+            return try await consult(call, task: task, allowed: allowed)
         case .chooseAgent:
             return try await chooseAgent(call, task: try requireTask(task), allowed: allowed)
         }
@@ -105,8 +106,7 @@ extension SignalOperatorToolHandler {
     }
     /// The Operator's row (and project) for a choosing stage, or a new row for a blocked one.
     private func chooseAgent(_ call: ToolCall, task: TaskItem, allowed: () -> Bool) async throws -> JSONValue {
-        guard let record = task.signalTask,
-              let need = task.choiceNeed(configuration: record.configuration ?? workspace.state.signal(id: record.signal)) else {
+        guard let need = task.choiceNeed() else {
             throw ToolRefusal("Only a choosing or blocked task takes an agent choice. Read run_status.")
         }
         let rows: [AgentChoice], projects: [UUID]?
@@ -146,20 +146,19 @@ extension SignalOperatorToolHandler {
             return .object(result)
         }
     }
-    private func consult(_ call: ToolCall, task: TaskItem?, key: String, allowed: () -> Bool) async throws -> JSONValue {
-        guard ports.oracleEnabled() else { return ["status": "ask_you", "reason": "The Oracle is off. Ask in your chat, then record ask_you."] }
+    private func consult(_ call: ToolCall, task: TaskItem?, allowed: () -> Bool) async throws -> JSONValue {
         let question = try call.string("question"), context = try call.string("context")
-        let record = OracleRound(id: "consult:" + key, tool: "ask_oracle", askedArguments: try Self.json(call.arguments), askedAt: now())
-        workspace.mutate { $0.operatorSession?.oracleRounds.append(record) }
-        guard workspace.flush() else { throw ToolRefusal("The Oracle request couldn’t be saved.") }
-        defer { workspace.mutate { $0.operatorSession?.oracleRounds.removeAll { $0.id == record.id } }; workspace.flush() }
-        do {
-            let answer = try await ports.oracle(task, question, context)
-            guard allowed() else { throw ToolRefusal("The task or Operator changed while the Oracle read it.") }
+        let outcome = await ports.consult(task, .secondOpinion(question: question, context: context))
+        guard allowed() else { throw ToolRefusal("The task or Operator changed while the Oracle read it.") }
+        switch outcome {
+        case .agreed(let answer, _), .critique(let answer, _, _), .person(let answer):
             return ["status": "opinion", "answer": .string(answer)]
-        } catch {
-            guard allowed() else { throw ToolRefusal("The task or Operator changed while the Oracle read it.") }
-            return ["status": "ask_you", "reason": .string("The Oracle could not answer: " + OperationIssue.reason(of: error))]
+        case .unavailable(.off):
+            return ["status": "ask_you", "reason": "The Oracle is off. Ask in your chat, then record ask_you."]
+        case .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+            return ["status": "ask_you", "reason": .string("The Oracle could not answer: " + reason)]
+        case .retry:
+            return ["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and ask again with a new key."]
         }
     }
     private func requireTask(_ task: TaskItem?) throws -> TaskItem {
@@ -168,7 +167,7 @@ extension SignalOperatorToolHandler {
     private func choice(_ call: ToolCall, task: TaskItem) throws -> AgentChoice {
         guard let name = AgentKind(rawValue: try call.string("agent")) else { throw ToolRefusal("Choose a permitted agent from run_status.") }
         let choice = AgentChoice(agent: name, model: try call.string("model"), reasoning: call.optionalString("reasoning"))
-        guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.agents.contains(choice) else {
+        guard task.signalTask?.current.configuration.agents.contains(choice) == true else {
             throw ToolRefusal("Choose an exact permitted Agent, Model and Reasoning row from run_status.")
         }
         return choice

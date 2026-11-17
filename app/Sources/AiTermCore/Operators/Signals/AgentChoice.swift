@@ -43,7 +43,7 @@ public enum AgentChoiceNeed: Equatable, Sendable {
 
 /// The row and project a stage was given, why, and how that was decided. run_status shows it.
 public struct AgentChoiceRecord: Codable, Equatable, Sendable {
-    public enum Decided: Codable, Hashable, Sendable, RawRepresentable {
+    public enum Decided: OpenStringEnum, Hashable, Sendable {
         /// The Oracle agreed with the Operator's proposal.
         case oracleAgreed
         /// The Oracle is off, so the Operator's proposal applied.
@@ -55,17 +55,8 @@ public struct AgentChoiceRecord: Codable, Equatable, Sendable {
         /// Only the project was open; the Operator decided it alone.
         case operatorAlone
         case unknown(String)
-        public init?(rawValue: String) {
-            switch rawValue {
-            case "oracleAgreed": self = .oracleAgreed
-            case "oracleOff": self = .oracleOff
-            case "oracleUnavailable": self = .oracleUnavailable
-            case "disagreed": self = .disagreed
-            case "operatorAlone": self = .operatorAlone
-            default: self = .unknown(rawValue)
-            }
-        }
-        public var rawValue: String {
+        static let knownCases: [Self] = [.oracleAgreed, .oracleOff, .oracleUnavailable, .disagreed, .operatorAlone]
+        var savedName: String {
             switch self {
             case .oracleAgreed: "oracleAgreed"
             case .oracleOff: "oracleOff"
@@ -75,8 +66,6 @@ public struct AgentChoiceRecord: Codable, Equatable, Sendable {
             case .unknown(let value): value
             }
         }
-        public init(from decoder: Decoder) throws { self = Self(rawValue: try decoder.singleValueContainer().decode(String.self))! }
-        public func encode(to encoder: Encoder) throws { var value = encoder.singleValueContainer(); try value.encode(rawValue) }
     }
     public var row: AgentChoice
     public var project: UUID?
@@ -112,5 +101,80 @@ public struct AgentChoiceRecord: Codable, Equatable, Sendable {
         case .unknown(let value): how = value
         }
         return "Agent row: \(row.label). Reason: \(reason) (\(how))."
+    }
+}
+
+public extension TaskItem {
+    /// For a stage that is about to launch: apply the only row, or wait in `choosing` for the
+    /// Operator's choice of row and/or project. A stage without a startable row blocks.
+    mutating func prepareLaunch(candidates: [UUID]?, at: Date) {
+        guard let record = signalTask, record.phase == .launching else { return }
+        switch AgentChoiceNeed.decide(permitted: record.current.configuration.agents, projects: candidates, conversationAgent: firstWorkerConversation?.agent) {
+        case .ready(let row):
+            agent = row.agent; model = row.model; reasoning = row.reasoning
+        case .choose(let rows, let projects):
+            guard var next = try? SignalTransitions.apply(.needChoice, to: record, at: at) else { return }
+            next.choosableRows = rows; next.candidateProjects = projects
+            signalTask = next
+        case .unavailable:
+            guard let next = try? SignalTransitions.apply(.block(AgentChoiceNeed.unavailableReason), to: record, at: at) else { return }
+            signalTask = next
+        }
+    }
+
+    /// What the Operator may choose now: a `choosing` stage's saved rows and projects, or, for a
+    /// blocked stage, the rows it may resume on (its project is fixed). Nil for any other phase.
+    func choiceNeed() -> AgentChoiceNeed? {
+        guard let record = signalTask else { return nil }
+        switch record.phase {
+        case .choosing:
+            guard let rows = record.choosableRows, !rows.isEmpty else { return .unavailable }
+            return .choose(rows: rows, projects: record.candidateProjects)
+        case .blocked:
+            return AgentChoiceNeed.decide(permitted: record.current.configuration.agents, projects: nil, conversationAgent: firstWorkerConversation?.agent)
+        default: return nil
+        }
+    }
+}
+
+public struct AgentChoice: Codable, Equatable, Hashable, Sendable {
+    public var agent: AgentKind
+    public var model: String
+    public var reasoning: String?
+
+    public init(agent: AgentKind, model: String, reasoning: String?) {
+        self.agent = agent; self.model = model; self.reasoning = reasoning
+    }
+
+    /// The row as the brief and the tool refusals name it: "Agent · model · reasoning".
+    public var label: String { [agent.displayName, model, reasoning].compactMap { $0 }.joined(separator: " · ") }
+}
+
+/// The agent and model a task starts on. The Operator may only step to a model in the
+/// signal's permitted Agents rows, and it moves a task to the other agent only when the
+/// planned one is close to its weekly limit.
+public enum ModelChoice {
+    /// The weekly use, in percent, at which new tasks move to the other agent: AiTerm's amber line.
+    static let switchAt = 80
+    public static var switchAtPercent: Int { switchAt }
+
+    /// The two agents the Operator chooses between. An agent outside them never switches.
+    public static let pair: [AgentKind] = [.claude, .codex]
+
+    /// The weekly-use switch takes the first row on the other agent, or stays put.
+    public static func launchChoice(planned: AgentChoice, pinned: Bool, weekly: [AgentKind: Int],
+                                    installed: Set<AgentKind>, rows: [AgentChoice]) -> AgentChoice {
+        let agent = launchAgent(planned: planned.agent, pinned: pinned, weekly: weekly, installed: installed)
+        guard agent != planned.agent else { return planned }
+        return rows.first { $0.agent == agent } ?? planned
+    }
+
+    /// The agent a task starts on: its planned agent, unless that agent's weekly use is at or past
+    /// `switchAt`, the task isn't pinned, and the other agent is installed and under `switchAt`.
+    public static func launchAgent(planned: AgentKind, pinned: Bool, weekly: [AgentKind: Int], installed: Set<AgentKind>) -> AgentKind {
+        guard !pinned, pair.contains(planned), (weekly[planned] ?? 0) >= switchAt else { return planned }
+        guard let other = pair.first(where: { $0 != planned }), installed.contains(other),
+              (weekly[other] ?? 0) < switchAt else { return planned }
+        return other
     }
 }

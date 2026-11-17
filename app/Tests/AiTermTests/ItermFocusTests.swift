@@ -24,7 +24,7 @@ import Testing
         var task = window == .notStarted || window == .queued
             ? TaskItem.make(project: fixture.project.id, branch: "feat/work", worktreePath: "", windowId: nil)
             : try await fixture.addTask(windowId: nil)
-        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        task.signalTask = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         task.signalTask?.phase = window == .queued ? .launching : .blocked
         task.firstPrompt = "The Operator's original instruction must not be replayed."
         if window == .conversations {
@@ -96,7 +96,7 @@ import Testing
         controller.helper.setDaemonClient(server)
         var task = TaskItem.make(project: fixture.project.id, branch: "review-source", model: "")
         task.mr = .init(iid: 7, title: "Request", url: "https://git.example/shop/web/-/merge_requests/7")
-        task.signalTask = SignalTask(signal: UUID(), item: .request(remote: "git@git.example:shop/web.git", number: 7), startedAt: Date())
+        task.signalTask = SignalTask.make(item: .request(remote: "git@git.example:shop/web.git", number: 7), startedAt: Date())
         controller.workspace.mutate { $0.tasks = [task] }
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 

@@ -9,7 +9,8 @@ struct SignalFreshDigestTests {
         var question = OperatorSession.Question(id: "scope", task: id, text: "Which scope?", openedAt: world.now, resolvedAt: world.now)
         question.answer = "Keep the original scope."; question.workerQuestion = question.text
         world.state.operatorSession?.questions = [question]
-        let round = OracleRound(id: "open", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
+        let round = OracleRound(id: "open", tool: "answer_worker", stage: .delivered, critique: "Check the original scope.",
+                                askedArguments: "{}", askedAt: world.now, round: 1)
         world.state.operatorSession?.oracleRounds = [round]
         let pending = SignalWorkerReply(at: world.now, fingerprint: "old-assistant-record")
         world.state.updateSignalTask(id) { $0.pendingReplies = ["main": pending] }

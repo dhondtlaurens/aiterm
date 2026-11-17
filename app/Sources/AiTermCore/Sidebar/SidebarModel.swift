@@ -6,7 +6,7 @@ import Synchronization
 /// (proposal Background work on your own tasks B, 22 Oct 2026).
 public enum TaskStatus: Equatable, Hashable, Sendable, CaseIterable {
     /// `waiting`: a task the Operator drives that waits on a turn, the Operator or a person: its worker's turn ended
-    /// and the Operator is to read it, or its done condition is someone else's to meet. Only `SignalSidebar` sets it;
+    /// and the Operator is to read it, or its done condition is someone else's to meet. Only `TaskRow.presentingOperator` sets it;
     /// a tab never does.
     case idle, working, needsInput, background, waiting, done
 
