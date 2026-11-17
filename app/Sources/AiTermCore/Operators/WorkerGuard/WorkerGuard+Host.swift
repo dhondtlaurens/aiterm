@@ -15,17 +15,9 @@ extension WorkerGuard {
             return (GitLabSettings.load(store: secrets, defaults: defaults), GitHubSettings.load(store: secrets))
         }
         let remote = ProviderDetector.detect(remoteUrl: scope.remote)
-        switch try MergeRequestSearch.connection(for: remote, gitLab: configurations.0, gitHub: configurations.1) {
-        case .gitHub(let config, let repo):
-            let host = GitHubClient(config: config, repo: repo)
-            async let branch = host.defaultBranch()
-            async let protection = host.protection(of: scope.branch)
-            return try await Fence(defaultBranch: branch, protection: protection)
-        case .gitLab(let config, let project):
-            let host = GitLabClient(config: config, project: project)
-            async let branch = host.defaultBranch()
-            async let protection = host.protection(of: scope.branch)
-            return try await Fence(defaultBranch: branch, protection: protection)
-        }
+        let host = try CodeHosts.repository(for: remote, gitLab: configurations.0, gitHub: configurations.1)
+        async let branch = host.defaultBranch()
+        async let protection = host.protection(of: scope.branch)
+        return try await Fence(defaultBranch: branch, protection: protection)
     }
 }

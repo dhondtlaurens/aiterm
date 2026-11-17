@@ -54,7 +54,7 @@ public struct GitLabClient: HostRepository {
         return branch
     }
 
-    public func currentUser() async throws -> String {
+    func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitLab, host: Self.base(config.hostURL), token: config.token) {
             try await Self.testConnection(config: config, session: session)
         }
@@ -75,10 +75,7 @@ public struct GitLabClient: HostRepository {
         // Typing a merge request's number finds that merge request, rather than full-text
         // searching for the digits — the analogue of JiraClient's KEY-123 fast path.
         if let iid = Self.iid(text) {
-            // GitLab answers 404 for a number no merge request has, as it does for a project the
-            // token cannot see. Here the number is by far the likelier, and it reads as nothing found.
-            do { return [try await get(MergeRequestPayload.self, path: base + "/\(iid)", notFound: .projectNotFound(project)).mergeRequest] }
-            catch GitLabError.projectNotFound { return [] }
+            return try await request(number: iid).map { [$0] } ?? []
         }
 
         var query = [URLQueryItem(name: "state", value: "opened"),
@@ -90,6 +87,12 @@ public struct GitLabClient: HostRepository {
         }
         return try await get([Lenient<MergeRequestPayload>].self, path: base, query: query, notFound: .projectNotFound(project))
             .compactMap { $0.value?.mergeRequest }
+    }
+
+    /// A missing number answers 404, as does a project the token cannot see; both read as absent.
+    public func request(number: Int) async throws -> MergeRequest? {
+        do { return try await get(MergeRequestPayload.self, path: boundPath + "/merge_requests/\(number)", notFound: .projectNotFound(project)).mergeRequest }
+        catch GitLabError.projectNotFound { return nil }
     }
 
     // MARK: Issues — the tickets of a project that keeps them on GitLab
@@ -195,9 +198,8 @@ public struct GitLabClient: HostRepository {
             .first { $0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId }?.mergeRequest
     }
 
-    /// Signal observation also finds a request merged before the first watch. Publication's
-    /// existingRequest remains open-only. Forks never become this task's own request.
-    public func signalRequest(from source: String) async throws -> MergeRequest? {
+    /// Finds a request merged before the first watch. Forks never become this task's own request.
+    public func request(forBranch source: String) async throws -> MergeRequest? {
         if let open = try await existingRequest(from: source) { return open }
         let matches: (MergeRequestPayload) -> Bool = {
             $0.sourceBranch == source && ($0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId)

@@ -415,7 +415,7 @@ TS tests-scripts.
 
 ### Phase 7. Hosts (after 1; beside the app track)
 
-- [ ] 7a. **Codex.** One `HostRepository` interface with the live operations and one factory; the
+- [x] 7a. **Codex.** One `HostRepository` interface with the live operations and one factory; the
   four layered protocols and three factories go (HO F2).
 - [ ] 7b. **Codex.** One strict review-threads reader per host, which the badge counts; one Jira
   search with one mapping and shared date formatters; one "is this URL on the configured GitLab"
@@ -1294,3 +1294,16 @@ left.
   (`6f6628db`).
 
 ### Phase 7
+- 7a: one `HostRepository` protocol with its operations grouped by caller, and one factory,
+  `CodeHosts.repository` (from `Connection.repository(session:)`, the only switch that builds a client). The
+  `MergeRequestSearching`, `MergeRequestPublishing` and `SignalHostReading` protocols went. `request(number:)` is the
+  one read by number; the Operator's watch uses it instead of a text search. Small differences: the brief's
+  locations had drifted (`HostRepositoryTests` was already the publisher tests, the worker checkout is in
+  `TaskLauncher.checkOutWorker`, and `SignalHostReading.swift` was under `Operators/Signals/Sources`); the publisher
+  enum and the client `repository` property were already gone after 1b. Tests deleted:
+  `aHostThatIsNotConnectedOrAnotherGitLabIsRefused` and `aRemoteOnNoConfiguredHostIsUnavailableNotGuessed`
+  (duplicate refusals), whose survivor is `CodeHostsTests.eachRefusalSaysWhy` (plain-git and local remotes
+  included). The rest of `MergeRequestSearchTests` moved to `CodeHostsTests`, and
+  `searchAndRequestReadsAskTheSameConnection` became `HostRepositoryTests.repositoryBindingUsesTheResolvedConnection`.
+  Added: `request(number:)` on both hosts (found, absent, real failures throw) and a bare-number search making the
+  same single request.

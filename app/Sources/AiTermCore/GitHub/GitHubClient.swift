@@ -54,7 +54,7 @@ public struct GitHubClient: HostRepository {
         return branch
     }
 
-    public func currentUser() async throws -> String {
+    func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitHub, host: Self.api, token: config.token) {
             try await Self.testConnection(config: config, session: session)
         }
@@ -75,8 +75,7 @@ public struct GitHubClient: HostRepository {
         let base = boundPath + "/pulls"
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
         if let number = Self.number(text) {
-            do { return [try await get(PullPayload.self, path: base + "/\(number)", notFound: .repoNotFound(repo)).mergeRequest] }
-            catch GitHubError.repoNotFound { return [] }
+            return try await request(number: number).map { [$0] } ?? []
         }
         let open = try await listing.read {
             let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
@@ -88,6 +87,11 @@ public struct GitHubClient: HostRepository {
             [pull.title, pull.sourceBranch, pull.author ?? ""].contains { $0.range(of: text, options: .caseInsensitive) != nil }
         }
         return Array(matching.prefix(Self.shownLimit))
+    }
+
+    public func request(number: Int) async throws -> MergeRequest? {
+        do { return try await get(PullPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo)).mergeRequest }
+        catch GitHubError.repoNotFound { return nil }
     }
 
     /// Up to `pages` pages of the repository's open pull requests, `perPage` at a time, the most
@@ -164,7 +168,7 @@ public struct GitHubClient: HostRepository {
 
     /// Observation includes closed requests; the list's merged_at is not a merge proof, so a
     /// candidate from history is fetched by number for the authoritative merged flag.
-    public func signalRequest(from source: String) async throws -> MergeRequest? {
+    public func request(forBranch source: String) async throws -> MergeRequest? {
         if let open = try await existingRequest(from: source) { return open }
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         let matches: (PullPayload) -> Bool = {
@@ -180,7 +184,7 @@ public struct GitHubClient: HostRepository {
         }
         guard read.complete else { throw IncompleteRead("branch requests") }
         guard let own = read.items.first(where: matches) else { return nil }
-        return try await mergeRequests(search: String(own.number)).first
+        return try await request(number: own.number)
     }
 
     /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`

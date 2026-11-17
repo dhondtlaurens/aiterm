@@ -15,8 +15,8 @@ import Testing
         let github = GitHubClient(config: .init(token: UUID().uuidString), repo: "shop/web", session: stub.session)
         let gitlab = GitLabClient(config: .init(hostURL: URL(string: "https://git.example")!, token: UUID().uuidString),
                                  project: "shop/web", session: stub.session)
-        #expect(try await github.signalReviewers(of: 7) == ["sara", "team:ios"])
-        #expect(try await gitlab.signalReviewers(of: 7) == ["sara"])
+        #expect(try await github.reviewers(of: 7) == ["sara", "team:ios"])
+        #expect(try await gitlab.reviewers(of: 7) == ["sara"])
         #expect(stub.requests.allSatisfy { $0.httpMethod == "GET" })
     }
     @Test(arguments: ["review", "comment", "inline"])
@@ -49,7 +49,7 @@ import Testing
             return (200, Data(value.utf8))
         }
         let host = GitHubClient(config: .init(token: UUID().uuidString), repo: "shop/web", session: stub.session)
-        #expect(try await host.mySignalReviewPostedAt(of: 7) == ISO8601DateFormatter().date(from: stamp))
+        #expect(try await host.myReviewPostedAt(of: 7) == ISO8601DateFormatter().date(from: stamp))
         #expect(stub.requests.allSatisfy { $0.httpMethod == "GET" })
     }
     @Test func gitlabCountsOwnCommentsAndApprovalNotesButNoOtherSystemActivity() async throws {
@@ -65,7 +65,7 @@ import Testing
         }
         let host = GitLabClient(config: .init(hostURL: URL(string: "https://git.example")!, token: UUID().uuidString),
                                project: "shop/web", session: stub.session)
-        #expect(try await host.mySignalReviewPostedAt(of: 7) == ISO8601DateFormatter().date(from: stamp))
+        #expect(try await host.myReviewPostedAt(of: 7) == ISO8601DateFormatter().date(from: stamp))
     }
     @Test func malformedActivityDoesNotLookLikeNoReview() async {
         let stub = StubSession { request in
@@ -74,6 +74,6 @@ import Testing
         }
         let host = GitLabClient(config: .init(hostURL: URL(string: "https://git.example")!, token: UUID().uuidString),
                                project: "shop/web", session: stub.session)
-        await #expect(throws: (any Error).self) { try await host.mySignalReviewPostedAt(of: 7) }
+        await #expect(throws: (any Error).self) { try await host.myReviewPostedAt(of: 7) }
     }
 }

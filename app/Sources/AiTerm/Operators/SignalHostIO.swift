@@ -15,7 +15,7 @@ import AiTermCore
             try await BackgroundWork.run { try git.run(["remote", "get-url", "origin"], in: task.hasCheckout && FileManager.default.fileExists(atPath: task.worktreePath) ? task.worktreePath : project.path).trimmingCharacters(in: .whitespacesAndNewlines) }
         }
     }
-    private func binding(_ task: TaskItem, links: SignalConnections) async throws -> (String, any SignalHostReading) {
+    private func binding(_ task: TaskItem, links: SignalConnections) async throws -> (String, any HostRepository) {
         guard let project = workspace.state.project(id: task.projectId), let saved = project.remoteUrl else { throw ActionUnavailable("Its project has no connected remote.") }
         let current = try await remote(project, task)
         guard let repository = ItemRef.repository(current), repository == ItemRef.repository(saved) else { throw ActionUnavailable("Its origin changed; check the project's repository before continuing.") }
@@ -29,18 +29,18 @@ import AiTermCore
                 throw ActionUnavailable("The request link belongs to another repository.")
             }
         }
-        let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: current), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
+        let host = try CodeHosts.repository(for: ProviderDetector.detect(remoteUrl: current), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
         return (current, host)
     }
     private func requestNumber(_ task: TaskItem) -> Int? {
         if case .mergeRequest(let reference) = task.signalTask?.current.item { return reference.number }
         return task.mr?.iid ?? task.signalTask?.watchedRequest?.number
     }
-    private func request(_ task: TaskItem, host: any SignalHostReading) async throws -> MergeRequest? {
+    private func request(_ task: TaskItem, host: any HostRepository) async throws -> MergeRequest? {
         if let number = requestNumber(task) {
-            return try await host.mergeRequests(search: String(number)).first { $0.iid == number }
+            return try await host.request(number: number)
         }
-        return try await host.signalRequest(from: task.branch)
+        return try await host.request(forBranch: task.branch)
     }
     private func ticket(_ task: TaskItem, links: SignalConnections) async throws -> JiraTicket? {
         guard let ref = task.jira, ref.source == .jira else { return nil }
@@ -73,12 +73,12 @@ import AiTermCore
         let link = MergeRequestRef(iid: request.iid, title: request.title, url: request.url)
         if !signal.finish.mergesWhenReady {
             switch signal.finish.doneWhen {
-            case .hasReviewer: facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
+            case .hasReviewer: facts.hasReviewer = try await !host.reviewers(of: request.iid).isEmpty
             case .approved: facts.approved = try await !host.approvals(of: request.iid).isEmpty
             case .threadsResolved:
                 let threads = try await host.threads(of: request.iid)
                 facts.threadsResolved = threads.allSatisfy(\.resolved); facts.openThreads = threads.filter { !$0.resolved }.count
-            case .myReviewPosted: facts.reviewPostedAt = try await host.mySignalReviewPostedAt(of: request.iid)
+            case .myReviewPosted: facts.reviewPostedAt = try await host.myReviewPostedAt(of: request.iid)
             default: break
             }
             facts.hostReadComplete = true
@@ -88,13 +88,13 @@ import AiTermCore
         let readiness = try await host.readiness(of: request.iid)
         let threads = try await host.threads(of: request.iid)
         facts.hostReadComplete = true
-        facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
+        facts.hasReviewer = try await !host.reviewers(of: request.iid).isEmpty
         facts.approved = !state.approvedBy.isEmpty
         facts.threadsResolved = threads.allSatisfy(\.resolved); facts.openThreads = threads.filter { !$0.resolved }.count
         facts.closed = request.state == "closed"
         var head = state.head
         if case .merged(_, let mergedHead, _) = readiness { facts.merged = true; if !mergedHead.isEmpty { head = mergedHead } }
-        if signal.finish.doneWhen == .myReviewPosted { facts.reviewPostedAt = try await host.mySignalReviewPostedAt(of: request.iid) }
+        if signal.finish.doneWhen == .myReviewPosted { facts.reviewPostedAt = try await host.myReviewPostedAt(of: request.iid) }
         let git = git
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
         let ready: Bool = if case .ready = readiness { true } else { false }

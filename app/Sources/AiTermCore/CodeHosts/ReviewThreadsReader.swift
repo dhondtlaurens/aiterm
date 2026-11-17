@@ -9,7 +9,7 @@ public protocol ReviewThreadsReading: Sendable {
 
 /// Reads with the connections Settings saved: GitHub's for a pull request on github.com, GitLab's
 /// for a merge request on the one GitLab host configured. A merge request on another GitLab is not
-/// asked of this one — as `MergeRequestSearch` refuses a remote on another host — since its project
+/// asked of this one, as `CodeHosts` refuses a remote on another host, since its project
 /// path would name another project there, read with this host's token.
 ///
 /// Where a request lives is read from the web address it was stored with (`MergeRequestRef.url`),
@@ -28,16 +28,18 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
     }
 
     public func threads(of mr: MergeRequestRef) async throws -> ReviewThreads? {
+        let connection: CodeHosts.Connection
         switch Self.target(of: mr.url, gitLabHost: gitLab?.hostURL) {
         case .gitHub(let repo)?:
             guard let gitHub else { return nil }
-            return try await GitHubClient(config: gitHub, repo: repo, session: session).reviewThreads(of: mr.iid)
+            connection = .gitHub(gitHub, repo: repo)
         case .gitLab(let project)?:
             guard let gitLab else { return nil }
-            return try await GitLabClient(config: gitLab, project: project, session: session).reviewThreads(of: mr.iid)
+            connection = .gitLab(gitLab, project: project)
         case nil:
             return nil
         }
+        return try await connection.repository(session: session).reviewThreads(of: mr.iid)
     }
 
     /// `https://github.com/<owner>/<repo>/pull/<n>`, or `<GitLab host>/<project>/-/merge_requests/<n>`
