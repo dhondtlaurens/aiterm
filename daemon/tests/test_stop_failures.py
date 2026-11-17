@@ -375,16 +375,44 @@ async def test_a_reset_not_written_soon_after_the_stop_is_not_looked_for_again(s
     assert svc.registry.get(sid).stopped_on == StoppedOn("rate_limit")
 
 
+async def test_repeated_stop_failures_change_the_key_and_drop_an_earlier_read(stopped, monkeypatch):
+    svc, sid, transcript, clock = stopped
+    failure = stop_failure("server_error", transcript_path=str(transcript))
+    await svc.hook_router.handle_hook("/hook/claude", failure)
+    plan = svc.readers.stops(svc.stop_transcripts)
+    before = svc.registry.get(sid).to_json()
+
+    async def stop_again_during_read(name, work, nothing):
+        clock.now = T0 + 3
+        await svc.hook_router.handle_hook("/hook/claude", failure)
+        assert svc.registry.get(sid).stopped_on.at == clock.now
+        assert svc.readers.stops(svc.stop_transcripts).keys != plan.keys
+        # The timestamp is internal: repeating the error keeps the session's wire value.
+        assert svc.registry.get(sid).to_json() == before
+        # This would prove recovery even after the second hook if the old reading were applied.
+        return {sid: StopReading(progress_at=T0 + 5)}
+
+    monkeypatch.setattr(svc, "run_check", stop_again_during_read)
+    assert await svc.observe(plan) == []
+    assert svc.registry.get(sid).stopped_on == StoppedOn("server_error")
+
+
 @pytest.mark.parametrize("overtaken_by", ["failure", "transcript"])
-async def test_a_recovery_read_overtaken_by_new_evidence_cannot_clear_the_stop(stopped, overtaken_by):
+async def test_a_recovery_read_overtaken_by_new_evidence_cannot_clear_the_stop(stopped, monkeypatch, overtaken_by):
     svc, sid, transcript, clock = stopped
     await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
     plan = svc.readers.stops(svc.stop_transcripts)
-    if overtaken_by == "failure":
-        # The same error compares equal, but the latest parent hook is still newer than the read.
-        clock.now = T0 + 10
-        await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
-    else:
-        svc.registry.set_transcript(sid, str(transcript.with_name("other.jsonl")))
-    assert plan.apply({str(transcript): StopReading(progress_at=T0 + 5)}) == []
+
+    async def overtaken_during_read(name, work, nothing):
+        if overtaken_by == "failure":
+            # The same error compares equal, but its hook and progress both precede this reading.
+            # Only the captured stop's timestamp distinguishes it from the new stop.
+            clock.now = T0 + 3
+            await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
+        else:
+            svc.registry.set_transcript(sid, str(transcript.with_name("other.jsonl")))
+        return {sid: StopReading(progress_at=T0 + 5)}
+
+    monkeypatch.setattr(svc, "run_check", overtaken_during_read)
+    assert await svc.observe(plan) == []
     assert svc.registry.get(sid).stopped_on == StoppedOn("server_error")

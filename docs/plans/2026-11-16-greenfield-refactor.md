@@ -405,7 +405,7 @@ TS tests-scripts.
 - [x] 6c. **Codex.** One method per daemon command returning its full reply; `workspace.snapshot`
   is the connection's own; callers that only want the tabs use the side-effect-free listing
   (WD F5).
-- [ ] 6d. **Codex.** Readings carry one session key and are dropped generically when it changed;
+- [x] 6d. **Codex.** Readings carry one session key and are dropped generically when it changed;
   the six hand-written identity checks and `Turn.generation` go (DM F6).
 - [ ] 6e. **Opus.** One owner for Codex thread identity: restored from the tab's tag, bound by
   hooks, asked by the readers, written back after the tick (DM F5). The tag's format stays.
@@ -1230,3 +1230,18 @@ left.
   fails, with no event in the app). Wire frames unchanged. No test deleted
   (`test_snapshot_survives_a_failing_tick` became `test_session_queries_survive_a_failing_tick` for both
   queries); added a session-list freshness test and refresh and tab-error tests.
+- 6d decision (orchestrator, mid-step): Codex stopped because a repeated StopFailure with the same
+  error keeps the old timestamp (`StoppedOn.at` is `compare=False` and `SessionRegistry._set` skips
+  equal values), so a session key built from it could not tell two such stops apart, which the
+  hand-written `is not stopped_on` identity check did. Decided within the step's intent (one session key
+  that changes with each new stop): the registry records a new StopFailure's timestamp even when its
+  error is the same, and the key includes it; the wire stays byte-identical if that can be kept, and if a
+  repeated stop then announces a change, that is accepted (a real new event) with the frames re-recorded
+  and a provenance line.
+- 6d: readings carry one `SessionKey` (agent, job pid, conversation, the reader's extras) and are
+  dropped generically in `Service.observe` when it changed (a whole-registry plan also when the
+  session set changed); the six hand-written identity checks and `Turn.generation` went. Per the decision
+  above, the registry records each StopFailure's timestamp while announcing only a changed wire value,
+  so two stops with the same error give two keys and the wire is byte-identical. No test deleted; added
+  the same-error regression, partial acceptance across two sessions and whole-plan cases. Tick budgets
+  unchanged (an extra registry sort was avoided with a session-id lookup).

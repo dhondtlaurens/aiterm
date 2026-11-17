@@ -52,12 +52,11 @@ class Turn:
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
     prompts_open: int = 0
-    # Display provenance, not turn readiness. A genuine start establishes this process generation.
+    # Display provenance, not turn readiness. A genuine start establishes when this process began work.
     work_since: float | None = None
     shell_snapshot: tuple[BackgroundJob, ...] | None = None
     shell_snapshot_at: float = float("-inf")
     shell_snapshot_valid: bool = True
-    generation: int = 0
 
 
 def _has_spinner(title: str) -> bool:
@@ -72,7 +71,6 @@ class StatusEngine:
         # `monotonic` orders SubagentStop against the transcript read's start.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
-        self._generation = 0
         # When the subagents' transcripts were last asked for (subagent_transcripts), on the monotonic clock: the read
         # that answers began then, and cannot say a SubagentStop that came after it stands.
         self._asked_at = float("-inf")
@@ -87,8 +85,7 @@ class StatusEngine:
 
     def _turn(self, session_id: str) -> Turn:
         if (turn := self._turns.get(session_id)) is None:
-            self._generation += 1
-            turn = self._turns[session_id] = Turn(generation=self._generation)
+            turn = self._turns[session_id] = Turn()
         return turn
 
     def apply_event(self, session_id: str, ev: HookEvent) -> list[str]:

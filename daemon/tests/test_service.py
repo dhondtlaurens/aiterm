@@ -177,20 +177,20 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
     assert svc.registry.get(sid).state == "working"
 
 
-@pytest.mark.parametrize("replacement", ["process", "conversation", "generation", "closed"])
+@pytest.mark.parametrize("replacement", ["process", "conversation", "sessionStart", "closed"])
 async def test_background_read_cannot_attach_to_replaced_identity(make_service, tmp_path, monkeypatch, replacement):
     from aitermd.claude_background import ShellReading, ShellTask
     svc, sid, path = await background_session(make_service, tmp_path)
 
     async def replace_during_read(name, work, nothing):
-        owner = svc.status.turn(sid)
-        reading = {f"{sid}:{owner.generation}": ShellReading((ShellTask(BackgroundJob("shell", "old", task_id="old"), 101),), frozenset())}
+        reading = {sid: ShellReading((ShellTask(BackgroundJob("shell", "old", task_id="old"), 101),), frozenset())}
         if replacement == "process":
             await svc.iterm.user_runs(sid, "claude", job_pid=401)
             svc.registry.apply_snapshot(await svc.iterm.snapshot())
         elif replacement == "conversation":
             svc.status.apply_metadata(sid, conversation="other")
-        elif replacement == "generation":
+        elif replacement == "sessionStart":
+            monkeypatch.setattr(svc.status, "_clock", lambda: 102)
             svc.status.apply_event(sid, HookEvent("claude", "sessionStart", "conversation", "/wt"))
         else:
             svc.registry.apply_snapshot([])
@@ -200,6 +200,42 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
     assert await svc.observe_background(svc.registry.all()) == []
     session = svc.registry.get(sid)
     assert session is None or session.shown_shells is None
+
+
+@pytest.mark.parametrize("replacement", ["agent", "process", "conversation", "closed"])
+async def test_a_session_read_applies_only_the_sessions_still_current(make_service, monkeypatch, replacement):
+    from aitermd.corroboration import ReadPlan, SessionKey
+    from aitermd.models import RawSession
+
+    svc = make_service()
+    rows = [RawSession(sid, "w", index, "claude", 400 + index, "", "/wt")
+            for index, sid in enumerate(("replaced", "current"))]
+    svc.registry.apply_snapshot(rows)
+    applied = {}
+
+    def apply(readings):
+        applied.update(readings)
+        return list(readings)
+
+    plan = ReadPlan("session read", lambda: {"replaced": "old", "current": "fresh"}, {}, apply,
+                    keys={s.session_id: SessionKey.capture(s) for s in svc.registry.all()})
+
+    async def replace_during_read(name, work, nothing):
+        reading = work()
+        if replacement == "agent":
+            rows[0].command_line = "codex"
+        elif replacement == "process":
+            rows[0].job_pid = 999
+        elif replacement == "conversation":
+            svc.status.apply_metadata("replaced", conversation="new")
+        else:
+            rows.pop(0)
+        svc.registry.apply_snapshot(rows)
+        return reading
+
+    monkeypatch.setattr(svc, "run_check", replace_during_read)
+    assert await svc.observe(plan) == ["current"]
+    assert applied == {"current": "fresh"}
 
 
 async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(make_service):
@@ -2370,8 +2406,10 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
     svc.resolver.bind(sid, "codex", "old-thread", "SessionStart")
 
     async def replaced_during_read(name, work, nothing):
+        from aitermd.codex_sessions import CodexReading
+
         svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
-        return {"old-thread": (90, "old-version")}
+        return {sid: CodexReading(90, "old-version", None)}
 
     monkeypatch.setattr(svc, "run_check", replaced_during_read)
     assert await svc.observe_codex({sid: "old-thread"}) == []

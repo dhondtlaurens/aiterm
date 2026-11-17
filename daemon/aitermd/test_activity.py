@@ -56,7 +56,7 @@ def _worktree_boundary(cwd: Path | None) -> Path | None:
 class ActivityRead:
     activities: dict[str, TestActivity]
     # The captured session, its resolved directory and its nearest checkout. All filesystem
-    # observation happens in read(); apply() only matches these values against the live registry.
+    # observation happens in read(); apply() assigns activity using these resolved paths.
     locations: dict[str, tuple[SessionInfo, Path | None, Path | None]]
 
 
@@ -154,17 +154,6 @@ class TestActivityReader:
         """Apply a still-current snapshot on the loop, retaining worktree ownership as one pass."""
         readings, assigned, changed = reading.activities, set(), []
         sessions = registry.all()
-        # Assignment is one ordered pass. If a hook changed an input during the read, retry the
-        # whole view next tick instead of moving a skipped main worker's activity to a sibling.
-        if len(sessions) != len(reading.locations):
-            return []
-        for session in sessions:
-            if (location := reading.locations.get(session.session_id)) is None:
-                return []
-            captured = location[0]
-            if ((session.agent, session.job_pid, session.conversation_id, session.agent_cwd, session.cwd) !=
-                    (captured.agent, captured.job_pid, captured.conversation_id, captured.agent_cwd, captured.cwd)):
-                return []
         live_keys = {(s.session_id, s.job_pid, s.conversation_id) for s in sessions}
         self._results = {key: value for key, value in self._results.items() if key in live_keys}
         live_ids = {s.session_id for s in sessions}

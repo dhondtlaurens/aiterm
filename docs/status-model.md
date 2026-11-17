@@ -159,7 +159,7 @@ list, also while the tab works or asks; the row's background status and the Oper
 follows the parent transcript of a Claude process whose SessionStart this daemon observed: a Bash
 result must confirm `backgroundTaskId`, native completion notices and verified TaskStop results end
 a shell, and it is unavailable during replay catch-up, partial writes, failed reads, when a Stop
-names a shell it has not seen, and for a replaced process, conversation or generation. Test runs
+names a shell it has not seen, and for a changed process, conversation or time its work began. Test runs
 are not in the list; the app appends the active ones of ended tabs to the card.
 
 Within a conversation, a Claude child can also die without a `SubagentStop`. Claude Code's stream

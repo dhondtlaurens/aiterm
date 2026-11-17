@@ -231,7 +231,7 @@ class StoppedOn:
     may carry on from by itself once it resets; `billing_error`, `authentication_failed` and the like for one that
     blocks the session until someone acts. `resets_at`, a limit's reset in epoch seconds, only as the transcript's own
     record of the limit gives it (stop_failures.StopTranscripts); None while nothing has. `at`, the wall clock when
-    the hook came, is neither sent nor compared."""
+    the hook came, is excluded from value equality and wire data."""
     error: str
     resets_at: int | None = None
     at: float = field(default=0.0, compare=False)

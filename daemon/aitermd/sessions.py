@@ -126,8 +126,12 @@ class SessionRegistry:
         return True
 
     def set_stopped_on(self, session_id: str, stopped: StoppedOn | None) -> bool:
-        """What ended the session's last turn short (SessionInfo.stopped_on); None once it works again."""
-        return self._set(session_id, "stopped_on", stopped)
+        """Record each stop's timestamp, announcing only a changed wire value; None once it works again."""
+        if (session := self._sessions.get(session_id)) is None:
+            return False
+        changed = session.stopped_on != stopped
+        session.stopped_on = stopped
+        return changed
 
     def set_your_prompt(self, session_id: str, prompt: str | None) -> bool:
         return self._set(session_id, "your_prompt", prompt)
@@ -172,6 +176,9 @@ class SessionRegistry:
 
     def all(self) -> list[SessionInfo]:
         return sorted(self._sessions.values(), key=lambda s: (s.window_id, s.tab_index))
+
+    def session_ids(self) -> set[str]:
+        return set(self._sessions)
 
     def for_task(self, task_id: str) -> list[SessionInfo]:
         return [self._sessions[sid] for sid in self._task_index.get(task_id, ())]

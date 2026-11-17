@@ -6,7 +6,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from . import protocol
 from .claude_sessions import ClaudeSessionFiles
@@ -380,6 +380,15 @@ class Service:
 
     async def observe(self, plan: ReadPlan[T]) -> list[str]:
         reading = plan.nothing if plan.read is None else await self.run_check(plan.name, plan.read, plan.nothing)
+        if plan.keys is not None:
+            current = {sid for sid, key in plan.keys.items()
+                       if (session := self.registry.get(sid)) is not None and plan.current_key(session) == key}
+            if plan.whole:
+                # Assignment spans the registry: a new sibling can change who owns an activity.
+                if current != plan.keys.keys() or self.registry.session_ids() != current:
+                    return []
+            else:
+                reading = cast(T, {sid: value for sid, value in cast(dict[str, object], reading).items() if sid in current})
         return plan.apply(reading)
 
     async def observe_background(self, sessions: list[SessionInfo]) -> list[str]:
