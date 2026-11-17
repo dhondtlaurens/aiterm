@@ -307,6 +307,7 @@ import Foundation
 
         await m.loadAgentCatalogue()
         #expect(m.draft.model.isEmpty)
+        #expect(m.unavailableModel == "openai/model-x")
         #expect(!m.selectedModelIsCurrent)
         #expect(await m.create() == false)
         #expect(created == 0)
@@ -314,6 +315,9 @@ import Foundation
         #expect(m.selectedModelIsCurrent)
         #expect(await m.create())
         #expect(created == 1)
+        ModelSettings.save(ModelPreference(model: current.id, reasoning: nil), for: .pi, defaults: defaults)
+        await m.loadAgentCatalogue()
+        #expect(m.unavailableModel == nil)
     }
 
     /// Mirrors `TaskCreationModelTests.reselectingTheCurrentAgentKeepsTheLoadedCatalogue`: a click

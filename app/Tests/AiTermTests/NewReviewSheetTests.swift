@@ -90,16 +90,54 @@ import AiTermCore
                 == "Opens in iTerm2 · acme-web/.worktrees/shop-1711-monorepo · feat/shop-1711-monorepo")
     }
 
-    /// With no CLI installed every segment is disabled — none of them would open anything — and
-    /// the note sends the user to where the CLIs are installed.
+    /// With no CLI installed the note sends the user to where the CLIs are installed.
     @Test func anAgentIsSelectableOnlyWhenItsCLIIsInstalled() {
-        #expect(AgentStep.missingAgentNote(available: Set(AgentKind.allCases)) == nil)
-        #expect(AgentStep.missingAgentNote(available: [.claude, .codex])
-                == "PI isn’t installed. Install it in Settings › Agents.")
-        #expect(AgentStep.missingAgentNote(available: [.codex])
-                == "Claude Code and PI aren’t installed. Install them in Settings › Agents.")
-        #expect(AgentStep.missingAgentNote(available: [])
-                == "Claude Code, Codex and PI aren’t installed. Install them in Settings › Agents.")
+        #expect(AgentStep.noAgentNote == "Claude Code, Codex and PI aren’t installed. Install them in Settings › Agents.")
+        for available: Set<AgentKind> in [[], [.codex], Set(AgentKind.allCases)] {
+            let view = AgentStep(availableAgents: available, models: [], catalogueLoaded: true,
+                                 agent: .claude, model: "", reasoning: .constant(nil), selectAgent: { _ in }, setModel: { _ in })
+            let host = testHost(view, size: CGSize(width: Sheet.width, height: Sheet.height))
+            let window = testWindow(hosting: host, styleMask: [])
+            defer { window.orderOut(nil) }
+            settle(host)
+            let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: image)
+            #expect((amberPixelCount(image) > 0) == available.isEmpty)
+            #expect(texts(in: host).filter { $0 == AgentStep.noAgentNote }.count == (available.isEmpty ? 1 : 0))
+        }
+    }
+
+    private func texts(in root: NSObject) -> [String] {
+        let app = NSApplication.shared
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = app.accessibilityAttributeValue(enhanced) as? Bool ?? false
+        app.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { app.accessibilitySetValue(previous, forAttribute: enhanced) }
+        func value(_ node: NSObject, _ attribute: NSAccessibility.Attribute, _ getter: String) -> Any? {
+            let selector = NSSelectorFromString(getter)
+            if node.responds(to: selector), let value = node.perform(selector)?.takeUnretainedValue() { return value }
+            return node.accessibilityAttributeValue(attribute)
+        }
+        var seen = Set<ObjectIdentifier>()
+        func walk(_ node: NSObject) -> [String] {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+            let children = value(node, .children, "accessibilityChildren") as? [NSObject] ?? []
+            let own = value(node, .role, "accessibilityRole") as? String == NSAccessibility.Role.staticText.rawValue
+                ? (value(node, .value, "accessibilityValue") as? String).map { [$0] } ?? [] : []
+            return own + children.flatMap(walk)
+        }
+        return walk(root)
+    }
+
+    private func amberPixelCount(_ image: NSBitmapImageRep) -> Int {
+        var count = 0
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.redComponent > 0.6 && color.greenComponent > 0.3 && color.greenComponent < 0.85 && color.blueComponent < 0.4 { count += 1 }
+            }
+        }
+        return count
     }
 
     @MainActor @Test func completedEmptyCatalogueDoesNotLookLikeItIsStillLoading() {
@@ -120,11 +158,11 @@ import AiTermCore
         let current = AgentModel(id: "openai/current", label: "openai / current", detail: nil,
                                  efforts: ["high"], defaultEffort: "high")
         let view = AgentStep(availableAgents: [.pi], models: [current], catalogueLoaded: true,
-                             agent: .pi, model: "", reasoning: .constant(nil),
+                             agent: .pi, model: "openai/removed", reasoning: .constant(nil),
                              selectAgent: { _ in }, setModel: { _ in })
         #expect(view.selectedModel == nil)
         #expect(view.fields.modelChoices.first?.id == "")
-        #expect(view.fields.modelChoices.first?.label == "Choose a current model…")
+        #expect(view.fields.modelChoices.first?.label == "Unavailable: openai/removed")
     }
 }
 

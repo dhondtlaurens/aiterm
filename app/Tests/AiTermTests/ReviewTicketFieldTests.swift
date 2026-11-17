@@ -20,14 +20,30 @@ import Synchronization
                      draft: true, url: "https://git.example.net/jarvis/jarvis/-/merge_requests/\(iid)")
     }
 
-    private func model(requests: @escaping @Sendable (JiraTicket) async throws -> TicketMergeRequests.Found = { _ in .init(requests: [], complete: true) },
+    private func model(search: @escaping @Sendable (String) async throws -> [JiraTicket] = { _ in [] },
+                       requests: @escaping @Sendable (JiraTicket) async throws -> TicketMergeRequests.Found = { _ in .init(requests: [], complete: true) },
                        ticket: @escaping @Sendable (MergeRequest) async throws -> JiraTicket? = { _ in nil }) -> ReviewCreationModel {
-        let lookup = ReviewTicketLookup(search: { _ in [] }, requests: requests, ticket: ticket,
+        let lookup = ReviewTicketLookup(search: search, requests: requests, ticket: ticket,
                                         repository: "jarvis/jarvis", jiraConnected: true, jiraProjects: ["JVS"])
         return ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                    context: .scratch(availableAgents: { [.claude] }, catalogue: ScratchHome.catalogue,
                                                      defaults: ScratchDefaults.make(), canChangeWorkspace: { true }),
                                    searchMergeRequests: { _ in [] }, tickets: lookup, createReview: { _ in }, recover: { _ in })
+    }
+
+    @Test func theOpeningTicketSearchAnsweringAfterAPickChangesNothing() async {
+        let entered = TestLatch(), release = TestLatch(), late = other
+        let m = model(search: { _ in entered.signal(); await release.wait(); return [late] })
+        let opening = Task { await m.searchTickets(text: "") }
+        await entered.wait()
+        m.pickTicket(ticket)
+        await m.kind.lookupTask?.value
+        let picked = m.draft
+        let note = m.ticketLookupNote
+        release.signal()
+        await opening.value
+        #expect(m.ticketResults.isEmpty && m.ticketSearchError == nil)
+        #expect(m.draft == picked && m.ticketLookupNote == note)
     }
 
     @Test func aTicketWithOneOpenRequestPicksItAndSaysWhereItCameFrom() async {

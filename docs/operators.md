@@ -40,6 +40,8 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
 5. **Done:** choose the source's done condition, whether to merge when ready where offered, and
    whether to keep, archive or remove the task. The closing box states what your choices do.
 
+While an agent the signal may use isn't ready, a note above the buttons says what to fix; you can still create or save the signal.
+
 Creating, saving an edit or switching a signal on starts every currently matching item that never
 started. An incomplete read starts nothing. An item that stops matching keeps running to its done
 condition. There is no concurrency cap. Jira checks every minute and sweeps all matching keys every

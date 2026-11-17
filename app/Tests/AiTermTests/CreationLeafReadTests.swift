@@ -13,7 +13,7 @@ import Testing
         let roots = invalidates({ _ = sheet.body }, by: { model.branches = ["main", "topic"] }) ? 1 : 0
         print("New Task root invalidations for branch choices: \(roots)")
         #expect(roots == 0, "baseline 1; final 0")
-        let leaf = NewTaskFirstStep(model: model, ticketsOpen: .constant(false))
+        let leaf = NewTaskFirstStep(model: model, ticketsOpen: .constant(false), baseOpen: .constant(false))
         #expect(invalidates({ _ = leaf.body }, by: { model.branches = ["main", "other"] }), "the leaf still reads the choices")
     }
 

@@ -266,7 +266,7 @@ enum SheetSnapshots {
     private static func footer(_ failure: CreationFailure, createLabel: String = "Create Review") -> some View {
         SteppedSheetFooter(step: 3, count: 3, createLabel: createLabel, creating: false, canAdvance: true,
                            closeList: { false }, cancel: {}, back: {}, advance: {}) {
-            CreationNotices(error: failure, availableAgents: [.claude], creating: false, recoverAndCreate: { false })
+            CreationNotices(error: failure, creating: false, recoverAndCreate: { false })
         }
         .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
     }

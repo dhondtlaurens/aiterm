@@ -82,8 +82,6 @@ protocol CreationKind {
     func slug(for draft: Draft) -> String
     /// Told after anything in the draft but its prompt changed, with what the draft was before.
     func draftChanged(from old: Draft, in model: CreationModel<Self>)
-    /// Told after the branch list was read.
-    func branchesChanged(in model: CreationModel<Self>)
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
 }
@@ -94,7 +92,6 @@ extension CreationKind {
     static var lastStep: Int { 3 }
 
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
-    func branchesChanged(in model: CreationModel<Self>) {}
     /// Kinds with no recovery effects need no implementation.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
 }
@@ -154,8 +151,11 @@ final class CreationModel<Kind: CreationKind> {
     }
     var branchesLoaded = false
     var branches: [String] = [] {
-        didSet { kind.branchesChanged(in: self) }
+        didSet { filterBranches() }
     }
+    private(set) var unavailableModel: String?
+    var branchQuery = "" { didSet { if branchQuery != oldValue { filterBranches() } } }
+    private(set) var branchMatches: [String] = []
     var models: [AgentModel] = []
     private(set) var catalogueLoaded = false
     /// Why the chosen agent has no models to offer, when its catalogue could not be read: PI's own
@@ -249,6 +249,7 @@ final class CreationModel<Kind: CreationKind> {
         models = []
         catalogueLoaded = false
         catalogueFailure = nil
+        unavailableModel = nil
         resetModel = true
     }
 
@@ -278,15 +279,24 @@ final class CreationModel<Kind: CreationKind> {
         let preference: ModelPreference
         let savedModelIsMissing: Bool
         switch catalogue.resolution {
-        case .valid(let value): preference = value; savedModelIsMissing = false
-        case .missing: preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = true
-        case .empty: preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = false
+        case .valid(let value): preference = value; savedModelIsMissing = false; unavailableModel = nil
+        case .missing(let value): preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = true; unavailableModel = value.model
+        case .empty: preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = false; unavailableModel = nil
         }
         if resetModel || savedModelIsMissing || !models.contains(where: { $0.id == draft.model }) {
             draft.model = preference.model
             draft.reasoning = preference.reasoning
             resetModel = false
         }
+    }
+
+    /// Filter only when the typed query or branch list changes, preserving the repository’s order.
+    private func filterBranches() { branchMatches = filteredBranches(query: branchQuery) }
+
+    func filteredBranches(query: String) -> [String] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return branches }
+        return branches.filter { $0.range(of: query, options: .caseInsensitive) != nil }
     }
 
     func loadBranches() async {

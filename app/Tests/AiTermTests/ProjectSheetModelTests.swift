@@ -19,41 +19,53 @@ import Testing
         #expect(saved == [link])
     }
 
-    @Test func anOldFolderInspectionCannotReplaceTheNewerOne() async {
+    @Test func aChosenFolderReplacesThePreparationAndItsImportChoice() async {
         let first = ProjectPreparation(project: .make(path: "/projects/a"))
-        let last = ProjectPreparation(project: .make(path: "/projects/b"))
+        let last = ProjectPreparation(project: .make(path: "/projects/b"),
+                                      worktrees: [Worktree(path: "/projects/b/.worktrees/task", branch: "feat/task", lockReason: nil)], defaultBranch: "main")
         let entered = TestLatch(), release = TestLatch()
+        var inspected: [String] = []
         let model = ProjectSheetModel(preparation: first, editing: false, git: .hermetic(), canChange: { true },
                                       inspect: { path in
-                                          if path == "/projects/slow" { entered.signal(); await release.wait(); return first }
-                                          return last
-                                      }, chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in })
-        model.folder = "/projects/slow"
-        let old = Task { await model.inspectFolder() }
+                                          inspected.append(path); entered.signal(); await release.wait(); return last
+                                      }, chooseFolder: { URL(fileURLWithPath: "/projects/b") }, loadProjects: { [] }, commit: { _, _, _ in })
+        model.importWorktrees = false
+        let choice = Task { await model.chooseFolder() }
         await entered.wait()
-        model.folder = "/projects/b"
-        await model.inspectFolder()
-        release.signal(); await old.value
-        #expect(model.preparation.project.path == "/projects/b" && model.canSave)
+        #expect(model.preparing && !model.canSave)
+        release.signal(); await choice.value
+        #expect(inspected == ["/projects/b"])
+        #expect(model.preparation.project.path == "/projects/b" && model.importWorktrees)
+        #expect(!model.preparing && model.canSave)
     }
 
-    @Test func aLockedWorkspaceOrFailedInspectionCannotSaveAPreviousFolder() async {
+    @Test func aCancelledPanelChangesNothing() async {
         let prepared = ProjectPreparation(project: .make(path: "/projects/a"))
-        var saved = false
         let model = ProjectSheetModel(preparation: prepared, editing: false, git: .hermetic(), canChange: { true },
-                                      inspect: { _ in throw ActionUnavailable("Missing folder") }, chooseFolder: { nil }, loadProjects: { [] },
-                                      commit: { _, _, _ in saved = true })
-        model.folder = "/missing"
-        #expect(!model.canSave)
-        await model.inspectFolder()
-        let result = await model.save()
-        #expect(!model.canSave && !result && !saved)
-        model.folder = prepared.project.path
-        await model.inspectFolder()
-        #expect(model.canSave)
+                                      inspect: { _ in Issue.record("A cancelled panel must not inspect"); return prepared },
+                                      chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in })
+        model.importWorktrees = true
+        await model.chooseFolder()
+        #expect(model.preparation.project.path == prepared.project.path && model.importWorktrees)
+        #expect(model.error == nil && !model.preparing && model.canSave)
+    }
+
+    @Test func aFailedChoiceKeepsThePreviousFolderAndStaysSaveableALockedWorkspaceCannotSave() async {
+        let prepared = ProjectPreparation(project: .make(path: "/projects/a"))
+        var savedPath: String?
+        let model = ProjectSheetModel(preparation: prepared, editing: false, git: .hermetic(), canChange: { true },
+                                      inspect: { _ in throw ActionUnavailable("Missing folder") },
+                                      chooseFolder: { URL(fileURLWithPath: "/missing") }, loadProjects: { [] },
+                                      commit: { preparation, _, _ in savedPath = preparation.project.path })
+        await model.chooseFolder()
+        #expect(model.error == "Missing folder" && model.canSave && !model.preparing)
+        #expect(model.preparation.project.path == prepared.project.path)
+        #expect(await model.save())
+        #expect(savedPath == prepared.project.path)
+        savedPath = nil
         let locked = ProjectSheetModel(preparation: prepared, editing: true, git: .hermetic(), canChange: { false }, inspect: { _ in prepared },
-                                       chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in saved = true })
-        #expect(!(await locked.save()) && !saved)
+                                       chooseFolder: { nil }, loadProjects: { [] }, commit: { preparation, _, _ in savedPath = preparation.project.path })
+        #expect(!(await locked.save()) && savedPath == nil)
     }
 
     @Test func aFailedSaveCanBeRetriedWithoutChangingTheFolder() async {

@@ -444,7 +444,7 @@ TS tests-scripts.
   action, failure and closing block; it owns the stepper, Cancel on every step, Escape, Back,
   Continue and dismissal. Each sheet keeps its height. New Task, New Review and New Signal use it; one-field sheets
   commit on Return (SS F2, F3, F14 Return only).
-- [ ] 8g. **Codex.** Sheet fixes: readiness as advice for the signal's rows; the "isn't installed"
+- [x] 8g. **Codex.** Sheet fixes: readiness as advice for the signal's rows; the "isn't installed"
   note once and only when no agent can run; one unavailable-model wording and a visible reason for
   a disabled Continue; Add Project's folder as a line with Choose…; Base branch as the filtered
   field; one cancel rule in `DebouncedSearch`, which fixes the late ticket answer after a pick
@@ -1447,3 +1447,24 @@ left.
   rewritten to cancel. Added `SteppedSheetTests` and three `SheetDismissalTests`. Noticed and left (docs comments for
   9a): `SheetStepper`'s "no step is a button" and `SheetPrimaryButton`'s "New Review's Apply";
   `docs/design/design-system.html` still names the old types (design-system sync).
+- 8g, the sheet fixes as the brief lists them:
+  - New Signal's readiness checks only the signal's own agents and is advice: "Checking agents…" or "Fix this before
+    its tasks start" above the buttons, never disabling Create.
+  - The "isn't installed" note shows once, in amber, only when no agent can run.
+  - One wording, "Unavailable: <model>", for a saved model no longer offered, with one help line (New Task, New
+    Review, Settings › Agents and Operator).
+  - `Step.whyNot` says why New Signal's Agents step cannot continue.
+  - Add Project shows the chosen folder as a line with Choose…, with no typed path or second inspection.
+  - New Task's Base branch is the filtered `BranchInput` New Review uses, and an empty base disables Continue.
+  - `DebouncedSearch` has one cancel rule, so a late opening ticket search after a pick is dropped.
+  Snapshots against `build/8g-before`: the six `step1-*` images (Base branch field) and `add-project.png` (folder
+  line), as listed. `step3-agent.png` also differs by 10 pixels with a channel delta of 1 on glyph edges, the same
+  render noise the phase 6 comparison showed on that image. Tests deleted:
+  `ProjectSheetModelTests.anOldFolderInspectionCannotReplaceTheNewerOne` (typed folders deleted) and
+  `DebouncedSearchTests.theTicketFieldShowsWhatItsOwnRuleShowed` (the second rule deleted;
+  `thePickersSearchShowsWhatItsOwnRuleShowed` and the new held ticket-search test in `ReviewTicketFieldTests`
+  cover the one rule). Rewritten: `aLockedWorkspaceOrFailedInspectionCannotSaveAPreviousFolder` →
+  `aFailedChoiceKeepsThePreviousFolderAndStaysSaveableALockedWorkspaceCannotSave`, `aModelOffTheCatalogueIsStillOffered`
+  → `aSavedModelOffTheCatalogueShowsAsUnavailableAndSaveKeepsIt`, `onlyTheAgentsTheOperatorMayPlanOnAreWaitedFor` →
+  `onlyTheSignalsOwnAgentsAreChecked`. Added the brief's model, sheet, Agents-reason and base-field tests. Noticed
+  and left: `SignalContext.read` picks the first catalogue model when a resolved preference is empty.

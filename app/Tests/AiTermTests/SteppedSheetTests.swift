@@ -53,6 +53,22 @@ import Testing
         #expect(h.sheet.step == 2)
     }
 
+    @Test func aDisabledStepSaysWhyOnlyWhileNoCreateRuns() {
+        let h = Harness()
+        defer { h.close() }
+        h.sheet.whyNot = "Add an agent."
+        h.sheet.canAdvance = false
+        h.settle()
+        #expect(h.texts().contains("Add an agent."))
+        h.sheet.canAdvance = true
+        h.settle()
+        #expect(!h.texts().contains("Add an agent."))
+        h.sheet.canAdvance = false
+        h.sheet.creating = true
+        h.settle()
+        #expect(!h.texts().contains("Add an agent."))
+    }
+
     /// Leaving a step closes its lists, every one of them.
     @Test func continuingClosesTheStepsLists() {
         let h = Harness()
@@ -116,6 +132,7 @@ import Testing
 @MainActor @Observable private final class FakeSheet {
     var step = 1
     var canAdvance = true
+    var whyNot: String?
     var creating = false
     var createSucceeds = false
     var creates = 0
@@ -139,7 +156,7 @@ private struct FakeSheetView: View {
     var body: some View {
         SteppedSheet(title: "Fake", height: Sheet.creationHeight,
                      steps: (1...3).map { number in
-                         Step(name: "Step \(number)", canAdvance: sheet.canAdvance, closeList: { sheet.closeList(number) })
+                         Step(name: "Step \(number)", canAdvance: sheet.canAdvance, whyNot: sheet.whyNot, closeList: { sheet.closeList(number) })
                      },
                      step: $sheet.step, createLabel: "Make It", creating: sheet.creating, create: sheet.create) {
             Text("Content of step \(sheet.step)")
@@ -205,6 +222,15 @@ private struct FakeSheetView: View {
     /// The labels of the sheet's buttons, as AppKit's accessibility tree reads them.
     func buttons() -> [String] {
         withAccessibilityTree { buttonNodes().compactMap { Self.value(.description, getter: "accessibilityLabel", of: $0) as? String } }
+    }
+
+    func texts() -> [String] {
+        withAccessibilityTree {
+            Self.elements(content).compactMap { node in
+                guard Self.value(.role, getter: "accessibilityRole", of: node) as? String == NSAccessibility.Role.staticText.rawValue else { return nil }
+                return Self.value(.value, getter: "accessibilityValue", of: node) as? String
+            }
+        }
     }
 
     /// The button labelled `label`, pressed as VoiceOver or a click would.

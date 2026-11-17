@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// The last step of New Task and New Review. an agent whose CLI is not on the login shell's `PATH` cannot be
+/// The last step of New Task and New Review. An agent whose CLI is not on the login shell's `PATH` cannot be
 /// picked, and the sheet says which one and where to install it instead of letting the task open a
 /// window that prints "command not found". With none installed, Continue stays disabled.
 struct AgentStep: View {
@@ -26,7 +26,7 @@ struct AgentStep: View {
         catalogueLoaded = model.catalogueLoaded
         catalogueFailure = model.catalogueFailure
         agent = model.draft.agent
-        self.model = model.draft.model
+        self.model = model.models.contains { $0.id == model.draft.model } ? model.draft.model : model.unavailableModel ?? ""
         _reasoning = Binding(get: { model.draft.reasoning }, set: { model.draft.reasoning = $0 })
         selectAgent = { model.selectAgent($0) }
         setModel = { model.draft.setModel($0, catalog: model.models) }
@@ -41,13 +41,9 @@ struct AgentStep: View {
         self.selectAgent = selectAgent; self.setModel = setModel
     }
 
-    /// Names the missing CLIs and where Settings installs them.
-    static func missingAgentNote(available: Set<AgentKind>) -> String? {
-        let missing = AgentKind.allCases.filter { !available.contains($0) }.map(\.displayName)
-        guard !missing.isEmpty else { return nil }
-        return missing.sentenceList + (missing.count == 1 ? " isn’t installed. Install it" : " aren’t installed. Install them")
-            + " in Settings › Agents."
-    }
+    /// Names every CLI and where Settings installs them when none can run.
+    static let noAgentNote = AgentKind.allCases.map(\.displayName).sentenceList
+        + " aren’t installed. Install them in Settings › Agents."
 
     /// A catalogue that could not be read says why — "PI couldn’t be launched." — rather than
     /// suggesting a sign-in that would not help.
@@ -70,12 +66,13 @@ struct AgentStep: View {
                                selection: Binding(get: { agent }, set: { selectAgent($0) }), label: { $0.displayName })
                     }.frame(maxWidth: .infinity)
                 }
-                if models.isEmpty {
+                if models.isEmpty && model.isEmpty {
                     FormField("Model") { HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded, failure: catalogueFailure)).fieldChrome() }
                         .frame(maxWidth: .infinity)
                 } else { fields.modelField; fields.reasoningField }
             }
-            if let note = Self.missingAgentNote(available: availableAgents) { HelpText(note, tone: .warning) }
+            if availableAgents.isEmpty { HelpText(Self.noAgentNote, tone: .warning) }
+            if selectedModel == nil, !model.isEmpty { HelpText(ModelReasoningFields.unavailableHelp, tone: .warning) }
             if let detail = selectedModel?.detail, !detail.isEmpty { HelpText(detail) }
         }
     }

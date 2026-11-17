@@ -7,6 +7,8 @@ struct Step {
     let name: String
     /// Whether Continue, or the create button on the last step, is enabled.
     let canAdvance: Bool
+    /// Why this step cannot advance, shown while no create is running.
+    var whyNot: String? = nil
     /// Closes the step's open list or popup, one per call, and says whether there was one.
     var closeList: () -> Bool = { false }
 }
@@ -61,7 +63,7 @@ struct SteppedSheet<Content: View, Notices: View, Closing: View>: View {
             }
         } footer: {
             SteppedSheetFooter(step: step, count: steps.count, createLabel: createLabel, creating: creating(),
-                               canAdvance: current.canAdvance && !creating(), closeList: current.closeList,
+                               canAdvance: current.canAdvance && !creating(), whyNot: current.whyNot, closeList: current.closeList,
                                cancel: cancel, back: back, advance: advance) {
                 notices
             }
@@ -109,23 +111,25 @@ struct SteppedSheetFooter<Notices: View>: View {
     let createLabel: String
     let creating: Bool
     let canAdvance: Bool
+    let whyNot: String?
     let closeList: () -> Bool
     let cancel: () -> Void
     let back: () -> Void
     let advance: () -> Void
     let notices: Notices
 
-    init(step: Int, count: Int, createLabel: String, creating: Bool, canAdvance: Bool, closeList: @escaping () -> Bool,
+    init(step: Int, count: Int, createLabel: String, creating: Bool, canAdvance: Bool, whyNot: String? = nil, closeList: @escaping () -> Bool,
          cancel: @escaping () -> Void, back: @escaping () -> Void, advance: @escaping () -> Void,
          @ViewBuilder notices: () -> Notices) {
         self.step = step; self.count = count; self.createLabel = createLabel; self.creating = creating
-        self.canAdvance = canAdvance; self.closeList = closeList
+        self.canAdvance = canAdvance; self.whyNot = whyNot; self.closeList = closeList
         self.cancel = cancel; self.back = back; self.advance = advance
         self.notices = notices()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.gap) {
+            if !canAdvance, !creating, let whyNot { HelpText(whyNot, tone: .warning) }
             notices
             HStack(spacing: Space.base) {
                 Button("Cancel", action: cancel).disabled(creating)

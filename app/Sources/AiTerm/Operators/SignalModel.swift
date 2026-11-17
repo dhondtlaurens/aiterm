@@ -46,13 +46,12 @@ import AiTermCore
     private(set) var assignees: [JiraUser] = []
     let completions = PromptCompletions()
     let jqlCompletions = PromptCompletions()
-    @ObservationIgnored var readinessLines: @MainActor () -> [String] = { [] }
+    @ObservationIgnored var readiness: @MainActor ([AgentKind]) -> SignalReadiness = { _ in .ready }
     @ObservationIgnored private var previewKey: UUID?
     @ObservationIgnored private let readPreview: @MainActor (SignalSource) async throws -> SignalRead
     @ObservationIgnored private let readMetadata: @MainActor () async throws -> Metadata
     @ObservationIgnored private let readUsers: @MainActor (String) async throws -> [JiraUser]
     @ObservationIgnored private let save: @MainActor (Signal) async throws -> Void
-    @ObservationIgnored private let ready: @MainActor () -> Bool
     @ObservationIgnored var loadCompletions: @MainActor () async -> Void = {}
     @ObservationIgnored var checkReadiness: @MainActor () async -> Void = {}
 
@@ -60,10 +59,17 @@ import AiTermCore
          preview: @escaping @MainActor (SignalSource) async throws -> SignalRead = { _ in SignalRead(items: [], complete: true) },
          metadata: @escaping @MainActor () async throws -> Metadata = { Metadata() },
          users: @escaping @MainActor (String) async throws -> [JiraUser] = { _ in [] },
-         ready: @escaping @MainActor () -> Bool = { true }, save: @escaping @MainActor (Signal) async throws -> Void) {
+         save: @escaping @MainActor (Signal) async throws -> Void) {
         self.original = signal; self.createdAt = signal?.createdAt ?? at; self.projects = projects; self.context = context; self.seen = seen
-        self.readPreview = preview; self.readMetadata = metadata; self.readUsers = users; self.ready = ready; self.save = save
-        agentRows = (signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }).map { AgentChoiceRow(choice: $0) }
+        self.readPreview = preview; self.readMetadata = metadata; self.readUsers = users; self.save = save
+        agentRows = (signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }).map { choice in
+            var choice = choice
+            if let model = context.models[choice.agent]?.first(where: { $0.id == choice.model }) {
+                var preference = ModelPreference(model: choice.model, reasoning: choice.reasoning)
+                preference.select(model); choice.reasoning = preference.reasoning
+            }
+            return AgentChoiceRow(choice: choice)
+        }
         guard let signal else { return }
         name = signal.name; prompt = signal.work.prompt
         ticketDescription = signal.work.ticketDescription; requestDescription = signal.work.requestDescription
@@ -126,6 +132,19 @@ import AiTermCore
     var offeredAgents: [AgentKind] { ModelChoice.pair.filter { context.defaults[$0] != nil } }
     func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
     var agents: [AgentChoice] { var found = Set<AgentChoice>(); return agentRows.map(\.choice).filter { found.insert($0).inserted } }
+    var agentsWhyNot: String? {
+        guard !agentRows.isEmpty else { return "Add an agent." }
+        for row in agentRows {
+            let choice = row.choice
+            if !offeredAgents.contains(choice.agent) {
+                return "\(choice.agent.displayName) isn’t installed. Choose another agent for its row, or remove it."
+            }
+            if !models(for: choice.agent).contains(where: { $0.id == choice.model }) {
+                return ModelReasoningFields.unavailableHelp
+            }
+        }
+        return nil
+    }
     func addAgent() {
         guard let agent = offeredAgents.first(where: { agent in !agentRows.contains { $0.choice.agent == agent } }) ?? offeredAgents.first,
               let choice = context.defaults[agent] else { return }
@@ -158,7 +177,7 @@ import AiTermCore
                 model.id == choice.model && (choice.reasoning == nil || model.efforts.contains(choice.reasoning!))
             }
         }) else { return false }
-        return step == 4 || (finish.isValid(for: source) && ready())
+        return step == 4 || finish.isValid(for: source)
     }
     func create() async -> Bool {
         guard canAdvance(step: 5) else { return false }

@@ -224,6 +224,26 @@ struct TaskCreationModelTests {
         #expect(review.worktreeSlug == "review-card-2")
     }
 
+    @Test func theBaseFieldsListFollowsWhatIsTyped() {
+        let model = fixture()
+        model.branches = ["main", "release/current", "feature/header"]
+        model.branchQuery = "REL"
+        #expect(model.branchMatches == ["release/current"])
+        model.branches = ["main", "release/next"]
+        #expect(model.branchMatches == ["release/next"])
+        model.branchQuery = " "
+        #expect(model.branchMatches == model.branches)
+    }
+
+    @Test func anEmptyBaseDisablesContinue() {
+        let model = fixture()
+        #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+        model.draft.baseBranch = "   "
+        #expect(!NewTaskSheet.canAdvance(step: 1, model: model))
+        model.draft.baseBranch = "not-listed"
+        #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+    }
+
     private func fixture(search: @escaping @MainActor (String) async throws -> [JiraTicket] = { _ in [] },
                          agent: AgentKind = .claude, model: String = "sonnet",
                          available: Set<AgentKind> = Set(AgentKind.allCases),

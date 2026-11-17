@@ -17,7 +17,7 @@ struct NewReviewSheet: View {
                      createLabel: Self.createLabel(owner: model.owningTask), creating: model.creating, create: model.create) {
             content
         } notices: {
-            CreationNotices(error: model.error, availableAgents: step == ReviewCreation.lastStep ? model.availableAgents : nil,
+            CreationNotices(error: model.error,
                             creating: model.creating, recoverAndCreate: model.recoverAndCreate)
         } closing: {
             CreationSummary(model: model, destination: Self.destination(step: step, project: model.project, owner: model.owningTask,

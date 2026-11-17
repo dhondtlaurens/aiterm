@@ -34,12 +34,12 @@ extension AppController {
                     let links = await controller.connections()
                     guard let connection = links.jira else { return [] }
                     return try await JiraClient(config: connection, session: links.session).signalUsers(query: query)
-                }, ready: { [weak self] in self?.signalReadiness == .ready }, save: { [weak self] value in
+                }, save: { [weak self] value in
                     try await controller.save(value)
                     // A new signal opens the Operator's section, where its tasks will be.
                     if signal == nil { self?.setOperatorOpen(true) }
                 })
-            model.readinessLines = { [weak self] in self?.signalReadiness.lines ?? [] }
+            model.readiness = { [weak self] in self?.signalReadiness(for: $0) ?? .ready }
             model.checkReadiness = { [weak self] in await self?.checkSignalReadiness() }
             model.loadCompletions = { [weak model] in
                 let found = await BackgroundWork.run {

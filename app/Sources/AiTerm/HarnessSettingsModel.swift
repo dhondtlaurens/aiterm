@@ -170,7 +170,7 @@ final class HarnessSettingsModel {
             // harness layer passes, this is the first (and only) failed check and still becomes
             // the card summary.
             checks.append(HarnessCheck(.selectedModel, passed: false,
-                                       explanation: "The selected model is no longer available."))
+                                       explanation: "The default model is no longer offered."))
         }
         return .reduce(agent: snapshot.agent, cliAvailable: snapshot.health != .unavailable,
                        integrationState: snapshot.integrationState, models: snapshot.models,

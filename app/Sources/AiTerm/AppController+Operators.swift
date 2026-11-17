@@ -75,9 +75,9 @@ extension AppController {
         workspace.mutate { $0.operatorOpen = open }
     }
 
-    var signalReadiness: SignalReadiness {
+    func signalReadiness(for signalAgents: [AgentKind]) -> SignalReadiness {
         let messaging = self.messaging
-        return .of(installed: agents.availableAgents, snapshots: agents.harnessSettingsModel().snapshots,
+        return .of(agents: signalAgents, installed: agents.availableAgents, snapshots: agents.harnessSettingsModel().snapshots,
                    messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm)
     }
 

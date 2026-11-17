@@ -13,8 +13,11 @@ struct SignalSheet: View {
             content
         } notices: {
             if let error = model.error { Notice(title: error) }
-            let waiting = model.readinessLines()
-            if !waiting.isEmpty { Notice(title: SignalReadiness.title, description: waiting.joined(separator: "\n")) }
+            switch model.readiness(ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }) {
+            case .checking: Notice(title: SignalReadiness.checkingTitle)
+            case .notReady(let lines): Notice(title: SignalReadiness.title, description: lines.joined(separator: "\n"))
+            case .ready: EmptyView()
+            }
         } closing: {
             SignalDoneSummary(model: model)
         }
@@ -41,7 +44,7 @@ struct SignalSheet: View {
         }
         return SignalModel.stepNames.enumerated().map { index, name in
             let number = index + 1
-            return Step(name: name, canAdvance: model.canAdvance(step: number),
+            return Step(name: name, canAdvance: model.canAdvance(step: number), whyNot: number == 4 ? model.agentsWhyNot : nil,
                         closeList: number == 2 ? closesConditions : number == 3 ? closesPrompt : { false })
         }
     }

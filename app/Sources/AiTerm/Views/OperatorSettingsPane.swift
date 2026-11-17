@@ -68,17 +68,23 @@ struct OracleGroup: View {
                     Select(values: model.oracleAgentChoices, selection: Binding(get: { oracle.agent }, set: { model.select(oracleAgent: $0) }),
                         label: { $0.displayName })
                 }.frame(maxWidth: .infinity)
-                let options = OperatorSettingsModel.options(model.models[oracle.agent] ?? [], keeping: oracle.model, reasoning: oracle.reasoning)
-                if let selected = options.first(where: { $0.id == oracle.model }) ?? options.first {
-                    let fields = ModelReasoningFields(models: options, model: selected.id,
+                let catalogue = model.models[oracle.agent] ?? []
+                let selected = catalogue.first { $0.id == oracle.model }
+                if catalogue.isEmpty && oracle.model.isEmpty {
+                    FormField("Model") { HelpText(oracle.agent.harness.noModelsExplanation) }.frame(maxWidth: .infinity)
+                } else {
+                    let fields = ModelReasoningFields(models: catalogue, model: oracle.model,
                         reasoning: Binding(get: { oracle.reasoning }, set: { if let value = $0 { model.select(oracleReasoning: value) } }),
-                        reasoningOptions: OperatorSettingsModel.efforts(of: selected, keeping: oracle.reasoning),
+                        reasoningOptions: selected.map { OperatorSettingsModel.efforts(of: $0, keeping: oracle.reasoning) } ?? [],
                         selectModel: { model.select(oracleModel: $0) })
                     fields.modelField
                     fields.reasoningField
-                } else { FormField("Model") { HelpText(oracle.agent.harness.noModelsExplanation) }.frame(maxWidth: .infinity) }
+                }
             }
             .disabled(dimmed).opacity(dimmed ? Opacity.disabled : 1)
+            if !oracle.model.isEmpty, !(model.models[oracle.agent] ?? []).contains(where: { $0.id == oracle.model }) {
+                HelpText(ModelReasoningFields.unavailableHelp, tone: .warning)
+            }
         }
     }
 }
@@ -112,7 +118,7 @@ private struct OperatorInstructionsGroup: View {
     }
 }
 /// Model, and Reasoning beside it while the model takes one, from `agent`'s catalogue; the saved
-/// model is offered by its id when the catalogue no longer lists it.
+/// model is marked Unavailable when the catalogue no longer lists it.
 private struct ModelFields: View {
     let agent: AgentKind
     let models: [AgentModel]
@@ -122,16 +128,16 @@ private struct ModelFields: View {
     let selectReasoning: (String) -> Void
 
     var body: some View {
-        let options = OperatorSettingsModel.options(models, keeping: model, reasoning: reasoning)
-        if options.isEmpty {
+        let selected = models.first { $0.id == model }
+        if models.isEmpty && model.isEmpty {
             HelpText(agent.harness.noModelsExplanation)
         } else {
-            let selected = options.first { $0.id == model } ?? options[0]
-            let efforts = OperatorSettingsModel.efforts(of: selected, keeping: reasoning)
             ModelReasoningFields(
-                models: options, model: selected.id,
+                models: models, model: model,
                 reasoning: Binding(get: { reasoning }, set: { if let value = $0 { selectReasoning(value) } }),
-                reasoningOptions: efforts, selectModel: selectModel)
+                reasoningOptions: selected.map { OperatorSettingsModel.efforts(of: $0, keeping: reasoning) } ?? [],
+                selectModel: selectModel)
+            if selected == nil, !model.isEmpty { HelpText(ModelReasoningFields.unavailableHelp, tone: .warning) }
         }
     }
 }

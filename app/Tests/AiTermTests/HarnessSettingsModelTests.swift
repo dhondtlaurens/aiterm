@@ -256,7 +256,7 @@ import AiTermCore
         let fake = FakeHarnessService(snapshots: readySnapshots)
         let model = HarnessSettingsModel(service: fake, rememberedModels: { [:] }, defaults: defaults)
         await model.load()
-        #expect(model.snapshots[.pi]?.summary == "The selected model is no longer available.")
+        #expect(model.snapshots[.pi]?.summary == "The default model is no longer offered.")
 
         model.select(piModel, for: .pi)
 

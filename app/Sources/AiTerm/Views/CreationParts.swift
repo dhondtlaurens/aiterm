@@ -15,8 +15,7 @@ struct CreationSummary<Kind: CreationKind>: View {
     }
 }
 
-/// New Task's and New Review's footer notices: the last failure, with its fix under it when it has one,
-/// and on the agent's step why no agent can run when none is installed.
+/// New Task’s and New Review’s footer notices: the last failure, with its fix under it when it has one.
 ///
 /// A failure is a `Notice` with no actions — the footer's buttons are its actions — and shows its
 /// reason, never the head of git's output: that is the command line and git's narration. The reason is
@@ -25,8 +24,6 @@ struct CreationSummary<Kind: CreationKind>: View {
 /// output is the tooltip.
 struct CreationNotices: View {
     let error: CreationFailure?
-    /// The agents this machine has, on the agent's step; nil on the others.
-    let availableAgents: Set<AgentKind>?
     let creating: Bool
     /// The failure's fix, then the create it stopped: whether that create went through.
     let recoverAndCreate: () async -> Bool
@@ -35,9 +32,6 @@ struct CreationNotices: View {
         if let error {
             Notice(title: error.reason, help: error.detail)
             CreationRecoveryButton(recovery: error.recovery, creating: creating, recoverAndCreate: recoverAndCreate)
-        }
-        if let availableAgents, availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
-            Notice(title: note)
         }
     }
 }

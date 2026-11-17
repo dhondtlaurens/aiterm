@@ -32,10 +32,13 @@ struct ProjectSheet: View {
                 if !model.editing {
                     FormField("Folder") {
                         HStack(spacing: Space.gap) {
-                            Input(placeholder: "Choose a project folder", text: $model.folder, monospaced: true)
+                            Text(model.preparation.project.path).font(Typography.monoCode).foregroundStyle(Palette.text)
+                                .lineLimit(1).truncationMode(.middle).help(model.preparation.project.path)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             Button("Choose…") { Task { await model.chooseFolder() } }.buttonStyle(PushButtonStyle(.secondary))
+                                .disabled(model.preparing || model.saving)
                         }
-                        if model.validating { HelpText("Reading the folder…") }
+                        if model.preparing { HelpText("Reading the folder…") }
                         else if let error = model.error { HelpText(error, tone: .warning) }
                         else { HelpText("\(providerName) · \(model.preparation.defaultBranch ?? "No default branch yet")") }
                     }
@@ -66,9 +69,6 @@ struct ProjectSheet: View {
         .interactiveDismissDisabled(model.saving)
         .task { await model.loadProjects() }
         .task { await model.loadDefaultBranchName() }
-        .task(id: model.folder) {
-            do { try await Task.sleep(for: .milliseconds(250)); await model.inspectFolder() } catch {}
-        }
     }
 }
 

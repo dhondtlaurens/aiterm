@@ -158,7 +158,8 @@ import AiTermUI
         let current = AgentModel(id: "anthropic/current", label: "anthropic / current",
                                  detail: nil, efforts: ["high"], defaultEffort: "high")
         let preference = ModelPreference(model: "openai/removed", reasoning: "high")
-        let options = HarnessCardPresentation.modelOptions([current], preference: preference)
+        let fields = ModelReasoningFields(models: [current], model: preference.model, reasoning: .constant(preference.reasoning), selectModel: { _ in })
+        let options = fields.modelChoices
 
         #expect(options.map(\.id) == ["", current.id])
         #expect(options.first?.label.contains("openai/removed") == true)

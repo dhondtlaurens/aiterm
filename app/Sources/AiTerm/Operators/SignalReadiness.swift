@@ -1,11 +1,8 @@
 import Foundation
 import AiTermCore
 
-/// What New Signal's Start waits for: every agent the Operator may plan on — Claude Code and Codex,
-/// those installed (`ModelChoice.pair`) — Ready on its Settings card, Messaging included, and iTerm2's
-/// own delivery checks passed. The Operator's own wake line needs no Messaging pass, but its workers'
-/// steers do, so every agent it may plan a task on is waited for. Each piece not ready is one line, in
-/// the words its card says it, so the footer and Settings never disagree.
+/// Advice about the signal’s own installed agents and iTerm2 before its tasks start. Each piece
+/// that needs attention is one line in its Settings card’s words, with Messaging included.
 enum SignalReadiness: Equatable {
     /// A piece is still being read, and none read so far is not ready.
     case checking
@@ -14,16 +11,17 @@ enum SignalReadiness: Equatable {
     case notReady([String])
 
     /// The footer Notice's title over the lines.
-    static let title = "Not ready to start"
+    static let title = "Fix this before its tasks start"
+    static let checkingTitle = "Checking agents…"
 
     var lines: [String] { if case .notReady(let lines) = self { lines } else { [] } }
 
     /// `installed` are the agent CLIs on this Mac, `snapshots` the cards' probes, `messaging` each
     /// agent's Messaging and `iterm` iTerm2's own checks; nil where not read yet.
-    static func of(installed: Set<AgentKind>, snapshots: [AgentKind: HarnessSnapshot],
+    static func of(agents: [AgentKind], installed: Set<AgentKind>, snapshots: [AgentKind: HarnessSnapshot],
                    messaging: (AgentKind) -> DeliveryReadiness?, iterm: DeliveryReadiness?) -> SignalReadiness {
         guard installed.contains(.claude) else { return .notReady(["The Operator needs Claude Code. Install it in Settings › Agents."]) }
-        let agents = ModelChoice.pair.filter(installed.contains)
+        let agents = ModelChoice.pair.filter { agents.contains($0) && installed.contains($0) }
         var lines: [String] = [], reading = false
         for agent in agents {
             guard let snapshot = snapshots[agent], let messaging = messaging(agent) else { reading = true; continue }

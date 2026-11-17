@@ -56,7 +56,7 @@ struct ReviewTicketLookup: Sendable {
 }
 
 /// New Review's part of `CreationModel`: it searches the project's open merge requests, follows
-/// which task already has the branch checked out, and filters the branch list as it is typed. Its
+/// which task already has the branch checked out. Its
 /// state is read through `ReviewCreationModel`, which keeps it current.
 @MainActor
 @Observable
@@ -71,13 +71,10 @@ final class ReviewCreation: CreationKind {
     fileprivate(set) var checkouts: [Worktree] = []
     fileprivate(set) var owningTask: TaskItem?
     fileprivate(set) var pickRefusal: String?
-    fileprivate(set) var branchQuery = ""
-    fileprivate(set) var branchMatches: [String] = []
 
     // The ticket field: its own search, as the merge request field's is `CreationModel`'s.
     fileprivate let tickets: ReviewTicketLookup
-    /// The ticket field's search. Its typing cancels only its own typed search (`DebouncedSearch.Superseding`), as it
-    /// did before it shared the pickers' type.
+    /// The ticket field’s search drops answers after a newer query or a pick.
     fileprivate let ticketSearch: DebouncedSearch<JiraTicket>
     /// What the ticket's lookup said when it filled nothing: several requests, none, or none among
     /// those it read. Shown under the merge request field.
@@ -90,7 +87,7 @@ final class ReviewCreation: CreationKind {
     init(codeHost: CodeHost, findOwner: @escaping (String, [Worktree]) -> TaskItem?,
          fix: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void, tickets: ReviewTicketLookup = .none) {
         self.codeHost = codeHost; self.findOwner = findOwner; self.fix = fix; self.tickets = tickets
-        ticketSearch = DebouncedSearch(superseding: .typedSearchOnly) { try await tickets.search($0) }
+        ticketSearch = DebouncedSearch { try await tickets.search($0) }
     }
 
     func slug(for draft: ReviewDraft) -> String { BranchNaming.reviewSlug(branch: draft.branch) }
@@ -101,8 +98,6 @@ final class ReviewCreation: CreationKind {
         // The refusal and its Rebase were about the branch the draft has just left.
         model.dropFailure()
     }
-
-    func branchesChanged(in model: ReviewCreationModel) { model.filterBranches() }
 
     func recover(_ recovery: CreationFailure.Recovery) async throws { try await fix(recovery) }
 }
@@ -285,31 +280,6 @@ extension CreationModel where Kind == ReviewCreation {
         kind.lookupTask = Task { @MainActor in
             await Log.network.attempt("Looking up the review’s ticket or merge request", level: .info) { try await work() }
         }
-    }
-
-    /// What the branch field has typed, and the branches it matches. Filtered when either changes
-    /// rather than on each read: the sheet reads the matches on every render, and a repository can
-    /// have hundreds of branches.
-    var branchQuery: String {
-        get { kind.branchQuery }
-        set {
-            guard newValue != kind.branchQuery else { return }
-            kind.branchQuery = newValue
-            filterBranches()
-        }
-    }
-    var branchMatches: [String] { kind.branchMatches }
-
-    fileprivate func filterBranches() {
-        kind.branchMatches = filteredBranches(query: branchQuery)
-    }
-
-    /// A popup of every branch in a real repository is unusable, so the branch field filters by
-    /// substring instead — case-insensitively, order preserved (default branch first).
-    func filteredBranches(query: String) -> [String] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return branches }
-        return branches.filter { $0.range(of: q, options: .caseInsensitive) != nil }
     }
 }
 

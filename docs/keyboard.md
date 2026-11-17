@@ -9,7 +9,7 @@ then cancels.
 | Keys | Action | Notes |
 | --- | --- | --- |
 | ⌘, | Settings… | Also View › Show Settings. Opens Integrations when setup needs attention, Agents otherwise. Disabled while another sheet is up. |
-| ⌘P | Add Project… | Folder, Jira links and worktree import share one sheet; Add Project persists the picks. |
+| ⌘P | Add Project… | Asks for the folder, then opens one sheet for its Jira links and worktree import; Choose… there picks another folder. |
 | ⌘D | Add Divider… | One name field. |
 | ⌘N | New Task… | Uses the selected project or the selected row's project. |
 | ⌘R | New Review… | The same target project. |

@@ -65,42 +65,11 @@ import Testing
         }
     }
 
-    /// The reference New Review ticket search, with cancellation on a new query or selection.
-    @MainActor final class TicketReference: Driven {
-        var results: [String] = [], searchError: String?
-        private(set) var typing: Task<Void, Never>?
-        private var generation = 0
-        let lookup: HeldLookup
-        init(_ lookup: HeldLookup) { self.lookup = lookup }
-        var shown: Shown { Shown(results: results, error: searchError) }
-
-        func cancel() { typing?.cancel() }
-        func type(_ text: String) { typing?.cancel(); typing = Task { await search(text, debounce: true) } }
-        func search(_ text: String, debounce: Bool) async {
-            generation += 1
-            let generation = generation
-            do {
-                if debounce { try await Task.sleep(for: .milliseconds(250)) }
-                try Task.checkCancellation()
-                let found = try await lookup.lookup(text)
-                guard !Task.isCancelled, generation == self.generation else { return }
-                results = found; searchError = nil
-            } catch {
-                guard !Task.isCancelled, generation == self.generation else { return }
-                if let partial = error as? PartialSearch<String> {
-                    results = partial.items; searchError = partial.message
-                } else {
-                    results = []; searchError = error.localizedDescription
-                }
-            }
-        }
-    }
-
     /// The shared type, driven as the references are.
     @MainActor final class Shared: Driven {
         let field: DebouncedSearch<String>
-        init(_ lookup: HeldLookup, _ superseding: DebouncedSearch<String>.Superseding) {
-            field = DebouncedSearch(superseding: superseding) { try await lookup.lookup($0) }
+        init(_ lookup: HeldLookup) {
+            field = DebouncedSearch { try await lookup.lookup($0) }
         }
         var typing: Task<Void, Never>? { field.typed }
         var shown: Shown { Shown(results: field.results, error: field.error) }
@@ -163,7 +132,7 @@ import Testing
     @Test func thePickersSearchShowsWhatItsOwnRuleShowed() async {
         let referenceLookup = HeldLookup(), sharedLookup = HeldLookup()
         let reference = await trace(PickerReference(referenceLookup), referenceLookup)
-        let shared = await trace(Shared(sharedLookup, .everySearch), sharedLookup)
+        let shared = await trace(Shared(sharedLookup), sharedLookup)
         #expect(shared == reference)
         #expect(sharedLookup.asked == referenceLookup.asked)
         #expect(reference == [
@@ -173,22 +142,6 @@ import Testing
             Shown(results: ["p1"], error: "One source failed"),
             Shown(results: ["p1"], error: "One source failed"),  // the typed answer let go is dropped
             Shown(results: ["p1"], error: "One source failed"),  // and so is the direct one
-        ])
-    }
-
-    @Test func theTicketFieldShowsWhatItsOwnRuleShowed() async {
-        let referenceLookup = HeldLookup(), sharedLookup = HeldLookup()
-        let reference = await trace(TicketReference(referenceLookup), referenceLookup)
-        let shared = await trace(Shared(sharedLookup, .typedSearchOnly), sharedLookup)
-        #expect(shared == reference)
-        #expect(sharedLookup.asked == referenceLookup.asked)
-        #expect(reference == [
-            Shown(results: ["all"], error: nil),
-            Shown(results: ["a1"], error: nil),
-            Shown(results: [], error: "boom"),
-            Shown(results: ["p1"], error: "One source failed"),
-            Shown(results: ["p1"], error: "One source failed"),  // the typed answer let go is dropped
-            Shown(results: ["direct"], error: nil),              // a direct search is not the field's to let go
         ])
     }
 
