@@ -134,22 +134,35 @@ final class RowWindows {
     /// terminal's as a fresh shell in its project's folder, and the Operator's chat through its
     /// controller. A second choose joins the open under way. Nil when nothing opens now: the row has a
     /// window, is gone, busy, a driven task not started yet, its worktree reads missing, the Operator has
-    /// nothing to do, or no helper is there. With iTerm2 away it is started, and the row is handed to
-    /// `onPendingOpen` once it is synced.
+    /// nothing to do, or no helper is there. With iTerm2 away it is started, whatever window the row
+    /// last had (one iTerm2 lost by crashing is reported gone only once it is back), and the row is
+    /// handed to `onPendingOpen` once it is synced.
     @discardableResult
     func open(_ row: WindowRow) -> Task<Void, Never>? {
         if let running = opening[row] { return running }
+        let window: String?
         switch row {
-        case .task(let id): guard let task = state.task(id: id), task.windowId == nil else { return nil }
-        case .terminal(let id): guard let terminal = state.terminal(id: id), terminal.windowId == nil else { return nil }
-        case .operatorChat: guard state.operatorHasWork, state.operatorSession?.window == nil else { return nil }
+        case .task(let id):
+            guard let task = state.task(id: id) else { return nil }
+            window = task.windowId
+        case .terminal(let id):
+            guard let terminal = state.terminal(id: id) else { return nil }
+            window = terminal.windowId
+        case .operatorChat:
+            // With no work there is nothing to open, but a chat iTerm2 still shows is raised.
+            window = state.operatorSession?.window
+            guard state.operatorHasWork || window != nil else { return nil }
         }
-        guard let daemon = daemon() else { notices.report(.disconnected("again")); return nil }
+        guard let daemon = daemon() else {
+            if window == nil { notices.report(.disconnected("again")) }
+            return nil
+        }
         guard itermSynced else {
             launchIterm()
             pendingOpen = row
             return nil
         }
+        guard window == nil else { return nil }
         switch row {
         case .task(let id):
             guard let task = state.task(id: id), !checkouts.isMissing(id) else { return nil }

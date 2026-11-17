@@ -65,6 +65,7 @@ import Testing
         fixture.controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: nil)
         fixture.controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1")] }
+        fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         fixture.controller.helper.handle(.sessionChanged(.stub("a", window: "other", task: task)))
 
         await fixture.controller.choose(.task(task.id))?.value
@@ -277,5 +278,37 @@ import Testing
         #expect(controller.focus.selectedTaskId == task.id)
         #expect(server.requests("window.createTerminal").isEmpty)
         #expect(controller.issue == nil)
+    }
+
+    /// iTerm2 crashed: no `window.closed` came, so the row still names its old window, which the daemon
+    /// reports gone only once iTerm2 is back. Choosing the row starts iTerm2 and raises nothing; at the
+    /// connected snapshot that lacks the window, the row's window opens and is raised.
+    @Test func aRowWhoseWindowWentWithACrashedITerm2StartsItAndOpensOnceItConnects() async throws {
+        let launches = ControllerCallCounter(), focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() }, launchIterm: { launches.record() })
+        let server = RecordingDaemon()
+        focus.server = server
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: "crashed")
+        controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "crashed")))
+        controller.helper.handle(.itermDisconnected)
+
+        #expect(controller.choose(.task(task.id)) == nil)
+
+        #expect(launches.count == 1)
+        #expect(controller.focus.selectedTaskId == task.id)
+        #expect(server.requests.isEmpty, "the lost window is not raised")
+
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+        await controller.windows.open(.task(task.id))?.value
+        await eventually(describing: "the opened window raised") { !focus.seen.isEmpty }
+
+        #expect(launches.count == 1)
+        #expect(server.requests("window.createTask").count == 1)
+        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
+        #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened"])
+        #expect(focus.seen.count == 1)
     }
 }

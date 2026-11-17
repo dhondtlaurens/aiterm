@@ -474,9 +474,9 @@ final class AppController {
         case .task(let id):
             return choose(task: id)
         case .terminal(let id):
-            return focus.select(row, after: windows.open(.terminal(id)))
+            return openAndRaise(row, .terminal(id))
         case .operatorChat:
-            return focus.select(row, after: windows.open(.operatorChat))
+            return openAndRaise(row, .operatorChat)
         }
     }
 
@@ -485,10 +485,22 @@ final class AppController {
     /// then raised.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
-        if let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
+        if windows.itermSynced, let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
            let tab = task.tabToBring(sessions: live.sessions) { return bringTab(task: id, sessionId: tab.sessionId) }
         if remover.isRemoving(id) { return focus.select(.task(id)) }
-        return focus.select(.task(id), after: windows.open(.task(id)))
+        return openAndRaise(.task(id), .task(id))
+    }
+
+    /// Opens `row`'s window if it has none, then selects and raises it. While iTerm2 is not synced the
+    /// window the row last had may have gone with it: the row is only selected, iTerm2 is started and
+    /// the row is chosen again once iTerm2 is synced (`RowWindows.onPendingOpen`).
+    private func openAndRaise(_ row: RowSelection, _ window: WindowRow) -> Task<Void, Never>? {
+        guard windows.itermSynced else {
+            windows.open(window)
+            focus.browse(row)
+            return nil
+        }
+        return focus.select(row, after: windows.open(window))
     }
 
     /// ⌘⌫ on the list: the selected row's own Remove, as its context menu has it — a task or a

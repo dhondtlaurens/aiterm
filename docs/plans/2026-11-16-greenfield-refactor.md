@@ -919,3 +919,11 @@ left.
   Left for 4b: `TaskRemoval.swift:9` mentions a "Couldn’t reopen" caption that no longer exists. One
   of the implementer's plain gate runs failed once in `HTTPJSONTests.aCancelledRequestStaysCancellationThroughMapping`
   (30 seconds, load average near 5); it passed alone and in the orchestrator's next plain run.
+- Phase close, review round 1 (Codex, `main..HEAD`): one Important finding, confirmed in the code:
+  after iTerm2 crashes (no `window.closed`), rows keep stale window ids, and choosing one raised the
+  stale window instead of starting iTerm2. Fixed by the 3b implementer: while iTerm2 is not synced,
+  choosing a task, terminal or the Operator chat starts iTerm2 and remembers the row whatever its
+  saved window, and raises nothing; the connected snapshot then clears or adopts the window and the
+  row is chosen again. Added `OpeningRowControllerTests.aRowWhoseWindowWentWithACrashedITerm2StartsItAndOpensOnceItConnects`;
+  four tests that raised windows without ever sending a snapshot now send one first. Left: a peek
+  (arrow keys) at a stale window while unsynced fails quietly.

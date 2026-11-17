@@ -179,6 +179,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "work")
+        fixture.controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "work")))
         fixture.controller.focus.browse(.task(task.id))
         #expect(focus.seen.isEmpty, "browsing leaves the focus in the sidebar")
 
@@ -213,6 +214,7 @@ import Testing
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
+        fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
         try await fixture.controller.launcher.createTask(draft: fixture.draft("New"), project: fixture.project)
 
