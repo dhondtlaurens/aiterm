@@ -71,7 +71,7 @@ public extension OperatorSession {
     /// The chat's life, saved so a relaunch continues it where it was: no chat, a generation to open,
     /// an open chat, or the old chat being closed and then its token revoked, before a fresh chat
     /// (`renew`) or none (`retire`). The window being closed is the session's `window`.
-    enum Lifecycle: Codable, Equatable, Sendable {
+    enum Lifecycle: KindTaggedEnum, Equatable, Sendable {
         /// What a wake typed into the open chat left: a line sent and not yet read by a global
         /// `run_status`, or a line that may sit unsent in the chat.
         public enum Wake: String, Codable, Sendable { case sent, maybeUnsent }
@@ -89,34 +89,31 @@ public extension OperatorSession {
 
         private struct Opened: Codable { var since: Date; var wake: Wake? }
 
-        public init(from decoder: Decoder) throws {
-            let raw = try JSONValue(from: decoder)
-            switch raw["kind"]?.stringValue {
-            case "idle": self = .idle
-            case "opening": self = .opening
+        static let preservesInvalidValue = true
+
+        static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
+            switch kind {
+            case "idle": return .idle
+            case "opening": return .opening
             case "open":
-                guard let opened = try? raw["value"]?.decode(Opened.self) else { self = .unknown(raw); return }
-                self = .open(since: opened.since, wake: opened.wake)
-            case "closing":
-                guard let then = raw["value"]?.stringValue.flatMap(Then.init(rawValue:)) else { self = .unknown(raw); return }
-                self = .closing(then: then)
-            case "revoking":
-                guard let then = raw["value"]?.stringValue.flatMap(Then.init(rawValue:)) else { self = .unknown(raw); return }
-                self = .revoking(then: then)
-            default: self = .unknown(raw)
+                let opened = try value.decode(Opened.self)
+                return .open(since: opened.since, wake: opened.wake)
+            case "closing": return .closing(then: try value.decode(Then.self))
+            case "revoking": return .revoking(then: try value.decode(Then.self))
+            default: return nil
             }
         }
-        public func encode(to encoder: Encoder) throws {
-            let raw: JSONValue
-            switch self {
-            case .idle: raw = ["kind": "idle"]
-            case .opening: raw = ["kind": "opening"]
-            case .open(let since, let wake): raw = ["kind": "open", "value": try JSONValue(encoding: Opened(since: since, wake: wake))]
-            case .closing(let then): raw = ["kind": "closing", "value": .string(then.rawValue)]
-            case .revoking(let then): raw = ["kind": "revoking", "value": .string(then.rawValue)]
-            case .unknown(let value): raw = value
+        var savedCase: SavedEnumCase {
+            get throws {
+                switch self {
+                case .idle: return .known("idle")
+                case .opening: return .known("opening")
+                case .open(let since, let wake): return .known("open", try JSONValue(encoding: Opened(since: since, wake: wake)))
+                case .closing(let then): return .known("closing", .string(then.rawValue))
+                case .revoking(let then): return .known("revoking", .string(then.rawValue))
+                case .unknown(let value): return .unknown(value)
+                }
             }
-            try raw.encode(to: encoder)
         }
 
         public var isOpen: Bool { if case .open = self { true } else { false } }
@@ -142,5 +139,14 @@ public extension OperatorSession {
     /// window holds at most its own tab, and its live tab, if any, ended its turn and is not stopped on an error.
     static func chatIsIdle(tab: SessionInfo?, tabsInWindow: Int, actsRunning: Bool, wakeUnread: Bool) -> Bool {
         !actsRunning && !wakeUnread && tabsInWindow <= 1 && (tab.map { $0.state.turnEnded && $0.stoppedOn == nil } ?? true)
+    }
+}
+
+public enum FreshStartPolicy {
+    public static let contextLimit = 150_000
+    /// Whether an open, idle chat (`OperatorSession.chatIsIdle`) is due for a fresh conversation.
+    public static func shouldStart(session: OperatorSession, now: Date, contextTokens: Int?, idle: Bool) -> Bool {
+        guard idle, !session.paused, session.lifecycle.isOpen else { return false }
+        return contextTokens.map { $0 >= contextLimit } == true
     }
 }

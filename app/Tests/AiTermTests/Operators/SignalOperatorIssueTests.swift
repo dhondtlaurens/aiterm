@@ -30,7 +30,7 @@ import Testing
             root.handle(.operatorRequest(.init(requestId: id, operatorId: session.id.uuidString, tool: tool, arguments: arguments, generation: 1)))
             await ports.work.settled()
         }
-        var activity: [ActivityEntry] { ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries }
+        var activity: [ActivityEntry] { ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries }
     }
 
     @Test func aWakeThatKeepsFailingNeedsYouAndTheNextDeliveredWakeClearsItWithoutOpeningAWindow() async throws {

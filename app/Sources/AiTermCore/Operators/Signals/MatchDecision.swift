@@ -63,3 +63,44 @@ public enum MatchDecision: Equatable, Sendable {
         }
     }
 }
+
+public struct SignalMatch: Equatable, Sendable {
+    public var signal: UUID
+    public var item: ItemRef
+    public var project: UUID?
+    public var branch: String?
+    public var matchedAt: Date
+    public init(signal: UUID, item: ItemRef, project: UUID?, matchedAt: Date, branch: String? = nil) {
+        self.signal = signal; self.item = item; self.project = project; self.matchedAt = matchedAt; self.branch = branch
+    }
+}
+
+public struct SignalSeen: Codable, Equatable, Sendable {
+    public enum Disposition: OpenStringEnum, Hashable, Sendable {
+        case started, skipped
+        case unknown(String)
+        static let knownCases: [Self] = [.started, .skipped]
+        var savedName: String {
+            switch self {
+            case .started: "started"
+            case .skipped: "skipped"
+            case .unknown(let value): value
+            }
+        }
+    }
+    public var signal: UUID
+    public var item: ItemRef
+    public var disposition: Disposition
+    public var at: Date
+    public var reason: String?
+    public var isMatching: Bool
+    public init(signal: UUID, item: ItemRef, disposition: Disposition, at: Date, reason: String? = nil, isMatching: Bool = true) {
+        self.signal = signal; self.item = item; self.disposition = disposition; self.at = at; self.reason = reason
+        self.isMatching = isMatching
+    }
+    public static func pruned(_ values: [Self], liveItems: Set<String>, now: Date) -> [Self] {
+        values.filter { value in
+            value.item.identity.map(liveItems.contains) == true || now.timeIntervalSince(value.at) <= 90 * 86400
+        }
+    }
+}

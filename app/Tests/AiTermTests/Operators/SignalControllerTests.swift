@@ -54,7 +54,7 @@ import Testing
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
         defer { root.stop() }
         func entries() -> [ActivityEntry] {
-            ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries.filter { $0.tool == "signal_read" }
+            ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries.filter { $0.tool == "signal_read" }
         }
         for _ in 0..<2 {
             root.poller.onFailure([signal], "The source is unavailable.")
@@ -271,7 +271,7 @@ import Testing
             tool: "run_status", arguments: [:], generation: session.generation))
         _ = controller.router.apply(signals: [signal], read: SignalRead(items: [world.ticket("NOPE-1")], complete: true, full: true))
         await ports.work.settled()
-        let entries = ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries
+        let entries = ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries
         #expect(Set(entries.map(\.tool)) == ["run_status", "signal_match"])
         #expect(entries.contains { $0.line.contains("NOPE-1") && $0.line.contains("No project") })
         #expect(h.workspace.state.tasks.isEmpty)

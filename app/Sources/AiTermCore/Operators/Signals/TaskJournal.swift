@@ -17,39 +17,42 @@ public enum TaskJournal {
     public static func append(_ entry: Entry, task: UUID, folder: URL) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let path = folder.appendingPathComponent(task.uuidString + ".jsonl")
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        var bytes = try encoder.encode(entry); bytes.append(10)
-        if !FileManager.default.fileExists(atPath: path.path) {
-            try bytes.write(to: path, options: .atomic)
-        } else {
-            let file = try FileHandle(forUpdating: path); defer { try? file.close() }
-            var end = try file.seekToEnd()
-            if end > 0 {
-                try file.seek(toOffset: end - 1)
-                if try file.read(upToCount: 1) != Data([10]) {
-                    // Only an incomplete trailing record is discarded. Complete corrupt lines
-                    // remain a read failure, rather than silently rewriting journal history.
-                    var boundary: UInt64?
-                    while end > 0 && boundary == nil {
-                        let start = end > 8192 ? end - 8192 : 0
-                        try file.seek(toOffset: start)
-                        let tail = try file.read(upToCount: Int(end - start)) ?? Data()
-                        if let newline = tail.lastIndex(of: 10) { boundary = start + UInt64(newline) + 1 }
-                        end = start
-                    }
-                    try file.truncate(atOffset: boundary ?? 0)
-                }
-            }
-            try file.seekToEnd(); try file.write(contentsOf: bytes)
-        }
+        try JSONLines.append(entry, to: path)
     }
     public static func read(task: UUID, folder: URL) throws -> [Entry] {
         let path = folder.appendingPathComponent(task.uuidString + ".jsonl")
-        guard FileManager.default.fileExists(atPath: path.path) else { return [] }
-        let bytes = try Data(contentsOf: path)
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        // A partial last append waits for completion; a corrupt complete record is a read failure.
-        guard let end = bytes.lastIndex(of: 10) else { return [] }
-        return try bytes[...end].split(separator: 10).map { try decoder.decode(Entry.self, from: Data($0)) }
+        return try JSONLines.read(Entry.self, from: path)
     }
+}
+
+public enum JournalText: KindTaggedEnum, Equatable, Sendable {
+    case ours(String)
+    case quoted(SignalQuote)
+    case unknown(JSONValue)
+
+    static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
+        switch kind {
+        case "ours":
+            return .ours(try value.decode(String.self))
+        case "quoted":
+            return .quoted(try value.decode(SignalQuote.self))
+        default: return nil
+        }
+    }
+
+    var savedCase: SavedEnumCase {
+        get throws {
+            switch self {
+            case .ours(let value): return .known("ours", try JSONValue(encoding: value))
+            case .quoted(let value): return .known("quoted", try JSONValue(encoding: value))
+            case .unknown(let value): return .unknown(value)
+            }
+        }
+    }
+}
+
+public struct SignalQuote: Codable, Equatable, Sendable {
+    public var source: String
+    public var text: String
+    public init(source: String, text: String) { self.source = source; self.text = text }
 }

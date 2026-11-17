@@ -1,30 +1,28 @@
 import Foundation
 
-public enum ItemRef: Codable, Equatable, Sendable {
+public enum ItemRef: KindTaggedEnum, Equatable, Sendable {
     case ticket(SignalTicketRef)
     case mergeRequest(SignalRequestRef)
     case unknown(JSONValue)
 
-    public init(from decoder: Decoder) throws {
-        let raw = try JSONValue(from: decoder)
-        switch raw["kind"]?.stringValue {
+    static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
+        switch kind {
         case "ticket":
-            guard let value = raw["value"] else { throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Missing ItemRef value")) }
-            self = .ticket(try value.decode(SignalTicketRef.self))
+            return .ticket(try value.decode(SignalTicketRef.self))
         case "mergeRequest":
-            guard let value = raw["value"] else { throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Missing ItemRef value")) }
-            self = .mergeRequest(try value.decode(SignalRequestRef.self))
-        default: self = .unknown(raw)
+            return .mergeRequest(try value.decode(SignalRequestRef.self))
+        default: return nil
         }
     }
-    public func encode(to encoder: Encoder) throws {
-        let raw: JSONValue
-        switch self {
-        case .ticket(let value): raw = ["kind": "ticket", "value": try JSONValue(encoding: value)]
-        case .mergeRequest(let value): raw = ["kind": "mergeRequest", "value": try JSONValue(encoding: value)]
-        case .unknown(let value): raw = value
+
+    var savedCase: SavedEnumCase {
+        get throws {
+            switch self {
+            case .ticket(let value): return .known("ticket", try JSONValue(encoding: value))
+            case .mergeRequest(let value): return .known("mergeRequest", try JSONValue(encoding: value))
+            case .unknown(let value): return .unknown(value)
+            }
         }
-        try raw.encode(to: encoder)
     }
 }
 
@@ -44,4 +42,16 @@ public extension ItemRef {
         guard let parsed = RemoteURL(remote), let host = parsed.host, !parsed.path.isEmpty else { return nil }
         return host + "/" + parsed.path
     }
+}
+
+public struct SignalTicketRef: Codable, Equatable, Sendable {
+    public var site: String
+    public var key: String
+    public init(site: String, key: String) { self.site = site; self.key = key }
+}
+
+public struct SignalRequestRef: Codable, Equatable, Sendable {
+    public var remote: String
+    public var number: Int
+    public init(remote: String, number: Int) { self.remote = remote; self.number = number }
 }

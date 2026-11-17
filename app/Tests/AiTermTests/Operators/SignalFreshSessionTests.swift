@@ -25,7 +25,7 @@ import Testing
         await ports.work.settled()
         #expect(h.workspace.state.operatorSession?.lifecycle.wake == .sent)
         #expect((daemon.requests("operator.reply").last?.params["error"] as? String)?.contains("without task") == true)
-        let recorded = ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
+        let recorded = ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
         #expect(recorded?.outcome != .ok && recorded?.result.contains("without task") == true)
         root.handle(.operatorRequest(.init(requestId: "all", operatorId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
         await ports.work.settled()

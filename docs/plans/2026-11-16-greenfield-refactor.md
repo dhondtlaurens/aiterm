@@ -388,7 +388,7 @@ TS tests-scripts.
   ledger: a question id is recorded once, a resolved question keeps its answer, a snag key and a
   note key each name one record. The launch-time agent switch and `open_tab`'s choice move to the
   agent-choice owner (RT F7, F12). Changed refusal texts are listed in the commit.
-- [ ] 5h. **Codex.** `Signals/` regrouped by concept into about fourteen files with the source
+- [x] 5h. **Codex.** `Signals/` regrouped by concept into about fourteen files with the source
   readers beside them; one helper for kind-tagged enums and one for open string enums with the
   same bytes; one JSON-lines appender for the activity log and the journals; delivery checks,
   `ClosingWait` and the merged-branch check move to their real homes; the task row's Operator
@@ -1161,3 +1161,12 @@ left.
   what it does not know; 5f's behaviour is decided and tested): the lifecycle keeps its behaviour. The
   helper applies the brief's rule to the enums the brief lists; the lifecycle uses the helper only if
   the helper can express "missing or invalid value becomes `.unknown`", else keeps its own decoder.
+- 5h: `Operators/Signals/` regrouped by concept into fourteen files with the source readers beside
+  them (`AiTermCore/Signals/` gone); one helper for kind-tagged enums and one for open string enums
+  (`SavedEnums.swift`, bytes unchanged, pinned by the new `SavedEnumBytesTests`), with the lifecycle's
+  unknown-value policy expressed through the same decoder (the decision above); one JSON-lines appender
+  (`JSONLines.swift`) for the activity log and the journals; `DeliveryCheck`, `AgentVersions`,
+  `ClosingWait` and the merged-branch check moved to their homes; the task row's Operator wording is
+  built in Core (`OperatorLine+Task.swift`). Saved bytes and every snapshot unchanged. Tests deleted:
+  `ActivityLogTests.aMalformedLineIsSkipped`, `aTornLastLineWaits`, `aMissingFileIsEmpty` (the product no
+  longer reads the activity log; survivors in the new `JSONLinesTests`, `SignalJournalRecoveryTests`).
