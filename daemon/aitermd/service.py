@@ -203,6 +203,10 @@ class Service:
         return {}
 
     async def _h_sessions_list(self, _p: Any) -> list[dict[str, Any]]:
+        try:
+            await self.tick()
+        except Exception:  # answer with the last known registry when iTerm2 cannot be read
+            log.exception("tick failed")
         return [s.to_json() for s in self.registry.all()]
 
     async def _h_mark_seen(self, p: Any) -> dict[str, Any]:

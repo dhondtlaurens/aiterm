@@ -108,14 +108,14 @@ import Testing
             case .itermProvideCookie: #expect(try read(DaemonClient.AcceptedResult.self).accepted == field("accepted") as? Bool)
             case .windowCreateTask:
                 // An Operator's worker window says why its agent command could not be typed, when it could not.
-                let opened = try read(DaemonClient.WorkerWindowResult.self)
+                let opened = try read(DaemonClient.CreateTaskResult.self)
                 #expect(try opened.windowId == field("windowId") as? String && opened.commandError == field("commandError") as? String)
-                #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
             case .windowCreateTerminal: #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
-            case .tabCreate: #expect(try read(DaemonClient.SessionResult.self).sessionId == field("sessionId") as? String)
+            case .tabCreate:
+                let opened = try read(DaemonClient.CreateTabResult.self)
+                #expect(try opened.sessionId == field("sessionId") as? String && opened.commandError == field("commandError") as? String)
             case .sessionsSetTitles, .sessionsMarkSeen: #expect(try read(DaemonClient.ChangedResult.self).changed == field("changed") as? Int)
             case .workspaceSnapshot: try Self.expectSame(read(DaemonSnapshot.self), #require(result["result"] as? [String: Any]))
-            // ctl's: read as the models the app shares with it.
             case .sessionsList:
                 try Self.expectSame(read([SessionInfo].self), #require(result["result"]))
                 // The Operator's extra worker tab the daemon's script opened: its key comes back on its session.

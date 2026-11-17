@@ -402,7 +402,7 @@ TS tests-scripts.
 - [x] 6b. **Opus.** The app owns its helper: a stale holder of the socket is ended and a new one
   started; adoption, the held status, the mismatch hold and the unreadable-line limiter go; the
   stop in `scripts/run-dev.sh` becomes unnecessary (WD F4).
-- [ ] 6c. **Codex.** One method per daemon command returning its full reply; `workspace.snapshot`
+- [x] 6c. **Codex.** One method per daemon command returning its full reply; `workspace.snapshot`
   is the connection's own; callers that only want the tabs use the side-effect-free listing
   (WD F5).
 - [ ] 6d. **Codex.** Readings carry one session key and are dropped generically when it changed;
@@ -1223,3 +1223,10 @@ left.
   `docs/workflow/verify.md` follow. The brief's grep for "adopted" still matches other concepts
   (windows, workers, worktrees, remotes, the chat). Left: `SessionAgent`'s lenient-decoding doc cites
   adoption; the daemon and the app both launch iTerm2 at start.
+- 6c: one method per daemon command returning its full reply (`Opening` with id and command error for
+  windows and tabs; the worker-only openers and creation conveniences went); `workspace.snapshot` is
+  the connection's own (`DaemonConnection.refresh()`, also used by Settings); callers that only want the
+  tabs use `sessions()` (`sessions.list`, which now ticks first and answers the last registry if the tick
+  fails, with no event in the app). Wire frames unchanged. No test deleted
+  (`test_snapshot_survives_a_failing_tick` became `test_session_queries_survive_a_failing_tick` for both
+  queries); added a session-list freshness test and refresh and tab-error tests.

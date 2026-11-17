@@ -69,6 +69,16 @@ async def test_status_and_create_task_window(stack):
     assert sessions[0]["taskId"] == "t1" and sessions[0]["state"] == "idle"
 
 
+async def test_sessions_list_includes_a_tab_opened_since_the_last_tick(make_service):
+    svc = make_service()
+    it = svc.iterm
+    window = await svc.windows.create_task({"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME})
+    sid = await it.user_opens_tab(window["windowId"])
+    assert all(s.session_id != sid for s in svc.registry.all())
+    sessions = await svc._h_sessions_list(None)
+    assert sid in {s["sessionId"] for s in sessions}
+
+
 async def test_an_operators_command_is_typed_as_the_app_quoted_it(stack):
     """The Operator's command, quoted by the app, is typed as it is: nothing stripped or escaped
     again. Its first message stays in the Operator's folder's file, read by the shell, never typed."""
@@ -1220,7 +1230,8 @@ async def test_a_failing_codex_usage_read_does_not_stop_session_polling(stack):
     assert "infinity" in svc.usage.snapshot()["codex"]["retrievalFailure"]["message"]
 
 
-async def test_snapshot_survives_a_failing_tick(stack, caplog):
+@pytest.mark.parametrize("method", ["workspace.snapshot", "sessions.list"])
+async def test_session_queries_survive_a_failing_tick(stack, caplog, method):
     svc, it, files, r, w = stack
     await svc.windows.create_task({"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME})
 
@@ -1229,8 +1240,9 @@ async def test_snapshot_survives_a_failing_tick(stack, caplog):
 
     it.snapshot = broken_snapshot
     with caplog.at_level("ERROR", logger="aitermd.service"):
-        result = (await call(r, w, "workspace.snapshot"))["result"]
-    assert result["sessions"][0]["taskId"] == "t1"
+        result = (await call(r, w, method))["result"]
+    sessions = result["sessions"] if method == "workspace.snapshot" else result
+    assert sessions[0]["taskId"] == "t1"
     assert any("tick failed" in rec.getMessage() for rec in caplog.records)
 
 

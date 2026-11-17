@@ -100,7 +100,7 @@ final class TaskLauncher {
         var opened = false
         if let wid = current.windowId {
             do {
-                _ = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command)
+                _ = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command, tabKey: nil, background: false)
                 opened = true
                 try? await daemon.activate(windowId: wid)
             }
@@ -362,7 +362,7 @@ final class TaskLauncher {
             notices.dropIssues(about: id)
         }
         for command in commands.dropFirst() {
-            do { _ = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: command) }
+            do { _ = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: command, tabKey: nil, background: false) }
             catch {
                 notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", error: error, subject: id))
                 break
@@ -393,11 +393,11 @@ final class TaskLauncher {
     /// window again, or nothing — the first prompt is never replayed. `open(_:)` opens a chosen task's
     /// window through it too.
     @discardableResult
-    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> WorkerOpening? {
+    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> Opening? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
         defer { if let opening { work.end(opening) } }
         let opened = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
-                                                       agentCommand: command, frame: tiling.taskFrame())
+                                                       agentCommand: command, frame: tiling.taskFrame(), background: false)
         guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
             try? await daemon.closeWindowIfOpen(opened.id)
             return nil

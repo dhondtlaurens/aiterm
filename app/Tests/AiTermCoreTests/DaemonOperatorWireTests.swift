@@ -28,7 +28,7 @@ final class DaemonOperatorWireTests {
         try connect { _ in ["windowId": "w1"] }
         let frame = Frame(x: 0, y: 0, w: 1, h: 1)
         _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame, background: true)
-        _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame)
+        _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame, background: false)
         #expect(params(0)["background"] as? Bool == true)
         #expect(params(1)["background"] as? Bool == false)
     }

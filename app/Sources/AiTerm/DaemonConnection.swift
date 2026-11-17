@@ -50,6 +50,13 @@ final class DaemonConnection {
         onClient(nil)
     }
 
+    /// Reads iTerm2 afresh through the event stream; a failed refresh ends this client so it reconnects.
+    func refresh() async {
+        guard let client else { return }
+        do { _ = try await client.snapshot(claudeConfigDirectory: claudeConfigDirectory) }
+        catch { client.disconnect() }
+    }
+
     private func run() async {
         var attempt = 0
         let onStatus = self.onStatus
@@ -98,7 +105,7 @@ final class DaemonConnection {
                         // The iTerm2 that just connected, read afresh. Its reply comes back through
                         // this stream as `.snapshot`, so the events behind this one do not wait for
                         // it. One that fails drops the client, and this loop reconnects.
-                        Task { do { _ = try await connection.snapshot(claudeConfigDirectory: claudeConfigDirectory) } catch { connection.disconnect() } }
+                        Task { await refresh() }
                     }
                     onEvent(event)
                 }

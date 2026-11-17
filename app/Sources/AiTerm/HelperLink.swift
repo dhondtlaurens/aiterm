@@ -184,7 +184,7 @@ final class HelperLink {
     /// stream like any other, so `itermConnection` is updated there; a helper that cannot answer
     /// is noticed by its connection's own loop. The rest is what the helper cannot see.
     func checkIterm() async -> ItermEnvironment {
-        if let daemon { await Log.daemon.attempt("Checking iTerm2") { try await daemon.snapshot() } }
+        await connection?.refresh()
         return ItermEnvironment.current()
     }
 

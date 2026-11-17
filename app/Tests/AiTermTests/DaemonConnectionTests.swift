@@ -272,8 +272,7 @@ with c:
         }
         var asked = 0
         var states: [ItermConnection] = []
-        var client: DaemonClient?
-        let connection = DaemonConnection(socketPath: server.path, onClient: { client = $0 },
+        let connection = DaemonConnection(socketPath: server.path, onClient: { _ in },
                                           onStatus: { if states.last != $0 { states.append($0) } }, onEvent: { _ in },
                                           requestCookie: {
                                               asked += 1
@@ -287,7 +286,7 @@ with c:
         await eventually { answers().count >= 2 }
         // A later snapshot still showing request 7 is not answered again. Absence: an answer to it
         // would be asked for from the turn that handles the snapshot's event.
-        _ = try await client?.snapshot()
+        await connection.refresh()
         try await Task.sleep(for: .milliseconds(150))
 
         #expect(answers() == [#"{"notRunning": true, "requestId": 7}"#, #"{"cookie": "c2", "key": "k", "requestId": 8}"#])
@@ -335,6 +334,32 @@ for _ in range(2):
 }
 
 extension DaemonConnectionControllerTests {
+    @Test func refreshSendsTheClaudeDirectoryAndDeliversASnapshot() async throws {
+        let server = FakeSocketServer(path: "/tmp/aiterm-test-\(UUID().uuidString.prefix(8)).sock")
+        server.handler = { request in
+            let params = request["params"] as? [String: String]
+            return ["id": request["id"]!, "result": ["protocolVersion": 1, "connected": true,
+                "sessions": [], "usage": ["claude": NSNull(), "codex": NSNull()],
+                "claudeConfigDirectory": params?["claudeConfigDirectory"] ?? ""]]
+        }
+        server.start()
+        var snapshots: [DaemonSnapshot] = []
+        let directory = "/tmp/Claude Profile"
+        let connection = DaemonConnection(socketPath: server.path, claudeConfigDirectory: directory,
+            onClient: { _ in }, onStatus: { _ in }, onEvent: { if case .snapshot(let snapshot) = $0 { snapshots.append(snapshot) } })
+        defer { connection.stop(); server.stop() }
+        connection.start()
+        await eventually { snapshots.count == 1 }
+        await connection.refresh()
+        await eventually { snapshots.count == 2 }
+        #expect(server.received.count == 2)
+        for request in server.received {
+            #expect(request["method"] as? String == "workspace.snapshot")
+            #expect((request["params"] as? [String: String])?["claudeConfigDirectory"] == directory)
+        }
+        #expect(snapshots.last?.claudeConfigDirectory == directory)
+    }
+
     @Test func anOlderHelperCannotSilentlyIgnoreTheClaudeDirectory() async throws {
         let server = try await PythonSocketServer.start(script: """
 import json,socket,sys

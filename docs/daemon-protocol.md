@@ -16,6 +16,7 @@ agreement. The following tables describe the current contract.
 | `window.setFrame` | re-snap beside the sidebar |
 | `window.close` | on remove, and before a worktree is deleted. The window is closed once iTerm2 has answered: a failed tick after it is logged, not answered |
 | `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is. The optional `tabKey` tags that one tab `aiterm_tab` beside its task's tag, never inherited, and the sessions carry it back as `tabKey`: an Operator's extra worker tab (`open_tab`). A request with a `tabKey` already on a tab of its task returns that tab. With `background`, iTerm2 is asked not to select it: its window is not brought forward and keeps the tab you were on |
+| `sessions.list` | the tabs now, after a tick; no event |
 | `sessions.setTitles` | branch titles for AiTerm tabs, re-sent every couple of seconds; the daemon only applies changes |
 | `sessions.markSeen` | clear a done mark when its row is opened |
 | `interface.setMatchItermBackground` | paint AiTerm windows #17181B, the sidebar's ground |
@@ -26,7 +27,7 @@ agreement. The following tables describe the current contract.
 | `operator.register` / `operator.revoke` | require `generation`; one private `operators/operator/token` and `session.json` bind session identity, generation and token hash. Stale revocation cannot revoke a successor. A failed deletion remains owed on retry; there are no per-run tokens |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
 
-`iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
+`iterm.status` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of
 time with `iterm_unavailable` — the tick a command runs before it changes anything included.
 
