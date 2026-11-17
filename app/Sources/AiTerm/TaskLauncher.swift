@@ -336,9 +336,9 @@ final class TaskLauncher {
     /// A task's or review's window, manual or driven, opened in its worktree when it has none: the first
     /// of `openCommands(for:)` in the window's own tab, each other in a tab of its own. A worktree gone
     /// opens nothing, and the checkout monitor's pass, asked for now, says so on the row. Returns at once
-    /// when the row has a window, is gone or busy, or no helper is there. A window whose command could
-    /// not be typed, and a tab that does not open, are said on the row; a window that does not open is
-    /// thrown.
+    /// when the row has a window, is gone or busy, or no helper is there. A window or tab whose command
+    /// could not be typed, and a tab that does not open, are said on the row; a window that does not
+    /// open is thrown.
     func open(_ id: UUID) async throws {
         guard let task = state.task(id: id), task.windowId == nil, let daemon = daemon(),
               let token = work.begin(.reopening, onTask: id) else { return }
@@ -362,8 +362,13 @@ final class TaskLauncher {
             notices.dropIssues(about: id)
         }
         for command in commands.dropFirst() {
-            do { _ = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: command, tabKey: nil, background: false) }
-            catch {
+            do {
+                let tab = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: command, tabKey: nil, background: false)
+                if let failure = tab.commandError {
+                    notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", reason: failure, subject: id))
+                    break
+                }
+            } catch {
                 notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", error: error, subject: id))
                 break
             }

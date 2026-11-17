@@ -5,10 +5,12 @@ GitLab or GitHub. When an item matches, AiTerm starts a task in an existing proj
 worker your prompt. Polling itself uses no model tokens.
 
 The Operator keeps one Claude Code chat while it has unfinished tasks. Its row is first under
-**Operator**; click it to open the chat. When the workload finishes, the chat closes and its row
-disappears. Configured signals keep polling without a chat; the next match starts a fresh one. Each signal is a heading like a project, with the same task rows underneath.
-Fold a signal to see its status counts, or hover its heading for its conditions, skipped items
-and source failures.
+**Operator**; click it to open the chat. Closing the chat's window asks nothing: choosing the row
+opens it again, and a wake for the Operator reopens it. When the workload finishes, the chat closes
+and its row disappears. Configured signals keep polling without a chat; the next match starts a
+fresh one. Each signal is a heading like a project, with the same task rows underneath. Fold a
+signal to see its status counts, or hover its heading for its conditions, skipped items and source
+failures.
 
 The **Operator** and **Projects** sections fold into each other, one open at a time: click either
 heading to switch. Projects are open by default, so the Operator stays one folded line until you
@@ -40,7 +42,12 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
 5. **Done:** choose the source's done condition, whether to merge when ready where offered, and
    whether to keep, archive or remove the task. The closing box states what your choices do.
 
-While an agent the signal may use isn't ready, a note above the buttons says what to fix; you can still create or save the signal.
+Every step has **Cancel**; Escape closes an open list, otherwise it cancels. A disabled **Continue**
+on the Agents step says why: an agent that isn't installed, or a model marked Unavailable.
+
+While an agent the signal may use isn't ready, a note above the buttons says what to fix, and
+**Checking agents…** shows while AiTerm reads them. The note is advice for the signal's own agents:
+you can still create or save the signal.
 
 Creating, saving an edit or switching a signal on starts every currently matching item that never
 started. An incomplete read starts nothing. An item that stops matching keeps running to its done
@@ -61,8 +68,8 @@ A ticket key, merge request or matching branch identifies existing work. A later
 that task with the same branch, worktree and conversation, moving its row under the new signal.
 An archived task restores before continuing. This includes a task you made by hand: once its
 worker ends its turn, the signal resumes its conversation with the new stage prompt. Unsent input,
-background work and permission prompts hold that launch; it does not interrupt a turn. Use Take
-Over to keep a task under your control.
+background work and permission prompts hold that launch; it does not interrupt a turn. A task you
+took over is yours: a later signal never continues it.
 
 Only one stage launches or works at once. Matches arriving during that stage wait, one per signal,
 in arrival order. They start after the current work ends and never during a worker's turn.
@@ -84,19 +91,25 @@ reach the current chat and subsequent Oracle checks. You can also steer the Oper
 The Oracle gives read-only second opinions, critiques answers and review threads, judges shell
 commands and vetoes automatic merges. Its settings are read for each check. A check whose Oracle
 settings or standing instructions changed while it ran is discarded and asked again. Switching it off
-routes worker answers to you and prevents automatic merges. For the Operator's shell gate,
-ordinary reads are allowed, prohibited writes are refused, and other commands are consulted;
-when that consultation is unavailable or off, they run unchecked and the result records why.
+routes worker answers to you and prevents automatic merges. For the Operator's shell gate, plain
+reads run at once; pushes, merges, changes to a request on the host, commits, hard resets, checkouts
+and cleans are refused; every other command goes to the Oracle. Its yes runs the command, a critique
+sends it to a worker, and a call for you becomes a question in the Operator's chat whose answer
+allows it once. When the Oracle is off or cannot answer, the command runs unchecked and the result
+says why.
 A missing or revoked Operator token always refuses the gated call.
 
 ## Publishing, done conditions and merging
 
 Workers run the requested skills, including their own adversarial review and publication. They
 may commit, push their own task branch, open a draft request and perform host actions authorised
-through Operator/Oracle judgment. AiTerm's worker guard refuses force pushes, `--no-verify`, another
-branch, the default/protected branch and worker-initiated merges of a request on the host, for Claude
-and Codex. A worker may merge branches locally. The guard preserves the project's own pre-push hook.
-These are cooperative CLI guards, not an operating-system sandbox.
+through Operator/Oracle judgment. AiTerm's worker guard, for Claude and Codex, refuses a push that
+forces or replaces remote history, skips the push hook (`--no-verify`, a `core.hooksPath` override),
+pushes all branches, tags or a deletion, or pushes anything but its own task branch at its current
+commit; and a push to another repository, the default branch or a branch the host protects, or one it
+cannot check against the host. It refuses every merge of a request on the host, through `gh`, `glab`
+or their APIs. A worker may run `git merge` locally. The guard preserves the project's own pre-push
+hook. These are cooperative CLI guards, not an operating-system sandbox.
 
 AiTerm finds the request from the branch and adds its ordinary clickable badge. Done conditions
 fit the source: Operator judgment, a reviewer, approval, resolved threads, merged, a Jira status,
@@ -124,15 +137,15 @@ paused. A configured signal alone does not show the chat row; its heading remain
 and with no signal configured only the OPERATOR heading and its + remain. Existing workers receive a note to finish
 their current turn and wait. **Resume Operator** carries them on before stages advance. A signal's menu
 has **Switch Off** and **Switch On**; switching it off pauses only its workers and source
-polling. Removing a signal leaves its existing tasks running with their saved instructions under
-a heading explaining that the source was removed.
+polling, and its heading shows a pause mark. Removing a signal leaves its existing tasks running with
+their saved instructions under its heading, whose tooltip says the signal was removed.
 
-**Take Over** on a driven task makes it an ordinary task in its project. The Operator lets go of it
-and of its questions, and later signals never continue it. Its worktree, branch and conversations
-stay; a worker still running finishes its turn under its branch guard. If its worker never started,
-Take Over makes its worktree first; a merge-request task checks out the request's source branch. From
-then on it opens, archives, restores and removes like any task, and its conversations resume without
-a branch guard. There is no Hand Back.
+**Take Over**, on the menu of a task still under the Operator, makes it an ordinary task in its
+project. The Operator lets go of it and of its questions, and later signals never continue it. Its
+worktree, branch and conversations stay; a worker still running finishes its turn under its branch
+guard. If its worker never started, Take Over makes its worktree first; a merge-request task checks
+out the request's source branch. From then on it opens, archives, restores and removes like any
+task, and its conversations resume without a branch guard. There is no Hand Back.
 
 The Operator row says **needs you** only while something needs you: its own chat waits on you (a
 permission prompt, or **waiting on you · n** for questions), or AiTerm cannot reach it. AiTerm
@@ -156,8 +169,8 @@ AiTerm keeps task journals, stages, questions, pending replies and source failur
 Operator reads status rather than relying on chat memory. Choosing, launching, working, watching
 for a done condition and blocked tasks keep the same chat, as do pending stages and outstanding
 closeout. Completed or archived tasks do not keep it after their remaining work finishes, and
-tasks you took over are no longer the Operator's. Questions from completed or superseded stages no
-longer ask for attention.
+tasks you took over are ordinary tasks, not the Operator's. Questions from completed or superseded
+stages stop asking for attention.
 
 Once no work remains, AiTerm waits for tools, deliveries and Oracle jobs, then closes the chat before
 revoking its token. A refused close leaves the current chat and its tools usable. A new match during
@@ -168,6 +181,5 @@ for several tasks, so read status without a task first before narrowing it.
 Reopening a worker resumes its saved conversation without repeating its stage prompt. Uncertain
 launches and deliveries require inspection rather than a blind duplicate.
 
-Before installing this format over a build with broadcasts, end any running broadcast using that
-installed build. The new format retires broadcast records without migration; their tasks become
-ordinary tasks. See [release notes](workflow/release.md#operator-format).
+Switching between builds whose Operator records differ follows the release procedure's
+[Operator format](workflow/release.md#operator-format).

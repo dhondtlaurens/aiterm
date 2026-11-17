@@ -36,7 +36,7 @@ failures warn without changing the gate verdict or activity record.
 | Tests | Requirement and distinct detection |
 | --- | --- |
 | `AiTermCoreTests` | Pure state/policy alternatives and real adapters: Git/worktrees, processes, HTTP, persistence, agent configuration, platform value rules and geometry. |
-| `AiTermTests` | Main-actor owner lifetimes, store/daemon wiring, launch/adoption, publication progress, user controls, focused observation, keyboard and AppKit behavior. |
+| `AiTermTests` | Main-actor owner lifetimes, store/daemon wiring, launch/adoption, user controls, focused observation, keyboard and AppKit behavior. |
 | `AiTermUITests` | Primitive layout, appearance, token use, palette distinction and module boundaries. |
 | `AiTermTestSupport` | Isolated repositories, scripted hosts/daemon, scratch defaults and current structured model fixtures. |
 | `daemon/tests` | Registry/status/delivery decisions, telemetry placement, RPC/HTTP framing, iTerm adapter behavior, wire/schema contracts and bounded polling work. |
@@ -96,7 +96,7 @@ product question and hostile source text. Each is repeated three times with the 
 effort, with twelve turns and six hundred seconds at most per repetition. These isolated stub
 runs are opt-in with `AITERM_LIVE_OPERATOR=1` and spend quota. Keep full streams: a question
 written before a tool call still counts as chat, and a quota error never counts as behavior.
-Change the brief deliberately with provenance and rerun the capped comparison.
+Change the brief deliberately with provenance and rerun the capped evaluation.
 
 `SignalWorld`/`SignalHarness` cover routing and stage/claim races. `SignalJourneyTests` drives one
 signal from a Jira match through its worker's turn and done condition to its archived task, through

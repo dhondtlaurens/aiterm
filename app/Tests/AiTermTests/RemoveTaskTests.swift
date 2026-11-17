@@ -166,6 +166,75 @@ import Testing
         #expect(controller.toastState.toast?.message == "Task removed.")
     }
 
+    /// A's tab dragged into B's window: closing that window would end B's agents, so Remove stops before anything
+    /// changes. Nothing closes, A keeps its window and worktree, and B its window and row.
+    @Test func aTabInAnotherTasksWindowStopsRemoveBeforeAnythingCloses() async throws {
+        let (fixture, server, task) = try await removing(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let otherCheckout = fixture.repo.appendingPathComponent(".worktrees/other").path
+        let git = fixture.git, repo = fixture.repo.path
+        try await BackgroundWork.run { try git.run(["worktree", "add", "-q", "-b", "feat/other", otherCheckout], in: repo) }
+        let other = TaskItem.make(project: fixture.project.id, title: "Other", branch: "feat/other", worktreePath: otherCheckout,
+                                  windowId: "b-window")
+        controller.workspace.mutate { $0.tasks.append(other) }
+        #expect(controller.workspace.flush())
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [
+            .make("own", window: "alive", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath),
+            .make("moved", window: "b-window", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath),
+            .make("b", window: "b-window", task: other.id, agent: .shell, state: .idle, cwd: otherCheckout),
+        ], usage: .empty)))
+
+        try await controller.teardown.remove(task, consent: .ask)
+
+        expectRefusedSharingAWindow(fixture, server, task)
+        #expect(controller.state.task(id: other.id) == other)
+    }
+
+    /// A's tab dragged into a plain window of the person's own: closing it would close their tabs too.
+    @Test func aTabInAPlainWindowOfThePersonsStopsRemoveBeforeAnythingCloses() async throws {
+        let (fixture, server, task) = try await removing(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [
+            .make("own", window: "alive", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath),
+            .make("moved", window: "plain", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath),
+            .make("mine", window: "plain", agent: .shell, state: .idle, cwd: "/"),
+        ], usage: .empty)))
+
+        try await fixture.controller.teardown.remove(task, consent: .ask)
+
+        expectRefusedSharingAWindow(fixture, server, task)
+    }
+
+    /// The other way round: a tab of a terminal's dragged into the task's own window stops Remove too. A plain tab
+    /// of the person's there does not (`aTaskWithTabsInTwoWindowsHasBothClosedAndItsRowAndWorktreeGo` and the
+    /// rest close the row's own window with whatever it holds).
+    @Test func anotherRowsTabInTheTasksOwnWindowStopsRemoveBeforeAnythingCloses() async throws {
+        let (fixture, server, task) = try await removing(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        var terminalTab = SessionInfo.make("terminal", window: "alive", agent: .shell, state: .idle, cwd: "/")
+        terminalTab.terminalId = UUID().uuidString
+        fixture.controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [
+            .make("own", window: "alive", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath), terminalTab,
+        ], usage: .empty)))
+
+        try await fixture.controller.teardown.remove(task, consent: .ask)
+
+        expectRefusedSharingAWindow(fixture, server, task)
+    }
+
+    private func expectRefusedSharingAWindow(_ fixture: RaceFixture, _ server: RecordingDaemon, _ task: TaskItem) {
+        let controller = fixture.controller
+        #expect(server.requests("window.close").isEmpty)
+        #expect(controller.state.task(id: task.id)?.windowId == "alive")
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(controller.teardown.state(of: task.id) == .stopped(note: "Not removed"))
+        #expect(controller.issue == OperationIssue(
+            title: "Couldn’t remove the task.",
+            reason: "One of its tabs shares an iTerm2 window with other work. Move that tab to its own window or close it, then try again.",
+            subject: task.id))
+    }
+
     /// A task with a window and the helper connected, "Delete local branch" ticked. `answers` start
     /// with the Remove alert's.
     private func removing(answering answers: String...) async throws -> (RaceFixture, RecordingDaemon, TaskItem) {

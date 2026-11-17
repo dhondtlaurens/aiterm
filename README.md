@@ -137,7 +137,8 @@ scripts/test.sh all      # complete automated gate before merging
 scripts/run-dev.sh       # replace the running AiTerm with the development build
 ```
 
-`run-dev.sh` quits the running app and replaces its helper. Development and installed builds share
+`run-dev.sh` quits the running app, which stops its helper, and opens the development build, which
+starts its own and ends one a crash left behind. Development and installed builds share
 state and connections; schedule that switch when existing work permits it. A DEV build does not
 self-update. Never run a second live copy alongside the installed app.
 

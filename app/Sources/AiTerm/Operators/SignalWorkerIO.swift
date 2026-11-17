@@ -296,7 +296,9 @@ import AiTermCore
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
         try await markPending(launched, tab: key, conversation: nil, workRequested: true)
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
-        let session = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: key, background: true).id
+        let opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: key, background: true)
+        guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
+        let session = opening.id
         _ = try require(task)
         workspace.mutate { $0.updateSignalTask(task.id) { record in
             if let index = record.extraTabs.firstIndex(where: { $0.key == key }) {

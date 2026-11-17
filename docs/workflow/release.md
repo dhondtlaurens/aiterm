@@ -51,16 +51,16 @@ the local tag with `git tag -d v<version>` and re-run `scripts/release.sh <versi
 
 ## Operator format
 
-Signals replace broadcasts without a migration. Before installing this build, end any running
-broadcast in the installed build. Its tasks, branches and conversations stay; the next load treats
-those tasks as ordinary tasks. `runs`, `foldedRuns` and task `operated` are retired keys: the new
-encoder discards them, including inside archived tasks. Old broadcast history and boards do not
-appear in the Archive. Release notes must state this prerequisite and the changed keys: New Signal
-is ⌘S and Show Archive is ⌘A outside a text field.
+The major release changes the shape of the Operator's saved records, `operatorSession` and each
+task's `signalTask`, with no migration: the new build does not read the old shapes. Every other
+saved key loads unchanged. Its release notes (`docs/release-notes/2026-11-major-release.md`) carry
+the reset command, the one line of `scripts/reset-operator-state.sh`, which the person runs with
+AiTerm quit: it keeps a dated copy of `state.json`, then removes `operatorSession` and every task's
+and archived task's `signalTask`, moving a taken-over mark onto its task. Release notes ask for
+Repair only for an agent whose driver gained or changed an entry; this release's drivers only lost
+one, so no agent needs it.
 
-Current Signal saved-format, brief and fourteen-tool fixtures have explicit provenance. Historical
-broadcast input is retained only to prove retirement and for the frozen before/after model eval;
-there is no legacy runtime. Workspace/credential recovery still protects the person's other data.
+Current Signal saved-format, brief and fourteen-tool fixtures have explicit provenance.
 
 ## Done
 

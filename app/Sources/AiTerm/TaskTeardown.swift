@@ -413,9 +413,12 @@ final class TaskTeardown: CheckoutRemovals {
     /// lock keeps (best effort; the row goes either way), its window closed, then its row forgotten. The window keeps
     /// its row until it has closed: a failed close leaves the row saying "Closing…", and the next pass tries again,
     /// rather than flickering back to "Worktree missing" between tries. A row with a window waits, saying nothing new,
-    /// while iTerm2 is away.
+    /// while iTerm2 is away, and while its window holds another row's tab.
     private func close(_ task: TaskItem) {
         if task.windowId != nil, daemon() == nil { return }
+        // Its window holding another row's tab would end that row's work too: the row stays as it is, its worktree
+        // missing, and each pass leaves it so until that tab has left.
+        if let window = task.windowId, holdsOtherWork([window], own: window, of: task.id) { return }
         guard let token = work.begin(.closing, onTask: task.id) else { return }
         left[task.id] = nil
         let project = workspace.state.project(id: task.projectId)
@@ -553,13 +556,18 @@ final class TaskTeardown: CheckoutRemovals {
     /// worktree. The row drops its window first, so that window's own `window.closed` finds it windowless already; a
     /// row that takes another of them meanwhile holds a window this closes too. A window that will not close is given
     /// back, and nothing is deleted. A task with no window has nothing to close and needs no helper; one with a window
-    /// and no helper to close it stops the teardown.
+    /// and no helper to close it stops the teardown, as does a window holding another row's tab, or any tab not the
+    /// task's in a window other than the row's own.
     private func closeWindow(of task: TaskItem) async throws {
         guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
         var windows = workspace.state.tasks[i].windowId.map { [$0] } ?? []
         for tab in live.sessions where tab.taskUUID == task.id && !windows.contains(tab.windowId) { windows.append(tab.windowId) }
         guard !windows.isEmpty else { return }
         guard let daemon = daemon() else { throw TeardownStop.noDaemon }
+        guard !holdsOtherWork(windows, own: workspace.state.tasks[i].windowId, of: task.id) else {
+            throw ActionUnavailable("One of its tabs shares an iTerm2 window with other work. "
+                                    + "Move that tab to its own window or close it, then try again.")
+        }
         // Windowless at once, so the window's own `window.closed` finds it so; a snapshot no longer drops a row, so this
         // need not be on disk before the window closes.
         workspace.mutate { $0.tasks[i].windowId = nil }
@@ -572,6 +580,16 @@ final class TaskTeardown: CheckoutRemovals {
                 throw TeardownStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted. "
                                                                       + OperationIssue.reason(of: error)))
             }
+        }
+    }
+
+    /// Whether closing `windows` would close work that is not task `taskId`'s: a window closes with every tab in it, and a
+    /// tab can be dragged between windows. The row's own window (`own`) may hold the person's plain tabs, as it always
+    /// has, but no other row's; any other window holds only the task's.
+    private func holdsOtherWork(_ windows: [String], own: String?, of taskId: UUID) -> Bool {
+        live.sessions.contains { tab in
+            guard windows.contains(tab.windowId), tab.taskUUID != taskId else { return false }
+            return tab.windowId != own || tab.taskId != nil || tab.terminalId != nil
         }
     }
 

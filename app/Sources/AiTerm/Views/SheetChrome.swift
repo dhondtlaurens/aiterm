@@ -203,8 +203,8 @@ struct SheetSubtitle: View {
 
 /// A sheet's primary action: the house primary button (`PushButtonStyle`), answering ⌘↩ and only ⌘↩ — the keycaps it shows.
 /// A plain ⏎ stays with the focused control: a newline in the prompt editor, a pick in a dropdown.
-/// `busy` leads its title with a working `StatusMark` while what it started runs — New Review's
-/// Apply; the caller's action guards itself meanwhile, as Back does while a create runs.
+/// `busy` leads its title with a working `StatusMark` while what it started runs; the caller's action
+/// guards itself meanwhile, as Back does while a create runs.
 struct SheetPrimaryButton: View {
     let title: String
     var enabled = true
@@ -299,8 +299,8 @@ extension View {
 /// `Size.chip` circle; the current one filled in `Palette.text` with its number in the sheet's own ground,
 /// its name after it in `Typography.label`; an earlier one a `Palette.borderStrong` ring round a check in
 /// `Palette.muted`; a later one the ring round its number in `Palette.tertiary`. A firm `Hairline`
-/// `Space.gap` long joins them, `Space.base` clear either side. No accent: it says where you are, and is
-/// not navigation, so no step is a button. VoiceOver reads it as one element, "Step 2 of 3, Agent".
+/// `Space.gap` long joins them, `Space.base` clear either side. No accent: it says where you are; only a
+/// completed step is a button back to it (`onSelect`, ⌘1…). VoiceOver reads "Step 2 of 3, Agent".
 /// New Task's and New Review's three and New Signal's five are drawn the same.
 struct SheetStepper: View {
     let step: Int
