@@ -458,7 +458,7 @@ TS tests-scripts.
 
 ### Phase 9. Close-out (last)
 
-- [ ] 9a. **Opus.** Docs brought to the code: architecture, Operator, windows, status model, daemon
+- [x] 9a. **Opus.** Docs brought to the code: architecture, Operator, windows, status model, daemon
   protocol, configuration, keyboard, testing, the READMEs and the UI README.
 - [ ] 9b. **Opus.** Release notes for the major release: what changed for a person, and the
   upgrade procedure. The Operator's saved records change shape in phases 4 and 5 and nothing
@@ -1501,3 +1501,17 @@ left.
   (`d1599de8`). No check is owed to the maintainer for phase 8.
 
 ### Phase 9
+- 9a: the brief's checklist was walked document by document, and each item was fixed or confirmed true:
+  `docs/architecture.md`, `operators.md`, `status-model.md`, `daemon-protocol.md` (both tables name by name, the
+  missing `delivery.policy` row added), `configuration.md`, `keyboard.md`, `testing.md`, `README.md`,
+  `daemon/README.md` and the UI README. `windows.md`, `scripts/README.md` and `AGENTS.md` were already true.
+  "broadcast" appears in none of them. The sweep's kept hits are `SignalOperatorRow`, `AgentChoiceRounds`,
+  `QuestionRounds` and `HostAPI` (all still exist, their sentences true) and `run_id` (the public test-run record).
+  Every relative link and anchor resolves. Two false doc comments in `SheetChrome.swift` were fixed. Differences from
+  the brief: `HostAPI` and the per-token user (`HostUserMemo`) still exist, so their sentences stay. Take Over is
+  offered on every task under the Operator, a `done` one included (8a's decision), and the docs say so. Noticed and
+  left (code comments, more than a line):
+  - `AgentProcess`'s comment mentions "a fix's `verify`".
+  - `TaskWorkflow`'s header says "a pull and a landing".
+  - `daemon/aitermd/models.py` cites `status.shows_trust_prompt`, which lives in `screens.py`.
+  - `SheetPrimaryButton`/`SheetFooter`'s `busy` is no longer passed by anyone.

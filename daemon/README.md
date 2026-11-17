@@ -33,7 +33,8 @@ Tests never touch the live test-run records: an audit hook fails any that tries.
 transcript and rollout builders are in `tests/builders.py`. See [testing](../docs/testing.md). Do
 not start another helper on the installed app's socket/port. For a deliberately separate development instance, `python -m aitermd run` accepts `--socket`,
 `--hook-port`, `--idle-exit-seconds` and `--cookies-from-app`; `ctl METHOD [JSON] --socket PATH`
-sends one RPC. The app normally starts and supervises the bundled helper.
+sends one RPC. The app starts and supervises the bundled helper and talks only to one it started: a
+helper a crash left holding the socket is ended, and the app starts its own.
 
 ## App connection
 
@@ -80,8 +81,10 @@ without adding a separate execution path.
 
 A tick owns one coherent registry snapshot, reused across consumers. `TestActivityReader` takes one
 view per apply and caches valid records by file stamp; each retained run still costs one lock
-check. Task lookups use a per-snapshot index. Tests enforce six registry sorts for 0/18/150-session
-tick fixtures (eleven before the first refactor round), and `test_tick_budgets.py` holds a steady
-tick to 6 sorts, no opens (20 lock checks with 20 retained runs), 2 listings and no spawns. Identity
-checks and fresh reads after asynchronous effects remain necessary; the snapshot is not a global
-mutable cache.
+check. Task lookups use a per-snapshot index. Each agent's own reads are its module's read plans:
+each Codex rollout is followed by one cursor from where its last read stopped, and an unparsable
+line is skipped and logged once; Claude's session files and transcript tails are read again only
+once they change. Tests enforce at most six registry sorts for 0/18/150-session tick fixtures, and
+`test_tick_budgets.py` holds a steady tick to 4 sorts, 2 listings, no spawns and no file opens
+beyond one lock check per retained run. Identity checks and fresh reads after asynchronous effects
+remain necessary; the snapshot is not a global mutable cache.

@@ -9,7 +9,7 @@ then cancels.
 | Keys | Action | Notes |
 | --- | --- | --- |
 | ⌘, | Settings… | Also View › Show Settings. Opens Integrations when setup needs attention, Agents otherwise. Disabled while another sheet is up. |
-| ⌘P | Add Project… | Asks for the folder, then opens one sheet for its Jira links and worktree import; Choose… there picks another folder. |
+| ⌘P | Add Project… | Asks for the folder, then opens one sheet for its Jira links and worktree import, which shows the folder as a line with Choose… to pick another. |
 | ⌘D | Add Divider… | One name field. |
 | ⌘N | New Task… | Uses the selected project or the selected row's project. |
 | ⌘R | New Review… | The same target project. |
@@ -26,11 +26,12 @@ then cancels.
 
 Creation keys are disabled while a sheet is open or the workspace cannot change. A task/review
 needs a compatible project; a terminal also accepts a plain folder. Row menus keep Rename, Open in…,
-Pull, Archive and Remove. The Operator heading's menu has Pause Operator and Resume Operator. Signal menus have Edit, Switch Off/On
-and Remove. Take Over is a driven task action; there is no Hand Back or board.
+Pull, Archive and Remove. The Operator heading's context menu has Pause Operator, or Resume Operator
+while paused; its + has only New Signal…. Signal menus have Edit, Switch Off/On and Remove. Take Over
+is on the menu of a task still under the Operator; there is no Hand Back.
 
 `KeyBindings.all` feeds Settings › Interface; `KeyboardSettingsTests` compares it to the actual
-menu titles, keys and modifiers. There is no Window menu, ⌘W/⌘M binding or ⌘I board shortcut.
+menu titles, keys and modifiers. There is no Window menu or ⌘W/⌘M binding.
 
 ## Sidebar
 
@@ -41,7 +42,7 @@ A row hidden by a fold hands the selection to its heading; a row that disappears
 | --- | --- |
 | ↑ / ↓ | Select visible project/signal headers and rows, skipping dividers and removing rows. Peek at a row's window without taking the keyboard. Folded children are skipped. ↓ on the Operator's last row selects the first project, opening PROJECTS and folding OPERATOR; ↑ on the first project selects the Operator's last row, the other way round. |
 | Return | Open the selected row's window for typing, or fold/open its header. A closed worker resumes its conversation; the Operator row opens the one chat. An empty project heading opens New Task, or New Terminal for a plain folder; an empty signal heading opens Edit Signal. |
-| ⌘Delete | The selected task/review/terminal's Remove action. Task/review removal asks first. Nothing on a header. |
+| ⌘Delete | The selected task/review/terminal's Remove action. Task/review removal asks all its questions before anything closes. Nothing on a header. |
 
 Worker permission prompts open in the worker window; the Operator's counted questions open its
 chat. A task with no worker yet opens nothing. Clicking a folded heading's attention count reveals
@@ -62,7 +63,7 @@ it or type, not when the sheet focuses it.
 | ⌘Return | Continue, then Create Task/Create Review/Create Signal, Add or Save as the button says. A review of an existing task's branch offers Open in Task/Open in Review. |
 | ⌘1…⌘4 | Return to a completed step when it is available. Future steps cannot be skipped. Clicking a completed check does the same. |
 | Return | Pick a highlighted dropdown result; insert a newline in the prompt/JQL editor. No sheet-wide commit. In Rename, Add Divider and New Terminal, Return presses the primary button too. |
-| Escape | Close the current popup first, then cancel. Back and the completed steps go back. |
+| Escape | Close the current popup first, then cancel. Every step has Cancel; Back and the completed steps go back. |
 
 ## Picker and prompt completions
 
@@ -83,7 +84,6 @@ the accessible Restore action restores the selected task at its reserved path, s
 resumes its conversations. A refusal leaves the archive open. ⌘Delete removes the selected record
 after confirmation; with no row, ordinary field editing applies. Escape clears search before closing.
 Search covers title, branch, project, ticket and request number/title, ignoring case and accents.
-There are no ended broadcasts to open.
 
 ## Settings and alerts
 
@@ -91,10 +91,11 @@ There are no ended broadcasts to open.
 answer left/right. Settings stages every switch and field until Save; Install, Repair, Run check,
 the Mac card's Allow… and Remove, and the sidebar size preview apply at once.
 
-An alert's default button answers Return, Escape its safe choice. Destructive Remove/Delete Branch
-is the default only when the alert says so. Closing a row's iTerm2 window asks nothing; the row stays
-and Return opens it again. Unsaved changes default to Keep Task/Keep Review. Restore failures and
-other one-button alerts use OK.
+An alert's default button answers Return, Escape its safe choice. Remove's alert has Remove as its
+red default and, for a task, a Delete local branch box; when that branch holds commits found nowhere
+else, a second alert offers Delete Branch (the red default) or Keep Branch (Escape). Closing a row's
+iTerm2 window asks nothing; the row stays and Return opens it again. Unsaved changes default to Keep
+Task/Keep Review. Restore failures and other one-button alerts use OK.
 
 `AlertPrompt.escapeButton`/`ModalPrompter` preserve Escape even when the safe choice is also the
 default. Alerts are awaited outside the SwiftUI key handler so native controls render correctly.

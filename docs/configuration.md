@@ -60,7 +60,10 @@ against remotes still use your normal Git authentication.
 ### iTerm2
 
 Enable **iTerm2 › Settings › General › Magic › Enable Python API**. When iTerm2 asks whether AiTerm
-may connect, allow it. Until then the sidebar says AiTerm isn’t connected to iTerm2, and Settings › Integrations › iTerm2 shows what is missing.
+may connect, allow it. Until then the sidebar's banner says **AiTerm isn’t connected to iTerm2.**,
+with **Open Settings**, and Settings › Integrations › iTerm2 shows what is missing. With iTerm2 not
+running it says **iTerm2 isn’t running.**, with **Open iTerm2**; when iTerm2 refuses the connection
+it says **iTerm2 refused AiTerm.** and names the Automation switch to turn on.
 
 ### Jira, GitLab and GitHub
 
@@ -115,7 +118,7 @@ it back at its reserved path. See
 AiTerm can show a test run in a task's row, such as `tests queued · #2`, `running tests · unit` or
 `last tests failed · exit 1`, when your project's test runner says so. This is opt-in: a runner that
 writes nothing shows nothing. While a run is queued or running it also counts as the worker at
-work, so the Operator does not flag a worker that waits on a long suite as possibly stalled, and a
+work: its stage does not move on and the Operator is not woken as if its turn had ended, and a
 pause waits for the run.
 
 A runner reports a run through one record file in `/tmp/aiterm-test.lock.runs/`:

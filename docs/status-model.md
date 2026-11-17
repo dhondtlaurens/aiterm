@@ -25,7 +25,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 | Hook event | Signal | Notes |
 |---|---|---|
 | `UserPromptSubmit` | working | Claude Code and Codex. A new turn: it drops any completion the previous turn deferred. |
-| `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below), and the session's `work` marks what still runs as holding the turn (`holdsTurn`): shells, monitors and other tasks, and the counted children by their description, each taken off as it ends. |
+| `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` does not list (below), and the session's `work` marks what still runs as holding the turn (`holdsTurn`): shells, monitors and other tasks, and the counted children by their description, each taken off as it ends. |
 | `StopFailure` | done | Claude only, in place of `Stop` when an API error ended the turn. The session's `stoppedOn` names the error (`rate_limit` for a usage limit, `billing_error`, `authentication_failed`...), and for a limit when it resets, once the tick reads that in the transcript's own record of it within 30 s; it is never guessed. It clears once the session works again: a new prompt, a clean `Stop`, another conversation, its session file saying busy (Claude Code carrying on by itself once the limit reset), another process in the tab. |
 | `PermissionRequest` | needsInput | Claude Code and Codex. |
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
@@ -59,20 +59,22 @@ the prompt turns a remembered done into idle, so closing the prompt does not bri
 completion already seen. Claude's and Codex's input requests remember nothing; their tick signals
 below do the correcting.
 
-Hooks are the primary source; two corroborating ones run on the daemon's tick so a missed post
+Hooks are the primary source; corroborating ones run on the daemon's tick so a missed post
 cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` → working, `waiting`
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
-the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Each
-agent's module under `daemon/aitermd/agents/` maps its own readings to the engine's `Evidence`; PI
-has neither.
+the end of the turn), and for Codex the braille spinner glyph at the head of its tab's iTerm2 title
+and the turn boundaries its rollout records (a turn started or completed, counted only when newer
+than the last hook). Each agent's module under `daemon/aitermd/agents/` maps its own readings to the
+engine's `Evidence`; PI has none.
 
 Claude Code's folder-trust dialog ("Yes, I trust this folder") comes before all of these: Claude
 loads no hooks and writes no session file until the folder is trusted, so the tab's screen is the
 only sign of it. The tick reads the screen of a Claude tab that has a process but no session file,
-while its row is idle, or while the dialog holds the row (`Service._apply_trust_prompts`; the text is
+while its row is idle, or while the dialog holds the row (`CorroboratingReaders.trust_prompts` in
+`corroboration.py`; the text is
 the harness's `trust_prompt` in `HARNESSES`). The dialog moves an idle row to needs input, and
 nothing else: a row a hook has moved is left alone. When it closes, the row goes back to idle and not
-to done, because no turn ran. It is closed by the screen no longer showing it, by the session file
+to done, because no turn ran. It is closed by the screen not showing it any more, by the session file
 appearing, by any hook (only a trusted folder loads them), or by Claude exiting. A screen that
 cannot be read changes nothing. A tab past the dialog has its session file, so its screen is not
 read again.
@@ -93,7 +95,7 @@ Notifications open that one row/window; worker permission notifications open the
 Pause/signal-off tells current workers to end their turn and wait. Source polling and new effects
 stop; successful carry-on delivery precedes further work when resumed. See [Operator](operators.md).
 
-Daemon prompt recognition still distinguishes a live dialog from numbered transcript text above a
+Daemon prompt recognition distinguishes a live dialog from numbered transcript text above a
 later input arrow, including Claude's framed multiline drafts and model/effort menus. Delivery
 checks validate the current process, ownership, worktree and screen immediately before typing.
 Blank/unreadable screens never prove safe delivery.
@@ -116,19 +118,21 @@ sibling's file, older than that hook, could not correct it.
 
 The tab title is read for that spinner and for nothing else, so a title that changes while nothing
 else does is not a change to announce: a working Codex tab turns its spinner glyph on almost every
-tick, and each of those would have been a `session.changed` that the app decodes and discards. The
-daemon keeps the newest title in its registry, where the status engine reads it, and every
-`session.changed` and snapshot still carries it, so an older app that decodes the field keeps working.
+tick. The daemon keeps the newest title in its registry, where the status engine reads it, and
+leaves it out of a session's equality and of the wire.
 
-Each tracked Codex rollout is followed from where the last read stopped. On first sight only its
-first line and its last 8 MiB are read. Only lines naming a session start, a turn boundary or a token
-count are parsed; a line that cannot be parsed is skipped. Rollouts and account rate limits are read
+Each tracked Codex rollout is followed by one cursor from where the last read stopped, the thread
+found through the tab's binding (`CodexThreads`). On first sight only its first line and its last
+8 MiB are read. Only lines naming a session start, a turn boundary or a token count are parsed; a
+line that cannot be parsed is skipped and logged once. Rollouts and account rate limits are read
 on a worker thread, as the subagent checks are. A read that does not answer within a second costs
 that tick its Codex numbers, not the daemon its hook acks.
 
 A tick publishes what it changed even if a step of it raises, and each corroborating step (a
 session's file, the subagent transcripts) is guarded on its own: one that fails is
-logged and costs only its own changes.
+logged and costs only its own changes. A reading is applied only while the session key it was
+captured with (agent, process, conversation) still stands; one that a replacement overtook is
+dropped.
 
 Both lag the hooks, so neither may override a newer one:
 
@@ -139,8 +143,8 @@ Both lag the hooks, so neither may override a newer one:
   the row: Claude rewrites the file, which is then newer than the hook.
 - **A Codex title without a spinner** ends a working turn only if a spinner has been seen since the
   last hook said working. Codex draws it a moment after `UserPromptSubmit`, and a tick in between
-  used to mark the row done. The cost: a `Stop` lost in a turn shorter than one tick (2 s) is no
-  longer corrected by the title, and the row stays working until the next hook.
+  would otherwise mark the row done. The cost: a `Stop` lost in a turn shorter than one tick (2 s)
+  is not corrected by the title; the rollout's record of the turn's end corrects it.
 
 The file rule compares two wall-clock times: the daemon's clock when the hook arrived, and the
 file's mtime. If the clock steps backwards between them (an NTP correction), a newer file looks
@@ -236,20 +240,20 @@ unchanged files. A new parent prompt or successful assistant response, timestamp
 and the latest hook, proves the parent carried on and clears the marker. Child records, system
 notices, pure tool results, older reports and a later API error do not count as recovery.
 
-What an agent reported belongs to its process, not the tab. A tab keeps its model, reasoning,
-agent directory, context fill and conversation id only while the same agent runs under the same process id, from
-one snapshot to the next. A Claude that exits to the shell, or a new Claude in the same tab,
-starts blank: the row no longer shows the old worktree's branch, and Cmd+T opens where the shell
-is. The state is not kept either: the tick that finds the tab back at its shell sets it idle at
-once (`StatusEngine.agent_exited`), an exited agent's unseen done included. An
-agent that hands the terminal to another program and gets it back under its own pid comes back
-blank too — Claude's Ctrl+G opening `$EDITOR`. Claude's session file restores its directory and
-conversation in the tick that sees it back; the model and context return with the next hook or
-status-line post. Codex's hook-proven thread is also kept on its iTerm tab with the foreground
-process ID. When that same Codex process returns, or the helper restarts, the thread is recovered
-from the tag, and its rollout supplies the CLI version for the usual delivery check. Another agent
-or another process cannot inherit it. `SubagentStart` and `SubagentStop` never replace that binding;
-a directory-based placement pin does not establish one.
+What an agent reported belongs to its process, not the tab. A tab keeps its agent directory, context
+fill and conversation id only while the same agent runs under the same process id, from one snapshot
+to the next. A Claude that exits to the shell, or a new Claude in the same tab, starts blank: the
+row stops showing the old worktree's branch, and Cmd+T opens where the shell is. The state is not
+kept either: the tick that finds the tab back at its shell sets it idle at once
+(`StatusEngine.agent_exited`), an exited agent's unseen done included. An agent that hands the
+terminal to another program and gets it back under its own pid comes back blank too — Claude's
+Ctrl+G opening `$EDITOR`. Claude's session file restores its directory and conversation in the tick
+that sees it back; the context fill returns with the next hook or status-line post. Codex's
+hook-proven thread is also kept on its iTerm tab with the foreground process ID, by `CodexThreads`.
+When that same Codex process returns, or the helper restarts, the thread is recovered from the tag,
+and its rollout supplies the CLI version for the usual delivery check. Another agent or another
+process cannot inherit it. `SubagentStart` and `SubagentStop` never replace that binding; a
+directory-based placement pin does not establish one.
 
 ## A turn that removes its own checkout
 
@@ -280,7 +284,7 @@ all reported the repository root while their processes were inside `.worktrees/*
 4. Resolution is a `stat` of each directory's `HEAD` file, not a git call: git runs only the
    first time a directory is seen, to find that file, and for a `HEAD` too unusual to read. It
    runs off the main actor, coalesced, and only for a session change that moves a tab: the daemon
-   can broadcast several changes a second, and a new context fill or model moves nothing.
+   can send several changes a second, and a new context fill moves nothing.
 
 ## What the branch line can say
 
