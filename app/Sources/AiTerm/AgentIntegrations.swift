@@ -148,30 +148,24 @@ final class AgentIntegrations {
         if let installed { availableAgents = installed }
     }
 
-    /// The status line's launch probe: first the upgrade of an old record of the user's own status
-    /// line, which the shim would otherwise stop showing, and the port the shims post to, which an
-    /// install from before they read it never recorded, then the read.
-    /// Internal, not private, for `theLaunchProbeMigratesAnOldStatusLineRecord`.
-    func probeStatusLine() async { await readStatusLine(migratingFirst: true) }
+    /// Records the port the shims post to, then reads the status line.
+    /// Internal for `theLaunchProbeRecordsTheHookPort`.
+    func probeStatusLine() async { await readStatusLine(recordingPort: true) }
 
     /// Re-reads whether the shim is still Claude Code's status line, after a Claude install, so the
     /// footer stays honest when another tool edits Claude's settings. Internal, not private, for
     /// `theStatusLineProbeReadsTheHarnessHome`.
-    func refreshStatusLineState() async { await readStatusLine(migratingFirst: false) }
+    func refreshStatusLineState() async { await readStatusLine(recordingPort: false) }
 
     /// Off the main actor, both: `settings.json` is the user's file, of any size, and parsing it
     /// must not hold up the app.
-    private func readStatusLine(migratingFirst migrating: Bool) async {
+    private func readStatusLine(recordingPort: Bool) async {
         let shim = claudeShim, home = harnessHome, isInstalled = statusLineIsInstalled, config = claudeConfig
         statusLineReadsStarted += 1
         let read = statusLineReadsStarted
         let (installed, directory) = await BackgroundWork.run {
             let directory = config.directory(home: home)
-            if migrating {
-                Log.harness.attempt("Migrating the saved status line") { try StatusLineOriginal.migrate(home: home) }
-                // The shims are in the bundle and so are as new as the app, but read the port from a
-                // file only a driver's Install writes: until it has, an upgrade's status line posts
-                // to nothing and the footer's usage goes quiet.
+            if recordingPort {
                 Log.harness.attempt("Recording the hook port") { try ShimPort.record(AiTermPaths.hookPort, home: home) }
             }
             // The harness home this was given, never the default: in a test that is a temporary

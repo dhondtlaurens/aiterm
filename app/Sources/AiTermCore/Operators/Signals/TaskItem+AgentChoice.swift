@@ -31,23 +31,4 @@ public extension TaskItem {
         default: return nil
         }
     }
-
-    /// Blocks saved by builds before `choosing` existed, by their exact reason.
-    static let earlierChoiceReasons: Set<String> = [
-        "Choose a permitted agent and model for this task.", "Choose a permitted agent and model for this stage.",
-        "Choose which linked project should hold this ticket.",
-    ]
-
-    /// A stage an earlier build blocked only to wait for a row or project choice now waits in
-    /// `choosing` (or launches, when nothing is left to choose). Every other block stays. True when changed.
-    mutating func normalizeEarlierChoiceBlock(configuration: Signal, at: Date) -> Bool {
-        guard var record = signalTask, record.phase == .blocked, !record.takenOver,
-              let reason = record.blockedReason, Self.earlierChoiceReasons.contains(reason) else { return false }
-        record.phase = .launching; record.blockedReason = nil
-        record.edges.append(SignalEdge(from: .blocked, to: .launching, stage: record.stage, at: at))
-        signalTask = record
-        prepareLaunch(configuration: configuration, candidates: record.candidateProjects, at: at)
-        if signalTask?.phase == .launching { signalTask?.candidateProjects = nil }
-        return true
-    }
 }

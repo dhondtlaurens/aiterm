@@ -86,7 +86,7 @@ extension DaemonError {
         public static let `protocol`: Code = "protocol"
         /// The handler failed in a way it did not name.
         public static let `internal`: Code = "internal"
-        /// The daemon has no handler for this request name — an older helper out of sync with a newer app.
+        /// The daemon has no handler for this request name.
         public static let unknownMethod: Code = "unknown_method"
         /// Every code the daemon answers with.
         public static let daemonCodes: [Code] = [.badParams, .notFound, .itermUnavailable, .protocol, .internal, .unknownMethod]

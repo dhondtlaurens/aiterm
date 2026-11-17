@@ -436,8 +436,8 @@ import Synchronization
         let stub = StubSession { request in
             let startAt = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "startAt" }?.value
             return (200, Data((startAt == "0"
-                ? #"{"values":[{"id":"1","key":"A","name":"Alpha"},{"id":"2"}],"total":3}"#
-                : #"{"values":[{"id":"3","key":"C","name":"Gamma"}],"total":3}"#).utf8))
+                ? #"{"values":[{"id":"1","key":"A","name":"Alpha"},{"id":"2"}],"isLast":false}"#
+                : #"{"values":[{"id":"3","key":"C","name":"Gamma"}],"isLast":true}"#).utf8))
         }
         let projects = try await JiraClient(config: config, session: stub.session).projects()
         #expect(projects.map(\.key) == ["A", "C"])
@@ -531,13 +531,6 @@ import Synchronization
         }
         let tickets = try await JiraClient(config: config, session: stub.session).search(text: "SHOP-2")
         #expect(tickets.map(\.key) == ["SHOP-20", "SHOP-21"])
-    }
-
-    @Test func aPagingFieldOfTheWrongTypeIsReadAsNotSent() async throws {
-        let stub = StubSession { _ in (200, Data(#"{"values":[{"id":"1","key":"A","name":"Alpha"}],"isLast":"yes","total":"many"}"#.utf8)) }
-        let projects = try await JiraClient(config: config, session: stub.session).projects()
-        #expect(projects.map(\.key) == ["A"])
-        #expect(stub.requests.count == 1, "no usable paging field and a short page is the last page")
     }
 
     @Test func anAccountNameOfTheWrongTypeFallsBackToTheNextOne() async throws {

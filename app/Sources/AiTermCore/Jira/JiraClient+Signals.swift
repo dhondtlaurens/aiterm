@@ -59,8 +59,7 @@ public extension JiraClient {
             let page = try await decode(SignalValuesPage<Value>.self, request(path: path, queryItems: [
                 URLQueryItem(name: "startAt", value: String(start)), URLQueryItem(name: "maxResults", value: "100")]))
             values += page.values; start += page.values.count
-            if page.isLast == true || page.total.map({ start >= $0 }) == true ||
-                (page.isLast == nil && page.total == nil && page.values.count < 100) { return values }
+            if page.isLast { return values }
             guard !page.values.isEmpty else { throw IncompleteRead(path) }
         }
         throw IncompleteRead(path)
@@ -69,8 +68,7 @@ public extension JiraClient {
 
 private struct SignalValuesPage<Value: Decodable>: Decodable {
     var values: [Value]
-    var isLast: Bool?
-    var total: Int?
+    var isLast: Bool
 }
 private struct SignalSearchResponse: Decodable {
     struct Named: Decodable { var name: String? }

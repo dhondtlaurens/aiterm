@@ -5,7 +5,7 @@ import Testing
 @Suite struct DaemonTypesTests {
     @Test func displayWorkDistinguishesUnavailableAndKnownEmptySources() throws {
         let session = try JSONDecoder().decode(SessionInfo.self, from: Data("""
-            {"sessionId":"s","windowId":"w","tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/",
+            {"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/",
              "displayWork":{"subagents":[{"kind":"subagent","text":"Review","legacyIndex":1}],"shells":null}}
             """.utf8))
         #expect(session.displayWork?.subagents == [.init(kind: .subagent, text: "Review", legacyIndex: 1)])
@@ -14,27 +14,27 @@ import Testing
         empty.displayWork?.shells = []
         #expect(empty.rowRelevant != session.rowRelevant, "availability changes what the card may show")
     }
-    /// A terminal's tab names its row, which adopts a window iTerm2 renumbered; an older daemon names none.
+    /// A terminal's tab names its row, which adopts a window iTerm2 renumbered.
     @Test func aSessionReadsItsTerminalTag() throws {
         let id = UUID()
         let tagged = try JSONDecoder().decode(SessionInfo.self, from: Data("""
-            {"sessionId":"s","windowId":"w","tabIndex":0,"agent":"shell","state":"idle","title":"","cwd":"/",
+            {"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"shell","state":"idle","title":"","cwd":"/",
              "terminalId":"\(id.uuidString.lowercased())"}
             """.utf8))
         #expect(tagged.terminalUUID == id)
         let older = try JSONDecoder().decode(SessionInfo.self, from: Data("""
-            {"sessionId":"s","windowId":"w","tabIndex":0,"agent":"shell","state":"idle","title":"","cwd":"/"}
+            {"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"shell","state":"idle","title":"","cwd":"/"}
             """.utf8))
         #expect(older.terminalId == nil && older.terminalUUID == nil)
     }
 
-    /// A tab whose turn an API error ended says what stopped it, and for a usage limit when it resets; an older daemon
-    /// says nothing. Each error is worded for what it means: a limit Claude Code may carry on from, a failure it won't.
+    /// A tab whose turn an API error ended says what stopped it, and for a usage limit when it resets.
+    /// Each error is worded for what it means: a limit Claude Code may carry on from, a failure it won't.
     @Test func aSessionSaysWhatStoppedItsTurn() throws {
-        let stopped = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"done","title":"","cwd":"/repo","stoppedOn":{"error":"rate_limit","resetsAt":1793017200}}"#
+        let stopped = #"{"sessionId":"s1","windowId":"w1","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"done","title":"","cwd":"/repo","stoppedOn":{"error":"rate_limit","resetsAt":1793017200}}"#
         let session = try JSONDecoder().decode(SessionInfo.self, from: Data(stopped.utf8))
         #expect(session.stoppedOn == StoppedOn(error: "rate_limit", resetsAt: 1_793_017_200))
-        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"done","title":"","cwd":"/repo"}"#
+        let older = #"{"sessionId":"s1","windowId":"w1","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"done","title":"","cwd":"/repo"}"#
         #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).stoppedOn == nil)
 
         var brussels = Calendar(identifier: .gregorian)
@@ -56,14 +56,14 @@ import Testing
     /// value this app has never heard of. Decoding it to `.shell`/`.idle` keeps that one session
     /// from failing the whole snapshot, instead of a `.helperUnreachable` reconnect loop.
     @Test func unknownAgentAndStateDecodeToTheirDefaultsInsteadOfFailing() throws {
-        let json = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"gremlin","model":null,"state":"pondering","title":"","cwd":"/repo"}"#
+        let json = #"{"sessionId":"s1","windowId":"w1","active":false,"background":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"gremlin","model":null,"state":"pondering","title":"","cwd":"/repo"}"#
         let info = try JSONDecoder().decode(SessionInfo.self, from: Data(json.utf8))
         #expect(info.agent == .shell)
         #expect(info.state == .idle)
     }
 
     @Test func aSnapshotCarryingAnUnknownAgentOrStateStillDecodesAsAWhole() throws {
-        let json = #"{"protocolVersion":1,"connected":true,"sessions":[{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"gremlin","model":null,"state":"pondering","title":"","cwd":"/repo"}],"usage":{"claude":null,"codex":null}}"#
+        let json = #"{"protocolVersion":1,"connected":true,"sessions":[{"sessionId":"s1","windowId":"w1","active":false,"background":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"gremlin","model":null,"state":"pondering","title":"","cwd":"/repo"}],"usage":{"claude":null,"codex":null}}"#
         let snapshot = try JSONDecoder().decode(DaemonSnapshot.self, from: Data(json.utf8))
         #expect(snapshot.sessions.first?.agent == .shell)
         #expect(snapshot.sessions.first?.state == .idle)
@@ -166,13 +166,13 @@ import Testing
         #expect(said(.internal) == "AiTerm’s helper ran into a problem.")
     }
 
-    /// A tab names the conversation its agent runs; an older daemon names none. No row draws it, so a
+    /// A tab names the conversation its agent runs. No row draws it, so a
     /// new one redraws nothing.
-    @Test func aSessionCarriesItsConversationAndAnOlderDaemonsNone() throws {
-        let named = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"codex","model":null,"state":"idle","title":"","cwd":"/repo","conversationId":"019a-thread"}"#
+    @Test func aSessionCarriesItsConversationWhenAvailable() throws {
+        let named = #"{"sessionId":"s1","windowId":"w1","active":false,"background":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"codex","model":null,"state":"idle","title":"","cwd":"/repo","conversationId":"019a-thread"}"#
         let session = try JSONDecoder().decode(SessionInfo.self, from: Data(named.utf8))
         #expect(session.conversationId == "019a-thread")
-        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"codex","model":null,"state":"idle","title":"","cwd":"/repo"}"#
+        let older = #"{"sessionId":"s1","windowId":"w1","active":false,"background":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"codex","model":null,"state":"idle","title":"","cwd":"/repo"}"#
         #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).conversationId == nil)
         var renamed = session
         renamed.conversationId = "019b-thread"

@@ -17,9 +17,6 @@ public final class BackpackSettings: @unchecked Sendable {
         static let network = "backpack.network"
         static let engaged = "backpack.engaged"
         static let password = "backpack.password"
-        /// Notifies' choice, saved by builds that pushed to the iPhone through iTerm2 Buddy: never
-        /// read, and removed by the next save.
-        static let retired = ["backpack.pushes"]
     }
 
     private let defaults: UserDefaults?
@@ -66,7 +63,6 @@ public final class BackpackSettings: @unchecked Sendable {
     private func write(_ value: Any?, _ key: String) {
         if let defaults {
             defaults.set(value, forKey: key)
-            Key.retired.forEach(defaults.removeObject(forKey:))
             return
         }
         lock.withLock { _ in memory[key] = value }

@@ -48,22 +48,4 @@ import Foundation
         #expect(settings.password == nil)
         #expect(secrets.get("backpack.password") == nil)
     }
-
-    /// A build that pushed to the iPhone saved Notifies' choice beside the hotspot: the rest reads as
-    /// before, and the next save leaves the choice out.
-    @Test func anOldNotifiesChoiceIsReadPastAndDroppedOnTheNextSave() {
-        let defaults = ScratchDefaults.make()
-        defaults.set("Phone", forKey: "backpack.network")
-        defaults.set("needsInputOrDone", forKey: "backpack.pushes")
-        defaults.set(true, forKey: "backpack.engaged")
-        let settings = BackpackSettings(defaults: defaults)
-        #expect(settings.network == "Phone")
-        #expect(settings.engaged)
-        settings.network = "Other phone"
-        #expect(defaults.object(forKey: "backpack.pushes") == nil)
-        #expect(defaults.dictionaryRepresentation()["backpack.pushes"] == nil)
-        let again = BackpackSettings(defaults: defaults)
-        #expect(again.network == "Other phone")
-        #expect(again.engaged)
-    }
 }

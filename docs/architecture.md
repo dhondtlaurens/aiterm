@@ -202,5 +202,5 @@ The app is dark-only. Palette and Metrics are the source of visual values; the
 the code and holds proposed visual changes separately. Refactors change no visual values.
 
 [Testing](testing.md) describes the gate, current-format fixtures, real adapter proofs and opt-in
-live checks. Debug snapshot entry occurs before live workspace migration/controller construction,
+live checks. Debug snapshot entry occurs before live workspace setup/controller construction,
 so fixture rendering does not connect to the running app's state or daemon.

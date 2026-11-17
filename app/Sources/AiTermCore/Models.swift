@@ -76,38 +76,6 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
         self.id = id; self.name = name; self.path = path; self.provider = provider; self.remoteUrl = remoteUrl; self.addedAt = addedAt; self.collapsed = collapsed
         self.jiraProjects = jiraProjects
     }
-
-    // `jiraProject` is where a workspace saved before a project could link several Jira projects
-    // keeps its one. It is read only when `jiraProjects` is absent; new saves write only the list.
-    private enum CodingKeys: String, CodingKey {
-        case id, name, path, provider, remoteUrl, addedAt, collapsed, jiraProjects, jiraProject
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        path = try c.decode(String.self, forKey: .path)
-        provider = try c.decode(Provider.self, forKey: .provider)
-        remoteUrl = try c.decodeIfPresent(String.self, forKey: .remoteUrl)
-        addedAt = try c.decode(Date.self, forKey: .addedAt)
-        collapsed = try c.decode(Bool.self, forKey: .collapsed)
-        jiraProjects = try c.decodeIfPresent([JiraProjectRef].self, forKey: .jiraProjects)
-            ?? c.decodeIfPresent(JiraProjectRef.self, forKey: .jiraProject).map { [$0] }
-            ?? []
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(name, forKey: .name)
-        try c.encode(path, forKey: .path)
-        try c.encode(provider, forKey: .provider)
-        try c.encodeIfPresent(remoteUrl, forKey: .remoteUrl)
-        try c.encode(addedAt, forKey: .addedAt)
-        try c.encode(collapsed, forKey: .collapsed)
-        try c.encode(jiraProjects, forKey: .jiraProjects)
-    }
 }
 
 /// A named rule between projects in the sidebar. A label, not a container: nothing nests under it
@@ -394,16 +362,6 @@ public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
 
     public static let defaultName = "Terminal"
 
-    /// Preserve compatibility with workspaces saved before terminals had names.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        projectId = try c.decode(UUID.self, forKey: .projectId)
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? Self.defaultName
-        windowId = try c.decodeIfPresent(String.self, forKey: .windowId)
-        createdAt = try c.decode(Date.self, forKey: .createdAt)
-    }
-
     /// "Terminal", then the lowest free "Terminal n" — the prefill for the New Terminal sheet.
     public static func suggestedName(existing: [TerminalItem]) -> String {
         let taken = Set(existing.map(\.name))
@@ -494,17 +452,15 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
+        case items, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
         case signals, signalSeen, operatorSession, operatorOpen
     }
 
-    /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
-    /// their projects become the list, in order. Same mechanism as `TerminalItem.init(from:)`.
+    /// Reads known workspace fields and preserves unrecognized keys for the next save.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
-        if let stored = try c.decodeIfPresent([SidebarItem].self, forKey: .items) { items = stored }
-        else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
+        items = try c.decodeIfPresent([SidebarItem].self, forKey: .items) ?? []
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
         terminals = try c.decodeIfPresent([TerminalItem].self, forKey: .terminals) ?? []
         archive = try c.decodeIfPresent([ArchivedTask].self, forKey: .archive) ?? []

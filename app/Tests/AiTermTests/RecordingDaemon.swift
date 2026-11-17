@@ -77,7 +77,7 @@ final class RecordingDaemon: DaemonCommands {
     func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String {
         var params: [String: Any] = ["taskId": taskId, "cwd": cwd, "title": title, "frame": Self.frame(frame)]
         params["agentCommand"] = agentCommand
-        if background { params["background"] = true }
+        params["background"] = background
         return try await answer("window.createTask", params, id: "reopened")
     }
 
@@ -100,7 +100,7 @@ final class RecordingDaemon: DaemonCommands {
         var params: [String: Any] = ["windowId": windowId, "cwd": cwd]
         params["agentCommand"] = agentCommand
         params["tabKey"] = tabKey
-        if background { params["background"] = true }
+        params["background"] = background
         return try await answer("tab.create", params, id: "s-review")
     }
 

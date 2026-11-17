@@ -281,22 +281,6 @@ import Testing
         #expect(await other.call("resume_task", choosing, key: "r", [:]).message?.contains("choose_agent") == true)
     }
 
-    @Test func blocksSavedByAnEarlierBuildForAChoiceNowWaitForTheOperator() throws {
-        var world = SignalWorld(); let signal = world.signal(agents: [SignalWorld.agent, Self.codex])
-        let choice = world.workingTask(signal: signal), failure = world.workingTask(signal: signal)
-        world.state.updateSignalTask(choice) { $0.phase = .blocked; $0.blockedReason = "Choose a permitted agent and model for this stage." }
-        world.state.updateSignalTask(failure) { $0.phase = .blocked; $0.blockedReason = "Its worker did not start after its saved launch." }
-        let configuration = try #require(world.state.signal(id: signal))
-        var changed: [Bool] = []
-        let at = world.now
-        world.state.updateSignalItem(choice) { changed.append($0.normalizeEarlierChoiceBlock(configuration: configuration, at: at)) }
-        world.state.updateSignalItem(failure) { changed.append($0.normalizeEarlierChoiceBlock(configuration: configuration, at: at)) }
-        #expect(changed == [true, false])
-        #expect(world.state.task(id: choice)?.signalTask?.phase == .choosing)
-        #expect(world.state.task(id: choice)?.signalTask?.choosableRows == [SignalWorld.agent, Self.codex])
-        #expect(world.state.task(id: failure)?.signalTask?.phase == .blocked)
-    }
-
     @Test func aTakeOverDuringTheOracleRoundRefusesTheLateChoice() async throws {
         let (r, signal) = try rig(); defer { r.h.cleanUp() }
         let id = try #require(r.route(signal).first)

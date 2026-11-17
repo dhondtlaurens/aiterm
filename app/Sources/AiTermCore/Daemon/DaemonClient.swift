@@ -57,8 +57,7 @@ public final class DaemonClient: Sendable {
     /// unanswered too.
     static let timeoutsBeforeLivenessCheck = 2
     /// `iterm.status`: answered from what the helper holds, with no lock and no iTerm2 call, so
-    /// a helper whose loop runs answers it in one turn whatever else is waiting. An older helper
-    /// without it still answers, with `unknown_method`, which proves the same.
+    /// a helper whose loop runs answers it in one turn whatever else is waiting.
     static let livenessCheck = DaemonMethod.itermStatus
     /// How long the liveness check is given. Its answer takes one turn of the helper's loop, so
     /// three seconds is a wide margin for a busy machine. The check goes out at the second timeout
@@ -479,7 +478,7 @@ public final class DaemonClient: Sendable {
     struct WorkerWindowResult: Decodable { var windowId: String; var commandError: String? }
     struct WorkerTabResult: Decodable { var sessionId: String; var commandError: String? }
     struct ChangedResult: Decodable { var changed: Int }
-    struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool? }
+    struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool }
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
     struct SessionParams: Encodable { var sessionId: String }
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
@@ -499,7 +498,7 @@ public final class DaemonClient: Sendable {
     }
     struct CreateTerminalParams: Encodable { var projectId, terminalId, cwd, title: String; var frame: Frame }
     struct WindowParams: Encodable { var windowId: String; var frame: Frame? }
-    struct CreateTabParams: Encodable { var windowId, cwd: String; var agentCommand, tabKey: String?; var background: Bool? }
+    struct CreateTabParams: Encodable { var windowId, cwd: String; var agentCommand, tabKey: String?; var background: Bool }
     struct SessionTitlesParams: Encodable { var titles: [SessionTitle] }
     struct TaskParams: Encodable { var taskId: String }
     struct InterfaceParams: Encodable { var matchItermBackground: Bool }
@@ -537,11 +536,11 @@ public final class DaemonClient: Sendable {
         return snapshot
     }
     /// `background` opens the window behind the person's work: iTerm2 is not activated and the
-    /// window not raised. Left out of the request when false, as every window before operators.
+    /// window not raised.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame,
                                  background: Bool) async throws -> String {
         try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
-                                                                      frame: frame, background: background ? true : nil),
+                                                                      frame: frame, background: background),
                           as: WindowResult.self).windowId
     }
     public func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
@@ -556,11 +555,11 @@ public final class DaemonClient: Sendable {
     }
     public func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
         try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, terminalId: terminalId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
-    /// A tab in an existing window, carrying that window's task or project tag. `tabKey` and `background` are left out
-    /// of the request when nil and false, as every tab before operators' extra worker tabs.
+    /// A tab in an existing window, carrying that window's task or project tag.
+    /// `tabKey` identifies an extra worker tab; `background` keeps it behind the person's work.
     public func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String {
         try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: tabKey,
-                                                              background: background ? true : nil), as: SessionResult.self).sessionId
+                                                              background: background), as: SessionResult.self).sessionId
     }
     public func activate(windowId: String) async throws { _ = try await request(.windowActivate, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
     public func activate(sessionId: String) async throws { _ = try await request(.sessionActivate, params: SessionParams(sessionId: sessionId), as: Empty.self) }

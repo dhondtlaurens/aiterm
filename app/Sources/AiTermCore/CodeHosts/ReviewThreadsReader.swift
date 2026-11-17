@@ -41,9 +41,9 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
     }
 
     /// `https://github.com/<owner>/<repo>/pull/<n>`, or `<GitLab host>/<project>/-/merge_requests/<n>`
-    /// (`/merge_requests/` alone before GitLab 12.0) on the configured host — compared as DNS does,
-    /// its case and a trailing dot ignored, and its port unless it is the scheme's own — with the sub-path a GitLab is served from
-    /// (`https://example.com/gitlab`) left out of the project.
+    /// on the configured host, compared as DNS does,
+    /// its case and a trailing dot ignored, and its port unless it is the scheme's own.
+    /// A GitLab sub-path (`https://example.com/gitlab`) is left out of the project.
     static func target(of webURL: String, gitLabHost: URL?) -> Target? {
         guard let url = URL(string: webURL) else { return nil }
         switch CodeHost(webURL: webURL) {
@@ -59,7 +59,7 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
             guard url.path.hasPrefix(root + "/") else { return nil }
             // Keep the slash in front of the project, so a path that starts at the marker names none.
             let path = String(url.path.dropFirst(root.count))
-            guard let marker = path.range(of: "/-/merge_requests/") ?? path.range(of: "/merge_requests/"),
+            guard let marker = path.range(of: "/-/merge_requests/"),
                   marker.lowerBound > path.startIndex else { return nil }
             let project = String(path[path.index(after: path.startIndex)..<marker.lowerBound])
             return project.isEmpty ? nil : .gitLab(project: project)

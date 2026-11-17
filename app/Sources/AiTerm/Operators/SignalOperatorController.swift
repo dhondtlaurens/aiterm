@@ -522,7 +522,6 @@ import AiTermCore
             await finishSessionIfIdle()
             return
         }
-        normalizeEarlierChoiceBlocks()
         for task in workspace.state.allSignalTasks {
             if task.signalTask?.phase == .launching { schedule { await self.stages.run(task.id) } }
             else if let record = task.signalTask, record.phase.canContinue, !record.pendingStages.isEmpty {
@@ -668,19 +667,6 @@ import AiTermCore
         case .choosing: wake(.agentChoice, id: id)
         default: break
         }
-    }
-    /// Stages an earlier build blocked only to wait for a row or project choice now wait in `choosing`.
-    private func normalizeEarlierChoiceBlocks() {
-        let at = ports.now()
-        var changed: [UUID] = []
-        workspace.mutate { state in
-            for task in state.allSignalTasks {
-                guard let record = task.signalTask, let configuration = record.configuration ?? state.signal(id: record.signal) else { continue }
-                state.updateSignalItem(task.id) { if $0.normalizeEarlierChoiceBlock(configuration: configuration, at: at) { changed.append(task.id) } }
-            }
-        }
-        guard !changed.isEmpty, workspace.flush() else { return }
-        for id in changed { wakeIfWaiting(id) }
     }
     private func deliverWake() async {
         guard !waking, let (event, id) = wakePending, let session = workspace.state.operatorSession,

@@ -65,9 +65,9 @@ class OperatorRoute:
     async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
         token = mcp.bearer(headers.get("authorization", ""))
         owner = self.session_tokens.owner_for(token) if token else None
-        run_id, generation = owner if owner else (None, None)
-        if run_id is None:
+        if owner is None:
             return 401, json.dumps({"error": "a registered Operator token is required"})
+        run_id, generation = owner
         if method != "POST":
             # No stream from the server: each answer is the reply to its own POST.
             return 405, ""
@@ -76,7 +76,7 @@ class OperatorRoute:
 
         return await mcp.serve(body, SIGNAL_TOOLS, "aiterm", call)
 
-    async def _call(self, run_id: str, request_id: Any, params: Any, generation: int | None = None) -> dict[str, Any]:
+    async def _call(self, run_id: str, request_id: Any, params: Any, generation: int) -> dict[str, Any]:
         tool = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments") if isinstance(params, dict) else None
         if arguments is None:
@@ -91,13 +91,13 @@ class OperatorRoute:
         return mcp.answer(request_id, mcp.tool_result(result))
 
     async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any],
-                      timeout: float | None = None, generation: int | None = None) -> dict[str, Any]:
+                      generation: int, timeout: float | None = None) -> dict[str, Any]:
         """The app's answer to one tool call: broadcast as `operator.request` and awaited until its
         `operator.reply`, for `timeout` at most (OPERATOR_REQUEST_TIMEOUT unless given). Raises ToolError with what the
         operator is told: the app's own error, NOT_OPEN with no app attached, NOT_ANSWERING after the
         timeout -- after which the app may still have acted, which every mutating tool's key makes
-        safe to repeat (spec §11)."""
-        if generation is not None and not self.session_tokens.owns(run_id, generation):
+        safe to repeat."""
+        if not self.session_tokens.owns(run_id, generation):
             raise ToolError("This Operator session was revoked.")
         if self.client_count() == 0:
             raise ToolError(NOT_OPEN)
@@ -105,13 +105,12 @@ class OperatorRoute:
         answer: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = answer
         try:
-            payload: dict[str, Any] = {"requestId": request_id, "runId": run_id, "tool": tool, "arguments": arguments}
-            if generation is not None:
-                payload["generation"] = generation
+            payload: dict[str, Any] = {"requestId": request_id, "runId": run_id, "tool": tool, "arguments": arguments,
+                                       "generation": generation}
             await self.broadcast(protocol.OPERATOR_REQUEST, payload)
             async with asyncio.timeout(delivery.OPERATOR_REQUEST_TIMEOUT if timeout is None else timeout):
                 result = await answer
-                if generation is not None and not self.session_tokens.owns(run_id, generation):
+                if not self.session_tokens.owns(run_id, generation):
                     raise ToolError("This Operator session was revoked.")
                 return result
         except TimeoutError as exc:
@@ -128,11 +127,11 @@ class OperatorRoute:
         ran unchallenged. A missing or revoked token always denies, including revocation while waiting."""
         token = mcp.bearer(headers.get("authorization", ""))
         owner = self.session_tokens.owner_for(token) if token else None
-        run_id, generation = owner if owner else (None, None)
         def revoked() -> bool:
             return self.session_tokens.owner_for(token) != owner if token else True
-        if run_id is None:
+        if owner is None:
             return 200, _gate_denied("This Operator token is missing or revoked.")
+        run_id, generation = owner
         try:
             hook = json.loads(body or b"{}")
         except (ValueError, RecursionError):

@@ -232,7 +232,8 @@ async def test_restart_drops_old_reply_while_new_call_waits(monkeypatch):
 
     for _ in range(2):
         routes.append(OperatorRoute(broadcast, lambda: 1))
-        assert await routes[-1].ask_app("run", "run_status", {}) == {"fresh": True}
+        routes[-1].session_tokens.register(ID, 1, TOKEN)
+        assert await routes[-1].ask_app(ID, "run_status", {}, generation=1) == {"fresh": True}
     assert ids[0] != ids[1]
 
 

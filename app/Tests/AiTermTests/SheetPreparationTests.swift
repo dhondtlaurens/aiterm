@@ -99,21 +99,18 @@ import Testing
         #expect(controller.sheet?.id == AppController.SheetKind.newDivider.id)
     }
 
-    /// An upgrade from a build whose record of the user's status line the shim no longer reads is
-    /// migrated at launch, in the harness home: nothing would prompt a repair that does it.
-    @Test func theLaunchProbeMigratesAnOldStatusLineRecord() async throws {
+    /// The launch probe records the hook port in the supplied harness home.
+    @Test func theLaunchProbeRecordsTheHookPort() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
         let support = home.appendingPathComponent("Library/Application Support/AiTerm")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        try Data(#"{"type":"command","command":"my-statusline"}"#.utf8).write(to: support.appendingPathComponent("statusline-original.json"))
         let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
                                        harnessHome: home, bundledResourcesURL: nil)
 
         await controller.agents.probeStatusLine()
-        let command = support.appendingPathComponent("statusline-original.cmd")
-        #expect(try String(contentsOf: command, encoding: .utf8) == "my-statusline")
+        #expect(try String(contentsOf: AiTermPaths.hookPortURL(home: home), encoding: .utf8) == "\(AiTermPaths.hookPort)\n")
     }
 
     /// A test that builds a controller and never scripts its prompter must fail when the app asks a

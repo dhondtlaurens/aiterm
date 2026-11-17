@@ -18,9 +18,6 @@ import Testing
     @Test func aMergeRequestOnTheConfiguredGitLabNamesItsProject() {
         #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/web/shop/acme/-/merge_requests/4", gitLabHost: gitLabHost)
                 == .gitLab(project: "web/shop/acme"))
-        // GitLab before 12.0 wrote the path without `/-/`.
-        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/web/acme/merge_requests/4", gitLabHost: gitLabHost)
-                == .gitLab(project: "web/acme"))
     }
 
     /// Review focus 2: a GitLab served from a sub-path puts it before every project; it is not part

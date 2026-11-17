@@ -275,25 +275,6 @@ import Darwin
         #expect(throws: (any Error).self) { try StateStore(url: url).save(s) }
     }
 
-    @Test func testLegacyFileOnDiskLoadsAndSavesAsItems() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("state.json")
-        let json = """
-        {"projects":[{"id":"1EB4C0DE-0000-0000-0000-000000000001","name":"one","path":"/one",
-         "provider":"git","addedAt":"1970-01-01T00:00:01Z","collapsed":false}],"tasks":[],"terminals":[]}
-        """
-        try Data(json.utf8).write(to: url)
-        let store = StateStore(url: url)
-        var loaded = try store.load()
-        #expect(loaded.projects.map(\.name) == ["one"])
-        loaded.append(divider: SidebarDivider(id: UUID(), name: "Work"))
-        try store.save(loaded)
-        #expect(try store.load() == loaded)
-        #expect(String(decoding: try Data(contentsOf: url), as: UTF8.self).contains("\"items\""))
-    }
-
     /// `state.json` is shared by every build on the machine, so an older build meets values a newer
     /// one wrote: an agent and a task kind it has no case for, and a sidebar row of a kind it has
     /// never heard of. It opens the workspace, shows what it understands, and a save writes the

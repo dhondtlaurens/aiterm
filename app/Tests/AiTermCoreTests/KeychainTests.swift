@@ -6,12 +6,12 @@ import Synchronization
 /// Every secret lives in one Keychain item, read once per process, so macOS asks for access once
 /// rather than once per token. The items are a stand-in: a test never touches the real Keychain.
 @Suite struct KeychainTests {
-    @Test func aWorkerGuardReadsSecretsWithoutMigrationOrWrites() {
-        let items = FakeKeychainItems(["gitlab.token": "g"])
+    @Test func aWorkerGuardReadsSecretsWithoutWrites() {
+        let items = FakeKeychainItems([Keychain.account: #"{"gitlab.token":"g"}"#])
         let store = ReadOnlyKeychain(items: items)
         #expect(store.get("gitlab.token") == "g")
         #expect(!store.set("gitlab.token", "other"))
-        #expect(items.accounts == ["gitlab.token"])
+        #expect(items.accounts == [Keychain.account])
         #expect(SystemKeychainItems(service: "synthetic", allowsInteraction: false).allowsInteraction == false)
     }
 
@@ -35,23 +35,6 @@ import Synchronization
         keychain.set("github.token", "h")
         #expect(keychain.get("github.token") == "h")
         #expect(items.reads.withLock { $0 } == 1)
-    }
-
-    @Test func theSeparateItemsOfEarlierVersionsMoveIntoOne() {
-        let items = FakeKeychainItems(["jira.token": "j", "gitlab.token": "g", "github.token": "h", "backpack.password": "b"])
-        let keychain = Keychain(items: items)
-        #expect(keychain.get("jira.token") == "j")
-        #expect(keychain.get("github.token") == "h")
-        #expect(keychain.get("backpack.password") == "b")
-        #expect(items.accounts == [Keychain.account])
-        #expect(Keychain(items: items).get("gitlab.token") == "g")
-    }
-
-    /// The old items go only once the new one holds their secrets.
-    @Test func theSeparateItemsStayWhenTheOneCannotBeWritten() {
-        let items = FakeKeychainItems(["gitlab.token": "g"], refusesWrites: true)
-        #expect(Keychain(items: items).get("gitlab.token") == "g")
-        #expect(items.accounts == ["gitlab.token"])
     }
 
     /// A read the person denied is not an empty Keychain: writing then would replace every other

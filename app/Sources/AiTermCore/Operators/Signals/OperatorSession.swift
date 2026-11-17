@@ -40,8 +40,8 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var sourceFailures: [String: String]?
     public var paused = false
     public var startingFresh = false
-    /// A durable close → revoke → idle, rather than close → revoke → open. Kept optional so
-    /// existing saved sessions retain their format until they actually finish a workload.
+    /// A durable close → revoke → idle, rather than close → revoke → open.
+    /// Optional because a session saved before the flag existed has no such key.
     public var finishing: Bool?
     public var handover: OperatorHandover?
     public var questions: [Question] = []

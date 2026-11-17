@@ -265,7 +265,7 @@ TS tests-scripts.
   folded, the test-only `settle_reads` seams, the Codex reader's test-only methods and the copied
   reference parser (DM F1, F7, F8, part of F3; WD F5 dead requests). Wire frames and driver
   fixtures are re-recorded.
-- [ ] 1h. **Codex.** Every old-format reader and migration: Keychain per-key items, the support
+- [x] 1h. **Codex.** Every old-format reader and migration: Keychain per-key items, the support
   folder rename, the legacy status-line record, retired hook and push-key cleanup, the pre-0.15
   workspace decoders (single Jira project, flat project list, unnamed terminals), the earlier
   choice-block upgrade, old-helper decoding forms and
@@ -670,3 +670,20 @@ left.
   the `session.prompt`/`dismissStartup` service tests (prompt recognition survives through test-owned
   screen helpers; `dismiss_startup` tests stay), `test_claude_transcript_shows_the_slash_command_and_its_output`,
   three `DaemonTypesTests` and four `DaemonOperatorWireTests` cases. The planner's points held.
+- 1h: every old-format reader and migration went: Keychain per-key items, the support folder
+  rename and its alert, the legacy status-line record, retired hook and push-key cleanup, the
+  pre-0.15 workspace decoders (`Project` and `TerminalItem` now use synthesized coding: today's
+  encoder always wrote every key they require, so a workspace saved by today's build loads; a flat
+  `projects` key rides as a preserved unknown key), the earlier choice-block upgrade, the app's
+  hand-written `SessionInfo` and `BackgroundJob` decoders (`background` is always sent), optional
+  `generation` in the Operator MCP, Jira's paging fallbacks and the old GitLab URL form. Tests
+  deleted with their behaviour: two `KeychainTests` separate-item tests (survivors
+  `everySecretLivesInOneItem`, `theItemIsReadOncePerProcess`, `aRefusedReadIsNeverWrittenOver`),
+  four `AiTermPathsTests` migration tests, `HookConfigTests.anOldJSONRecordIsMigratedAtLaunchWithoutAnInstall`
+  and `testRetiredPreToolUseHookIsRemovedButForeignOnesStay`, `BackpackSettingsTests.anOldNotifiesChoiceIsReadPastAndDroppedOnTheNextSave`,
+  four `ModelsTests` old-input tests, `StateStoreTests.testLegacyFileOnDiskLoadsAndSavesAsItems`,
+  `SignalAgentChoiceTests.blocksSavedByAnEarlierBuildForAChoiceNowWaitForTheOperator`,
+  `JiraClientTests.aPagingFieldOfTheWrongTypeIsReadAsNotSent`. Added
+  `ModelsTests.aProjectsKeyIsPreservedWithoutCreatingItems`; `theLaunchProbeMigratesAnOldStatusLineRecord`
+  became `theLaunchProbeRecordsTheHookPort`. Fixtures unchanged. Hand-built session JSON in tests
+  now carries `active` and `background`.

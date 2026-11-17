@@ -235,10 +235,7 @@ public struct JiraClient: Sendable {
                 URLQueryItem(name: "orderBy", value: "name"),
             ]))
             let projects = page.values.compactMap(\.value).map { JiraProjectRef(id: $0.id, key: $0.key, name: $0.name, siteURL: config.siteURL) }
-            let next = startAt + page.values.count
-            let last = page.isLast == true || page.total.map({ next >= $0 }) == true
-                || (page.isLast == nil && page.total == nil && page.values.count < pageSize)
-            return (projects, page.values.count, !last)
+            return (projects, page.values.count, !page.isLast)
         }
     }
 
@@ -340,12 +337,11 @@ private struct PickerResponse: Decodable {
 }
 
 /// A page of `/project/search`. `values` keeps its malformed entries as empty ones, so `startAt`
-/// advances past them. The paging fields it may send wrongly are read as not sent.
+/// advances past them. `isLast` marks the final page.
 private struct ProjectPage: Decodable {
     struct Project: Decodable { var id: String, key: String, name: String }
     var values: [Lenient<Project>]
-    @Lenient var isLast: Bool?
-    @Lenient var total: Int?
+    var isLast: Bool
 }
 
 private struct Myself: Decodable {

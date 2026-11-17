@@ -24,13 +24,13 @@ final class DaemonOperatorWireTests {
     private func params(_ index: Int = 0) -> [String: Any] { server.received[index]["params"] as? [String: Any] ?? [:] }
     private func method(_ index: Int = 0) -> String? { server.received[index]["method"] as? String }
 
-    @Test func aBackgroundTaskWindowSaysSoAndAForegroundOneSaysNothing() async throws {
+    @Test func taskWindowsAlwaysSendTheirBackgroundFlag() async throws {
         try connect { _ in ["windowId": "w1"] }
         let frame = Frame(x: 0, y: 0, w: 1, h: 1)
         _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame, background: true)
         _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame)
         #expect(params(0)["background"] as? Bool == true)
-        #expect(params(1)["background"] == nil)
+        #expect(params(1)["background"] as? Bool == false)
     }
 
     @Test func aDeliveryCarriesItsOwnershipAndReadsItsResult() async throws {
