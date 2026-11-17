@@ -1318,8 +1318,8 @@ left.
   (its cases moved to `GitLabHostRuleTests.webAddressesCompareHostAndPort`).
   `reviewThreadsReadEveryPageUntilAShortOne` became `...UntilAnEmptyOne`. Added `GitLabHostRuleTests`,
   `HostDateTests`, the Jira field-list parity test and the malformed-entry completeness test.
-- 7c: one `status(of:)` per request on each host (`RequestStatus`: the request, its head, readiness, approvals and the
-  pipeline word, all from one fetch; GitHub's check lists are asked at that fetch's head). Merge readiness is
+- 7c: one `status(of:)` per request on each host (`RequestStatus`: the request, its head and readiness from one fetch of the
+  request, GitHub's check lists asked at that fetch's head, and approvals from their own listing, as before). Merge readiness is
   `MergeReadiness.gitHub(_:)` and `.gitLab(_:)`, pure rules over `GitHubPullFacts` and `GitLabMergeFacts`, with every
   reason word for word. `readiness(of:)`, `state(of:)`, `reviewers(of:)` (with its `/requested_reviewers` request) and
   `MergeRequestState` went; "someone is asked to review" is `MergeRequest.hasReviewer` (users or GitHub teams). The
@@ -1345,3 +1345,8 @@ left.
   one-fetch consistency tests on both hosts (head A then B: everything names A, one GET of the request), a merged
   pull reads approvals but no checks, a failed status read throws, and request-count tests for a merge watch on both
   hosts.
+- Phase 7 gate: plain `scripts/test.sh all` green on `425a83a8`. Snapshots in `build/refactor-phase7` against
+  `build/refactor-phase6`: only the known `marks.png` variant differs. No bundle check is due after phase 7.
+- Review round 1: one Minor, about this Record: the 7c entry said approvals came from the request's one fetch,
+  but they come from their own listing. The entry is corrected. No code finding, verdict "ready with fixes", so no
+  second round.
