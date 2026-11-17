@@ -8,6 +8,91 @@ import AiTermUI
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test(arguments: [false, true])
+    func foldingASignalHandsItsSelectedTaskToTheHeading(removed: Bool) throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        world.state.operatorOpen = true
+        if removed { world.state.signals = [] }
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        controller.focus.browse(.task(task))
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        #expect(controller.focus.selection == .signal(signal))
+        #expect(controller.rows.signalSections.first?.collapsed == true)
+        #expect(daemon.requests.isEmpty, "handing selection to a heading raises and marks nothing")
+    }
+
+    @Test(arguments: [false, true])
+    func aTaskSelectedFromElsewhereSurvivesDerivationUntilReveal(removed: Bool) throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        world.state.operatorOpen = true
+        if removed { world.state.signals = [] }
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        controller.focus.browse(.task(task))
+        controller.workspace.mutate { $0.tasks[0].title = "Selected by notification" }
+        #expect(controller.focus.selection == .task(task))
+        #expect(controller.rows.signalSections.first?.collapsed == true)
+        controller.reveal(.task(task))
+        #expect(controller.focus.selection == .task(task))
+        #expect(controller.rows.signalSections.first?.collapsed == false)
+    }
+
+    @Test(arguments: [false, true])
+    func anOperatorRowThatDisappearsOrFoldsClearsSelection(fold: Bool) async throws {
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
+        world.state.operatorOpen = true
+        let prompter = ScriptedPrompter(answering: "Cancel")
+        let controller = AppController(preferences: .scratch(), prompter: prompter)
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        #expect(controller.rows.signalOperator.shown)
+        controller.focus.browse(.operatorChat)
+        if fold { controller.toggleOperatorOpen() }
+        else { controller.workspace.mutate { $0.tasks = []; $0.operatorSession = nil } }
+        #expect(controller.focus.selection == nil)
+        #expect(controller.rows.usageRow(for: controller.focus.selection) == nil)
+        #expect(controller.activateSelection() == nil)
+        await controller.removeSelection()
+        #expect(daemon.requests.isEmpty)
+        #expect(prompter.asked.isEmpty)
+    }
+
+    @Test func openingOperatorClearsASelectedProjectTask() throws {
+        var world = SignalWorld(); _ = world.signal()
+        let task = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/task")
+        world.state.tasks = [task]
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.focus.browse(.task(task.id))
+        controller.toggleOperatorOpen()
+        #expect(controller.rows.operatorOpen)
+        #expect(controller.focus.selection == nil)
+    }
+
+    @Test func takingOverASelectedDrivenTaskClearsItWhileProjectsAreFolded() throws {
+        var world = SignalWorld(); let task = world.workingTask(signal: world.signal())
+        world.state.operatorOpen = true
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.focus.browse(.task(task))
+        controller.workspace.mutate { $0.takeOver(task) }
+        #expect(controller.focus.selection == nil)
+        #expect(controller.rows.sections.first?.tasks.map(\.id) == [task])
+    }
+
     @Test func signalHeadingsProjectRowsAndRemovalAgreeOnWhichTasksAreUnderTheOperator() async throws {
         var world = SignalWorld()
         let signal = world.signal(), working = world.workingTask(signal: signal), done = world.workingTask(signal: signal)

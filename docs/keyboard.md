@@ -34,6 +34,7 @@ menu titles, keys and modifiers. There is no Window menu, ⌘W/⌘M binding or �
 ## Sidebar
 
 The arrows look; Return goes. Moving selection leaves the keyboard in the sidebar.
+A row hidden by a fold hands the selection to its heading; a row that disappears, or is hidden with its heading, is deselected.
 
 | Keys | Action |
 | --- | --- |

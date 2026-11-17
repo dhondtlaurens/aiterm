@@ -307,8 +307,13 @@ final class AppController {
     // -- the rows and the Dock badge ------------------------------------------------
     /// Something the rows are made of may have changed: they are derived again if it did, and the
     /// badge recounted if a section changed.
-    private func refreshRows() {
+    func refreshRows() {
+        let selection = focus.selection
+        let wasDrawn = selection.map(rows.isDrawn) == true
         if rows.refresh() { updateDockBadge() }
+        if let selection, wasDrawn, !rows.isDrawn(selection) {
+            focus.browse(rows.visibleHeading(for: selection))
+        }
     }
 
     /// Only a changed label is written to the dock: this runs whenever a row's status may have
@@ -329,8 +334,8 @@ final class AppController {
 
     /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
     /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
-    /// and a task still unseen. With nothing waiting the selection stays. The peek is returned, when there
-    /// is one.
+    /// and a task still unseen. A selected row hidden by a fold hands selection to its visible heading.
+    /// The peek is returned, when there is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
         guard applyView(signalLayout(focus: true)) else { return nil }

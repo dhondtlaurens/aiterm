@@ -112,6 +112,33 @@ import Testing
         #expect(controller.state.projects.map(\.collapsed) == [false, true])
     }
 
+    @Test(arguments: [false, true])
+    func foldingAProjectHandsItsSelectedRowToTheHeading(terminal: Bool) throws {
+        let (controller, dir) = try loadedController()
+        defer { controller.shutdown(); try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("Project")
+        let task = TaskItem.make(project: project.id)
+        let shell = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "shell", createdAt: Date())
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task]; $0.terminals = [shell] }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        controller.focus.browse(terminal ? .terminal(shell.id) : .task(task.id))
+        controller.projects.toggleCollapsed(project)
+        #expect(controller.focus.selection == .project(project.id))
+        #expect(daemon.requests.isEmpty)
+    }
+
+    @Test func focusViewWithNothingWaitingHandsSelectionToTheFoldedProject() throws {
+        let (controller, dir) = try loadedController()
+        defer { controller.shutdown(); try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("Busy")
+        let task = TaskItem.make(project: project.id)
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
+        controller.focus.browse(.task(task.id))
+        #expect(controller.showFocusView() == nil)
+        #expect(controller.state.project(id: project.id)?.collapsed == true)
+        #expect(controller.focus.selection == .project(project.id))
+    }
+
     /// Focus View (⌘F) reads the rows' live statuses, as the sidebar draws them: the project whose agent is done
     /// opens, the one only working folds, and the result is saved.
     @Test func focusViewOpensOnlyWaitingProjectsAndPersists() throws {
@@ -155,8 +182,8 @@ import Testing
     }
 
     /// Focus View also goes to the first row waiting on you, in the order the sidebar draws them:
-    /// projects top to bottom, and within one its terminals above its tasks. With nothing waiting it
-    /// leaves the selection where it was.
+    /// projects top to bottom, and within one its terminals above its tasks. With nothing waiting,
+    /// a selected child hands selection to its folded project's heading.
     @Test func focusViewSelectsTheFirstRowNeedingAttention() throws {
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -191,7 +218,7 @@ import Testing
 
         controller.live.sessions = [session("a", window: "w1", task: working, state: .working)]
         controller.showFocusView()
-        #expect(controller.focus.selection == .task(done.id))
+        #expect(controller.focus.selection == .project(waiting.id))
     }
 
     /// Greyed out while a sheet is up — its search fields are where ⌘F would otherwise land — and

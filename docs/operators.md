@@ -121,7 +121,7 @@ Unfinished tasks retain the chat while
 paused. A configured signal alone does not show the chat row; its heading remains available,
 and with no signal configured only the OPERATOR heading and its + remain. Existing workers receive a note to finish
 their current turn and wait. **Resume Operator** carries them on before stages advance. A signal's menu
-has **Switch Off** and **Switch On (starts n)**; switching it off pauses only its workers and source
+has **Switch Off** and **Switch On**; switching it off pauses only its workers and source
 polling. Removing a signal leaves its existing tasks running with their saved instructions under
 a heading explaining that the source was removed.
 

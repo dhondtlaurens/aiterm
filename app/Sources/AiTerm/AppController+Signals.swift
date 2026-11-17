@@ -66,6 +66,7 @@ extension AppController {
             workspace.mutate { $0.signals[index].collapsed.toggle() }
         } else {
             rows.toggleRemovedSignal(signal.id)
+            refreshRows()
         }
     }
 

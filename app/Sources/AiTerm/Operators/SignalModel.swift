@@ -188,11 +188,7 @@ import AiTermCore
     func received(preview read: SignalRead) throws {
         guard read.complete else { throw IncompleteRead("signal matches") }
         previewItems = read.items
-        startCount = read.items.filter { item in
-            !ItemProjectMapper.projects(for: item.item, in: projects).isEmpty && !seen.contains {
-                $0.signal == original?.id && $0.item.identity == item.item.identity && $0.disposition == .started && $0.isMatching
-            }
-        }.count
+        startCount = SignalStarts.items(in: read.items, signal: original?.id, projects: projects, seen: seen).count
     }
     func received(metadata: Metadata) { self.metadata = metadata; assignees = metadata.users; metadataError = nil }
     func loadMetadata() async {

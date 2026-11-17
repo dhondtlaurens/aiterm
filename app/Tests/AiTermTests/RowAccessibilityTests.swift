@@ -177,7 +177,7 @@ import Testing
         }
     }
 
-    @Test func signalCommandsKeepSwitchCountAndOmitRemovedSignals() throws {
+    @Test func signalCommandsSwitchAndOmitRemovedSignals() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         for unlocked in [false, true] {
@@ -187,12 +187,9 @@ import Testing
                 signal.enabled = enabled
                 let value = HeadingValue(SignalSection(signal: signal, tasks: []))
                 let view = HeadingRow(value: value, controller: controller)
-                let toggle = enabled ? "Switch Off" : "Switch On (starts 3)"
-                expectCommands(view.commands(starts: 3), titles: [["Edit Signal…", toggle], ["Remove Signal…"]],
+                let toggle = enabled ? "Switch Off" : "Switch On"
+                expectCommands(view.commands(), titles: [["Edit Signal…", toggle], ["Remove Signal…"]],
                     disabled: unlocked ? [] : ["Edit Signal…", toggle, "Remove Signal…"], destructive: ["Remove Signal…"])
-                if !enabled {
-                    #expect(view.commands()[0][1].title == "Switch On")
-                }
                 var removed = value
                 removed.kind = .signal(source: signal.source, removed: true, paused: false)
                 expectCommands(HeadingRow(value: removed, controller: controller).commands(), titles: [])

@@ -98,6 +98,7 @@ extension AppController {
                 if signal.collapsed { toggleCollapsed(signal) }
             } else {
                 rows.openRemovedSignal(record.current.signal)
+                refreshRows()
             }
         } else if case .task(let id) = row, let task = state.task(id: id),
                 let project = state.project(id: task.projectId), project.collapsed { projects.toggleCollapsed(project) }

@@ -8,30 +8,18 @@ struct HeadingRow: View, Equatable {
     let controller: AppController
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.value == rhs.value && lhs.controller === rhs.controller }
     @Environment(\.interfaceScale) private var scale
-    @State private var starts: Int?
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
 
     var collapses: Bool { !value.empty && controller.canChangeWorkspace }
 
-    private enum Load: Equatable {
-        case project(UUID)
-        case signal(id: UUID, source: SignalSource, removed: Bool, paused: Bool)
-    }
-    private var load: Load {
-        switch value.kind {
-        case .project: .project(value.id)
-        case let .signal(source, removed, paused): .signal(id: value.id, source: source, removed: removed, paused: paused)
-        }
-    }
-
     var body: some View {
         #if DEBUG
         let _ = bodyCounter?.count(value.id)
         #endif
         let selected = controller.focus.isSelected(value.id)
-        let commands = commands(starts: starts)
+        let commands = commands()
         HStack(spacing: scale(Space.base)) {
             HStack(spacing: scale(Space.base)) {
                 HeaderChevron(collapsed: value.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
@@ -49,22 +37,9 @@ struct HeadingRow: View, Equatable {
         .modifier(RowPill(selected: selected))
         .modifier(HeadingHelp(text: value.help))
         .modifier(RowCommandContextMenu(groups: commands))
-        .task(id: load) {
-            switch value.kind {
-            case .project(let project, _, _):
+        .task(id: value.id) {
+            if case .project(let project, _, _) = value.kind {
                 await controller.projects.loadDefaultBranchName(of: project)
-            case let .signal(source, removed, paused):
-                guard paused, !removed else { starts = nil; return }
-                do {
-                    let links = await controller.signalController.connections()
-                    let read = try await links.reader(for: source).poll(since: nil, full: true)
-                    guard read.complete, !Task.isCancelled else { return }
-                    starts = read.items.filter { item in
-                        !ItemProjectMapper.projects(for: item.item, in: controller.state.projects).isEmpty && !controller.state.signalSeen.contains {
-                            $0.signal == value.id && $0.item.identity == item.item.identity && $0.disposition == .started && $0.isMatching
-                        }
-                    }.count
-                } catch { starts = nil }
             }
         }
     }
@@ -108,7 +83,7 @@ struct HeadingRow: View, Equatable {
         }
     }
 
-    func commands(starts: Int? = nil) -> [[RowCommand]] {
+    func commands() -> [[RowCommand]] {
         let enabled = controller.canChangeWorkspace
         switch value.kind {
         case let .project(project, canMoveUp, canMoveDown):
@@ -152,7 +127,7 @@ struct HeadingRow: View, Equatable {
                 [RowCommand(title: "Edit Signal…", enabled: controller.canPresentNewSignal) {
                     if let current = controller.state.signal(id: value.id) { controller.presentNewSignal(editing: current) }
                 },
-                 RowCommand(title: !paused ? "Switch Off" : starts.map { "Switch On (starts \($0))" } ?? "Switch On", enabled: enabled) {
+                 RowCommand(title: !paused ? "Switch Off" : "Switch On", enabled: enabled) {
                     if let current = controller.state.signal(id: value.id) { controller.toggleEnabled(current) }
                 }],
                 [RowCommand(title: "Remove Signal…", role: .destructive, enabled: enabled) {

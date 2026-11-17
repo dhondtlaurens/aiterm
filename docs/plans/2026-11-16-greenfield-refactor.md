@@ -438,7 +438,7 @@ TS tests-scripts.
   (SB F5, F15).
 - [x] 8d. **Codex.** Each row builds its commands once, drawn as both the context menu and the
   VoiceOver actions (SB F11). Pause and Resume have one home and one wording (SB F16, first item).
-- [ ] 8e. **Codex.** The selection follows its row (SB F8). "Which items would start" is one Core
+- [x] 8e. **Codex.** The selection follows its row (SB F8). "Which items would start" is one Core
   rule; a heading no longer reads the source (SB F9, SS F11).
 - [ ] 8f. **Opus.** One stepped-sheet frame that each sheet configures with its steps, create
   action, failure and closing block; it owns the stepper, Cancel on every step, Escape, Back,
@@ -1408,3 +1408,16 @@ left.
   `lockedTaskAndTerminalKeepOpenCommands`; `aRowsActionsAreItsMenuItemsTitles` → the task, terminal and divider
   command tests; `aTerminalRowOffersRenameAndRemoveWithOrWithoutItsWindow` → `terminalCommandsDoNotDependOnItsWindow`;
   `aDividerOffersOnlyWhatItsMenuHasEnabled` → `dividerCommandsAtBothEndsAndWhileLocked`.
+- 8e: the projection answers whether a selection is drawn and which visible heading holds it. The controller's one
+  re-derivation hands a selection that was drawn and no longer is to that heading, or clears it, as a browse only. A
+  selection that was not drawn before is left for `reveal`. The Core rule `SignalStarts.items` beside
+  `MatchDecision` is what the sheet's preview counts. The signal heading's command reads "Switch On" or "Switch Off",
+  and no view reads a source. Removed-signal fold changes now go through the controller's re-derivation, so the
+  hand-over sees them. Snapshots byte-identical. Small difference: the `(starts` Done-when grep matches an
+  unrelated `(startsInSpan` in `CodexHookConfig.swift`. `SidebarRowRedrawTests`' question-only redraw test now
+  clears the selection first, because opening OPERATOR would now deselect a selected project task (an intended
+  selection change, not row data); its budget is unchanged. Tests deleted: none.
+  `signalCommandsKeepSwitchCountAndOmitRemovedSignals` became `signalCommandsSwitchAndOmitRemovedSignals` (the count
+  is deleted), and Focus View's old expectation that a hidden task stays selected now expects its heading. Added
+  Core start-rule tests and app tests for each hand-over the brief lists. Noticed and left: Focus View and List View
+  apply saved folds only, not a removed signal's runtime fold (as the 8c brief decided).

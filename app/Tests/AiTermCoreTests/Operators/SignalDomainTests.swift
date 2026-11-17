@@ -78,6 +78,19 @@ import Testing
         #expect(!SignalFinish(doneWhen: .ticketStatus("Done")).isValid(for: .gitHub(RequestConditions(event: .myRequest))))
     }
 
+    @Test func completeReadStartsOnlyMappedItemsNotAlreadyMatchingForThisSignal() {
+        var world = SignalWorld(); let signal = world.signal(), other = world.signal(name: "Other")
+        let items = (1...5).map { world.ticket("PAY-\($0)") } + [world.ticket("OTHER-1")]
+        let seen = [
+            SignalSeen(signal: signal, item: items[0].item, disposition: .started, at: now),
+            SignalSeen(signal: other, item: items[1].item, disposition: .started, at: now),
+            SignalSeen(signal: signal, item: items[2].item, disposition: .skipped, at: now),
+            SignalSeen(signal: signal, item: items[3].item, disposition: .started, at: now, isMatching: false),
+        ]
+        #expect(SignalStarts.items(in: items, signal: signal, projects: world.state.projects, seen: seen) == Array(items[1...4]))
+        #expect(SignalStarts.items(in: items, signal: nil, projects: world.state.projects, seen: seen) == Array(items[0...4]))
+    }
+
     @Test func completeReadsStartCurrentMatchesOnceAndIncompleteReadsStartNothing() {
         let s = signal(), item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         let match = SignalMatch(signal: s.id, item: item, project: UUID(), matchedAt: now)

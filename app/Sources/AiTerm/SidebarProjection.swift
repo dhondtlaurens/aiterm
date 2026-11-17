@@ -109,6 +109,38 @@ struct SectionFold: Equatable {
         (signalOperator.shown ? [.operatorChat] : [])
             + signalSections.flatMap { section in [.signal(section.id)] + (section.collapsed ? [] : section.tasks.map { .task($0.id) }) }
     }
+    /// Whether the last derivation draws this selection in the open section and an unfolded parent.
+    func isDrawn(_ row: RowSelection) -> Bool {
+        switch row {
+        case .operatorChat: operatorOpen && signalOperator.shown
+        case .signal(let id): operatorOpen && signalSections.contains { $0.id == id }
+        case .project(let id): !operatorOpen && sections.contains { $0.project.id == id }
+        case .task(let id):
+            if operatorOpen {
+                signalSections.contains { !$0.collapsed && $0.tasks.contains { $0.id == id } }
+            } else {
+                sections.contains { !$0.collapsed && $0.tasks.contains { $0.id == id } }
+            }
+        case .terminal(let id):
+            !operatorOpen && sections.contains { !$0.collapsed && $0.terminals.contains { $0.id == id } }
+        }
+    }
+
+    /// A child's heading, only while that heading is drawn. Headings and the Operator row have none.
+    func visibleHeading(for row: RowSelection) -> RowSelection? {
+        switch row {
+        case .task(let id):
+            if operatorOpen {
+                return signalSections.first { $0.tasks.contains { $0.id == id } }.map { .signal($0.id) }
+            }
+            return sections.first { $0.tasks.contains { $0.id == id } }.map { .project($0.project.id) }
+        case .terminal(let id):
+            guard !operatorOpen else { return nil }
+            return sections.first { $0.terminals.contains { $0.id == id } }.map { .project($0.project.id) }
+        case .operatorChat, .project, .signal: return nil
+        }
+    }
+
     /// Where an arrow key crosses the fold between the sections: ↓ on the Operator's last row reaches the first
     /// project, ↑ on the first project the Operator's last row. Nil anywhere else, where the list moves on its own,
     /// and while there is no fold.
@@ -162,11 +194,10 @@ struct SectionFold: Equatable {
     /// Removed signals keep their fold only for this projection's lifetime.
     func toggleRemovedSignal(_ id: UUID) {
         if !foldedRemovedSignals.insert(id).inserted { foldedRemovedSignals.remove(id) }
-        refresh()
     }
 
     func openRemovedSignal(_ id: UUID) {
-        if foldedRemovedSignals.remove(id) != nil { refresh() }
+        foldedRemovedSignals.remove(id)
     }
 
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {
