@@ -105,8 +105,8 @@ import Testing
         }
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        let fullRow = ProjectHeaderRow(section: full, controller: controller)
-        let emptyRow = ProjectHeaderRow(section: empty, controller: controller)
+        let fullRow = HeadingRow(value: HeadingValue(full), controller: controller)
+        let emptyRow = HeadingRow(value: HeadingValue(empty), controller: controller)
         #expect(!fullRow.collapses, "an unloaded workspace is locked")
         #expect(!emptyRow.collapses)
         try controller.workspace.load()

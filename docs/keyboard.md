@@ -38,7 +38,7 @@ The arrows look; Return goes. Moving selection leaves the keyboard in the sideba
 | Keys | Action |
 | --- | --- |
 | ↑ / ↓ | Select visible project/signal headers and rows, skipping dividers and removing rows. Peek at a row's window without taking the keyboard. Folded children are skipped. ↓ on the Operator's last row selects the first project, opening PROJECTS and folding OPERATOR; ↑ on the first project selects the Operator's last row, the other way round. |
-| Return | Open the selected row's window for typing, or fold/open its header. A closed worker resumes its conversation; the Operator row opens the one chat. An empty header opens its menu. |
+| Return | Open the selected row's window for typing, or fold/open its header. A closed worker resumes its conversation; the Operator row opens the one chat. An empty project heading opens New Task, or New Terminal for a plain folder; an empty signal heading opens Edit Signal. |
 | ⌘Delete | The selected task/review/terminal's Remove action. Task/review removal asks first. Nothing on a header. |
 
 Worker permission prompts open in the worker window; the Operator's counted questions open its

@@ -284,40 +284,65 @@ struct SidebarInteractionTests {
         #expect(controller.state.projects.map(\.id) == [project.id])
     }
 
-    /// ↩ on an empty header, which has nothing to fold, opens its context menu instead.
-    @Test func returnOnAnEmptyHeaderOpensItsMenu() async throws {
+    @Test(arguments: [Provider.git, .none])
+    func returnOnAnEmptyProjectHeadingPresentsItsMainSheet(provider: Provider) async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller, project = fixture.project
+        let controller = fixture.controller
+        var project = fixture.project; project.provider = provider
+        controller.workspace.mutate { $0.items = [.project(project)] }
         controller.focus.browse(.project(project.id))
-        var asked: [UUID] = []
-        controller.openRowMenu = { asked.append($0) }
-
-        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 340, height: 500), key: true)
+        let (host, window) = HostedSidebar.make(controller, key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(window.makeFirstResponder(list))
-        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                                windowNumber: window.windowNumber, context: nil,
-                                                characters: "\r", charactersIgnoringModifiers: "\r",
-                                                isARepeat: false, keyCode: 36))
-        window.sendEvent(key)
-        turnRunLoop(0.05)
-        #expect(asked == [project.id], "↩ asks for the header's menu")
+        window.sendEvent(try #require(keyDown("\r", code: 36, in: window)))
+        #expect(await eventually(describing: "Return opens the project's main sheet") { controller.sheet != nil })
+        switch controller.sheet {
+        case .newTask(let model):
+            #expect(provider != .none)
+            #expect(model.project.id == project.id)
+        case .newTerminal(let target, _, _):
+            #expect(provider == .none)
+            #expect(target.id == project.id)
+        default: Issue.record("expected New Task or New Terminal")
+        }
         #expect(controller.state.project(id: project.id)?.collapsed == false)
+    }
 
-        // The menu the anchor's right-click brings up, asked of the view it lands on rather than
-        // tracked: a real menu's modal tracking ends a test host's run. The ↓ that highlights its
-        // first item needs that tracking, so it is checked in the app.
-        let click = try #require(RowMenuAnchor.anchor(for: project.id)?.rightClick)
-        // `hitTest` takes its point in the superview's coordinates, and the hosting view is flipped.
-        let frame = try #require(host.superview)
-        let hit = try #require(host.hitTest(frame.convert(click.locationInWindow, from: nil)))
-        let menu = try #require(sequence(first: hit, next: \.superview).lazy.compactMap { $0.menu(for: click) }.first,
-                                "the click lands on a row with a menu")
-        #expect(Array(menu.items.prefix(3).map(\.title)) == ["New Task…", "New Review…", "New Terminal…"],
-                "the header's own menu")
+    @Test func returnOnAnEmptySignalHeadingEditsTheSignal() async throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let id = world.signal()
+        world.state.operatorOpen = true
+        controller.workspace.mutate { $0 = world.state }
+        controller.focus.browse(.signal(id))
+        let (host, window) = HostedSidebar.make(controller, key: true)
+        defer { window.orderOut(nil) }
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
+        let list = try #require(host.firstDescendant(NSTableView.self))
+        #expect(window.makeFirstResponder(list))
+        window.sendEvent(try #require(keyDown("\r", code: 36, in: window)))
+        #expect(await eventually(describing: "Return opens Edit Signal") { controller.sheet != nil })
+        guard case .signal(let model)? = controller.sheet else { Issue.record("expected Edit Signal"); return }
+        #expect(model.title == "Edit signal")
+        #expect(model.name == world.state.signal(id: id)?.name)
+    }
+
+    @Test func returnOnEmptyHeadingsPresentsNothingWhileLocked() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal()
+        controller.workspace.mutate { $0 = world.state }
+        #expect(!controller.canChangeWorkspace)
+        for row in [RowSelection.project(world.project.id), .signal(signal)] {
+            controller.focus.browse(row)
+            controller.activateSelection()
+        }
+        await Task.yield()
+        #expect(controller.sheet == nil)
     }
 
     @Test func finalBranchRefreshUsesTheLatestInputs() async throws {

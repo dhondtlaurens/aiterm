@@ -12,9 +12,9 @@ only the label; `SidebarHeadingInset` owns its gutter. Project headers use `Head
 under both projects and signals. Its actions resolve the current task at invocation; its body reads
 cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates.
 
-`SignalOperatorHeading` shows global pause and offers New Signal / Pause / Resume in its + menu. `SignalOperatorRow` is the active workload’s chat row, with pause,
-waiting count, errors and window recovery. `SignalHeader` uses project geometry and source marks;
-its `SignalHeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
+`SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause and offers New Signal / Pause / Resume in its + menu. `SignalOperatorRow` is the active workload’s chat row, with pause,
+waiting count, errors and window recovery. `HeadingRow` draws project and signal headings with their source marks;
+its `HeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.
 
 Signal tasks use the same two-line task row as ordinary tasks: title, badges and branch, with the
@@ -79,8 +79,8 @@ its file-copy explanation. Optional fields end their label with “(optional)”
 `ChipsPicker`, `DropdownList`, `PickerResultRow`, `PickChip` and `ChipFlow`
 share results, navigation and overhang. A single picked ticket/request/branch
 uses a chip in the field. `DropdownKeys` owns arrows/Return/Escape only while open.
-`PickerClearButton` uses its tooltip as its accessibility label. Native selection/menu seams stay
-in `NativeRowHighlight` and `RowMenuAnchor`.
+`PickerClearButton` uses its tooltip as its accessibility label. The native selection seam stays
+in `NativeRowHighlight`.
 
 `PromptStep` wraps `PromptEditor` in shared field chrome/help. The native text coordinator owns
 caret-based completions; `CompletionPopup` alone observes popup movement. `/` discovers installed

@@ -41,84 +41,6 @@ struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, and the menu that adds a project or a divider. While the Operator has anything to show it
-/// folds into the OPERATOR heading and back (`SectionFoldLabel`), the projects open by default.
-struct SidebarHeader: View {
-    let controller: AppController
-    @Environment(\.interfaceScale) private var scale
-    @State private var hovering = false
-    #if DEBUG
-    @Environment(\.rowBodyCounter) private var bodyCounter
-    #endif
-
-    var body: some View {
-        #if DEBUG
-        let _ = bodyCounter?.countHeading("projects")
-        #endif
-        HStack(spacing: scale(Space.base)) {
-            SectionFoldLabel(title: "Projects", fold: controller.rows.projectsHeading, hovering: hovering,
-                             enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
-                             openAttention: { controller.openProjectsAttention() })
-            AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
-                Button("Add Project…") { Task { await controller.projects.addProject() } }
-                Button("Add Divider…") { controller.sheets.presentNewDivider() }
-            }
-        }
-        .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
-        .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
-        .onHover { hovering = $0 }
-    }
-}
-
-/// The OPERATOR or PROJECTS heading's words, and, while the two fold into each other, one open at a time:
-/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, what
-/// needs you in its section as one amber count, whose click opens the section at the first such row.
-/// Only the label folds; the heading's "+" keeps its own click.
-struct SectionFoldLabel: View {
-    let title: String
-    let fold: SectionFold
-    let hovering: Bool
-    let enabled: Bool
-    let toggle: () -> Void
-    let openAttention: () -> Void
-    @Environment(\.interfaceScale) private var scale
-
-    var body: some View {
-        HStack(spacing: scale(Space.base)) {
-            SidebarHeading(title)
-            Spacer(minLength: scale(Space.tight))
-            if fold.folds {
-                if fold.folded, fold.attention > 0 {
-                    Button(action: openAttention) {
-                        StatusCountChips(counts: [StatusCount(status: .needsInput, count: fold.attention)])
-                    }
-                    .buttonStyle(.plain)
-                }
-                SectionFoldChevron(folded: fold.folded, hovering: hovering)
-            }
-        }
-        .modifier(FoldOnTap(enabled: fold.folds && enabled, action: toggle))
-        .accessibilityLabel(title)
-        .accessibilityValue(fold.folded ? "folded" : "")
-    }
-}
-
-/// A section heading's disclosure chevron while the Operator's section and the projects fold into each other: a
-/// macOS sidebar section's, in the trailing column before the heading's "+", shown folded and, open, only under
-/// the pointer. The heading's click folds; the chevron is not a control of its own.
-struct SectionFoldChevron: View {
-    let folded: Bool
-    let hovering: Bool
-    @Environment(\.interfaceScale) private var scale
-
-    var body: some View {
-        HeaderChevron(collapsed: folded)
-            .frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
-            .opacity(folded || hovering ? 1 : 0)
-            .accessibilityHidden(true)
-    }
-}
-
 extension DividerRow {
     /// A divider wired to the workspace it belongs to.
     init(entry: DividerEntry, controller: AppController) {
@@ -128,109 +50,6 @@ extension DividerRow {
                   rename: { controller.sheets.presentRename(divider: divider) },
                   move: { controller.projects.move(itemId: divider.id, $0) },
                   delete: { controller.projects.removeDivider(divider) })
-    }
-}
-
-/// A project's header: disclosure, provider, name and its Jira badge — or, collapsed, the status counts
-/// of the rows it is hiding — and the menu that adds a terminal, task or review. An empty project
-/// has nothing to disclose, so like a leaf in a Finder outline it draws no chevron and does not
-/// toggle; the chevron's column stays, so its name lines up with its neighbours'.
-///
-/// The arrows stop on it, as on a row: selected, it is drawn in the same `RowPill` on
-/// `Surface.selected`, and shows no window.
-struct ProjectHeaderRow: View {
-    let heading: ProjectHeadingValue
-    let controller: AppController
-    @Environment(\.interfaceScale) private var scale
-    #if DEBUG
-    @Environment(\.rowBodyCounter) private var bodyCounter
-    #endif
-
-    init(section: ProjectSection, controller: AppController) {
-        heading = ProjectHeadingValue(section); self.controller = controller
-    }
-
-    private var project: Project { heading.project }
-    /// Whether the header's label collapses and expands the section — by click, and for VoiceOver as
-    /// its default action and button trait. An empty project has nothing to disclose, and a locked
-    /// workspace changes nothing.
-    var collapses: Bool { !heading.isEmpty && controller.canChangeWorkspace }
-
-    var body: some View {
-        #if DEBUG
-        let _ = bodyCounter?.count(project.id)
-        #endif
-        let selected = controller.focus.isSelected(project.id)
-        HStack(spacing: scale(Space.base)) {
-            // Only the label collapses the section; the "+" menu keeps its own click, which a tap
-            // gesture on the whole row would have swallowed.
-            HStack(spacing: scale(Space.base)) {
-                HeaderChevron(collapsed: heading.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
-                    .opacity(heading.isEmpty ? 0 : 1)
-                ProviderIcon(provider: project.provider)
-                // The name, then its Jira project count, `Space.gap` apart as a task row's quiet
-                // badges and branch are. They keep their width; the name is what truncates.
-                HStack(spacing: scale(Space.gap)) {
-                    HeaderTitle(text: project.name)
-                    let details = controller.preferences.badgeDetails
-                    if let badge = ProjectJiraBadge.badge(for: project, showsCount: details.jiraProject) {
-                        ProjectJiraBadgeView(badge: badge, markInk: details.markInk, canChangeWorkspace: controller.canChangeWorkspace) {
-                            controller.sheets.presentJiraProjects(for: project)
-                        }
-                    }
-                }
-                Spacer(minLength: scale(Space.tight))
-                // Only when collapsed: expanded, the task and terminal rows say all of this and more, and a
-                // second copy on the header would just be noise above them.
-                if heading.collapsed {
-                    StatusCountChips(counts: heading.counts)
-                }
-            }
-            .modifier(FoldOnTap(enabled: collapses, selected: selected) { controller.projects.toggleCollapsed(project) })
-            AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) { newItems }
-        }
-        .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
-        .modifier(RowPill(selected: selected))
-        // ↩ on an empty header opens this menu, which it has in place of a fold.
-        .background(RowMenuAnchor(id: project.id))
-        .task(id: project.id) { await controller.projects.loadDefaultBranchName(of: project) }
-        .contextMenu {
-            // The "+" menu's items lead, greyed as they are there: the whole "+" is disabled while
-            // the workspace is locked, which a context menu can only say item by item.
-            Group { newItems }.disabled(!controller.canChangeWorkspace)
-            Divider()
-            Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
-            if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
-            Divider()
-            Button("Edit Project…") { controller.sheets.presentJiraProjects(for: project) }
-                .disabled(!controller.canChangeWorkspace)
-            Divider()
-            // The git operations, a group of their own. The branch is named once git has answered.
-            if project.provider == .gitlab || project.provider == .github {
-                Button("Pull \(controller.projects.defaultBranchName(project.id) ?? "Default Branch")") {
-                    controller.projects.pullDefault(project: project)
-                }
-                .disabled(controller.projects.isChangingDefaultBranch(project.id))
-                Divider()
-            }
-            // Disabled at the edges rather than absent: a menu that changes shape with the row's
-            // position is worse than a greyed item, and this menu already greys "Remove" when locked.
-            Button("Move Up") { controller.projects.move(itemId: project.id, .up) }
-                .disabled(!controller.canChangeWorkspace || !heading.canMoveUp)
-            Button("Move Down") { controller.projects.move(itemId: project.id, .down) }
-                .disabled(!controller.canChangeWorkspace || !heading.canMoveDown)
-            Divider()
-            Button("Remove Project…", role: .destructive) { Task { await controller.projects.confirmRemove(project: project) } }
-                .disabled(!controller.canChangeWorkspace)
-        }
-    }
-
-    /// What the "+" menu adds, shared with the context menu so the two cannot drift apart. The File
-    /// menu's order.
-    @ViewBuilder private var newItems: some View {
-        Button("New Task…") { controller.sheets.presentNewTask(project: project) }.disabled(project.provider == .none)
-        Button("New Review…") { controller.sheets.presentNewReview(project: project) }.disabled(project.provider == .none)
-        Button("New Terminal…") { controller.sheets.presentNewTerminal(project: project) }
     }
 }
 
@@ -331,28 +150,6 @@ struct RowPill: ViewModifier {
                 pill.fill(Self.fill(selected: selected, hovered: hovered, washed: washed))
                     .overlay { if selected { pill.strokeBorder(Palette.selectedEdge, lineWidth: 1) } }
             }
-    }
-}
-
-/// A project header's disclosure chevron, in its surface's secondary ink.
-struct HeaderChevron: View {
-    let collapsed: Bool
-    @Environment(\.surface) private var surface
-
-    var body: some View {
-        Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-            .font(Typography.micro).foregroundStyle(surface.secondaryInk)
-    }
-}
-
-/// A project header's name, in its surface's ink — white on the selection.
-struct HeaderTitle: View {
-    let text: String
-    @Environment(\.surface) private var surface
-
-    var body: some View {
-        Text(text).font(Typography.bodyEmphasis).foregroundStyle(surface.ink)
-            .lineLimit(1).truncationMode(.tail)
     }
 }
 
@@ -631,25 +428,6 @@ extension EnvironmentValues {
 }
 #endif
 
-/// A quiet Jira mark and total count opening every linked project in one menu. The final
-/// "Edit Project…" action is disabled while the workspace is locked; links remain available.
-private struct ProjectJiraBadgeView: View {
-    let badge: ProjectJiraBadge
-    let markInk: Badge.MarkInk
-    let canChangeWorkspace: Bool
-    let editProjects: () -> Void
-    var body: some View {
-        Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet, markInk: markInk,
-              accessibilityLabel: badge.accessibilityLabel) {
-            ForEach(badge.items, id: \.url) { item in
-                Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
-            }
-            Divider()
-            Button("Edit Project…", action: editProjects).disabled(!canChangeWorkspace)
-        }
-    }
-}
-
 /// `TaskRowMark` drawn: the `StatusMark`; `checkmark` at the mark's size in `Palette.green`; or `pause.fill`
 /// at the mark's size in `Palette.idleRing`, the idle ring's ink, since nothing runs yet. On the accent either
 /// is `Palette.onAccent`, as the working arc turns there; a selected row is neutral, so both keep their
@@ -669,43 +447,5 @@ struct TaskRowMarkView: View {
             Icon(.symbol("pause.fill"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.idleRing)
                 .frame(width: size, height: size).accessibilityHidden(true)
         }
-    }
-}
-
-/// A header's mark, centred in a ``Size/avatar`` square so the name after it lines up with the avatars in
-/// the rows below: a project's provider, or the Operator's glyph (`IconSource` alone). No tile behind it:
-/// the header sits on the sidebar's own ground. A vendor's mark is drawn at ``logoSize`` in its colour, an
-/// SF Symbol at ``glyphSize`` in the surface's secondary ink.
-struct ProviderIcon: View {
-    let source: IconSource
-    @Environment(\.interfaceScale) private var scale
-    @Environment(\.surface) private var surface
-
-    init(provider: Provider) { source = Self.source(of: provider) }
-    init(_ source: IconSource) { self.source = source }
-
-    /// A project's host as its header marks it, and New Signal's pickers with it.
-    static func source(of provider: Provider) -> IconSource {
-        switch provider {
-        case .gitlab: .gitlabTanuki
-        case .github: .brand(Palette.github)
-        case .git: .symbol("arrow.triangle.branch")
-        case .none: .symbol("folder.fill")
-        }
-    }
-
-    /// The GitLab and GitHub marks' drawn size, inside the ``Size/avatar`` square — neither `Size` nor
-    /// `Typography` has a step this close without visibly shrinking or enlarging the logo.
-    private static let logoSize: CGFloat = 13
-    /// The plain SF Symbol fallbacks (no vendor mark): smaller than ``logoSize`` because a system
-    /// glyph reads bigger than a custom logo at the same point size.
-    private static let glyphSize: CGFloat = 10
-    var body: some View {
-        ZStack {
-            switch source {
-            case .symbol: Icon(source, size: scale(Self.glyphSize), tint: surface.secondaryInk)
-            case .brand, .artwork: Icon(source, size: scale(Self.logoSize))
-            }
-        }.frame(width: scale(Size.avatar), height: scale(Size.avatar))
     }
 }

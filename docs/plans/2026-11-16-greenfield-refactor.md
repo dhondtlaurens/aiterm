@@ -432,7 +432,7 @@ TS tests-scripts.
 - [x] 8b. **Opus.** The projection decides each row's mark and "needs you" once and hands views
   small row values, not altered task copies; attention uses that one flag; the pure row values
   leave the view file (SB F4, F14). Redraw budgets and pixels hold.
-- [ ] 8c. **Codex.** One heading module for projects and signals and one for the two section
+- [x] 8c. **Codex.** One heading module for projects and signals and one for the two section
   headings; Return on an empty heading runs its main command and the synthesized right-click goes;
   a removed signal's heading shows no pause mark and its fold is not written into task records
   (SB F5, F15).
@@ -1380,3 +1380,18 @@ left.
   `AppControllerTests.aDrivenTaskWhoseTabIsDoneIsCountedByNoReaderAndYourOwnByAll` and
   `SidebarProjectionTests.eachDrawnDrivenFactDerivesOnceAndChangesItsRow`. Not captured: the hosted-only
   `signals-waiting-marks.png` (it opens windows; for 9c with the other hosted poses).
+- 8c: one `HeadingRow` drawing one `HeadingValue` for projects and signals (both `.equatable()`, both tagged by
+  `SidebarView`), and one `SectionHeading` for OPERATOR and PROJECTS. Return on an empty heading presents New Task…
+  (else New Terminal…) for a project and Edit Signal… for a signal, and `RowMenuAnchor` is gone. A removed signal's
+  heading has no pause glyph, and its fold is a runtime set in the projection, so no task record is written.
+  Snapshots: hosted captures (`AITERM_SNAPSHOT_HOSTED=1`, `build/8c-before-hosted` against `-after-hosted`) differ only
+  in `signals-removed.png`, the pause glyph gone, as the brief allows. In the default capture, seven `sidebar*` images
+  differ (`sidebar`, `-brand-colours`, `-collapsed`, `-extra-large`, `-large`, `-header-selected`,
+  `-header-selected-collapsed`). The before images drew ImageRenderer's yellow "unsupported view" placeholder for the
+  AppKit anchor behind each project heading, which the app never shows; I looked at the pair. The after images show
+  the real heading. Small difference: the Done-when symbol grep also searches `app/.build`, so it is clean only with
+  `--exclude-dir=.build`. Tests deleted: `RowMenuAnchorTests` (both tests; the behaviour is deleted) and
+  `SidebarInteractionTests.returnOnAnEmptyHeaderOpensItsMenu`, replaced by
+  `returnOnAnEmptyProjectHeadingPresentsItsMainSheet`, `returnOnAnEmptySignalHeadingEditsTheSignal` and
+  `returnOnEmptyHeadingsPresentsNothingWhileLocked`. Added `SignalSidebarTests` for a removed signal's heading not
+  paused, its fold leaving task records byte for byte, and reveal leaving its project's fold alone.

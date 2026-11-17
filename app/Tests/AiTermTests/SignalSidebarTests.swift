@@ -70,11 +70,65 @@ import AiTermUI
         #expect(drivenHeight == Size.row)
     }
 
+    @Test func removedSignalHeadingsAreNotPausedButSwitchedOffLiveSignalsAre() throws {
+        var world = SignalWorld(); let id = world.signal(); _ = world.workingTask(signal: id)
+        world.state.signals[0].enabled = false
+        let live = SignalSidebar(state: world.state, entries: [])
+        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].source, removed: false, paused: true))
+        world.state.signals = []
+        let removed = SignalSidebar(state: world.state, entries: [])
+        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.source, removed: true, paused: false))
+    }
+
+    @Test func aRemovedSignalsFoldIsRuntimeOnlyAndStartsOpen() throws {
+        var world = SignalWorld(); let id = world.signal()
+        _ = world.workingTask(signal: id); _ = world.workingTask(signal: id)
+        world.state.tasks[0].signalTask?.current.configuration.collapsed = true
+        world.state.signals = []
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        let before = try encoder.encode(controller.state.tasks)
+        var section = try #require(controller.rows.signalSections.first)
+        #expect(!section.collapsed, "saved configuration does not fold a removed signal")
+        controller.toggleCollapsed(section.signal)
+        section = try #require(controller.rows.signalSections.first)
+        #expect(section.collapsed)
+        #expect(try encoder.encode(controller.state.tasks) == before)
+        controller.toggleCollapsed(section.signal)
+        #expect(controller.rows.signalSections.first?.collapsed == false)
+        #expect(try encoder.encode(controller.state.tasks) == before)
+        controller.toggleCollapsed(section.signal)
+        let fresh = SidebarProjection(workspace: controller.workspace, live: controller.live, checkouts: controller.checkouts)
+        #expect(fresh.signalSections.first?.collapsed == false, "a new projection starts open")
+    }
+
+    @Test(arguments: [false, true])
+    func revealingATaskOpensItsSignalAndLeavesItsProjectFolded(removed: Bool) throws {
+        var world = SignalWorld(); let id = world.signal(), task = world.workingTask(signal: id)
+        if removed { world.state.signals = [] }
+        var project = world.project; project.collapsed = true
+        world.state.items = [.project(project)]
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        #expect(controller.rows.signalSections.first?.collapsed == true)
+        controller.reveal(.task(task))
+        #expect(controller.rows.signalSections.first?.collapsed == false)
+        #expect(controller.state.project(id: world.project.id)?.collapsed == true)
+        controller.reveal(.task(task))
+        #expect(controller.state.project(id: world.project.id)?.collapsed == true, "an already-open signal still owns the task")
+    }
+
     @Test func unsupportedSavedSignalsExplainWhyTheyCannotRunInTheirHeading() {
         var world = SignalWorld(); _ = world.signal()
         world.state.signals[0].source = .gitHub(RequestConditions(event: .unknown("future")))
         let sidebar = SignalSidebar(state: world.state, entries: [])
-        #expect(SignalHeadingValue(sidebar.signals[0]).help.contains("cannot run"))
+        #expect(HeadingValue(sidebar.signals[0]).help.contains("cannot run"))
     }
     @Test func backpackModeWaitsForOrphanedStagesButNotUnsupportedSources() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()

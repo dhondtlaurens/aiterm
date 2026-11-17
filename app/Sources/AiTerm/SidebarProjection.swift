@@ -34,7 +34,9 @@ struct SectionFold: Equatable {
     /// The tasks on their way out (`TaskTeardown.leaving`): their windows are closing, so none waits on you.
     @ObservationIgnored var leaving: () -> Set<UUID> = { [] }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
+    @ObservationIgnored private var foldedRemovedSignals: Set<UUID> = []
     private struct Inputs: Equatable {
+        var foldedRemovedSignals: Set<UUID>
         var skipped: [UUID: [String]]
         var failures: [String: String]
         var operatorRow: SignalOperatorRowValue
@@ -123,7 +125,7 @@ struct SectionFold: Equatable {
         let drawn = state.tasks.map { DrawnTask($0, state: state, questions: questions) }
         let skipped = SignalSidebar.skipped(in: state)
         let acts = operatorActs()
-        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
+        let next = Inputs(foldedRemovedSignals: foldedRemovedSignals, skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
             operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity(), latestAct: acts.latest),
             acts: acts.byTask, signals: state.signals,
             operatorOpen: state.operatorOpen,
@@ -135,7 +137,7 @@ struct SectionFold: Equatable {
         inputs = next; derivations += 1
         let all = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branches,
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
-        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts, skipped: next.skipped)
+        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts, skipped: next.skipped, foldedRemovedSignals: next.foldedRemovedSignals)
         var changed = leavingMoved || signalOperator != next.operatorRow || signalSections != sidebar.signals
             || entries != sidebar.projects
         if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }
@@ -155,6 +157,16 @@ struct SectionFold: Equatable {
         if operatorHeading != operatorFold { operatorHeading = operatorFold }
         if projectsHeading != projectsFold { projectsHeading = projectsFold }
         return changed
+    }
+
+    /// Removed signals keep their fold only for this projection's lifetime.
+    func toggleRemovedSignal(_ id: UUID) {
+        if !foldedRemovedSignals.insert(id).inserted { foldedRemovedSignals.remove(id) }
+        refresh()
+    }
+
+    func openRemovedSignal(_ id: UUID) {
+        if foldedRemovedSignals.remove(id) != nil { refresh() }
     }
 
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {

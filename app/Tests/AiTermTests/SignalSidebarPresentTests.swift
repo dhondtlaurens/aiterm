@@ -148,7 +148,7 @@ import Testing
         world.state.signals[0].collapsed = true
         let entries = SidebarModel.entries(state: world.state, sessions: [tab(first, .idle)], branchByCwd: [:], projectBranch: [:])
         let section = try #require(SignalSidebar(state: world.state, entries: entries).signals.first)
-        let heading = SignalHeadingValue(section)
+        let heading = HeadingValue(section)
         #expect(heading.counts == [StatusCount(status: .waiting, count: 2)])
         #expect(SidebarModel.statusCountsLabel(heading.counts) == "2 waiting")
     }

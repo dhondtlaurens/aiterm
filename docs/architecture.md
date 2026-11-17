@@ -38,7 +38,7 @@ switching to Signals, as described in
 
 `AppState` stores projects, tasks, terminals, the archive, signals, seen items and one Operator
 session. Unknown keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
-and `SidebarProjection` scope observation to drawn facts. Signal headings compare `SignalHeadingValue`;
+and `SidebarProjection` scope observation to drawn facts. Project and signal headings compare `HeadingValue`;
 menus resolve saved tasks at action time. Journals, reply markers and launch history do not redraw
 rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No leaf `body`
 performs I/O or reads the whole workspace.

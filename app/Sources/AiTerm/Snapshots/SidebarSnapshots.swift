@@ -92,7 +92,7 @@ enum SidebarSnapshots {
                 controller.live.sessions += [Fixture.session("s6", "w4", done.id, "claude", "done", 0)].compactMap { $0 }
                 controller.workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed = true } }
                 return SnapshotColumn(height: 76) {
-                    SidebarHeader(controller: controller)
+                    SectionHeading(controller: controller, kind: .projects)
                     SidebarView.rows(of: controller.rows.entries[0], in: controller.rows, controller: controller)
                     Spacer()
                 }
@@ -332,7 +332,7 @@ enum SidebarSnapshots {
     private static func empty(_ file: String, _ scale: InterfaceScale) -> Snapshot {
         Snapshot(file) {
             VStack(alignment: .leading, spacing: scale(Space.hairline)) {
-                SidebarHeader(controller: Fixture.emptyController())
+                SectionHeading(controller: Fixture.emptyController(), kind: .projects)
                 SidebarEmptyState(canAdd: true, add: {})
                 Spacer()
             }

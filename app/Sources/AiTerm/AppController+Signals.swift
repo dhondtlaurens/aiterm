@@ -62,13 +62,13 @@ extension AppController {
     }
     func toggleCollapsed(_ signal: Signal) {
         guard canChangeWorkspace else { return }
-        workspace.mutate { state in
-            if let index = state.signals.firstIndex(where: { $0.id == signal.id }) { state.signals[index].collapsed.toggle() }
-            else { for task in state.tasks where task.signalTask?.current.signal == signal.id {
-                state.updateSignalTask(task.id) { $0.current.configuration.collapsed = !signal.collapsed }
-            } }
+        if let index = state.signals.firstIndex(where: { $0.id == signal.id }) {
+            workspace.mutate { $0.signals[index].collapsed.toggle() }
+        } else {
+            rows.toggleRemovedSignal(signal.id)
         }
     }
+
     func toggleEnabled(_ signal: Signal) {
         guard canChangeWorkspace, var current = state.signal(id: signal.id) else { return }
         current.enabled.toggle()

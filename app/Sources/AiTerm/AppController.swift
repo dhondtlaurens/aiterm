@@ -75,9 +75,6 @@ final class AppController {
     let backpack: BackpackController
     /// The Mac's CPU, memory and battery, sampled every 5 s for the footer's readings row.
     let machine: MachineMonitor
-    /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
-    /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
-    @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
@@ -440,21 +437,22 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// Return folds a populated project or signal; an empty project's header opens its menu.
+    /// Return folds a populated heading; an empty heading opens its main creation or edit sheet.
     /// Other rows open their window through the managed focus path.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if case .signal(let id) = focus.selection, let section = rows.signalSections.first(where: { $0.id == id }) {
             if !section.tasks.isEmpty { toggleCollapsed(section.signal) }
+            else if let signal = state.signal(id: id) { presentNewSignal(editing: signal) }
             return nil
         }
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
             if projects.hasRows(project) {
                 projects.toggleCollapsed(project)
-            } else {
-                // Next turn, as an alert comes up (`Prompter`): the menu runs modally, and not
-                // inside SwiftUI's key handler.
-                RunLoop.main.perform { MainActor.assumeIsolated { self.openRowMenu(project.id) } }
+            } else if canCreateTask {
+                sheets.presentNewTask(project: project)
+            } else if canCreateTerminal {
+                sheets.presentNewTerminal(project: project)
             }
             return nil
         }

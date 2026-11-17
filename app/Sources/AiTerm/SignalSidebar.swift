@@ -8,7 +8,8 @@ struct SignalSection: Equatable, Identifiable {
     var failure: String?
     var removed = false
     var id: UUID { signal.id }
-    var collapsed: Bool { signal.collapsed || tasks.isEmpty }
+    var removedFolded = false
+    var collapsed: Bool { (removed ? removedFolded : signal.collapsed) || tasks.isEmpty }
 }
 
 /// Reuses the project's exact task rows. Moving ownership changes only which heading holds them.
@@ -17,7 +18,8 @@ struct SignalSection: Equatable, Identifiable {
 struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
-    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:], skipped: [UUID: [String]] = [:]) {
+    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:], skipped: [UUID: [String]] = [:],
+         foldedRemovedSignals: Set<UUID> = []) {
         let held = state.tasks.filter { $0.isUnderOperator }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
@@ -26,7 +28,7 @@ struct SignalSidebar {
         var definitions = state.signals
         for task in held {
             if let record = task.signalTask, !definitions.contains(where: { $0.id == record.current.signal }) {
-                var removed = record.current.configuration; removed.enabled = false; definitions.append(removed)
+                definitions.append(record.current.configuration)
             }
         }
         signals = definitions.map { signal in
@@ -36,6 +38,7 @@ struct SignalSidebar {
             section.skipped = skipped[signal.id] ?? []
             section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
             section.removed = state.signal(id: signal.id) == nil
+            section.removedFolded = foldedRemovedSignals.contains(signal.id)
             return section
         }
         projects = entries.map { entry in
