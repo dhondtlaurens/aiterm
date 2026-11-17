@@ -15,7 +15,7 @@ struct CodexDriver: HarnessDriver {
             let parsed = TOMLStatements.parsed(text)
             if let reason = Self.unmergeable(text, parsed) { return .refused(file, reason) }
             if CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:\(daemonPort)", tables: parsed.tables) == text { return DriverProbe(.current) }
-            return DriverProbe(CodexHookConfig.containsOwnedTables(parsed.tables) ? .outdated : .missing)
+            return DriverProbe(CodexHookConfig.hasAiTermEntries(parsed.tables) ? .outdated : .missing)
         }
     }
 

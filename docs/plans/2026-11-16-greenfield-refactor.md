@@ -293,7 +293,7 @@ TS tests-scripts.
   poll go (CG F5).
 - [x] 2c. **Codex.** The checkout cleanup trusts the scan's confirmation; the second disk check,
   its port and its dictionary go (TL F6).
-- [ ] 2d. **Opus.** The Codex config editor writes its marked block, refuses on a conflicting
+- [x] 2d. **Opus.** The Codex config editor writes its marked block, refuses on a conflicting
   table and removes its own entries by marker; the four-form string parser, the moved-hook
   reconciliation and the config-file model fallback go (PL F4). The refusal tests for unbalanced
   and conflicting files stay.
@@ -779,3 +779,17 @@ left.
   `RestoringRowTests` case expected the row to read as missing after the pass; with the cleanup now
   acting in the same turn the task is already forgotten, so it joins the removal and expects the task
   gone (a consequence of the step, not a weakened check).
+- 2d: the Codex config editor writes its marked block in place when the span holds only AiTerm
+  tables and blanks, and otherwise rebuilds (markers dropped, AiTerm tables dropped, every other
+  table kept byte for byte, block appended); `hasAiTermEntries` replaces `containsOwnedTables`.
+  `TOMLStatements` reads structure only. Codex models come from `models_cache.json` alone, else
+  `gpt-5.6`. The block's bytes and `compat/` are unchanged; every guarantee test the brief lists
+  passed unedited. Tests deleted with their behaviour: `codexRepairKeepsForeignChildrenAfterInterveningTables`,
+  `stringReadsEveryTOMLForm`, `stringRejectsWhatIsNotOneTOMLString`, `keyIsNilForADottedKeyButValueStillReadsIt`,
+  `testCodexConfigModelIdsStopAtTheirQuotes`, `testCodexConfigModelsAreReadByKeyPath`. Added
+  `aStaleBlockIsReplacedInPlace` (failed first) and `aServerAddedBetweenTheMarkersIsKeptAndTheBlockIsStillReplacedOnce`
+  (passed on the old code too; it guards the new one). Difference: two `ModelCatalogueTests` the brief
+  did not name used `config.toml` as the Codex model source; their fixtures moved to
+  `models_cache.json` with the same checks (stamping through a symlink, a file appearing, an in-place
+  rewrite). Noticed and left: on the rebuild path a CRLF file still gets an extra `\n` after its
+  last line, as before.

@@ -1,13 +1,9 @@
 import Foundation
 
 /// What AiTerm merges into Codex's `config.toml` — command hooks for its lifecycle events and an
-/// MCP server for `Stop` — and how it recognises its own tables there. `CodexDriver` reads and
-/// writes the file.
-///
-/// The merge works on a lossless view of TOML statements, used only to remove tables we own. In
-/// particular, a marker comment is not a boundary: Codex can move hooks out of it and approval
-/// records into it. Strings, comments, multiline values and unrelated tables retain their original
-/// bytes.
+/// MCP server for `Stop` — between marker comments, and how it recognises its own tables there.
+/// `CodexDriver` reads and writes the file. The merge works on a lossless view of TOML statements
+/// and reads table paths only, never a string value; every byte it does not own is kept.
 enum CodexHookConfig {
     static let events = ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "PermissionRequest"]
     static let begin = "# >>> aiterm hooks >>>", end = "# <<< aiterm hooks <<<"
@@ -35,8 +31,9 @@ enum CodexHookConfig {
         return block + end
     }
 
-    static func containsOwnedTables(_ tables: [TOMLStatements.Table]) -> Bool {
-        tables.contains { $0.owned || $0.statements.contains(where: \.marker) }
+    /// The file holds something of AiTerm's to repair: a marker, or AiTerm's MCP server table.
+    static func hasAiTermEntries(_ tables: [TOMLStatements.Table]) -> Bool {
+        tables.contains { $0.path == ["mcp_servers", "aiterm_hooks"] || $0.statements.contains(where: \.marker) }
     }
 
     /// The key that makes the merge impossible: an event of ours, or `hooks` itself, already set
@@ -63,77 +60,59 @@ enum CodexHookConfig {
         return nil
     }
 
-    /// Codex rewrites TOML tables independently of comments, so markers alone cannot delimit
-    /// ownership. Reconcile the actual hook tables, including entries moved outside the markers.
+    /// `toml` with AiTerm's block current and every byte AiTerm does not own kept.
+    ///
+    /// A marked span runs from a begin-marker statement to the next end-marker statement; a begin
+    /// marker with no end after it runs to the end of the file, and an end marker with no begin
+    /// before it belongs to no span. Markers are comment-only statements, so a marker inside a
+    /// string is data. An AiTerm table is one whose path is `mcp_servers.aiterm_hooks` or below it,
+    /// anywhere in the file, or one that starts inside a marked span and whose path is
+    /// `hooks.<one of events>` or below it. Every other table is the person's or Codex's, wherever
+    /// it stands: Codex adds new tables (approval records, a server from `codex mcp add`) before the
+    /// file's trailing comment, which is the end marker.
+    ///
+    /// In place: when the file has exactly one begin and one end marker, begin first, and every
+    /// statement between them belongs to an AiTerm table or is blank, the text from the start of
+    /// the begin marker's line to the end of the end marker's text is replaced by
+    /// `block(hookURL:)`. Nothing outside that range changes.
+    ///
+    /// Rebuild, otherwise: every marker statement is dropped; every AiTerm table is dropped except
+    /// its standalone comments (a comment after an AiTerm table may document the next table); every
+    /// other table is kept with its exact text; then the block is appended after a blank line.
     static func merge(_ toml: String?, hookURL: String, tables: [TOMLStatements.Table]? = nil) -> String {
-        let text = toml ?? ""
-        let parsed = tables ?? TOMLStatements.tables(text)
+        let parsed = tables ?? TOMLStatements.tables(toml ?? "")
         let block = Self.block(hookURL: hookURL)
-        let markers = parsed.flatMap(\.statements).filter(\.marker)
-        // Keep a pristine managed block in place, including on a port change. Do not use this
-        // shortcut when there are moved/duplicated hooks or foreign content inside the markers.
-        if markers.count == 2, let range = blockRange(in: text, statements: parsed.flatMap(\.statements)),
-           let oldURL = parsed.first(where: { $0.path == ["mcp_servers", "aiterm_hooks"] })?.values["url"],
-           oldURL.hasSuffix("/mcp"),
-           text[range] == Self.block(hookURL: String(oldURL.dropLast(4))) {
-            var offset = text.startIndex
-            let outsideIsOwned = parsed.contains { table in
-                let start = offset
-                offset = text.index(offset, offsetBy: table.text.count)
-                return table.owned && !range.contains(start)
-            }
-            if !outsideIsOwned {
-                var result = text; result.replaceSubrange(range, with: block); return result
-            }
+        var inSpan = false
+        let aiTerm = parsed.map { table in
+            let startsInSpan = inSpan && table.statements.first?.header != nil
+            for statement in table.statements where statement.marker { inSpan = statement.isBegin }
+            let path = table.path
+            return path.starts(with: ["mcp_servers", "aiterm_hooks"])
+                || (startsInSpan && path.count >= 2 && path[0] == "hooks" && Self.events.contains(path[1]))
         }
 
-        var removed = Set(parsed.indices.filter { parsed[$0].owned })
-        // TOML child tables refer to the most recent parent of that name, even across unrelated
-        // tables. Track that relationship rather than assuming children are adjacent.
-        var parents: [String: Int] = [:], hooks: [String: Int] = [:], children: [Int: [Int]] = [:]
-        for i in parsed.indices {
-            let table = parsed[i]
-            guard table.path.count >= 2, table.path[0] == "hooks" else { continue }
-            let event = table.path[1]
-            if table.array && table.path.count == 2 {
-                parents[event] = i; hooks[event] = nil
-            } else if table.path.count > 2 {
-                if let parent = parents[event] { children[parent, default: []].append(i) }
-                if table.path[2] == "hooks" {
-                    if table.array && table.path.count == 3 { hooks[event] = i }
-                    else if let hook = hooks[event], removed.contains(hook) { removed.insert(i) }
+        let markers = parsed.flatMap(\.statements).filter(\.marker)
+        if markers.count == 2, markers[0].isBegin, !markers[1].isBegin {
+            var before = "", after = "", between = false, ended = false, pristine = true
+            for (table, isAiTerm) in zip(parsed, aiTerm) {
+                for statement in table.statements {
+                    if ended { after += statement.text }
+                    else if statement.marker && !between { between = true }
+                    else if statement.marker, let end = statement.text.range(of: Self.end) {
+                        after += statement.text[end.upperBound...]; ended = true
+                    } else if between {
+                        if !(statement.blank || (isAiTerm && !statement.code.isEmpty)) { pristine = false }
+                    } else { before += statement.text }
                 }
             }
+            if pristine { return before + block + after }
         }
-        for (parent, descendants) in children where descendants.allSatisfy({ removed.contains($0) }) {
-            removed.insert(parent)
-        }
-        var base = parsed.indices.map { i in
-            if !removed.contains(i) { return parsed[i].textWithoutMarkers }
-            // A standalone comment following an owned table may document the next foreign
-            // table. Ownership of a hook never grants ownership of those comments.
-            return parsed[i].statements.filter {
-                !$0.marker && $0.code.isEmpty && $0.text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#")
-            }.map(\.text).joined()
+
+        var base = zip(parsed, aiTerm).map { table, isAiTerm in
+            table.statements.filter { !$0.marker && (!isAiTerm || $0.standaloneComment) }.map(\.text).joined()
         }.joined()
         if !base.isEmpty && !base.hasSuffix("\n") { base += "\n" }
         return base + (base.isEmpty ? "" : "\n") + block + "\n"
-    }
-
-    private static func blockRange(in text: String, statements: [TOMLStatements.Statement]) -> Range<String.Index>? {
-        var offset = text.startIndex, begin: String.Index?
-        for statement in statements {
-            let end = text.index(offset, offsetBy: statement.text.count)
-            if statement.marker {
-                if statement.text.trimmingCharacters(in: .whitespacesAndNewlines) == Self.begin {
-                    begin = offset
-                } else if let begin, let marker = text.range(of: Self.end, range: offset..<end) {
-                    return begin..<marker.upperBound
-                }
-            }
-            offset = end
-        }
-        return nil
     }
 }
 
@@ -141,23 +120,8 @@ private extension TOMLStatements.Statement {
     var marker: Bool {
         code.isEmpty && [CodexHookConfig.begin, CodexHookConfig.end].contains(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
-}
-
-private extension TOMLStatements.Table {
-    var owned: Bool {
-        if path.starts(with: ["mcp_servers", "aiterm_hooks"]) { return true }
-        guard array, path.count == 3, path[0] == "hooks", path[2] == "hooks" else { return false }
-        let fields = values
-        if fields["type"] == "mcp_tool" {
-            return fields["server"] == "aiterm_hooks" && fields["tool"] == "post_codex_hook"
-        }
-        guard fields["type"] == "command", let command = fields["command"] else { return false }
-        // Both the explicit ownership header and our endpoint are required. A mention of
-        // AiTerm in an unrelated command or comment is not permission to delete that hook.
-        return command.hasPrefix("curl ")
-            && command.range(of: #"X-A[iI][tT]erm-Hook: 1"#, options: .regularExpression) != nil
-            && command.range(of: #"http://(?:127\.0\.0\.1|localhost):[0-9]+/hook/codex(?:['"\s]|$)"#, options: .regularExpression) != nil
-    }
-    /// The table as Codex's merge writes it back: marker comments are dropped and re-emitted.
-    var textWithoutMarkers: String { statements.filter { !$0.marker }.map(\.text).joined() }
+    /// A marker that opens a span (only meaningful when `marker`).
+    var isBegin: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines) == CodexHookConfig.begin }
+    var blank: Bool { code.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var standaloneComment: Bool { code.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") }
 }

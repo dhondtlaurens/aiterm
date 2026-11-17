@@ -9,15 +9,15 @@ import Testing
 
     @Test func aSymlinkedModelConfigurationIsStampedThroughItsTarget() throws {
         let home = try ScratchFolder.make("aiterm-catalogue-link-")
-        let target = home.appendingPathComponent("shared.toml")
-        let config = home.appendingPathComponent(".codex/config.toml")
-        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(#"model = "gpt-first""#.utf8).write(to: target)
-        try FileManager.default.createSymbolicLink(at: config, withDestinationURL: target)
+        let target = home.appendingPathComponent("shared.json")
+        let cache = home.appendingPathComponent(".codex/models_cache.json")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"models":[{"slug":"gpt-first"}]}"#.utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: cache, withDestinationURL: target)
         let catalogue = ModelCatalogue(home: home, runner: .nothingInstalled)
         #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-first"])
-        let defaultStamp = FileStamps([config.path])
-        try Data(#"model = "gpt-second""#.utf8).write(to: target, options: .atomic)
+        let defaultStamp = FileStamps([cache.path])
+        try Data(#"{"models":[{"slug":"gpt-second"}]}"#.utf8).write(to: target, options: .atomic)
         #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-second"])
         #expect(defaultStamp.areCurrent, "the git and persistence default still stamps the link itself")
     }
@@ -118,33 +118,30 @@ import Testing
         #expect(catalogue.read(.pi) == ModelCatalogue.Reading(models: [], failure: .unavailable))
     }
 
-    /// A file catalogue is read once and then stands until one of its files changes: rewritten in
-    /// place with its size and date kept, the cached list still answers; given a new date, the
-    /// file is read again.
+    /// A file catalogue is read once and then stands until one of its files changes: a file that
+    /// appears is a change like any other; rewritten in place with its size and date kept, the
+    /// cached list still answers; given a new date, the file is read again.
     @Test func aFileCatalogueStandsUntilAFileChanges() throws {
         let home = try ScratchFolder.make("aiterm-catalogue-")
         defer { try? FileManager.default.removeItem(at: home) }
-        let config = home.appendingPathComponent(".codex/config.toml")
-        try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let dated = Date(timeIntervalSince1970: 1_800_000_000)
-        try Data(#"model = "gpt-a""#.utf8).write(to: config)
-        try FileManager.default.setAttributes([.modificationDate: dated], ofItemAtPath: config.path)
+        let cache = home.appendingPathComponent(".codex/models_cache.json")
+        try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
         let catalogue = ModelCatalogue(home: home, runner: .nothingInstalled)
+        #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-5.6"])
+
+        let dated = Date(timeIntervalSince1970: 1_800_000_000)
+        try Data(#"{"models":[{"slug":"gpt-a"}]}"#.utf8).write(to: cache)
+        try FileManager.default.setAttributes([.modificationDate: dated], ofItemAtPath: cache.path)
         #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-a"])
 
-        let handle = try FileHandle(forWritingTo: config)
-        try handle.write(contentsOf: Data(#"model = "gpt-b""#.utf8))
+        let handle = try FileHandle(forWritingTo: cache)
+        try handle.write(contentsOf: Data(#"{"models":[{"slug":"gpt-b"}]}"#.utf8))
         try handle.close()
-        try FileManager.default.setAttributes([.modificationDate: dated], ofItemAtPath: config.path)
+        try FileManager.default.setAttributes([.modificationDate: dated], ofItemAtPath: cache.path)
         #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-a"], "nothing a stat sees has changed")
 
-        try FileManager.default.setAttributes([.modificationDate: dated.addingTimeInterval(1)], ofItemAtPath: config.path)
+        try FileManager.default.setAttributes([.modificationDate: dated.addingTimeInterval(1)], ofItemAtPath: cache.path)
         #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-b"])
-
-        // A file that appears is a change like any other.
-        try Data(#"{"models":[{"slug":"gpt-c","display_name":"C"}]}"#.utf8)
-            .write(to: home.appendingPathComponent(".codex/models_cache.json"))
-        #expect(try catalogue.models(for: .codex).map(\.id) == ["gpt-c"])
     }
 }
 

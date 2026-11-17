@@ -139,7 +139,7 @@ import Testing
             return (slug, (entry["supported_reasoning_levels"] as? [[String: Any]] ?? []).compactMap { $0["effort"] as? String })
         }
         try #require(!expected.isEmpty, "models_cache.json lists no visible models where the app looks")
-        let read = ModelFiles.codexModels(modelsCacheJSON: data, configTOML: nil)
+        let read = ModelFiles.codexModels(modelsCacheJSON: data)
         #expect(read.map(\.id) == expected.map(\.0))
         #expect(read.map(\.efforts) == expected.map(\.1), "a model no longer publishes its reasoning levels")
         #expect(read.map(\.id).contains(try Self.capturedModel(.codex)))
