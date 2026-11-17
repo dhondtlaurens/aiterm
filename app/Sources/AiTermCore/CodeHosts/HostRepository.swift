@@ -35,8 +35,4 @@ public protocol HostRepository: Sendable {
     // Effect: merge at the accepted commit, the only host write.
     /// `.merged` when it merged, `.blocked` when the host refused; throws only when it could not be asked.
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness
-
-    // Badge: bounded thread counts.
-    /// The bounded, lenient thread counts shown on a request's badge.
-    func reviewThreads(of number: Int) async throws -> ReviewThreads
 }

@@ -29,7 +29,7 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
 
     public func threads(of mr: MergeRequestRef) async throws -> ReviewThreads? {
         let connection: CodeHosts.Connection
-        switch Self.target(of: mr.url, gitLabHost: gitLab?.hostURL) {
+        switch Self.target(of: mr.url, gitLab: gitLab) {
         case .gitHub(let repo)?:
             guard let gitHub else { return nil }
             connection = .gitHub(gitHub, repo: repo)
@@ -39,14 +39,15 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
         case nil:
             return nil
         }
-        return try await connection.repository(session: session).reviewThreads(of: mr.iid)
+        let threads = try await connection.repository(session: session).threads(of: mr.iid)
+        return ReviewThreads(resolutions: threads.map(\.resolved))
     }
 
     /// `https://github.com/<owner>/<repo>/pull/<n>`, or `<GitLab host>/<project>/-/merge_requests/<n>`
     /// on the configured host, compared as DNS does,
     /// its case and a trailing dot ignored, and its port unless it is the scheme's own.
     /// A GitLab sub-path (`https://example.com/gitlab`) is left out of the project.
-    static func target(of webURL: String, gitLabHost: URL?) -> Target? {
+    static func target(of webURL: String, gitLab: GitLabConfig?) -> Target? {
         guard let url = URL(string: webURL) else { return nil }
         switch CodeHost(webURL: webURL) {
         case .gitHub:
@@ -54,9 +55,8 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
             guard parts.count >= 5, parts[3] == "pull" else { return nil }
             return .gitHub(repo: "\(parts[1])/\(parts[2])")
         case .gitLab:
-            guard let gitLabHost, let host = url.comparableHost, host == gitLabHost.comparableHost,
-                  url.comparablePort == gitLabHost.comparablePort else { return nil }
-            var root = gitLabHost.path
+            guard let gitLab, gitLab.serves(url) else { return nil }
+            var root = gitLab.hostURL.path
             while root.hasSuffix("/") { root.removeLast() }
             guard url.path.hasPrefix(root + "/") else { return nil }
             // Keep the slash in front of the project, so a path that starts at the marker names none.

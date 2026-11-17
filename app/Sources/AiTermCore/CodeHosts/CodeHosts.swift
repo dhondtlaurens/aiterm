@@ -44,8 +44,7 @@ public enum CodeHosts {
             return .gitHub(gitHub, repo: remote.path)
         case .gitLab:
             guard let gitLab else { throw .notConnected(.gitLab) }
-            let configured = gitLab.hostURL.host?.lowercased()
-            guard let host = remote.host, host == configured else {
+            guard let host = remote.host, gitLab.matches(remoteHost: host) else {
                 throw .otherGitLabHost(remote: remote.host, configured: gitLab.hostURL.host)
             }
             guard !remote.path.isEmpty else { throw .noRepositoryPath(.gitLab) }

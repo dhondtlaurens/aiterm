@@ -20,7 +20,7 @@ public struct JiraQueryReader: SignalSourceReader {
         }
         var token: String?, tokens = Set<String>(), items: [SignalItem] = [], seen = Set<String>()
         for _ in 0..<100 {
-            let page = try await client.search(jql: query, fields: ["summary", "description", "status", "issuetype", "updated", "labels", "project", "assignee"], pageToken: token)
+            let page = try await client.search(jql: query, limit: 100, pageToken: token)
             for ticket in page.tickets where seen.insert(ticket.key).inserted {
                 items.append(SignalItem(item: .ticket(site: client.siteURL.absoluteString, key: ticket.key), title: ticket.summary,
                                         description: ticket.description, ticket: ticket, updated: ticket.updated))

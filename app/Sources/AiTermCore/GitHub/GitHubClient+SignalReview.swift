@@ -17,16 +17,16 @@ extension GitHubClient {
         let (reviews, comments, inline) = try await (readReviews, readComments, readInline)
         var dates: [Date] = [], posted: Set<Int> = []
         for review in reviews where review.state != "PENDING" {
-            guard let text = review.submittedAt, let date = GitLabClient.date(text) else { throw IncompleteRead("submitted reviews") }
+            guard let text = review.submittedAt, let date = HostDate.iso8601(text) else { throw IncompleteRead("submitted reviews") }
             posted.insert(review.id)
             if review.user?.login?.lowercased() == user { dates.append(date) }
         }
         for comment in comments {
-            guard let date = GitLabClient.date(comment.createdAt) else { throw IncompleteRead("review comments") }
+            guard let date = HostDate.iso8601(comment.createdAt) else { throw IncompleteRead("review comments") }
             if comment.user?.login?.lowercased() == user { dates.append(date) }
         }
         for comment in inline {
-            guard let date = GitLabClient.date(comment.createdAt) else { throw IncompleteRead("inline comments") }
+            guard let date = HostDate.iso8601(comment.createdAt) else { throw IncompleteRead("inline comments") }
             if comment.user?.login?.lowercased() == user, posted.contains(comment.pullRequestReviewId) { dates.append(date) }
         }
         return dates.max()

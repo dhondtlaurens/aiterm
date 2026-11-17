@@ -111,38 +111,10 @@ public struct GitHubClient: HostRepository {
         HostText.number(text, prefixes: "#!")
     }
 
-    /// How many review threads one page of `reviewThreads` asks for, and how many pages it reads
-    /// at most.
-    static let threadsPerPage = 100, threadPages = 10
+    /// How many review threads one page asks for.
+    static let threadsPerPage = 100
     /// How many pages `threads` and `approvals` read before they give up: past it the list is no answer.
     static let threadPagesRead = 50
-
-    /// One query, never a mutation: the threads of a pull request and whether each is resolved.
-    static let threadsQuery = """
-        query($owner: String!, $name: String!, $number: Int!, $after: String) {
-          repository(owner: $owner, name: $name) {
-            pullRequest(number: $number) {
-              reviewThreads(first: \(threadsPerPage), after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
-            }
-          }
-        }
-        """
-
-    /// The pull request's review threads, and how many are resolved. REST has none, so this is
-    /// GraphQL's `reviewThreads`, read with the same token — a fine-grained token needs read access
-    /// to pull requests, as the search already does; a classic one, `repo` for a private
-    /// repository. GraphQL answers a repository or pull request it cannot see with 200, a null and
-    /// an error, which is thrown here rather than read as no threads.
-    public func reviewThreads(of number: Int) async throws -> ReviewThreads {
-        let resolutions = try await readThreads(ThreadResolution.self, number: number, complete: false,
-            answer: { (answer: GraphQLAnswer<ThreadsPayload<ThreadResolution>, ThreadProblem>) in
-                guard let data = answer.data, data.repository?.pullRequest != nil else {
-                    throw answer.errors?.contains { $0.type == "FORBIDDEN" } == true ? GitHubError.forbidden : GitHubError.repoNotFound(repo)
-                }
-                return data
-            }, items: { $0.compactMap { $0.value?.isResolved } })
-        return ReviewThreads(resolutions: resolutions)
-    }
 
     /// `owner/name` as its two parts; nil for anything else.
     static func ownerAndName(_ repo: String) -> (owner: String, name: String)? {
@@ -306,7 +278,7 @@ public struct GitHubClient: HostRepository {
     }
 
     /// One query, never a mutation: each review thread with its id, whether it is resolved, and its last comment.
-    static let threadDetailsQuery = """
+    static let threadsQuery = """
         query($owner: String!, $name: String!, $number: Int!, $after: String) {
           repository(owner: $owner, name: $name) {
             pullRequest(number: $number) {
@@ -323,31 +295,20 @@ public struct GitHubClient: HostRepository {
     /// `threadPagesRead`, a cursor that does not move on or a thread that does not decode throws `IncompleteRead`, so
     /// nothing is decided on part of them.
     public func threads(of number: Int) async throws -> [ReviewThread] {
-        try await readThreads(ThreadDetail.self, number: number, complete: true,
-            answer: { (answer: GraphQLAnswer<ThreadsPayload<ThreadDetail>, GraphQLProblem>) in try answer.checked(repo: repo) },
-            items: { nodes in
-                try nodes.map { entry in
+        guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        return try await graphQLPages(ThreadsPayload.self, query: Self.threadsQuery,
+            variables: { ThreadVariables(owner: owner, name: name, number: number, after: $0) },
+            limit: Self.threadPagesRead, exhausted: IncompleteRead("review threads"),
+            invalidCursor: IncompleteRead("review threads"),
+            answer: { (answer: GraphQLAnswer<ThreadsPayload, GraphQLProblem>) in try answer.checked(repo: repo) },
+            page: { payload in
+                guard let threads = payload.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
+                let items = try threads.nodes.map { entry in
                     guard let node = entry.value else { throw IncompleteRead("review threads") }
                     let last = node.comments?.nodes?.last
                     return ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? "")
                 }
-            })
-    }
-
-    /// Both thread projections use the same repository binding and paged query. Only publication
-    /// requires complete, strictly decoded pages; badges retain their bounded, lenient read.
-    private func readThreads<Node: Decodable, Problem: Decodable, Item>(_ type: Node.Type, number: Int, complete: Bool,
-        answer: (GraphQLAnswer<ThreadsPayload<Node>, Problem>) throws -> ThreadsPayload<Node>,
-        items: ([Lenient<Node>]) throws -> [Item]) async throws -> [Item] {
-        guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
-        return try await graphQLPages(ThreadsPayload<Node>.self, query: complete ? Self.threadDetailsQuery : Self.threadsQuery,
-            variables: { ThreadVariables(owner: owner, name: name, number: number, after: $0) },
-            limit: complete ? Self.threadPagesRead : Self.threadPages,
-            exhausted: complete ? IncompleteRead("review threads") : nil,
-            invalidCursor: complete ? IncompleteRead("review threads") : nil, answer: answer,
-            page: { payload in
-                guard let threads = payload.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
-                return (try items(threads.nodes), threads.pageInfo)
+                return (items, threads.pageInfo)
             })
     }
 
@@ -378,10 +339,9 @@ public struct GitHubClient: HostRepository {
                               body: GraphQLRequest(query: query, variables: variables), notFound: .repoNotFound(repo)))
     }
 
-    /// A cursor listing, validated one page at a time. A nil exhaustion/cursor error preserves a
-    /// badge's bounded, lenient read; complete reads supply their own refusal at either boundary.
+    /// A cursor listing, validated one page at a time, refusing an incomplete read.
     private func graphQLPages<Variables: Encodable, Payload: Decodable, Problem: Decodable, Item>(_ type: Payload.Type, query: String,
-        variables: (String?) -> Variables, limit: Int, exhausted: (any Error)?, invalidCursor: (any Error)?,
+        variables: (String?) -> Variables, limit: Int, exhausted: any Error, invalidCursor: any Error,
         allowEmptyCursor: Bool = true, answer: (GraphQLAnswer<Payload, Problem>) throws -> Payload,
         page: (Payload) throws -> ([Item], GraphQLPageInfo)) async throws -> [Item] {
         var result: [Item] = [], cursor: String?
@@ -392,8 +352,7 @@ public struct GitHubClient: HostRepository {
             guard let next = try info.next(after: cursor, allowEmpty: allowEmptyCursor, invalid: invalidCursor) else { return result }
             cursor = next
         }
-        if let exhausted { throw exhausted }
-        return result
+        throw exhausted
     }
 
     /// The ruleset rule types that do not stop AiTerm pushing its own branch: they forbid force-pushes or
@@ -592,18 +551,15 @@ extension GraphQLAnswer where Problem == GraphQLProblem {
 }
 
 private struct ThreadVariables: Encodable { var owner: String, name: String, number: Int, after: String? }
-/// Badge reads intentionally ignore error messages and the thread detail fields.
-private struct ThreadProblem: Decodable { var type: String? }
-private struct ThreadResolution: Decodable { var isResolved: Bool }
 private struct ThreadDetail: Decodable {
     struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
     struct Comments: Decodable { var nodes: [Comment]? }
     var id: String, isResolved: Bool, comments: Comments?
 }
 
-/// The same GraphQL connection, projected as badge resolutions or publication thread details.
-private struct ThreadsPayload<Node: Decodable>: Decodable {
-    struct Threads: Decodable { var pageInfo: GraphQLPageInfo, nodes: [Lenient<Node>] }
+/// The review thread connection of one pull request.
+private struct ThreadsPayload: Decodable {
+    struct Threads: Decodable { var pageInfo: GraphQLPageInfo, nodes: [Lenient<ThreadDetail>] }
     struct PullRequest: Decodable { var reviewThreads: Threads }
     struct Repository: Decodable { var pullRequest: PullRequest? }
     var repository: Repository?
@@ -644,10 +600,8 @@ private struct CombinedStatusPayload: PagedList {
 
 private struct GraphQLPageInfo: Decodable {
     var hasNextPage: Bool, endCursor: String?
-    func next(after previous: String?, allowEmpty: Bool = true, invalid: (any Error)?) throws -> String? {
+    func next(after previous: String?, allowEmpty: Bool = true, invalid: any Error) throws -> String? {
         guard hasNextPage else { return nil }
-        // Badges have always accepted repeated cursors and stopped on a missing one, up to their cap.
-        guard let invalid else { return endCursor }
         guard let next = endCursor, next != previous, allowEmpty || !next.isEmpty else { throw invalid }
         return next
     }

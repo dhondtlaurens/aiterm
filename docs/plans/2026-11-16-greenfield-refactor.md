@@ -417,7 +417,7 @@ TS tests-scripts.
 
 - [x] 7a. **Codex.** One `HostRepository` interface with the live operations and one factory; the
   four layered protocols and three factories go (HO F2).
-- [ ] 7b. **Codex.** One strict review-threads reader per host, which the badge counts; one Jira
+- [x] 7b. **Codex.** One strict review-threads reader per host, which the badge counts; one Jira
   search with one mapping and shared date formatters; one "is this URL on the configured GitLab"
   rule that compares host and port (HO F4, F6, F7).
 - [ ] 7c. **Opus.** A request's state is read once per watch read and merge readiness is a pure
@@ -1307,3 +1307,14 @@ left.
   `searchAndRequestReadsAskTheSameConnection` became `HostRepositoryTests.repositoryBindingUsesTheResolvedConnection`.
   Added: `request(number:)` on both hosts (found, absent, real failures throw) and a bare-number search making the
   same single request.
+- 7b: the badge counts the strict `threads(of:)` (the lenient reader, its ten-page bound and option pairs went).
+  One `JiraClient.search(jql:limit:pageToken:)` with one field list and one mapping (25 a page for the picker, 100
+  for signals). `HostDate` holds the formatters, built once. `GitLabConfig.serves(_:)` compares host and port for a
+  web address, and `matches(remoteHost:)` compares host only for a git remote. Small difference: the 50-page
+  cap tests the brief placed in `MergeRequestPublisherTests` are in `HostRepositoryTests`. Tests deleted:
+  `GitHubClientTests.reviewThreadsStopAtTenPagesToo` and `GitLabClientTests.reviewThreadsStopAtTenPages` (the bound
+  is gone; survivors `HostRepositoryTests.gitHubThreadsPastTheCapAreNoAnswer` and
+  `gitLabThreadsPastTheCapAreNoAnswer`), and `ReviewThreadsReaderTests.aMergeRequestOnAnotherPortIsNotAskedOfTheConfiguredGitLab`
+  (its cases moved to `GitLabHostRuleTests.webAddressesCompareHostAndPort`).
+  `reviewThreadsReadEveryPageUntilAShortOne` became `...UntilAnEmptyOne`. Added `GitLabHostRuleTests`,
+  `HostDateTests`, the Jira field-list parity test and the malformed-entry completeness test.

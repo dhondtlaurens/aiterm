@@ -7,26 +7,6 @@ public struct JiraUser: Equatable, Sendable {
 }
 
 public extension JiraClient {
-    /// Unlike the picker search, a signal reads every page and rejects malformed entries as a
-    /// partial read. The caller owns membership and cursor advancement across those pages.
-    func search(jql: String, fields: [String], pageToken: String?) async throws -> JiraSearchPage {
-        struct Body: Encodable { var jql: String; var maxResults = 100; var fields: [String]; var nextPageToken: String? }
-        let path = "/rest/api/3/search/jql"
-        let data = try await send(method: "POST", path: path, json: JSONEncoder().encode(Body(jql: jql, fields: fields, nextPageToken: pageToken)))
-        let page = try decode(SignalSearchResponse.self, data: data, reading: path)
-        let tickets = page.issues.compactMap(\.value).map { issue in
-            let text = ADFText.plain(issue.fields.description)
-            return JiraTicket(key: issue.key, summary: issue.fields.summary, description: text.isEmpty ? nil : text,
-                              issueType: issue.fields.issuetype?.name, status: issue.fields.status?.name,
-                              url: siteURL.appendingPathComponent("browse/\(issue.key)").absoluteString,
-                              updated: issue.fields.updated.flatMap(Self.date), labels: issue.fields.labels ?? [],
-                              project: issue.fields.project?.key, assignee: issue.fields.assignee?.accountId)
-        }
-        let last = page.isLast ?? (page.nextPageToken == nil)
-        return JiraSearchPage(tickets: tickets, nextPageToken: page.nextPageToken, isLast: last,
-                              complete: tickets.count == page.issues.count && (last || page.nextPageToken != nil))
-    }
-
     /// A bounded, read-only person picker. Jira may withhold email addresses.
     func signalUsers(query: String = "", accountId: String? = nil) async throws -> [JiraUser] {
         struct Person: Decodable { var accountId: String; var displayName: String; var emailAddress: String? }
@@ -69,18 +49,4 @@ public extension JiraClient {
 private struct SignalValuesPage<Value: Decodable>: Decodable {
     var values: [Value]
     var isLast: Bool
-}
-private struct SignalSearchResponse: Decodable {
-    struct Named: Decodable { var name: String? }
-    struct Project: Decodable { var key: String? }
-    struct Assignee: Decodable { var accountId: String? }
-    struct Fields: Decodable {
-        var summary: String
-        var description: JSONValue?
-        var issuetype: Named?, status: Named?, updated: String?, labels: [String]?, project: Project?, assignee: Assignee?
-    }
-    struct Issue: Decodable { var key: String; var fields: Fields }
-    var issues: [Lenient<Issue>]
-    var isLast: Bool?
-    var nextPageToken: String?
 }

@@ -17,19 +17,19 @@ public struct GitLabAccount: SignalAccountReading {
                              URLQueryItem(name: filter, value: user), URLQueryItem(name: "per_page", value: "100"),
                              URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "order_by", value: "updated_at"),
                              URLQueryItem(name: "sort", value: "desc")]
-                if let since { query.append(URLQueryItem(name: "updated_after", value: ISO8601DateFormatter().string(from: since))) }
+                if let since { query.append(URLQueryItem(name: "updated_after", value: HostDate.iso8601String(from: since))) }
                 return try await api.get([Lenient<AccountRequest>].self, path: "/api/v4/merge_requests", query: query)
             }
             if !read.complete { complete = false }
             for entry in read.items {
-                guard let raw = entry.value, let item = raw.item(host: config.hostURL), let id = item.item.identity else { complete = false; continue }
+                guard let raw = entry.value, let item = raw.item(config: config), let id = item.item.identity else { complete = false; continue }
                 if identities.insert(id).inserted { items.append(item) }
             }
         }
         return SignalRead(items: items, complete: complete, cursor: at, accountUser: user)
     }
     public func threads(of request: SignalRequestRef) async throws -> [ReviewThread] {
-        guard let remote = RemoteURL(request.remote), remote.host == config.hostURL.host?.lowercased() else { throw GitLabError.decoding }
+        guard let url = URL(string: request.remote), config.serves(url), let remote = RemoteURL(request.remote) else { throw GitLabError.decoding }
         return try await GitLabClient(config: config, project: remote.path, session: session).threads(of: request.number)
     }
 }
@@ -40,8 +40,8 @@ private struct AccountRequest: Decodable {
     var author: User?, assignees: [User]?, reviewers: [User]?, description: String?, updatedAt: String?, draft: Bool?
     var state: String?, detailedMergeStatus: String?
     var sourceProjectId: Int?, targetProjectId: Int?
-    func item(host: URL) -> SignalItem? {
-        guard let url = URL(string: webUrl), url.host?.lowercased() == host.host?.lowercased(),
+    func item(config: GitLabConfig) -> SignalItem? {
+        guard let url = URL(string: webUrl), config.serves(url),
               let separator = url.path.range(of: "/-/merge_requests/") else { return nil }
         let project = String(url.path[..<separator.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -52,7 +52,7 @@ private struct AccountRequest: Decodable {
                                    forkHead: sourceProjectId != nil && sourceProjectId != targetProjectId ? "project \(sourceProjectId!):\(sourceBranch)" : nil,
                                    description: description)
         return SignalItem(item: .request(remote: remote, number: iid), title: title, description: description, mergeRequest: request,
-                          updated: updatedAt.flatMap(GitLabClient.date), assignees: assignees?.compactMap(\.username) ?? [],
+                          updated: updatedAt.flatMap(HostDate.iso8601), assignees: assignees?.compactMap(\.username) ?? [],
                           changesRequested: detailedMergeStatus == "requested_changes")
     }
 }

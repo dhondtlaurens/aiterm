@@ -20,7 +20,7 @@ extension GitLabClient {
         guard read.complete else { throw IncompleteRead("review activity") }
         var dates: [Date] = []
         for note in read.items {
-            guard let date = Self.date(note.createdAt) else { throw IncompleteRead("review activity") }
+            guard let date = HostDate.iso8601(note.createdAt) else { throw IncompleteRead("review activity") }
             // GitLab records approvals as system notes. Other system activity (assignment, edits,
             // commits) is not a posted review. Draft notes live on a separate API and never enter here.
             if note.author?.username?.lowercased() == user, !note.system || note.body == "approved this merge request" { dates.append(date) }

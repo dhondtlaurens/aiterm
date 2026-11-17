@@ -3,6 +3,19 @@ import Foundation
 public struct GitLabConfig: Equatable, Sendable {
     public var hostURL: URL, token: String
     public init(hostURL: URL, token: String) { self.hostURL = hostURL; self.token = token }
+
+    /// A web address on this GitLab, including its custom port when configured.
+    public func serves(_ address: URL) -> Bool {
+        guard let host = hostURL.comparableHost else { return false }
+        return address.comparableHost == host && address.comparablePort == hostURL.comparablePort
+    }
+
+    /// A git remote's host has no web port; DNS case and trailing dots do not distinguish hosts.
+    public func matches(remoteHost: String) -> Bool {
+        var host = remoteHost.lowercased()
+        while host.hasSuffix(".") { host.removeLast() }
+        return host == hostURL.comparableHost
+    }
 }
 
 public enum GitLabError: Equatable, LocalizedError {
@@ -166,29 +179,10 @@ public struct GitLabClient: HostRepository {
         request.url.range(of: "/\(project)/-/merge_requests/", options: .caseInsensitive) != nil
     }
 
-    /// GitLab's ISO 8601 times, with or without fractional seconds.
-    static func date(_ text: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
-    }
-
-    /// How many discussions one page of `reviewThreads` asks for, and how many pages it reads at
-    /// most: a thousand threads, past which a merge request is not being reviewed by hand.
-    static let discussionsPerPage = 100, discussionPages = 10
+    /// How many discussions one page asks for.
+    static let discussionsPerPage = 100
     /// How many pages `threads` reads before it gives up: past it the list is no answer.
     static let threadPagesRead = 50
-
-    /// The merge request's review threads: its discussions that can be resolved, and how many of
-    /// them are. Read a page at a time until one comes back short — GitLab's paging headers are not
-    /// read, `HTTPJSON` hands back the body and the status only — and at most `discussionPages`.
-    /// Read-only.
-    public func reviewThreads(of iid: Int) async throws -> ReviewThreads {
-        let resolutions = try await readDiscussions(iid: iid, complete: false) { discussions in
-            discussions.compactMap { $0.value?.resolution }
-        }
-        return ReviewThreads(resolutions: resolutions)
-    }
 
     /// The open merge request from `source`, excluding forks; an unreadable entry throws.
     public func existingRequest(from source: String) async throws -> MergeRequest? {
@@ -258,29 +252,19 @@ public struct GitLabClient: HostRepository {
     /// for protected branches): `threadPagesRead` pages without reaching it, or a discussion that does not decode, or
     /// a thread without an id, throws `IncompleteRead`, so nothing is decided on part of them.
     public func threads(of iid: Int) async throws -> [ReviewThread] {
-        try await readDiscussions(iid: iid, complete: true) { discussions in
-            try discussions.compactMap { entry in
-                guard let discussion = entry.value else { throw IncompleteRead("review threads") }
-                guard discussion.resolution != nil else { return nil }
-                guard let thread = discussion.thread else { throw IncompleteRead("review threads") }
-                return thread
-            }
-        }
-    }
-
-    /// Badges stop on a short page or at their bound; publication requires the terminal empty page.
-    /// Project binding and requests are shared without making a partial read complete.
-    private func readDiscussions<Item>(iid: Int, complete: Bool,
-                                       items: ([Lenient<DiscussionPayload>]) throws -> [Item]) async throws -> [Item] {
         let read = try await HTTPJSON.pages(perPage: Self.discussionsPerPage,
-                                            limit: complete ? Self.threadPagesRead : Self.discussionPages,
-                                            ending: complete ? .emptyPage : .shortPage) { page in
+                                            limit: Self.threadPagesRead, ending: .emptyPage) { page in
             try await get([Lenient<DiscussionPayload>].self, path: boundPath + "/merge_requests/\(iid)/discussions",
                 query: [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)), URLQueryItem(name: "page", value: String(page))],
                 notFound: .projectNotFound(project))
         }
-        if complete && !read.complete { throw IncompleteRead("review threads") }
-        return try items(read.items)
+        guard read.complete else { throw IncompleteRead("review threads") }
+        return try read.items.compactMap { entry in
+            guard let discussion = entry.value else { throw IncompleteRead("review threads") }
+            guard discussion.resolution != nil else { return nil }
+            guard let thread = discussion.thread else { throw IncompleteRead("review threads") }
+            return thread
+        }
     }
 
     /// Who approved it, by username.
@@ -449,11 +433,11 @@ private struct IssuePayload: Decodable {
         let text = description?.trimmingCharacters(in: .whitespacesAndNewlines)
         return JiraTicket(key: "#\(iid)", summary: title, description: text?.isEmpty == false ? text : nil,
                           issueType: labels.isEmpty ? nil : labels.joined(separator: " "), status: Self.lane(of: labels), url: webUrl,
-                          source: .gitLab(project: project), updated: updatedAt.flatMap(GitLabClient.date))
+                          source: .gitLab(project: project), updated: updatedAt.flatMap(HostDate.iso8601))
     }
 }
 
-/// The fields of a discussion `reviewThreads` counts and `threads` reads.
+/// The fields of a discussion that can be read as a review thread.
 private struct DiscussionPayload: Decodable {
     struct Author: Decodable { var username: String? }
     struct Note: Decodable { var resolvable: Bool?, resolved: Bool?, body: String?, author: Author?, system: Bool? }
