@@ -7,6 +7,7 @@ struct SignalOperatorRow: View {
     let value: SignalOperatorRowValue
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    static let commands: [[RowCommand]] = []
     private var row: UUID { OperatorSession.rowID }
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
@@ -28,10 +29,7 @@ struct SignalOperatorRow: View {
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }
-        .contextMenu {
-            Button(value.paused ? "Resume" : "Pause") { Task { await controller.signalController.setPaused(!value.paused) } }
-                .disabled(!controller.canChangeWorkspace)
-        }
+        .modifier(RowCommandContextMenu(groups: Self.commands))
         .help(line.tooltip)
         .accessibilityLabel("Operator, Claude Code session")
         .accessibilityValue(line.tooltip)

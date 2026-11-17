@@ -47,9 +47,17 @@ extension DividerRow {
         let divider = entry.divider
         self.init(entry: entry,
                   enabled: controller.canChangeWorkspace,
-                  rename: { controller.sheets.presentRename(divider: divider) },
+                  rename: {
+                      if let current = controller.state.items.first(where: { $0.id == divider.id })?.divider {
+                          controller.sheets.presentRename(divider: current)
+                      }
+                  },
                   move: { controller.projects.move(itemId: divider.id, $0) },
-                  delete: { controller.projects.removeDivider(divider) })
+                  delete: {
+                      if let current = controller.state.items.first(where: { $0.id == divider.id })?.divider {
+                          controller.projects.removeDivider(current)
+                      }
+                  })
     }
 }
 
@@ -202,8 +210,8 @@ struct TaskRowView: View {
         let caption = TaskRowCaption(removal: removal, missing: missing)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
-        let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing,
-                                             canChangeWorkspace: controller.canChangeWorkspace)
+        let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing)
+        let commands = commands(removing: removing)
         // Removing or archiving spins, whatever the row's own mark.
         let mark = removing ? TaskRowMark.status(.working) : row.mark
         // The same work card is inspectable while the agent works or asks for input, including
@@ -250,48 +258,39 @@ struct TaskRowView: View {
         .accessibilityLabel(voiceOver.label)
         .accessibilityValue(BackgroundCard(jobs: jobs).accessibilityValue(status: row.status,
                             detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip))
-        .accessibilityActions {
-            ForEach(voiceOver.actions, id: \.self) { action in
-                switch action {
-                case .archive: Button(voiceOver.title(of: action)) { archive() }
-                case .remove: Button(voiceOver.title(of: action)) { remove() }
-                }
-            }
-        }
+        .modifier(RowCommandActions(groups: commands))
         .accessibilityHint(Text(voiceOver.hint))
         .help(voiceOver.help)
         // The arrows step over it, as over a header: its window is closing, or gone.
         .selectionDisabled(removing)
-        .contextMenu {
-            if row.underOperator {
-                Button("Take Over") { Task { await controller.takeOver(row.id) } }
-                    .disabled(!controller.canChangeWorkspace || removing)
-                Divider()
-            }
-            Button("Rename…") { if let current = controller.state.task(id: row.id) { controller.sheets.presentRename(task: current) } }
-                .disabled(!controller.canChangeWorkspace || removing)
-            Divider()
-            Button("Open in Finder") { ExternalApps.openInFinder(path: row.worktreePath) }
-            if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: row.worktreePath) } }
-            if let url = row.jiraUrl {
-                Button(row.ticketIsGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: url) }
-            }
-            Divider()
-            // No ellipsis: it asks nothing unless the worktree has changes to lose.
-            Button("Archive \(row.kindName)") { archive() }
-                .disabled(!controller.canChangeWorkspace || removing)
-            Button("Remove \(row.kindName)…", role: .destructive) { remove() }
-                .disabled(!controller.canChangeWorkspace || removing)
+        .modifier(RowCommandContextMenu(groups: commands))
+    }
+
+    func commands(removing: Bool) -> [[RowCommand]] {
+        let enabled = controller.canChangeWorkspace && !removing
+        var groups: [[RowCommand]] = []
+        if row.underOperator {
+            groups.append([RowCommand(title: "Take Over", enabled: enabled) {
+                Task { if controller.state.task(id: row.id) != nil { await controller.takeOver(row.id) } }
+            }])
         }
-    }
-
-    /// The task as it is when chosen: nothing, once it is gone.
-    private func archive() {
-        Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.archive(current, consent: .ask) } }
-    }
-
-    private func remove() {
-        Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.remove(current, consent: .ask) } }
+        groups.append([RowCommand(title: "Rename…", enabled: enabled) {
+            if let current = controller.state.task(id: row.id) { controller.sheets.presentRename(task: current) }
+        }])
+        var open = RowCommand.open(path: row.worktreePath)
+        if let url = row.jiraUrl {
+            open.append(RowCommand(title: row.ticketIsGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: url) })
+        }
+        groups.append(open)
+        groups.append([
+            RowCommand(title: "Archive \(row.kindName)", enabled: enabled) {
+                Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.archive(current, consent: .ask) } }
+            },
+            RowCommand(title: "Remove \(row.kindName)…", role: .destructive, enabled: enabled) {
+                Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.remove(current, consent: .ask) } }
+            }
+        ])
+        return groups
     }
 
     /// One fit of the badge line. Quiet badges carry no box, so `Space.gap` is what keeps them apart,
@@ -341,6 +340,7 @@ struct TerminalRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
+        let commands = commands()
         SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.choose(.terminal(terminal.id)) } }) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -363,30 +363,22 @@ struct TerminalRowView: View {
         }
         .accessibilityLabel(row.name)
         .accessibilityValue(BackgroundCard(jobs: row.background).accessibilityValue(status: row.status))
-        .accessibilityActions {
-            if let terminal {
-                ForEach(TerminalRowAccessibility(canChangeWorkspace: controller.canChangeWorkspace).actions,
-                        id: \.self) { action in
-                    switch action {
-                    case .rename: Button(action.rawValue) { controller.sheets.presentRename(terminal: terminal) }
-                    case .remove: Button(action.rawValue) { controller.terminals.close(terminal: terminal) }
-                    }
-                }
-            }
-        }
-        .contextMenu {
-            if let terminal {
-                // As a task's menu leads: the same `NameSheet`, on the terminal's name.
-                Button("Rename…") { controller.sheets.presentRename(terminal: terminal) }
-                    .disabled(!controller.canChangeWorkspace)
-                Divider()
-                Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
-                if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
-                Divider()
-                Button("Remove Terminal", role: .destructive) { controller.terminals.close(terminal: terminal) }
-                    .disabled(!controller.canChangeWorkspace)
-            }
-        }
+        .modifier(RowCommandActions(groups: commands))
+        .modifier(RowCommandContextMenu(groups: commands))
+    }
+
+    func commands() -> [[RowCommand]] {
+        guard terminal != nil else { return [] }
+        let enabled = controller.canChangeWorkspace
+        return [
+            [RowCommand(title: "Rename…", enabled: enabled) {
+                if let current = controller.state.terminal(id: row.id) { controller.sheets.presentRename(terminal: current) }
+            }],
+            RowCommand.open(path: project.path),
+            [RowCommand(title: "Remove Terminal", role: .destructive, enabled: enabled) {
+                if let current = controller.state.terminal(id: row.id) { controller.terminals.close(terminal: current) }
+            }]
+        ]
     }
 }
 

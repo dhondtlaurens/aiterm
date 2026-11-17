@@ -149,7 +149,7 @@ explains ownership and the full reusable vocabulary.
 
 | Types | Responsibility |
 | --- | --- |
-| `SectionHeading`, `SignalOperatorRow`, `HeadingRow` | Add signals, show global pause and Pause/Resume in the heading menu, open the active workload’s chat, and use fold/source/count headings on the project grid. |
+| `SectionHeading`, `SignalOperatorRow`, `HeadingRow` | Add signals from the + menu, show global pause and Pause Operator/Resume Operator in the Operator heading’s context menu, open the active workload’s chat, and use fold/source/count headings on the project grid. |
 | `SectionFoldLabel`, `SectionFoldChevron` | OPERATOR and PROJECTS fold into each other, projects open by default: the heading's click switches; the chevron sits in the trailing slot before the "+", shown folded and, open, only under the pointer; folded, one amber `StatusCountChips` count opens the section at its first row that needs you. |
 | `TaskRowView`, `OperatorActivityCaption`, `OperatorBadge`, `DecodeWordsView` | The same two-line task row under projects/signals; only the Operator activity caption decodes, by event identity, with a Reduce Motion swap. |
 | `SteppedSheetFrame`, `SheetLayout`, `SheetStepper`, `CreationFooter`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |

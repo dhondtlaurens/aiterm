@@ -436,7 +436,7 @@ TS tests-scripts.
   headings; Return on an empty heading runs its main command and the synthesized right-click goes;
   a removed signal's heading shows no pause mark and its fold is not written into task records
   (SB F5, F15).
-- [ ] 8d. **Codex.** Each row builds its commands once, drawn as both the context menu and the
+- [x] 8d. **Codex.** Each row builds its commands once, drawn as both the context menu and the
   VoiceOver actions (SB F11). Pause and Resume have one home and one wording (SB F16, first item).
 - [ ] 8e. **Codex.** The selection follows its row (SB F8). "Which items would start" is one Core
   rule; a heading no longer reads the source (SB F9, SS F11).
@@ -1395,3 +1395,16 @@ left.
   `returnOnAnEmptyProjectHeadingPresentsItsMainSheet`, `returnOnAnEmptySignalHeadingEditsTheSignal` and
   `returnOnEmptyHeadingsPresentsNothingWhileLocked`. Added `SignalSidebarTests` for a removed signal's heading not
   paused, its fold leaving task records byte for byte, and reveal leaving its project's fold alone.
+- 8d: each row (task, terminal, divider, project and signal heading, OPERATOR heading) builds one `RowCommand` list,
+  drawn as its context menu and as its VoiceOver actions (the enabled ones, without "…"). Open in Finder and Open in
+  VS Code come from one helper. Pause Operator and Resume Operator live only on the OPERATOR heading's context menu
+  (enabled while the workspace can change); its "+" holds New Signal… alone, and the Operator row has no menu. The
+  menus kept their items, groups and enabling; I compared the diff item by item. Snapshots identical apart from
+  the known `marks.png` variant. Small difference: the Done-when `TerminalRowAccessibility` grep is clean only with
+  `--exclude-dir=.build`. Tests deleted (all in `RowAccessibilityTests`, replaced by command-list tests):
+  `aTaskRowOffersRemoveAndNoReopen`, `archiveIsOfferedBesideRemoveAndNamedWithoutAnEllipsis` and
+  `aTaskRowBeingRemovedOffersNothing` → `taskCommandsKeepTheirGroupsKindsAndEnabledActions` (a row being removed
+  now offers its open commands, as the brief decides); `aLockedWorkspaceOffersNoTaskActions` →
+  `lockedTaskAndTerminalKeepOpenCommands`; `aRowsActionsAreItsMenuItemsTitles` → the task, terminal and divider
+  command tests; `aTerminalRowOffersRenameAndRemoveWithOrWithoutItsWindow` → `terminalCommandsDoNotDependOnItsWindow`;
+  `aDividerOffersOnlyWhatItsMenuHasEnabled` → `dividerCommandsAtBothEndsAndWhileLocked`.

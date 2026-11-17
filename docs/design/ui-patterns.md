@@ -12,7 +12,7 @@ only the label; `SidebarHeadingInset` owns its gutter. Project headers use `Head
 under both projects and signals. Its actions resolve the current task at invocation; its body reads
 cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates.
 
-`SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause and offers New Signal / Pause / Resume in its + menu. `SignalOperatorRow` is the active workload’s chat row, with pause,
+`SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause, offers New Signal… in its + menu and Pause Operator / Resume Operator in its context menu. `SignalOperatorRow` is the active workload’s chat row,
 waiting count, errors and window recovery. `HeadingRow` draws project and signal headings with their source marks;
 its `HeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.

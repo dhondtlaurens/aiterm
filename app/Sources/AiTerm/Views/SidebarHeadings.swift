@@ -31,6 +31,7 @@ struct HeadingRow: View, Equatable {
         let _ = bodyCounter?.count(value.id)
         #endif
         let selected = controller.focus.isSelected(value.id)
+        let commands = commands(starts: starts)
         HStack(spacing: scale(Space.base)) {
             HStack(spacing: scale(Space.base)) {
                 HeaderChevron(collapsed: value.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
@@ -41,12 +42,13 @@ struct HeadingRow: View, Equatable {
                 if value.collapsed { StatusCountChips(counts: value.counts) }
             }
             .modifier(FoldOnTap(enabled: collapses, selected: selected, action: toggleCollapsed))
-            trailing
+            .modifier(RowCommandActions(groups: commands))
+            trailing(commands: commands)
         }
         .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
         .modifier(RowPill(selected: selected))
         .modifier(HeadingHelp(text: value.help))
-        .contextMenu { menu }
+        .modifier(RowCommandContextMenu(groups: commands))
         .task(id: load) {
             switch value.kind {
             case .project(let project, _, _):
@@ -84,10 +86,12 @@ struct HeadingRow: View, Equatable {
         }
     }
 
-    @ViewBuilder private var trailing: some View {
+    @ViewBuilder private func trailing(commands: [[RowCommand]]) -> some View {
         switch value.kind {
-        case .project(let project, _, _):
-            AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) { newItems(for: project) }
+        case .project:
+            AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) {
+                RowCommandMenu(groups: Array(commands.prefix(1)))
+            }
         case .signal(_, _, let paused):
             Group {
                 if paused { Image(systemName: "pause.fill").font(Typography.chip).foregroundStyle(Palette.tertiary) }
@@ -104,57 +108,58 @@ struct HeadingRow: View, Equatable {
         }
     }
 
-    @ViewBuilder private var menu: some View {
+    func commands(starts: Int? = nil) -> [[RowCommand]] {
+        let enabled = controller.canChangeWorkspace
         switch value.kind {
         case let .project(project, canMoveUp, canMoveDown):
-            // The "+" menu's items lead, greyed as they are there: the whole "+" is disabled while
-            // the workspace is locked, which a context menu can only say item by item.
-            Group { newItems(for: project) }.disabled(!controller.canChangeWorkspace)
-            Divider()
-            Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
-            if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
-            Divider()
-            Button("Edit Project…") { controller.sheets.presentJiraProjects(for: project) }
-                .disabled(!controller.canChangeWorkspace)
-            Divider()
-            // The git operations, a group of their own. The branch is named once git has answered.
+            let id = project.id
+            var groups: [[RowCommand]] = [
+                [RowCommand(title: "New Task…", enabled: enabled && project.provider != .none) {
+                    if let current = controller.state.project(id: id) { controller.sheets.presentNewTask(project: current) }
+                },
+                 RowCommand(title: "New Review…", enabled: enabled && project.provider != .none) {
+                    if let current = controller.state.project(id: id) { controller.sheets.presentNewReview(project: current) }
+                },
+                 RowCommand(title: "New Terminal…", enabled: enabled) {
+                    if let current = controller.state.project(id: id) { controller.sheets.presentNewTerminal(project: current) }
+                }],
+                RowCommand.open(path: project.path),
+                [RowCommand(title: "Edit Project…", enabled: enabled) {
+                    if let current = controller.state.project(id: id) { controller.sheets.presentJiraProjects(for: current) }
+                }]
+            ]
             if project.provider == .gitlab || project.provider == .github {
-                Button("Pull \(controller.projects.defaultBranchName(project.id) ?? "Default Branch")") {
-                    controller.projects.pullDefault(project: project)
-                }
-                .disabled(controller.projects.isChangingDefaultBranch(project.id))
-                Divider()
+                groups.append([RowCommand(title: "Pull \(controller.projects.defaultBranchName(id) ?? "Default Branch")",
+                                          enabled: !controller.projects.isChangingDefaultBranch(id)) {
+                    if let current = controller.state.project(id: id) { controller.projects.pullDefault(project: current) }
+                }])
             }
-            // Disabled at the edges rather than absent: a menu that changes shape with the row's
-            // position is worse than a greyed item, and this menu already greys "Remove" when locked.
-            Button("Move Up") { controller.projects.move(itemId: project.id, .up) }
-                .disabled(!controller.canChangeWorkspace || !canMoveUp)
-            Button("Move Down") { controller.projects.move(itemId: project.id, .down) }
-                .disabled(!controller.canChangeWorkspace || !canMoveDown)
-            Divider()
-            Button("Remove Project…", role: .destructive) { Task { await controller.projects.confirmRemove(project: project) } }
-                .disabled(!controller.canChangeWorkspace)
+            groups.append([
+                RowCommand(title: "Move Up", enabled: enabled && canMoveUp) {
+                    if controller.state.project(id: id) != nil { controller.projects.move(itemId: id, .up) }
+                },
+                RowCommand(title: "Move Down", enabled: enabled && canMoveDown) {
+                    if controller.state.project(id: id) != nil { controller.projects.move(itemId: id, .down) }
+                }
+            ])
+            groups.append([RowCommand(title: "Remove Project…", role: .destructive, enabled: enabled) {
+                Task { if let current = controller.state.project(id: id) { await controller.projects.confirmRemove(project: current) } }
+            }])
+            return groups
         case let .signal(_, removed, paused):
-            if !removed {
-                Button("Edit Signal…") { if let signal = controller.state.signal(id: value.id) { controller.presentNewSignal(editing: signal) } }
-                    .disabled(!controller.canPresentNewSignal)
-                Button(!paused ? "Switch Off" : starts.map { "Switch On (starts \($0))" } ?? "Switch On") {
-                    if let signal = controller.state.signal(id: value.id) { controller.toggleEnabled(signal) }
-                }
-                .disabled(!controller.canChangeWorkspace)
-                Divider()
-                Button("Remove Signal…", role: .destructive) { if let signal = controller.state.signal(id: value.id) { controller.removeSignal(signal) } }
-                    .disabled(!controller.canChangeWorkspace)
-            }
+            guard !removed else { return [] }
+            return [
+                [RowCommand(title: "Edit Signal…", enabled: controller.canPresentNewSignal) {
+                    if let current = controller.state.signal(id: value.id) { controller.presentNewSignal(editing: current) }
+                },
+                 RowCommand(title: !paused ? "Switch Off" : starts.map { "Switch On (starts \($0))" } ?? "Switch On", enabled: enabled) {
+                    if let current = controller.state.signal(id: value.id) { controller.toggleEnabled(current) }
+                }],
+                [RowCommand(title: "Remove Signal…", role: .destructive, enabled: enabled) {
+                    if let current = controller.state.signal(id: value.id) { controller.removeSignal(current) }
+                }]
+            ]
         }
-    }
-
-    /// What the "+" menu adds, shared with the context menu so the two cannot drift apart. The File
-    /// menu's order.
-    @ViewBuilder private func newItems(for project: Project) -> some View {
-        Button("New Task…") { controller.sheets.presentNewTask(project: project) }.disabled(project.provider == .none)
-        Button("New Review…") { controller.sheets.presentNewReview(project: project) }.disabled(project.provider == .none)
-        Button("New Terminal…") { controller.sheets.presentNewTerminal(project: project) }
     }
 }
 
@@ -180,6 +185,8 @@ struct SectionHeading: View {
         #if DEBUG
         let _ = bodyCounter?.countHeading(kind == .operator ? "operator" : "projects")
         #endif
+        let commands = Self.commands(kind: kind, paused: kind == .operator && controller.rows.operatorPaused, controller: controller)
+        let addCommands = addCommands()
         let fold = kind == .operator ? controller.rows.operatorHeading : controller.rows.projectsHeading
         let title = kind == .operator ? (controller.rows.operatorPaused ? "Operator · paused" : "Operator") : "Projects"
         HStack(spacing: scale(Space.base)) {
@@ -191,25 +198,39 @@ struct SectionHeading: View {
                                  case .projects: controller.openProjectsAttention()
                                  }
                              })
+            .modifier(RowCommandActions(groups: commands))
             switch kind {
             case .operator:
                 AddMenu(help: "Operator actions", enabled: controller.canPresentNewSignal) {
-                    Button("New Signal…") { controller.presentNewSignal() }
-                    Divider()
-                    Button(controller.rows.operatorPaused ? "Resume Operator" : "Pause Operator") {
-                        Task { await controller.signalController.setPaused(!controller.rows.operatorPaused) }
-                    }
+                    RowCommandMenu(groups: addCommands)
                 }
             case .projects:
                 AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
-                    Button("Add Project…") { Task { await controller.projects.addProject() } }
-                    Button("Add Divider…") { controller.sheets.presentNewDivider() }
+                    RowCommandMenu(groups: addCommands)
                 }
             }
         }
         .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
         .onHover { hovering = $0 }
+        .modifier(RowCommandContextMenu(groups: commands))
+    }
+
+    static func commands(kind: Kind, paused: Bool, controller: AppController) -> [[RowCommand]] {
+        guard kind == .operator else { return [] }
+        return [[RowCommand(title: paused ? "Resume Operator" : "Pause Operator", enabled: controller.canChangeWorkspace) {
+            Task { await controller.signalController.setPaused(!controller.rows.operatorPaused) }
+        }]]
+    }
+
+    func addCommands() -> [[RowCommand]] {
+        switch kind {
+        case .operator:
+            [[RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal() }]]
+        case .projects:
+            [[RowCommand(title: "Add Project…", enabled: controller.canChangeWorkspace) { Task { await controller.projects.addProject() } },
+              RowCommand(title: "Add Divider…", enabled: controller.canChangeWorkspace) { controller.sheets.presentNewDivider() }]]
+        }
     }
 }
 

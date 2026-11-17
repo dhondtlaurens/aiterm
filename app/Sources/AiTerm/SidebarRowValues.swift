@@ -30,36 +30,17 @@ struct ProjectJiraBadge: Equatable {
     }
 }
 
-/// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
-/// the actions its context menu would let the person choose now, and what choosing the row does — its
-/// hint, and the tooltip: a row without a window opens one, a row with one focuses it. A value, so the
-/// rule is testable without rendering the sidebar, as `TaskRowBadges` is.
+/// A task row's spoken label, hint and help, including what choosing its window does.
 struct TaskRowAccessibility: Equatable {
-    enum Action: Hashable {
-        case archive, remove
-    }
-
     var label: String
-    var actions: [Action]
     var hint: String
     var help: String
-    /// "Task" or "Review", which Remove names as the menu does.
-    private var kindName = "Task"
-
-    /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
-    func title(of action: Action) -> String {
-        switch action {
-        case .archive: "Archive \(kindName)"
-        case .remove: "Remove \(kindName)"
-        }
-    }
 
     /// From the row's title, saved branch, kind and window, and what the view observes of it.
-    init(row: TaskRow, missing: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
+    init(row: TaskRow, missing: Bool, removing: Bool = false) {
         let branch = row.savedBranch
         label = branch.isEmpty ? row.title : "\(row.title), \(branch)"
         let kindName = row.kindName
-        self.kindName = kindName
         let words: (hint: String, help: String) =
             removing ? ("", "")
             : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
@@ -67,8 +48,6 @@ struct TaskRowAccessibility: Equatable {
             : ("Press Return to focus the window.", "")
         hint = words.hint
         help = words.help
-        guard canChangeWorkspace, !removing else { actions = []; return }
-        actions = [.archive, .remove]
     }
 }
 
@@ -111,22 +90,6 @@ struct TaskRowCaption: Equatable {
             if missing { self.init(progress: nil, note: .plain("Worktree missing")) }
             else { self.init(progress: nil, note: nil) }
         }
-    }
-}
-
-/// The actions VoiceOver offers on a terminal row: its context menu's, when they are enabled.
-struct TerminalRowAccessibility: Equatable {
-    /// Rename is spoken without the menu's ellipsis, as a divider's is: VoiceOver reads the action,
-    /// and the sheet it opens says the rest.
-    enum Action: String, Hashable {
-        case rename = "Rename", remove = "Remove Terminal"
-    }
-
-    var actions: [Action]
-
-    init(canChangeWorkspace: Bool) {
-        guard canChangeWorkspace else { actions = []; return }
-        actions = [.rename, .remove]
     }
 }
 

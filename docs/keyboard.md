@@ -25,7 +25,7 @@ Escape closes an open list before going back; clicking Cancel still cancels.
 
 Creation keys are disabled while a sheet is open or the workspace cannot change. A task/review
 needs a compatible project; a terminal also accepts a plain folder. Row menus keep Rename, Open in…,
-Pull, Archive and Remove. The Operator row has Pause/Resume. Signal menus have Edit, Switch Off/On
+Pull, Archive and Remove. The Operator heading's menu has Pause Operator and Resume Operator. Signal menus have Edit, Switch Off/On
 and Remove. Take Over is a driven task action; there is no Hand Back or board.
 
 `KeyBindings.all` feeds Settings › Interface; `KeyboardSettingsTests` compares it to the actual
