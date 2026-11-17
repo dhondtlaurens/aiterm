@@ -1485,3 +1485,15 @@ left.
   `AiTermCore/Prompt/`. Every command line is byte for byte (`CompatContractTests`), and `compat/` is unchanged.
   Small differences: `RegularFileTests` read the deleted answer-limit constant and now uses the same number, and a
   stale comment in `OracleLaunchTests` was updated. No test deleted or added.
+- Phase 8 gate: plain `scripts/test.sh all` green on `55970cda`. Snapshots in `build/refactor-phase8` against
+  `build/refactor-phase7`: 64 images differ, each one recorded above:
+  - the stepped sheets' footer row (8f: Cancel at the leading end on every step);
+  - the four images with a fix button, now under its notice (8f);
+  - `settings-interface-full.png`, the ⎋ line (8f);
+  - the `step1-*` Base branch field and `add-project.png` (8g);
+  - the seven `sidebar*` images that lost ImageRenderer's placeholder for the deleted menu anchor (8c);
+  - the known `marks.png` variant.
+  `step3-agent.png` also carries delta-1 noise above its footer. No bundle check is due after phase 8.
+- Review round 1: one Minor, confirmed: `presentingOperator` still checked `signalTask != nil` instead of 8a's
+  accessor. Fixed by Codex (one line), gate green. No code finding of Critical or Important severity, verdict "ready
+  with fixes", so no second round.

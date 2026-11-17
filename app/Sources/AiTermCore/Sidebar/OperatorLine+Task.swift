@@ -5,7 +5,7 @@ public extension TaskRow {
     /// draws the pause sign and is idle; the row needs you only while it needs input (a question, blocked, or its
     /// worker asking), never for a turn its worker ended, which is the Operator's to read.
     func presentingOperator(task: TaskItem, state: AppState, act: String?) -> TaskRow {
-        guard task.signalTask != nil else { return self }
+        guard task.isUnderOperator else { return self }
         var row = self, paused = false
         row.presentLine(task: task, state: state, act: act, paused: &paused)
         row.mark = TaskRowMark(status: row.status, line: row.operatorLine, paused: paused)
