@@ -45,7 +45,6 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         /// The row (and project) this stage was given, its reason and how it was decided.
         public var choice: AgentChoiceRecord?
         public var blockedReason: String?
-        public var currentAct: String?
         public var tabs: [TabLine]
         public var signal: UUID
         public var item: ItemRef
@@ -121,7 +120,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
             var line = TaskLine(id: value.id, project: value.projectId, ownership: record.ownership,
                             candidates: record.candidateProjects, permittedAgents: configuration.agents,
                             choosableRows: record.choosableRows, choice: record.choice,
-                            blockedReason: record.blockedReason, currentAct: record.currentAct, tabs: tabs,
+                            blockedReason: record.blockedReason, tabs: tabs,
                             signal: record.current.signal, item: record.current.item, agent: value.agent, model: value.model,
                             reasoning: value.reasoning, prompt: task == nil ? nil : configuration.work.prompt, finish: configuration.finish,
                             request: record.watchedRequest, branch: value.branch, stage: record.stage,

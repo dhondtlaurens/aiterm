@@ -20,7 +20,7 @@ public extension AppState {
     /// The windows rows take by their tag: a row takes a window a tab tagged with its id is in when it has none, or
     /// when its own is not among them; a row whose own window still carries its tag keeps it. Every task and terminal
     /// is planned alike, driven or not, and so is the Operator's chat, whose tabs carry its session's id, except while
-    /// a handover runs: the old chat's window and the new one's carry the same tag then.
+    /// its lifecycle changes: the old chat's window and the new one's carry the same tag then.
     func windowPlan(sessions: [SessionInfo]) -> [WindowAdoption] {
         var tagged: [UUID: [String]] = [:]
         for tab in sessions {
@@ -36,7 +36,7 @@ public extension AppState {
         }
         for task in tasks { plan(.task(task.id), tag: task.id, window: task.windowId) }
         for terminal in terminals { plan(.terminal(terminal.id), tag: terminal.id, window: terminal.windowId) }
-        if let session = operatorSession, session.handover == nil {
+        if let session = operatorSession, !session.lifecycle.isChanging {
             plan(.operatorChat, tag: session.id, window: session.window)
         }
         return adoptions

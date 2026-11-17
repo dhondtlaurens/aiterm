@@ -76,7 +76,7 @@ import Testing
     }
     func rig(agents: [AgentChoice] = [SignalWorld.agent, Self.codex], configure: (inout SignalWorld) -> Void = { _ in }) throws -> (Rig, UUID) {
         var world = SignalWorld(); let signal = world.signal(agents: agents)
-        world.state.operatorSession = OperatorSession(createdAt: world.now); world.state.operatorSession?.startingFresh = false
+        world.state.operatorSession = .open(createdAt: world.now)
         configure(&world)
         return (try Rig(world), signal)
     }

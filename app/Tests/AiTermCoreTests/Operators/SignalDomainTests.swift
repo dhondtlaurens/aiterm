@@ -165,13 +165,17 @@ import Testing
         #expect(DoneCheck.evaluate(.ticketStatus("Done"), facts: facts, stageStartedAt: now) == .reached)
     }
 
-    @Test func freshStartOnlyWhileIdleWithNoWakeOrOracleWork() {
-        let session = OperatorSession(createdAt: now.addingTimeInterval(-86400))
-        #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: nil, idle: true, wakePending: false), "Age alone does not discard the workload's chat.")
-        #expect(FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: true, wakePending: false))
-        #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: false, wakePending: false))
-        #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: true, wakePending: true))
-        #expect(!FreshStartPolicy.shouldStart(session: OperatorSession(createdAt: now), now: now, contextTokens: nil, idle: true, wakePending: false))
+    @Test func freshStartOnlyForAnOpenIdleChat() {
+        var session = OperatorSession(createdAt: now.addingTimeInterval(-86400))
+        session.lifecycle = .open(since: now.addingTimeInterval(-86400), wake: nil)
+        #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: nil, idle: true), "Age alone does not discard the workload's chat.")
+        #expect(FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: true))
+        #expect(!FreshStartPolicy.shouldStart(session: session, now: now, contextTokens: 150000, idle: false))
+        var paused = session; paused.paused = true
+        #expect(!FreshStartPolicy.shouldStart(session: paused, now: now, contextTokens: 150000, idle: true))
+        var renewing = session; renewing.lifecycle = .closing(then: .renew)
+        #expect(!FreshStartPolicy.shouldStart(session: renewing, now: now, contextTokens: 150000, idle: true))
+        #expect(!FreshStartPolicy.shouldStart(session: OperatorSession(createdAt: now), now: now, contextTokens: 150000, idle: true))
     }
 
     @Test func unknownAssociatedKindsRoundTripWithoutBecomingActionable() throws {
@@ -341,9 +345,9 @@ import Testing
 
     @Test func aLaunchFailureBlocksOnlyALaunchingStage() throws {
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
-        var task = SignalTask(current: stage(signal(), item), startedAt: now); task.currentAct = "starting its worker"
+        var task = SignalTask(current: stage(signal(), item), startedAt: now)
         let failed = try SignalTransitions.apply(.launchFailed("No terminal."), to: task, at: now)
-        #expect(failed.phase == .blocked && failed.blockedReason == "No terminal." && failed.currentAct == nil && failed.ownership == task.ownership)
+        #expect(failed.phase == .blocked && failed.blockedReason == "No terminal." && failed.ownership == task.ownership)
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.launchFailed("Later."), to: failed, at: now) }
         task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.launchFailed("Later."), to: task, at: now) }
@@ -352,11 +356,11 @@ import Testing
     @Test func aRecoveredWorkerIsAdoptedFromLaunchingOrALostLaunchReply() throws {
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), later = now.addingTimeInterval(60)
         var launching = SignalTask(current: stage(signal(), item), startedAt: now)
-        launching.launch = LaunchAttempt(number: 1, requestedAt: now, workerPending: true); launching.currentAct = "starting its worker"
+        launching.launch = LaunchAttempt(number: 1, requestedAt: now, workerPending: true)
         var lost = launching; lost.phase = .blocked; lost.blockedReason = "Its worker could not start."
         for record in [launching, lost] {
             let adopted = try SignalTransitions.apply(.adopted, to: record, at: later)
-            #expect(adopted.phase == .working && adopted.blockedReason == nil && adopted.currentAct == nil)
+            #expect(adopted.phase == .working && adopted.blockedReason == nil)
             #expect(adopted.launch?.openedAt == later && adopted.launch?.workerPending == false && adopted.ownership == record.ownership)
         }
         var opened = lost; opened.launch?.openedAt = now

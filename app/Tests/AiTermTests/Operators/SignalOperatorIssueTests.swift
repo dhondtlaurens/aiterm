@@ -12,7 +12,7 @@ import Testing
         let live: LiveSessions, daemon = RecordingDaemon(), ports: OperatorPorts, root: SignalOperatorController
         init() async throws {
             var world = SignalWorld(); let signal = world.signal(); task = world.workingTask(signal: signal)
-            var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
+            let session = OperatorSession.open(createdAt: world.now, conversation: "op")
             world.state.operatorSession = session
             self.world = world; self.session = session
             h = try SignalHarness(world)
@@ -79,8 +79,7 @@ import Testing
     }
     @Test func aRelaunchWithAnUnreadWakeCountsTheTextLeftInTheChat() async throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "op"
-        session.wakeAwaitingRead = true; world.state.operatorSession = session
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op", wake: .sent); world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
         var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
@@ -90,8 +89,27 @@ import Testing
         let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
             daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        #expect(h.workspace.state.operatorSession?.lifecycle.wake == .maybeUnsent, "The relaunch saves that the line may sit unsent.")
         for _ in 0..<3 { await root.reconcile(); await ports.work.settled() }
         #expect(root.statusIssue?.contains("Send or clear it there") == true)
+        root.stop()
+    }
+    /// An open chat whose window holds its tagged tab only as a shell, past the opening grace, did not start. When it
+    /// opened is saved, so a relaunch says so as well.
+    @Test func anOpenChatWhoseWindowHoldsOnlyAShellDidNotStartPastTheGrace() async throws {
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
+        let session = OperatorSession.open(createdAt: world.now, conversation: "op"); world.state.operatorSession = session
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
+        var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
+        let clock = TestClock(world.now); ports.clock.now = { clock.now }
+        live.sessions = [OperatorServiceFixtures.session("operator", window: "operator-window", tag: session.id, agent: .shell)]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        #expect(root.statusIssue == nil, "Within the opening grace the chat may still be starting.")
+        clock.advance(by: OperatorTiming.openingGrace)
+        #expect(root.statusIssue == "The Operator did not start in its window. Open the chat to inspect it.")
         root.stop()
     }
     @Test func twoSourcesFailingAndOneRecoveringKeepsTheOther() async throws {

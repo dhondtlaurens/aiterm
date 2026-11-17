@@ -6,7 +6,7 @@ public enum SignalTransitions {
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
             next.current = stage; next.stage += 1; next.ownership += 1; next.startedAt = at; next.thenApplied = nil
-            next.phase = .launching; next.launch = nil; next.currentAct = nil; next.blockedReason = nil; next.operatorJudged = nil
+            next.phase = .launching; next.launch = nil; next.blockedReason = nil; next.operatorJudged = nil
             next.choice = nil; next.choosableRows = nil; next.waitingOn = nil
         }
         func startPending() {
@@ -46,21 +46,21 @@ public enum SignalTransitions {
             next.phase = .blocked; next.blockedReason = reason
         case .launchFailed(let reason):
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
-            next.phase = .blocked; next.blockedReason = reason; next.currentAct = nil
+            next.phase = .blocked; next.blockedReason = reason
         case .adopted:
             let lostReply = task.phase == .blocked && task.launch?.workerPending == true && task.launch?.openedAt == nil
             guard task.phase == .launching || lostReply else { throw SignalTransitionError.invalidEdge }
-            next.phase = .working; next.blockedReason = nil; next.currentAct = nil
+            next.phase = .working; next.blockedReason = nil
             next.launch?.openedAt = at; next.launch?.workerPending = false
         case .needChoice:
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
-            next.phase = .choosing; next.currentAct = nil
+            next.phase = .choosing
         case .chosen:
             guard task.phase == .choosing else { throw SignalTransitionError.invalidEdge }
-            next.phase = .launching; next.ownership += 1; next.currentAct = nil; next.choosableRows = nil; next.candidateProjects = nil
+            next.phase = .launching; next.ownership += 1; next.choosableRows = nil; next.candidateProjects = nil
         case .resume:
             guard task.phase == .blocked else { throw SignalTransitionError.invalidEdge }
-            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.currentAct = nil; next.pendingReplies = nil
+            next.phase = .launching; next.ownership += 1; next.blockedReason = nil; next.pendingReplies = nil
         case .archive:
             guard task.canRunThen else { throw SignalTransitionError.invalidEdge }
             next.phase = .archived

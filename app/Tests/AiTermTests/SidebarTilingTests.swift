@@ -180,9 +180,7 @@ struct SidebarTilingTests {
     @Test func aZoomAlsoSnapsOpenOperatorWindows() async throws {
         let (fixture, server, _, _, _) = try await tiledWorkspace()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        var open = OperatorSession(createdAt: Date())
-        open.window = "operator-window"
-        fixture.controller.workspace.mutate { $0.operatorSession = open }
+        fixture.controller.workspace.mutate { $0.operatorSession = .open(createdAt: Date()) }
 
         await fixture.controller.tiling.setInterfaceSize(.large)?.value
 

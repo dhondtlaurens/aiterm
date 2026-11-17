@@ -12,15 +12,15 @@ import AiTermCore
         var profile: @MainActor () -> OperatorProfile
         var instructions: @MainActor () -> String?
         var oracleOn: @MainActor () -> Bool
-        /// Whether the Operator has something to type into its chat, which reopens a chat you closed.
-        var wakeToType: @MainActor () -> Bool
+        /// Whether a wake is pending, being typed or unread (`OperatorWaker.unread`): it reopens a chat you
+        /// closed, and keeps the chat from retiring or renewing.
+        var wakeUnread: @MainActor () -> Bool
     }
     private let workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts
     private let daemon: @MainActor () -> (any DaemonCommands)?
     private let frame: @MainActor () -> Frame
     private let activity: OperatorActivityTracker, log: ActivityWriter
     private let context: Ports
-    private var opened: (window: String, generation: Int, at: Date)?
     /// Called when the keeper retired the chat, after its window record was dropped.
     var finished: @MainActor () -> Void = {}
     lazy var keeper: OperatorSessionKeeper = makeKeeper()
@@ -52,11 +52,7 @@ import AiTermCore
         keeper.activity = activity
         keeper.failed = { [weak self] reason in self?.log.fail(.session, reason) }
         keeper.succeeded = { [weak self] in self?.log.succeed(.session) }
-        keeper.finished = { [weak self] in
-            guard let self else { return }
-            self.opened = nil
-            self.finished()
-        }
+        keeper.finished = { [weak self] in self?.finished() }
         return keeper
     }
     func stop() { keeper.stop() }
@@ -75,31 +71,36 @@ import AiTermCore
         }
     }
     /// Keeps the chat as its workload needs it, reopening a closed one when there is a wake to type.
-    func ensure() async { await keeper.ensure(reopen: context.wakeToType()) }
-    func finishIfIdle(idle: Bool, wakeWaiting: Bool) async { await keeper.finishIfIdle(idle: idle, wakePending: wakeWaiting) }
-    /// With no work left, retires the chat once its tab ended its turn and is not stopped and the rest
-    /// of the Operator is `idle`; then opens a new generation for a match that arrived while it closed.
-    func finishWhenNoWork(idle: Bool, wakeWaiting: Bool) async {
+    func ensure() async { await keeper.ensure(reopen: context.wakeUnread()) }
+    /// The one idle rule (`OperatorSession.chatIsIdle`) for the chat as it is now: its tab in its window,
+    /// the tabs that window holds, the Operator's tracked acts and its unread wake.
+    var isIdle: Bool {
+        let window = workspace.state.operatorSession?.window
+        return OperatorSession.chatIsIdle(tab: operatorTab(), tabsInWindow: window.map { window in live.sessions.filter { $0.windowId == window }.count } ?? 0,
+                                          actsRunning: activity.isRunning, wakeUnread: context.wakeUnread())
+    }
+    /// Retires the chat when its workload ended and it is idle, or continues a retirement already saved.
+    func finishIfIdle() async { await keeper.finishIfIdle(idle: isIdle) }
+    /// With no work left, retires the idle chat; then opens a new generation for a match that arrived while it closed.
+    func finishWhenNoWork() async {
         guard !workspace.state.operatorHasWork else { return }
-        await keeper.finishIfIdle(idle: (operatorTab().map { $0.state.turnEnded && $0.stoppedOn == nil } ?? true) && idle,
-            wakePending: wakeWaiting)
+        await keeper.finishIfIdle(idle: isIdle)
         // A signal may have matched while the old window was closing. Its task was saved first;
         // it now gets the new generation, with no discarded wake or old conversation.
         if workspace.state.operatorHasWork { await ensure() }
     }
-    /// Starts a fresh conversation when the chat's context is due for it, its tab ended its turn and is
-    /// not stopped, the rest of the Operator is `idle`, and nothing is waiting to be typed into it.
-    func freshIfDue(idle: Bool, wakeWaiting: Bool) async {
-        guard let session = workspace.state.operatorSession, let tab = operatorTab() else { return }
-        await keeper.freshIfDue(contextTokens: tab.contextTokens, idle: tab.state.turnEnded && tab.stoppedOn == nil && idle,
-            wakePending: wakeWaiting || live.sessions.filter { $0.windowId == session.window }.count != 1)
+    /// Starts a fresh conversation when the open chat's context is due for it and the chat is idle.
+    func freshIfDue() async {
+        guard let tab = operatorTab() else { return }
+        await keeper.freshIfDue(contextTokens: tab.contextTokens, idle: isIdle)
     }
-    func windowClosed(_ window: String) { if opened?.window == window { opened = nil } }
-    /// What the row says about the session itself: the tab's stop reason, then a window that never started the chat.
+    /// What the row says about the session itself: the tab's stop reason, then an open chat whose window,
+    /// past the opening grace, holds its tagged tab only as a shell.
     var sessionIssue: String? {
         if let stopped = operatorTab()?.stoppedOn { return "The Operator " + stopped.reason(now: ports.now()) + "." }
-        if let opened, ports.now().timeIntervalSince(opened.at) >= OperatorTiming.openingGrace,
-           live.sessions.contains(where: { $0.windowId == opened.window && $0.taskUUID == workspace.state.operatorSession?.id && $0.agent == .shell }) {
+        if let session = workspace.state.operatorSession, case .open(let since, _) = session.lifecycle, let window = session.window,
+           ports.now().timeIntervalSince(since) >= OperatorTiming.openingGrace, operatorTab() == nil,
+           live.sessions.contains(where: { $0.windowId == window && $0.taskUUID == session.id && $0.agent == .shell }) {
             return "The Operator did not start in its window. Open the chat to inspect it."
         }
         return nil
@@ -128,7 +129,7 @@ import AiTermCore
         if let existing = actual.sessions.first(where: { $0.taskUUID == session.id && $0.agent == .claude }) { return existing.windowId }
         let opening = try await daemon.openWorkerWindow(taskId: session.id.uuidString, cwd: prepared.folder.path, title: "Operator", agentCommand: prepared.command, frame: frame())
         guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
-        opened = (opening.id, session.generation, ports.now()); return opening.id
+        return opening.id
     }
     private func closeOperator(_ window: String) async throws {
         guard let session = workspace.state.operatorSession, let daemon = daemon(), context.running() else { throw ActionUnavailable("The helper is unavailable.") }
@@ -138,7 +139,7 @@ import AiTermCore
             let snapshot = try await daemon.snapshot()
             guard context.running(), workspace.state.operatorSession?.id == session.id,
                   workspace.state.operatorSession?.generation == session.generation,
-                  workspace.state.operatorSession?.window == window, workspace.state.operatorSession?.handover == .closing,
+                  workspace.state.operatorSession?.window == window, case .closing? = workspace.state.operatorSession?.lifecycle,
                   !snapshot.sessions.contains(where: { $0.windowId == window }) else { throw ActionUnavailable("The Operator's window is not safely idle.") }
             return
         }
@@ -147,7 +148,7 @@ import AiTermCore
         try await daemon.setOwnership(sessionId: tab.sessionId, ownership: session.generation)
         let result = try await daemon.closeIdle(sessionId: tab.sessionId, ownership: session.generation, conversation: conversation)
         // These codes prove no close was attempted. iTerm refusal/timeouts, a missing session,
-        // unknown codes and old helpers without a code remain ambiguous and keep the handover.
+        // unknown codes and old helpers without a code remain ambiguous and keep the chat closing.
         let beforeClose: [DeliveryCode] = [.typing, .unsentInput, .keysUnwatched, .screenUnread, .prompt, .unrecognisedScreen, .unsupported, .notChecked]
         if result.result == .refused, let code = result.code, beforeClose.contains(code) {
             throw SignalOperatorCloseDeferred(result.reason ?? "The Operator could not close safely.")

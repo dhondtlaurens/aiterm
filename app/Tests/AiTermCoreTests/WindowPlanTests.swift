@@ -74,14 +74,14 @@ import Testing
         #expect(chat.windowPlan(sessions: [SessionInfo.make("x", window: "w6", task: UUID())]).isEmpty, "another session's tab")
     }
 
-    /// While a handover runs the old chat's window and the new one's carry the same tag: nothing is planned.
-    @Test func theOperatorsChatTakesNoWindowDuringAHandover() {
+    /// While the chat's lifecycle changes the old chat's window and the new one's carry the same tag: nothing is planned.
+    @Test func theOperatorsChatTakesNoWindowWhileItsLifecycleChanges() {
         var chat = AppState.empty
         chat.operatorSession = OperatorSession(createdAt: Date(timeIntervalSince1970: 0))
         let tab = SessionInfo.make("o", window: "w4", task: chat.operatorSession!.id)
-        for handover in [OperatorHandover.closing, .revoking, .opening] {
-            chat.operatorSession?.handover = handover
-            #expect(chat.windowPlan(sessions: [tab]).isEmpty, "\(handover)")
+        for lifecycle: OperatorSession.Lifecycle in [.closing(then: .renew), .revoking(then: .retire), .opening] {
+            chat.operatorSession?.lifecycle = lifecycle
+            #expect(chat.windowPlan(sessions: [tab]).isEmpty, "\(lifecycle)")
         }
     }
 

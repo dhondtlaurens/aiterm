@@ -112,7 +112,7 @@ import AiTermCore
                 workspace.mutate { $0.updateSignalTask(task.id) { record in
                     if let next = try? SignalTransitions.apply(.block("Its worker did not start after its saved launch. Inspect its window before resuming."),
                                                                to: record, at: ports.now()) {
-                        record = next; record.currentAct = nil
+                        record = next
                     }
                 } }
                 replies[task.id] = nil; workspace.flush(); onBlocked(task.id); continue
@@ -123,7 +123,7 @@ import AiTermCore
                     workspace.mutate { state in
                         state.updateSignalTask(task.id) { record in
                             if let next = try? SignalTransitions.apply(.block("Its worker " + stopped.reason(now: ports.now()) + "."), to: record, at: ports.now()) {
-                                record = next; record.currentAct = nil
+                                record = next
                             }
                         }
                     }

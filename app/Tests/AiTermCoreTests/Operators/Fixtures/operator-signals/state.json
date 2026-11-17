@@ -159,6 +159,12 @@
         }
       }
     ],
+    "lifecycle" : {
+      "kind" : "open",
+      "value" : {
+        "since" : "2026-11-14T12:00:00Z"
+      }
+    },
     "oracleRounds" : [
       {
         "askedAt" : "2026-11-14T12:00:00Z",
@@ -187,7 +193,6 @@
     "snags" : [
 
     ],
-    "startingFresh" : false,
     "window" : "operator-window"
   },
   "signalSeen" : [

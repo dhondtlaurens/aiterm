@@ -38,14 +38,10 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var conversation: String?
     public var session: String?
     public var pausedWorkers: [PausedWorker]?
-    public var wakeAwaitingRead: Bool?
     public var sourceFailures: [String: String]?
     public var paused = false
-    public var startingFresh = false
-    /// A durable close → revoke → idle, rather than close → revoke → open.
-    /// Optional because a session saved before the flag existed has no such key.
-    public var finishing: Bool?
-    public var handover: OperatorHandover?
+    /// Where the chat is in its life.
+    public var lifecycle: Lifecycle = .idle
     public var questions: [Question] = []
     public var oracleRounds: [OracleRound] = []
     public var ledger: [LedgerEntry] = []
@@ -68,5 +64,83 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         snags = Array(snags.suffix(100))
         let closed = questions.filter { !$0.isPending }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
         questions = questions.filter(\.isPending) + closed
+    }
+}
+
+public extension OperatorSession {
+    /// The chat's life, saved so a relaunch continues it where it was: no chat, a generation to open,
+    /// an open chat, or the old chat being closed and then its token revoked, before a fresh chat
+    /// (`renew`) or none (`retire`). The window being closed is the session's `window`.
+    enum Lifecycle: Codable, Equatable, Sendable {
+        /// What a wake typed into the open chat left: a line sent and not yet read by a global
+        /// `run_status`, or a line that may sit unsent in the chat.
+        public enum Wake: String, Codable, Sendable { case sent, maybeUnsent }
+        /// What follows the close and the revoke.
+        public enum Then: String, Codable, Sendable { case renew, retire }
+        case idle
+        /// The session's generation is to be opened: the open is in flight, or its reply was lost.
+        case opening
+        /// The chat is open; `since` is when AiTerm opened it in its current window.
+        case open(since: Date, wake: Wake?)
+        case closing(then: Then)
+        case revoking(then: Then)
+        /// Written by a newer build: inert.
+        case unknown(JSONValue)
+
+        private struct Opened: Codable { var since: Date; var wake: Wake? }
+
+        public init(from decoder: Decoder) throws {
+            let raw = try JSONValue(from: decoder)
+            switch raw["kind"]?.stringValue {
+            case "idle": self = .idle
+            case "opening": self = .opening
+            case "open":
+                guard let opened = try? raw["value"]?.decode(Opened.self) else { self = .unknown(raw); return }
+                self = .open(since: opened.since, wake: opened.wake)
+            case "closing":
+                guard let then = raw["value"]?.stringValue.flatMap(Then.init(rawValue:)) else { self = .unknown(raw); return }
+                self = .closing(then: then)
+            case "revoking":
+                guard let then = raw["value"]?.stringValue.flatMap(Then.init(rawValue:)) else { self = .unknown(raw); return }
+                self = .revoking(then: then)
+            default: self = .unknown(raw)
+            }
+        }
+        public func encode(to encoder: Encoder) throws {
+            let raw: JSONValue
+            switch self {
+            case .idle: raw = ["kind": "idle"]
+            case .opening: raw = ["kind": "opening"]
+            case .open(let since, let wake): raw = ["kind": "open", "value": try JSONValue(encoding: Opened(since: since, wake: wake))]
+            case .closing(let then): raw = ["kind": "closing", "value": .string(then.rawValue)]
+            case .revoking(let then): raw = ["kind": "revoking", "value": .string(then.rawValue)]
+            case .unknown(let value): raw = value
+            }
+            try raw.encode(to: encoder)
+        }
+
+        public var isOpen: Bool { if case .open = self { true } else { false } }
+        /// Opening, closing, revoking, or unknown: no chat serves the workload now.
+        public var isChanging: Bool {
+            switch self {
+            case .opening, .closing, .revoking, .unknown: true
+            case .idle, .open: false
+            }
+        }
+        /// Closing or revoking with no chat to follow.
+        public var isRetiring: Bool {
+            switch self {
+            case .closing(.retire), .revoking(.retire): true
+            default: false
+            }
+        }
+        /// The open chat's unread wake.
+        public var wake: Wake? { if case .open(_, let wake) = self { wake } else { nil } }
+    }
+
+    /// Whether the chat is idle enough to retire or renew: no tracked act runs, no wake is unread, its
+    /// window holds at most its own tab, and its live tab, if any, ended its turn and is not stopped on an error.
+    static func chatIsIdle(tab: SessionInfo?, tabsInWindow: Int, actsRunning: Bool, wakeUnread: Bool) -> Bool {
+        !actsRunning && !wakeUnread && tabsInWindow <= 1 && (tab.map { $0.state.turnEnded && $0.stoppedOn == nil } ?? true)
     }
 }

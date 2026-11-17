@@ -20,9 +20,11 @@ import AiTermCore
     private let oracle: OracleConsult
     private let ports: Ports
     private let effects: OperatorInFlight
+    /// Where the Oracle's check shows as the task's act.
+    private let activity: OperatorActivityTracker
     init(workspace: WorkspaceStore, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports,
-         effects: OperatorInFlight = OperatorInFlight()) {
-        self.workspace = workspace; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects
+         effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
+        self.workspace = workspace; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects; self.activity = activity
     }
 
     /// Settles one call. The caller validated `proposal` against `rows` and `projects`. A
@@ -30,7 +32,7 @@ import AiTermCore
     /// the task and releases it before it returns, so the caller's launch or tab can claim it.
     func decide(task: TaskItem, scope: Scope, rows: [AgentChoice], projects: [UUID]?, proposal: Proposal,
                 challenge: String?, work: String? = nil) async throws -> Outcome {
-        guard workspace.state.operatorSession?.startingFresh == false, let claim = SignalClaim(task), claim.allows(in: workspace) else {
+        guard workspace.state.operatorSession?.lifecycle.isChanging == false, let claim = SignalClaim(task), claim.allows(in: workspace) else {
             throw ActionUnavailable("The Operator cannot choose right now.")
         }
         func decided(_ how: AgentChoiceRecord.Decided, row: AgentChoice? = nil, reason: String? = nil, round: Int? = nil, note: String? = nil) -> Outcome {
@@ -56,16 +58,15 @@ import AiTermCore
         }
         let arguments = try Self.json(["row": try JSONValue(encoding: proposal.row), "project": proposal.project.map { .string($0.uuidString) } ?? .null,
                                        "reason": .string(proposal.reason)])
-        workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" } }
-        guard workspace.flush() else { throw ActionUnavailable("The choice couldn’t be saved.") }
-        defer { workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(task.id) { $0.currentAct = nil } } } }
         let line = { (id: UUID) -> OracleLaunch.ProjectLine in self.workspace.state.project(id: id).map { .known($0) } ?? .gone(id) }
         let check = OracleLaunch.AgentChoiceCheck(forTab: scope == .tab, item: task.signalTask?.current.item.identity ?? "", title: task.title,
             stagePrompt: task.signalTask?.current.prompt ?? "", work: work, project: line(proposal.project ?? task.projectId),
             candidateProjects: projects.map { $0.map(line) }, permittedRows: rows, row: proposal.row, reason: proposal.reason,
             weeklyUsage: ports.weeklyUsage(), installed: ports.installedAgents())
-        let outcome = await oracle.consult(.agentChoice(check), binding: .init(claim: claim, round: .init(key: binding, arguments: arguments, proposal: proposal.text)),
-                                           continuing: previous)
+        let outcome = await activity.acting(task: task.id, act: "consulting the Oracle") { [previous] in
+            await oracle.consult(.agentChoice(check), binding: .init(claim: claim, round: .init(key: binding, arguments: arguments, proposal: proposal.text)),
+                                 continuing: previous)
+        }
         guard claim.allows(in: workspace) else { throw ActionUnavailable("The task changed while the Oracle read the choice.") }
         switch outcome {
         case .agreed(_, let round):

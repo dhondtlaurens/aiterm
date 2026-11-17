@@ -17,14 +17,16 @@ import AiTermCore
     private let now: () -> Date
     private let ports: Ports
     private let effects: OperatorInFlight
+    /// Where a launch shows as its task's act.
+    private let activity: OperatorActivityTracker
     private var isStopped = false
     private var generation = UUID()
     func start() { isStopped = false }
     func stop() { isStopped = true; generation = UUID() }
     var changed: (UUID, String) -> Void = { _, _ in }
     init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports,
-         effects: OperatorInFlight = OperatorInFlight()) {
-        self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports; self.effects = effects
+         effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
+        self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports; self.effects = effects; self.activity = activity
     }
     /// Whether `id`'s worker is at work or another Operator effect holds the task.
     private func atWork(_ id: UUID) -> Bool { ports.workerIsWorking(id) || effects.holds(id) }
@@ -36,10 +38,7 @@ import AiTermCore
               effects.claim(id) else { return }
         let signal = record.current.configuration
         let launchGeneration = generation
-        defer {
-            effects.release(id)
-            workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } } }
-        }
+        defer { effects.release(id) }
         do {
             // The row comes back to the sidebar with its worktree, even when the claim was lost meanwhile.
             if workspace.state.archived(id: id) != nil {
@@ -47,30 +46,31 @@ import AiTermCore
                 guard holds(claim, generation: launchGeneration) else { return }
             }
             guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id) else { return }
-            let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
-            workspace.mutate { state in
-                state.updateSignalItem(id) { task in
-                    task.firstPrompt = task.signalTask?.current.prompt ?? signal.work.prompt
-                    task.signalTask?.launch = attempt
-                    task.signalTask?.currentAct = "starting its worker"
+            let launched: String? = try await activity.acting(task: id, act: "starting its worker") {
+                let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
+                workspace.mutate { state in
+                    state.updateSignalItem(id) { task in
+                        task.firstPrompt = task.signalTask?.current.prompt ?? signal.work.prompt
+                        task.signalTask?.launch = attempt
+                    }
                 }
+                guard workspace.flush() else { return nil }
+                try await journal.append(.ours("Starting stage \(record.stage) from \(signal.name)."), task: id)
+                guard holds(claim, generation: launchGeneration), let before = workspace.state.task(id: id) else { return nil }
+                // The checkout saves itself on the task, even once the claim is lost.
+                if !before.hasCheckout { _ = try await ports.prepare(before, signal) }
+                guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return nil }
+                let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
+                return try await ports.launch(task, prompt)
             }
-            guard workspace.flush() else { return }
-            try await journal.append(.ours("Starting stage \(record.stage) from \(signal.name)."), task: id)
-            guard holds(claim, generation: launchGeneration), let before = workspace.state.task(id: id) else { return }
-            // The checkout saves itself on the task, even once the claim is lost.
-            if !before.hasCheckout { _ = try await ports.prepare(before, signal) }
-            guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return }
-            let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
-            let window = try await ports.launch(task, prompt)
-            guard holds(claim, generation: launchGeneration) else { return }
+            guard let window = launched, holds(claim, generation: launchGeneration) else { return }
             let at = now()
             try workspace.mutate { state in
                 try state.updateSignalItem(id) { task in
                     guard let record = task.signalTask else { return }
                     task.signalTask = try SignalTransitions.apply(.workerStarted, to: record, at: at)
                     task.signalTask?.launch?.openedAt = at
-                    task.signalTask?.currentAct = nil; task.windowId = window
+                    task.windowId = window
                 }
             }
             workspace.flush()

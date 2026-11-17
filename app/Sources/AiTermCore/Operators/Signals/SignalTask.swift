@@ -28,7 +28,6 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var waitingOn: SignalWaitFacts?
     public var thenApplied: Bool?
     public var operatorJudged: Bool?
-    public var currentAct: String?
     public var ownership = 0
     public var blockedReason: String?
     public var journal: [TaskJournal.Entry] = []

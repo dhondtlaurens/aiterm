@@ -24,16 +24,19 @@ import AiTermCore
     private let oracle: OracleConsult
     private let ports: Ports
     private let effects: OperatorInFlight
+    /// Where a round shows as its task's act.
+    private let activity: OperatorActivityTracker
     private var running: Set<String> = []
     var changed: () -> Void = {}
     init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports,
-         effects: OperatorInFlight = OperatorInFlight()) {
+         effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
         self.workspace = workspace; self.journal = journal; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects
+        self.activity = activity
     }
     func answer(task id: UUID, key: String, proposal: String, tab: String = "main", challenge: String? = nil,
                 fromQuestion: String? = nil, person: Bool = false) async throws -> JSONValue {
         guard workspace.canChangeWorkspace, !key.isEmpty, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              workspace.state.operatorSession?.startingFresh == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
+              workspace.state.operatorSession?.lifecycle.isChanging == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
         let operatorID = workspace.state.operatorSession?.id, operatorGeneration = workspace.state.operatorSession?.generation
         let ledgerKey = "answer_worker:" + key
         let arguments = try Self.json(["task": .string(id.uuidString), "tab": .string(tab), "proposal": .string(proposal),
@@ -53,7 +56,7 @@ import AiTermCore
                                       "tab": .string(question.tab), "fingerprint": .string(question.identity)])
         func stillAsks() -> Bool {
             claim.allows(in: workspace)
-                && ports.question(id, tab) == question && workspace.state.operatorSession?.startingFresh == false
+                && ports.question(id, tab) == question && workspace.state.operatorSession?.lifecycle.isChanging == false
                 && workspace.state.operatorSession?.id == operatorID && workspace.state.operatorSession?.generation == operatorGeneration
         }
         // The round holds the task from its start through delivering the agreed answer.
@@ -103,61 +106,57 @@ import AiTermCore
             }
         }
         if previous == nil, let challenge { oracle.clear(challenge) }
-        workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = humanAnswer ? "answering its worker" : "consulting the Oracle" } }
-        guard workspace.flush() else { throw ActionUnavailable("The question couldn’t be saved.") }
-        defer {
-            workspace.mutate { state in
-                if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } }
+        return try await activity.acting(task: id, act: humanAnswer ? "answering its worker" : "consulting the Oracle") {
+            try await journal.append(.quoted(SignalQuote(source: "worker", text: question.text)), task: id)
+            guard stillAsks() else { throw ActionUnavailable("The task or its question changed.") }
+            let outcome: OracleConsult.Outcome
+            if humanAnswer { outcome = .agreed("The person answered in the Operator's chat.", round: 0) }
+            else {
+                outcome = await oracle.consult(.workerAnswer(question: question.text, workerMessage: question.message, proposal: proposal,
+                                                             brief: task.signalTask?.current.prompt ?? ""),
+                                               binding: .init(claim: claim, round: round), continuing: previous)
             }
-        }
-        try await journal.append(.quoted(SignalQuote(source: "worker", text: question.text)), task: id)
-        guard stillAsks() else { throw ActionUnavailable("The task or its question changed.") }
-        let outcome: OracleConsult.Outcome
-        if humanAnswer { outcome = .agreed("The person answered in the Operator's chat.", round: 0) }
-        else {
-            outcome = await oracle.consult(.workerAnswer(question: question.text, workerMessage: question.message, proposal: proposal,
-                                                         brief: task.signalTask?.current.prompt ?? ""),
-                                           binding: .init(claim: claim, round: round), continuing: previous)
-        }
-        guard stillAsks() else {
-            if case .critique(_, _, let saved?) = outcome { oracle.clear(saved) }
-            throw ActionUnavailable("The task or its question changed while the Oracle read it.")
-        }
-        switch outcome {
-        case .agreed(_, let number):
-            // A crash after this marker may have delivered. A restart asks the person instead of
-            // typing the same answer twice into a worker that may already be at work again.
-            let readyID = oracle.saveReady(tool: Self.tool, binding: round, round: number)
-            workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "answering its worker" } }
-            guard workspace.flush() else { throw ActionUnavailable("The answer intent couldn’t be saved.") }
-            try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
-            guard stillAsks(), let current = workspace.state.task(id: id) else { oracle.clear(readyID); throw ActionUnavailable("The task or question changed.") }
-            try await ports.deliver(current, question, proposal)
-            guard claim.allows(in: workspace), workspace.state.operatorSession?.id == operatorID,
-                  workspace.state.operatorSession?.generation == operatorGeneration else { oracle.clear(readyID); throw ActionUnavailable("The task changed while its answer was delivered.") }
-            if let fromQuestion {
-                workspace.mutate { state in
-                    if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
-                        state.operatorSession?.questions[index].deliveredAt = now()
+            guard stillAsks() else {
+                if case .critique(_, _, let saved?) = outcome { oracle.clear(saved) }
+                throw ActionUnavailable("The task or its question changed while the Oracle read it.")
+            }
+            switch outcome {
+            case .agreed(_, let number):
+                // A crash after this marker may have delivered. A restart asks the person instead of
+                // typing the same answer twice into a worker that may already be at work again.
+                let readyID = oracle.saveReady(tool: Self.tool, binding: round, round: number)
+                guard workspace.flush() else { throw ActionUnavailable("The answer intent couldn’t be saved.") }
+                return try await activity.acting(task: id, act: "answering its worker") {
+                    try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
+                    guard stillAsks(), let current = workspace.state.task(id: id) else { oracle.clear(readyID); throw ActionUnavailable("The task or question changed.") }
+                    try await ports.deliver(current, question, proposal)
+                    guard claim.allows(in: workspace), workspace.state.operatorSession?.id == operatorID,
+                          workspace.state.operatorSession?.generation == operatorGeneration else { oracle.clear(readyID); throw ActionUnavailable("The task changed while its answer was delivered.") }
+                    if let fromQuestion {
+                        workspace.mutate { state in
+                            if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
+                                state.operatorSession?.questions[index].deliveredAt = now()
+                            }
+                        }
                     }
+                    oracle.clear(readyID)
+                    return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
                 }
+            case .critique(let text, let number, let challengeID?):
+                return try remember(["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text)], key: ledgerKey, arguments: arguments)
+            case .critique(let text, _, nil):
+                let reason = "The Operator and Oracle still disagree after three rounds. " + text
+                markPerson(reason)
+                return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+            case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+                markPerson(reason)
+                return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+            case .unavailable(.off):
+                markPerson("The Oracle is off.")
+                return try remember(askPerson(question, reason: "The Oracle is off."), key: ledgerKey, arguments: arguments)
+            case .retry:
+                return try remember(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key."], key: ledgerKey, arguments: arguments)
             }
-            oracle.clear(readyID)
-            return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
-        case .critique(let text, let number, let challengeID?):
-            return try remember(["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text)], key: ledgerKey, arguments: arguments)
-        case .critique(let text, _, nil):
-            let reason = "The Operator and Oracle still disagree after three rounds. " + text
-            markPerson(reason)
-            return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
-        case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
-            markPerson(reason)
-            return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
-        case .unavailable(.off):
-            markPerson("The Oracle is off.")
-            return try remember(askPerson(question, reason: "The Oracle is off."), key: ledgerKey, arguments: arguments)
-        case .retry:
-            return try remember(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key."], key: ledgerKey, arguments: arguments)
         }
     }
     func askYou(key: String, task: UUID? = nil, text: String, tab: String = "main") throws {

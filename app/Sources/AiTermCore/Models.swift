@@ -508,8 +508,8 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     /// A window iTerm2 no longer has: its row, a task's, a terminal's or the Operator's chat, stays
-    /// without a window until it is chosen or takes one by its tag. The chat's is left be while a
-    /// handover runs: the handover writes it. True if a row had it.
+    /// without a window until it is chosen or takes one by its tag. The chat's is left be while its
+    /// lifecycle changes (opening, closing, revoking): the keeper writes it then. True if a row had it.
     @discardableResult
     public mutating func closeWindow(_ windowId: String) -> Bool {
         var changed = false
@@ -521,7 +521,7 @@ public struct AppState: Codable, Equatable, Sendable {
             terminals[index].windowId = nil
             changed = true
         }
-        if operatorSession?.window == windowId, operatorSession?.handover == nil {
+        if operatorSession?.window == windowId, operatorSession?.lifecycle.isChanging == false {
             operatorSession?.window = nil
             changed = true
         }

@@ -42,7 +42,6 @@ import AiTermCore
     /// The host watch's pass still running; the next starts only once it ended.
     @ObservationIgnored private var hostPass: Task<Void, Never>?
     @ObservationIgnored private var settingsDue = Date.distantPast
-    @ObservationIgnored private var activeTools = 0
     @ObservationIgnored private var hooks: [() -> Void] = []
     @ObservationIgnored private var savedObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var lastNote: OperatorNote?
@@ -62,7 +61,7 @@ import AiTermCore
             tabsKnown: { [weak self] in self?.tabsKnown == true },
             profile: { [weak self] in self?.profile ?? OperatorProfile(model: "", reasoning: nil) },
             instructions: { [weak self] in self?.currentInstructions }, oracleOn: { [weak self] in self?.oracle.isOn == true },
-            wakeToType: { [weak self] in self?.waker.unread == true }))
+            wakeUnread: { [weak self] in self?.waker.unread == true }))
     @ObservationIgnored lazy var waker: OperatorWaker = OperatorWaker(workspace: workspace, daemon: daemon, activity: activity, log: log,
         tab: { [weak self] in self?.chat.operatorTab() }, running: { [weak self] in self?.isStopped == false })
     @ObservationIgnored lazy var pause = SignalPauseSignaller(workspace: workspace, live: live, native: native,
@@ -86,7 +85,7 @@ import AiTermCore
                 guard self.native.allows(task) else { throw ActionUnavailable("The task changed hands or the Operator is paused.") }
                 return try await self.restore(task.id)
             }
-        }), effects: effects)
+        }), effects: effects, activity: activity)
     @ObservationIgnored lazy var then = ThenRunner(workspace: workspace, journal: journal, stages: stages, now: ports.now,
         ports: .init(workerIsWorking: native.busy, archive: { [weak self] task, allowed in
             guard let self else { return }
@@ -96,7 +95,7 @@ import AiTermCore
             try await self.activity.during("removing " + OperatorActivityTracker.name(task)) {
                 try await self.remove(task, allowed); await self.host.deleteMergedBranch(of: task)
             }
-        }), effects: effects)
+        }), effects: effects, activity: activity)
     @ObservationIgnored lazy var watch = RequestWatch(workspace: workspace, stages: stages, then: then,
         ports: .init(workerIsWorking: native.busy, read: { [weak self] task in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
@@ -109,17 +108,17 @@ import AiTermCore
         }, merge: { [weak self] task, snapshot in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
             try await self.activity.during("merging " + OperatorActivityTracker.name(task)) { try await self.host.merge(task, snapshot: snapshot) }
-        }), effects: effects)
+        }), effects: effects, activity: activity)
     @ObservationIgnored lazy var questions = QuestionRounds(workspace: workspace, journal: journal, now: ports.now, oracle: oracle,
         ports: .init(question: native.question, deliver: { [weak self] task, question, text in
                 guard let self, let claim = SignalClaim(task) else { throw ActionUnavailable("The Operator stopped.") }
                 try await self.native.message(task, text: text, tab: question.tab, allowed: {
                     !self.isStopped && claim.holds(in: self.workspace.state)
                 })
-            }), effects: effects)
+            }), effects: effects, activity: activity)
     @ObservationIgnored lazy var choices = AgentChoiceRounds(workspace: workspace, now: ports.now, oracle: oracle, ports: .init(
         weeklyUsage: { [weak self] in self.map { SidebarModel.weeklyUsage($0.live.usage, now: $0.ports.now()) } ?? [:] },
-        installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }), effects: effects)
+        installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }), effects: effects, activity: activity)
     @ObservationIgnored lazy var tools: SignalOperatorToolHandler = makeTools()
     private func makeTools() -> SignalOperatorToolHandler {
         return SignalOperatorToolHandler(workspace: workspace, stages: stages, questions: questions, choices: choices,
@@ -186,7 +185,6 @@ import AiTermCore
         log.changed = { [weak self] in self?.changed() }
         chat.finished = { [weak self] in
             guard let self else { return }
-            self.waker.reset()
             // These failures belonged to the retired chat. Other sources still clear only on
             // their own next success.
             self.log.succeed(.wake); self.log.succeed(.reply)
@@ -327,19 +325,21 @@ import AiTermCore
         switch event {
         case .snapshot(let snapshot): tabsKnown = snapshot.connected; if snapshot.connected { schedule { await self.reconcile() } }
         case .itermDisconnected: tabsKnown = false
-        case .windowClosed(let window): chat.windowClosed(window)
         case .operatorRequest(let request): schedule { await self.respond(request) }
         default: break
         }
     }
     private func respond(_ request: OperatorRequest) async {
         guard let daemon = daemon() else { return }
-        activeTools += 1
         let task = request.arguments["task"]?.stringValue.flatMap(UUID.init(uuidString:)).flatMap { workspace.state.signalItem(id: $0) }
         await activity.during(OperatorActivityTracker.words(for: request, task: task)) {
-            await answer(request, using: daemon)
+            // The call's act shows on its task's row while it is answered.
+            if let task, let act = OperatorTool(rawValue: request.tool)?.act {
+                await activity.acting(task: task.id, act: act) { await answer(request, using: daemon) }
+            } else {
+                await answer(request, using: daemon)
+            }
         }
-        activeTools -= 1
         await reconcile()
     }
     private func answer(_ request: OperatorRequest, using daemon: any DaemonCommands) async {
@@ -392,10 +392,11 @@ import AiTermCore
         poller.tick()
         guard !isStopped, tabsKnown else { return }
         if workspace.mutate({ $0.withdrawObsoleteQuestions(at: ports.now()) }) { workspace.flush() }
-        // A durable retirement must complete before a new generation can serve a later match.
-        if workspace.state.operatorSession?.finishing == true
-            || (!workspace.state.operatorHasWork && workspace.state.operatorSession?.startingFresh == true) {
-            await chat.finishIfIdle(idle: activeTools == 0 && oracle.isIdle, wakeWaiting: waker.waking)
+        // A durable retirement must complete before a new generation can serve a later match, and a
+        // renewal whose work ended retires.
+        if let lifecycle = workspace.state.operatorSession?.lifecycle,
+           lifecycle.isRetiring || (!workspace.state.operatorHasWork && lifecycle.isChanging && !lifecycle.isRetiring) {
+            await chat.finishIfIdle()
         }
         if workspace.state.operatorHasWork { await chat.ensure() }
         guard !isStopped else { return }
@@ -424,22 +425,19 @@ import AiTermCore
         waker.dropWhenNoWork()
         await waker.deliver()
         await finishChatWhenNoWork()
-        if workspace.state.operatorHasWork {
-            await chat.freshIfDue(idle: oracle.isIdle && activeTools == 0, wakeWaiting: waker.unread || waker.waking)
-        }
+        if workspace.state.operatorHasWork { await chat.freshIfDue() }
     }
     /// Completion, removal and Take Over can finish between minute ticks. Both state writes
     /// and the end of tracked I/O recheck this, so the last closeout retires promptly.
     private func reconcileIfIdle() {
-        guard !isStopped, !reconciling, activeTools == 0, !activity.isRunning,
-              !workspace.state.operatorHasWork, workspace.state.operatorSession?.window != nil else { return }
-        schedule { await self.reconcile() }
+        guard !isStopped, !reconciling, !activity.isRunning, !workspace.state.operatorHasWork else { return }
+        switch workspace.state.operatorSession?.lifecycle {
+        case .open?, .closing?: schedule { await self.reconcile() }
+        default: break
+        }
     }
-    /// With no work left, the chat retires once no tool call, Oracle check or tracked activity runs
-    /// and no wake waits to be typed or read.
-    private func finishChatWhenNoWork() async {
-        await chat.finishWhenNoWork(idle: activeTools == 0 && oracle.isIdle && !activity.isRunning, wakeWaiting: waker.waking || waker.unread)
-    }
+    /// With no work left, the chat retires once it is idle (`OperatorChat.isIdle`).
+    private func finishChatWhenNoWork() async { await chat.finishWhenNoWork() }
     private var currentInstructions: String { OperatorProfileStore.saved(ports.preferences)?.instructions ?? profile.instructions }
     private var currentOracle: OracleSetting { OperatorProfileStore.saved(ports.preferences)?.oracle ?? profile.oracle }
     /// The Oracle's setting, the standing instructions and the settings revision, as each check reads them.

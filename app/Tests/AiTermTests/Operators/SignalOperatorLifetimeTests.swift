@@ -43,9 +43,9 @@ import Testing
         root.stop()
     }
 
-    @Test func finishingTheLastTaskClosesRevokesAndLeavesSignalsWatching() async throws {
+    @Test func theLastTaskDoneClosesRevokesAndLeavesSignalsWatching() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "old-chat"
+        var session = OperatorSession.open(createdAt: world.now, conversation: "old-chat")
         session.questions = [.init(id: "old-question", task: task, text: "Already finished?", openedAt: world.now)]
         world.state.operatorSession = session
         world.state.updateSignalTask(task) { $0.phase = .done; $0.thenApplied = true }
@@ -65,6 +65,7 @@ import Testing
         #expect(h.workspace.state.operatorSession?.window == nil)
         #expect(h.workspace.state.operatorSession?.conversation == nil)
         #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
+        #expect(h.workspace.state.operatorSession?.lifecycle == .idle && h.workspace.state.operatorSession?.generation == 2)
         #expect(h.workspace.state.signals.count == 1 && h.workspace.state.tasks.count == 1)
         #expect(!SignalOperatorRowValue.make(state: h.workspace.state, sessions: live.sessions).shown)
         root.stop()
@@ -83,7 +84,7 @@ import Testing
 
     @Test func aMatchDuringTheLastChatsCloseStartsFreshAndIsNotLost() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "old-chat"
+        let session = OperatorSession.open(createdAt: world.now, conversation: "old-chat")
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
@@ -102,7 +103,10 @@ import Testing
         release.signal(); await pass.value; await ports.work.settled()
         #expect(h.workspace.state.operatorSession?.generation == 2)
         #expect(h.workspace.state.operatorSession?.conversation == nil)
-        #expect(h.workspace.state.operatorSession?.window == "reopened")
+        #expect(h.workspace.state.operatorSession?.window == "reopened" && h.workspace.state.operatorSession?.lifecycle.isOpen == true)
+        // The retired generation's token is revoked for good: the next chat registers as the next generation.
+        #expect(daemon.requests("operator.revoke").map { $0.params["generation"] as? Int } == [1])
+        #expect(daemon.requests("operator.register").last?.params["generation"] as? Int == 2)
         #expect(h.workspace.state.task(id: newIDs[0])?.signalTask?.keepsOperatorSession == true)
         let names = daemon.requests.map(\.method)
         #expect(try #require(names.firstIndex(of: "session.closeIdle")) < #require(names.firstIndex(of: "operator.revoke")))
@@ -112,7 +116,7 @@ import Testing
 
     @Test func aScheduledRealCadenceReconcileRetiresAfterTheLastTask() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"; session.conversation = "chat"
+        let session = OperatorSession.open(createdAt: world.now, conversation: "chat")
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
@@ -135,8 +139,8 @@ import Testing
 
     @Test func anIdlePausedOperatorCanResumeWithoutCreatingAnEmptyChat() async throws {
         var world = SignalWorld(); _ = world.signal()
-        var session = OperatorSession(createdAt: world.now); session.paused = true
-        session.window = "operator-window"; session.conversation = "chat"; world.state.operatorSession = session
+        var session = OperatorSession.open(createdAt: world.now, conversation: "chat"); session.paused = true
+        world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
         defer { try? FileManager.default.removeItem(at: ports.home) }

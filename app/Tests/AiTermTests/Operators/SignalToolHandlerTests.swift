@@ -122,13 +122,13 @@ import Testing
         })
         let call = Task { await handler.respond(request(h, tool: "ask_oracle", arguments(id, key: "opinion", extra: ["question": "Safe?", "context": "A review thread."]))) }
         await entered.wait()
-        #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true && !oracle.consult.isIdle)
+        #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true && oracle.activity.isRunning)
         let status = try #require(await handler.respond(request(h, tool: "run_status", [:])).value)
         #expect(status["oracleRounds"] == [])
         release.signal()
         let answer = await call.value
         #expect(answer.value?["status"] == "opinion" && answer.value?["answer"] == "It is sound.")
-        #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true && oracle.consult.isIdle)
+        #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true && !oracle.activity.isRunning)
     }
 
     @Test func aSessionReplacementInvalidatesTheEffectAuthorityBeforeTyping() async throws {

@@ -107,3 +107,10 @@ Re-recorded in step 4e of the greenfield refactor: Take Over removes a task's si
 ## Only finished Oracle rounds are saved
 
 5c (greenfield refactor): re-recorded; only finished Oracle rounds are saved, so the sample round is a critique waiting for a revision.
+
+## One chat lifecycle; acts are runtime
+
+Step 5f replaced `startingFresh`, `finishing`, `handover` and `wakeAwaitingRead` with one `lifecycle`
+and removed the saved `currentAct`; re-recorded by
+`AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`. The sample
+session is saved open. No brief or tool bytes changed; `brief.md` and `tools.json` were not touched.

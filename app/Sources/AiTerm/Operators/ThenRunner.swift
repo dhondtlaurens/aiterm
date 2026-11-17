@@ -15,9 +15,12 @@ import AiTermCore
     private let now: () -> Date
     private let ports: Ports
     private let effects: OperatorInFlight
+    /// Where an archive or removal shows as its task's act.
+    private let activity: OperatorActivityTracker
     init(workspace: WorkspaceStore, journal: SignalJournal, stages: StageRunner, now: @escaping () -> Date, ports: Ports,
-         effects: OperatorInFlight = OperatorInFlight()) {
+         effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
         self.workspace = workspace; self.journal = journal; self.stages = stages; self.now = now; self.ports = ports; self.effects = effects
+        self.activity = activity
     }
     /// Applies Then holding the task, then, with the task released, starts a stage that arrived meanwhile: that
     /// stage's launch claims the task itself.
@@ -31,10 +34,7 @@ import AiTermCore
                 && !ports.workerIsWorking(id)
         }
         do {
-            defer {
-                effects.release(id)
-                if claim.holds(in: workspace.state) { workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = nil } } }
-            }
+            defer { effects.release(id) }
             do {
                 try await journal.append(.ours("Applying Then: " + signal.finish.then.rawValue + "."), task: id)
                 guard allowed() else { return }
@@ -42,20 +42,18 @@ import AiTermCore
                 case .unknown: return
                 case .keep: break
                 case .archive:
-                    workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "archiving it" } }
-                    guard workspace.flush() else { return }
                     guard let current = workspace.state.task(id: id) else { return }
-                    try await ports.archive(current, allowed)
-                    if allowed() {
-                        try workspace.mutate { state in
-                            try state.updateSignalTask(id) { $0 = try SignalTransitions.apply(.archive, to: $0, at: now()) }
+                    try await activity.acting(task: id, act: "archiving it") {
+                        try await ports.archive(current, allowed)
+                        if allowed() {
+                            try workspace.mutate { state in
+                                try state.updateSignalTask(id) { $0 = try SignalTransitions.apply(.archive, to: $0, at: now()) }
+                            }
                         }
                     }
                 case .remove:
-                    workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "removing it" } }
-                    guard workspace.flush() else { return }
                     guard let current = workspace.state.task(id: id) else { return }
-                    try await ports.remove(current, allowed)
+                    try await activity.acting(task: id, act: "removing it") { try await ports.remove(current, allowed) }
                 }
                 if allowed() || workspace.state.archived(id: id)?.task.signalTask?.phase == .archived {
                     workspace.mutate { $0.updateSignalTask(id) { $0.thenApplied = true } }

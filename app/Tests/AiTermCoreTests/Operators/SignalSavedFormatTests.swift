@@ -19,6 +19,7 @@ import Testing
         #expect(loaded.archive[0].task.signalTask?.phase == .archived)
         #expect(loaded.tasks[1].takenOver && loaded.tasks[1].signalTask == nil && !loaded.tasks[0].takenOver)
         #expect(loaded.operatorSession?.generation == 2)
+        #expect(loaded.operatorSession?.lifecycle == .open(since: Date(timeIntervalSince1970: 1_794_657_600), wake: nil))
         #expect(loaded.operatorSession?.waitingOnYou == 1)
         #expect(loaded.operatorSession?.oracleRounds.count == 1)
     }
@@ -75,6 +76,7 @@ import Testing
         taken.takenOver = true
         var session = OperatorSession(id: id(7), createdAt: at); session.generation = 2
         session.window = "operator-window"; session.session = "operator-session"; session.conversation = "operator-conversation"
+        session.lifecycle = .open(since: at, wake: nil)
         var question = OperatorSession.Question(id: "locale", task: task.id, text: "Which locale?", openedAt: at)
         question.stage = 1; question.ownership = 0; question.tab = "main"; question.workerQuestion = "Which locale?"
         session.questions = [question]

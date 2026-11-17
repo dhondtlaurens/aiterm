@@ -31,9 +31,7 @@ import Testing
     /// An established chat with a question only the person can answer: work for the Operator, and no
     /// signal task for its passes to start.
     func establishedChat(_ controller: AppController, window: String? = nil) -> OperatorSession {
-        var session = OperatorSession(createdAt: Date())
-        session.window = window
-        session.conversation = "chat-conversation"
+        var session = OperatorSession.open(createdAt: Date(), window: window, conversation: "chat-conversation")
         session.questions = [.init(id: "global", task: nil, text: "Which project should future signals use?", openedAt: Date())]
         controller.workspace.mutate { $0.operatorSession = session }
         return session
@@ -207,8 +205,8 @@ import Testing
     }
 
     /// iTerm2 restored the chat's window: its tab, tagged with the session's id, gives the chat that
-    /// window without opening another. Not while a handover runs: the old and new chats carry one tag.
-    @Test func aRestoredChatWindowIsTakenByItsTagExceptDuringAHandover() async throws {
+    /// window without opening another. Not while its lifecycle changes: the old and new chats carry one tag.
+    @Test func aRestoredChatWindowIsTakenByItsTagExceptWhileItsLifecycleChanges() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -223,7 +221,7 @@ import Testing
         controller.helper.handle(.snapshot(tagged(in: "restored")))
         #expect(controller.state.operatorSession?.window == "restored")
 
-        controller.workspace.mutate { $0.operatorSession?.handover = .closing }
+        controller.workspace.mutate { $0.operatorSession?.lifecycle = .closing(then: .renew) }
         controller.helper.handle(.snapshot(tagged(in: "newer")))
         #expect(controller.state.operatorSession?.window == "restored")
         #expect(server.requests("window.createTask").isEmpty)

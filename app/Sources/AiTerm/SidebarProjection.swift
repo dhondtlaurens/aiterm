@@ -28,6 +28,8 @@ struct SectionFold: Equatable {
     @ObservationIgnored private(set) var derivations = 0
     @ObservationIgnored var operatorIssue: () -> String? = { nil }
     @ObservationIgnored var operatorActivity: () -> OperatorActivity? = { nil }
+    /// The acts the Operator runs on tasks now: each task's, and the most recent for its own row.
+    @ObservationIgnored var operatorActs: () -> (byTask: [UUID: String], latest: OperatorAct?) = { ([:], nil) }
     /// The tasks on their way out (`TaskTeardown.leaving`): their windows are closing, so none waits on you.
     @ObservationIgnored var leaving: () -> Set<UUID> = { [] }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
@@ -35,6 +37,7 @@ struct SectionFold: Equatable {
         var skipped: [UUID: [String]]
         var failures: [String: String]
         var operatorRow: SignalOperatorRowValue
+        var acts: [UUID: String]
         var signals: [Signal]
         var operatorOpen: Bool
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem], sessions: [SessionInfo]
@@ -93,7 +96,7 @@ struct SectionFold: Equatable {
                                           configuration: record.current.configuration)
                 var visible = SignalTask(current: current, startedAt: .distantPast)
                 visible.phase = record.phase; visible.stage = record.stage; visible.ownership = record.ownership
-                visible.currentAct = record.currentAct; visible.blockedReason = record.blockedReason
+                visible.blockedReason = record.blockedReason
                 visible.waitingOn = record.waitingOn
                 value.signalTask = visible
             }
@@ -101,7 +104,10 @@ struct SectionFold: Equatable {
         }
         let skipped = Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
             .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
-        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:], operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity()), signals: state.signals,
+        let acts = operatorActs()
+        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
+            operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity(), latestAct: acts.latest),
+            acts: acts.byTask, signals: state.signals,
             operatorOpen: state.operatorOpen,
             items: state.items, tasks: drawn, terminals: state.terminals, sessions: live.rowSessions,
             branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask,
@@ -111,7 +117,7 @@ struct SectionFold: Equatable {
         inputs = next; derivations += 1
         let all = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branches,
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
-        let sidebar = SignalSidebar(state: state, entries: all)
+        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts)
         var changed = leavingMoved || signalOperator != next.operatorRow || signalSections != sidebar.signals
             || entries != sidebar.projects
         if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }

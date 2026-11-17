@@ -116,19 +116,19 @@ import Testing
         #expect(rounds(h).isEmpty)
     }
 
-    @Test func aHeldCheckSavesNothingAndIsNotIdle() async throws {
+    @Test func aHeldCheckSavesNothingAndRunsAsTrackedActivity() async throws {
         let (h, claim, world) = try rig(); defer { h.cleanUp() }
         let entered = TestLatch(), release = TestLatch()
         let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in entered.signal(); await release.wait(); return .critique("NO") }
-        #expect(oracle.consult.isIdle)
+        #expect(!oracle.activity.isRunning)
         let before = rounds(h)
         let check = Task { await oracle.consult.consult(Self.question, binding: Self.binding(claim)) }
         await entered.wait()
-        #expect(rounds(h) == before && !oracle.consult.isIdle)
+        #expect(rounds(h) == before && oracle.activity.isRunning)
         #expect(oracle.prompts.first?.hasPrefix("Standing instructions from the person, which apply to this check:\nYou are careful.\n\n") == true)
         release.signal()
         if case .critique(_, 1, _?) = await check.value {} else { Issue.record("Expected a saved critique") }
-        #expect(oracle.consult.isIdle && rounds(h).count == 1)
+        #expect(!oracle.activity.isRunning && rounds(h).count == 1)
     }
 
     @Test func aClaimThatChangedWhileItReadSavesNothing() async throws {

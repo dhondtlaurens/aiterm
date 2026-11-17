@@ -43,7 +43,7 @@ import Testing
     }
     @Test func aSourceFailureIsSavedLoggedAndWokenOnlyWhenItsReasonChangesAndAPassClearsIt() async throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
-        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"
+        let session = OperatorSession.open(createdAt: world.now)
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()

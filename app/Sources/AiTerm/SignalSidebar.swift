@@ -12,10 +12,11 @@ struct SignalSection: Equatable, Identifiable {
 }
 
 /// Reuses the project's exact task rows. Moving ownership changes only which heading holds them.
+/// `acts` are the acts the Operator runs on tasks now (`OperatorActivityTracker.actsByTask`).
 struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
-    init(state: AppState, entries: [SidebarEntry]) {
+    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:]) {
         let held = state.tasks.filter { $0.signalTask != nil }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
@@ -28,7 +29,7 @@ struct SignalSidebar {
             }
         }
         signals = definitions.map { signal in
-            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.current.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state) } })
+            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.current.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state, act: acts[task.id]) } })
             section.skipped = state.signalSeen.filter { $0.signal == signal.id && $0.disposition == .skipped && $0.isMatching }
                 .map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted()
             section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
@@ -41,7 +42,7 @@ struct SignalSidebar {
             return .project(section)
         }
     }
-    private static func present(_ original: TaskRow, task: TaskItem, state: AppState) -> TaskRow {
+    private static func present(_ original: TaskRow, task: TaskItem, state: AppState, act: String?) -> TaskRow {
         guard let record = task.signalTask else { return original }
         var row = original
         let busy = [.working, .background].contains(row.status)
@@ -51,7 +52,7 @@ struct SignalSidebar {
         if paused && !busy { row.operatorLine = .paused; row.paused = true; row.status = .idle }
         else if let question = questions.first {
             row.operatorLine = OperatorLine("waiting on you", look: .needsYou, tooltip: question.text); row.status = .needsInput
-        } else if let act = record.currentAct {
+        } else if let act {
             row.operatorLine = OperatorLine("Operator " + act, look: .acting); row.status = .working
         } else {
             switch record.phase {
@@ -93,7 +94,9 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
     var event: UUID?
     var completedActivity: OperatorLine?
     static let empty = Self(line: OperatorLine("watching 0 tasks in 0 signals"), status: .idle, paused: false, shown: false)
-    static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil, activity: OperatorActivity? = nil) -> Self {
+    /// `latestAct` is the most recent act the Operator runs on a task (`OperatorActivityTracker.latestAct`).
+    static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil, activity: OperatorActivity? = nil,
+                     latestAct: OperatorAct? = nil) -> Self {
         let session = state.operatorSession
         let workload = state.operatorWorkTasks
         let questions = state.currentOperatorQuestions
@@ -107,16 +110,16 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         if session?.paused == true && tasks > 0 { line = .paused }
         else if own?.state == .needsInput { line = OperatorLine("needs you", look: .needsYou, tooltip: issue ?? "The Operator needs input in its chat.") }
         else if let issue { line = OperatorLine("needs you", look: .needsYou, tooltip: issue) }
-        else if session?.finishing == true { line = OperatorLine("finishing its session", look: .acting) }
-        else if session?.startingFresh == true {
+        else if session?.lifecycle.isRetiring == true { line = OperatorLine("finishing its session", look: .acting) }
+        else if session?.lifecycle.isChanging == true {
             line = OperatorLine("starting fresh · \(tasks) \(tasks == 1 ? "task" : "tasks") carried over", look: .acting)
         }
         else if !questions.isEmpty {
             line = OperatorLine("waiting on you · \(questions.count)", look: .needsYou)
         }
         else if let current = activity?.line { line = current }
-        else if let task = workload.first(where: { $0.signalTask?.currentAct != nil }), let act = task.signalTask?.currentAct {
-            let name = OperatorActivityTracker.name(task)
+        else if let latestAct, let task = workload.first(where: { $0.id == latestAct.task }) {
+            let act = latestAct.words, name = OperatorActivityTracker.name(task)
             let text = act.contains("its worker") ? act.replacingOccurrences(of: "its worker", with: name + "’s worker") : act + " · " + name
             line = OperatorLine(text, look: .acting)
         }
@@ -124,10 +127,10 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         else { line = OperatorLine("watching \(tasks) \(tasks == 1 ? "task" : "tasks") in \(signals) \(signals == 1 ? "signal" : "signals")") }
         let status: TaskStatus = line.look == .needsYou ? .needsInput : line.look == .acting ? .working : .idle
         let shown = tasks > 0 || !questions.isEmpty || own?.state == .needsInput || own?.state == .working || issue != nil
-            || session?.finishing == true || (session?.window != nil && activity?.line != nil)
+            || session?.lifecycle.isRetiring == true || (session?.window != nil && activity?.line != nil)
         return Self(line: shown ? line : Self.empty.line, status: shown ? status : .idle, paused: session?.paused == true,
                     shown: shown, event: shown ? activity?.id : nil,
                     completedActivity: shown && line.look != .needsYou && session?.paused != true
-                        && session?.startingFresh != true ? activity?.completed : nil)
+                        && session?.lifecycle.isChanging != true ? activity?.completed : nil)
     }
 }

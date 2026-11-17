@@ -149,7 +149,8 @@ import Testing
         let runner = stages(h, at: world.now)
         let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now },
                               ports: .init(workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
-        var reads = 0, merges = 0
+        var reads = 0, merges = 0, asked: [String?] = []
+        let activity = OperatorActivityTracker()
         let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
             workerIsWorking: { _ in false }, read: { _ in
                 reads += 1
@@ -160,11 +161,13 @@ import Testing
                 if reason == "head" { value.localHead = "different" }
                 if reason == "changed-head", reads > 1 { value.head = "different"; value.localHead = "different" }
                 return value
-            }, oracleMerge: { _, _ in reason != "oracle" }, merge: { _, _ in merges += 1 }))
+            }, oracleMerge: { _, _ in asked.append(activity.act(for: task)); return reason != "oracle" }, merge: { _, _ in merges += 1 }),
+            activity: activity)
         await watch.pass()
         #expect(merges == 0)
         #expect(h.workspace.state.task(id: task)?.signalTask?.phase != .done)
-        #expect(h.workspace.state.task(id: task)?.signalTask?.currentAct == nil)
+        #expect(asked.allSatisfy { $0 == "consulting the Oracle" }, "The veto shows on the task's row while it runs.")
+        #expect(activity.act(for: task) == nil && !activity.isRunning, "and is gone once the merge's body ends")
     }
 
     @Test func mergeWhenReadyKeepsWatchingUntilTheMergeFloorHolds() async throws {

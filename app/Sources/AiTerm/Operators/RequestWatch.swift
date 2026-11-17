@@ -39,9 +39,12 @@ import AiTermCore
     private let then: ThenRunner
     private let ports: Ports
     private let effects: OperatorInFlight
+    /// Where the merge's Oracle veto and the merge show as the task's act.
+    private let activity: OperatorActivityTracker
     var changed: (UUID, String) -> Void = { _, _ in }
-    init(workspace: WorkspaceStore, stages: StageRunner, then: ThenRunner, ports: Ports, effects: OperatorInFlight = OperatorInFlight()) {
-        self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports; self.effects = effects
+    init(workspace: WorkspaceStore, stages: StageRunner, then: ThenRunner, ports: Ports, effects: OperatorInFlight = OperatorInFlight(),
+         activity: OperatorActivityTracker = OperatorActivityTracker()) {
+        self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports; self.effects = effects; self.activity = activity
     }
     /// One pass over the working and watching tasks. A task whose worker is at work or that another effect holds is
     /// skipped this pass; the merge holds its task from the Oracle's veto through the confirming read.
@@ -92,26 +95,27 @@ import AiTermCore
             }
         } }
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
-        if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
+        if merges, snapshot.canMerge, workspace.state.operatorSession?.lifecycle.isChanging != true {
             guard effects.claim(task.id) else { return }
             defer { effects.release(task.id) }
             let generation = workspace.state.operatorSession?.generation
-            workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" } }
-            guard workspace.flush() else { return }
-            defer {
-                workspace.mutate { state in
-                    if claim.holds(in: state) { state.updateSignalTask(task.id) { $0.currentAct = nil } }
-                }
+            let agreed: Snapshot? = try await activity.acting(task: task.id, act: "consulting the Oracle") { [snapshot] in
+                guard try await ports.oracleMerge(task, snapshot), allowed(claim),
+                      workspace.state.operatorSession?.generation == generation else { return nil }
+                let verified = try await ports.read(task)
+                guard allowed(claim), verified.canMerge, verified.head == snapshot.head, verified.reference == snapshot.reference else { return nil }
+                return verified
             }
-            guard try await ports.oracleMerge(task, snapshot), allowed(claim),
-                  workspace.state.operatorSession?.generation == generation else { return }
-            let verified = try await ports.read(task)
-            guard allowed(claim), verified.canMerge, verified.head == snapshot.head, verified.reference == snapshot.reference else { return }
-            workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "merging it" } }
-            try await ports.merge(task, verified)
-            guard allowed(claim) else { return }
-            snapshot = try await ports.read(task)
-            guard allowed(claim), snapshot.reference == verified.reference else { return }
+            guard let verified = agreed else { return }
+            let merged: Snapshot? = try await activity.acting(task: task.id, act: "merging it") {
+                try await ports.merge(task, verified)
+                guard allowed(claim) else { return nil }
+                let confirmed = try await ports.read(task)
+                guard allowed(claim), confirmed.reference == verified.reference else { return nil }
+                return confirmed
+            }
+            guard let merged else { return }
+            snapshot = merged
         }
         // Merge when ready is part of this stage's finish. A separate done condition becoming
         // true must not archive the task and stop its merge watch before checks turn green.

@@ -8,11 +8,47 @@ struct OperatorActivity: Equatable {
     var completed: OperatorLine?
 }
 
+/// A task's act the Operator is running, as its row says it: "Operator " and the words.
+struct OperatorAct: Equatable {
+    var task: UUID
+    var words: String
+}
+
+/// What the Operator is doing now, runtime only: its row's activity (`during`) and each task's acts (`acting`).
 @MainActor final class OperatorActivityTracker {
     private(set) var event = OperatorActivity()
     private var running: [(id: UUID, line: OperatorLine)] = []
-    var isRunning: Bool { !running.isEmpty }
+    /// The acts running on tasks, oldest first.
+    private var acts: [(id: UUID, act: OperatorAct)] = []
+    /// Whether any activity or act runs.
+    var isRunning: Bool { !running.isEmpty || !acts.isEmpty }
     var changed: () -> Void = {}
+
+    /// A task's current act: the latest it began that is still running.
+    func act(for task: UUID) -> String? { acts.last { $0.act.task == task }?.act.words }
+    /// Each task's current act.
+    var actsByTask: [UUID: String] {
+        acts.reduce(into: [:]) { result, entry in result[entry.act.task] = entry.act.words }
+    }
+    /// The most recent act still running, for the Operator's row.
+    var latestAct: OperatorAct? { acts.last?.act }
+    /// `body` run as `task`'s act, shown on its row while it runs; a nested act shows until it ends.
+    func acting<Result>(task: UUID, act words: String, _ body: @MainActor () async throws -> Result) async rethrows -> Result {
+        let id = begin(task: task, act: words)
+        defer { end(id) }
+        return try await body()
+    }
+    /// Begins `task`'s act; `end` with the id it returns ends it.
+    func begin(task: UUID, act words: String) -> UUID {
+        let id = UUID()
+        acts.append((id, OperatorAct(task: task, words: words)))
+        changed()
+        return id
+    }
+    func end(_ id: UUID) {
+        acts.removeAll { $0.id == id }
+        changed()
+    }
 
     func pulse(completed: OperatorLine? = nil) {
         event = OperatorActivity(line: running.last?.line, completed: running.isEmpty ? completed : nil)

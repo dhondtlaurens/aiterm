@@ -39,21 +39,17 @@ import AiTermCore
     private let activity: OperatorActivityTracker
     private let now: () -> Date
     private let ports: Ports
-    private var inFlight = 0
     init(workspace: WorkspaceStore, folder: URL, activity: OperatorActivityTracker, now: @escaping () -> Date, ports: Ports) {
         self.workspace = workspace; self.folder = folder; self.activity = activity; self.now = now; self.ports = ports
     }
 
     /// Whether the Oracle is switched on in Settings.
     var isOn: Bool { ports.settings().oracle.isOn }
-    /// Whether no check is running.
-    var isIdle: Bool { inFlight == 0 }
 
     /// Asks `question` once. `previous` is the saved round a revised proposal continues.
     func consult(_ question: OracleLaunch.Question, binding: Binding, continuing previous: OracleRound? = nil) async -> Outcome {
         let settings = ports.settings()
         guard ports.running(), settings.oracle.isOn else { remove(previous); return .unavailable(.off) }
-        inFlight += 1; defer { inFlight -= 1 }
         let round = (previous?.round ?? 0) + 1, discussion = Self.discussion(of: previous)
         let answer: OracleRunner.Verdict
         do {

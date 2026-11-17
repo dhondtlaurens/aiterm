@@ -85,14 +85,6 @@ import AiTermCore
         }
         if let ledgerKey { running.insert(ledgerKey) }
         defer { if let ledgerKey { running.remove(ledgerKey) } }
-        if let task, let act = tool.act {
-            workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = act } }
-        }
-        defer {
-            if let claim, claim.holds(in: workspace.state) {
-                workspace.mutate { $0.updateSignalTask(claim.task) { $0.currentAct = nil } }
-            }
-        }
         // These effects may have happened when a connection drops. Record uncertainty first;
         // the same key then asks for inspection instead of typing/opening a duplicate.
         if let ledgerKey, [.messageTask, .openTab, .askOracle, .resumeTask, .finishStage, .chooseAgent].contains(tool) {
@@ -114,7 +106,7 @@ import AiTermCore
     }
     func requireSession(_ request: OperatorRequest, mutating: Bool) throws {
         guard let session = workspace.state.operatorSession, session.id.uuidString == request.operatorId,
-              session.generation == request.generation, !session.startingFresh else { throw ToolRefusal("This Operator session is no longer current.") }
+              session.generation == request.generation, !session.lifecycle.isChanging else { throw ToolRefusal("This Operator session is no longer current.") }
         if mutating {
             guard ports.actionsAllowed(), workspace.canChangeWorkspace, !session.paused, !Task.isCancelled else { throw ToolRefusal("The Operator is paused or the workspace is unavailable.") }
         }

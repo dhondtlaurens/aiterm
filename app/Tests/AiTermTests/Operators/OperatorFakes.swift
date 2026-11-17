@@ -143,7 +143,9 @@ func guardedWorkerCommand(_ line: String?) throws -> String? {
     var running = true
     private(set) var prompts: [String] = []
     var answer: @MainActor (String) async -> OracleRunner.Verdict
-    private(set) lazy var consult = OracleConsult(workspace: workspace, folder: folder, activity: OperatorActivityTracker(), now: now, ports: .init(
+    /// Where every check runs, as "consulting the Oracle".
+    let activity = OperatorActivityTracker()
+    private(set) lazy var consult = OracleConsult(workspace: workspace, folder: folder, activity: activity, now: now, ports: .init(
         settings: { [unowned self] in self.settings },
         ask: { [unowned self] _, prompt in self.prompts.append(prompt); return await self.answer(prompt) },
         running: { [unowned self] in self.running }))

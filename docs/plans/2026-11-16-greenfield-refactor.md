@@ -379,7 +379,7 @@ TS tests-scripts.
   settings are steps that ask whether they are due; one in-flight set per task shared by stage,
   Then, delivery and rounds; the 180-second grace has one name (RT F2). `busy` becomes a pure
   question and the live-work set is computed once per tick (RT F13).
-- [ ] 5f. **Opus.** The chat's lifecycle is one saved state with its generation; the three flags
+- [x] 5f. **Opus.** The chat's lifecycle is one saved state with its generation; the three flags
   and four memory flags go; one idle rule (RT F8, OC F2). A row's current activity is runtime-only
   and leaves the saved task and the task line of `run_status` (RT F9).
 - [ ] 5g. **Opus.** The tool handler's ledger is the only ledger of calls: `answer_worker`'s second
@@ -1125,3 +1125,18 @@ left.
   backup for a directory raced the teardown's debounced save; `ArchiveTests`, `CheckoutCleanupTests`
   and `ScratchController.breakSaving()` now flush first. Five filtered runs of each and the plain gate
   were green.
+- 5f: the chat's lifecycle is one saved state, `OperatorSession.lifecycle` (idle, opening,
+  `open(since:wake:)`, `closing(then:)`, `revoking(then:)`, unknown) with its generation; the saved
+  `startingFresh`, `finishing`, `handover` and `wakeAwaitingRead`, and the runtime open record, waker
+  flags and Oracle in-flight count went; one idle rule (`OperatorSession.chatIsIdle`). Retirement and
+  renewal both advance the generation (asserted by `aMatchDuringTheLastChatsCloseStartsFreshAndIsNotLost`).
+  A row's current activity is runtime-only (`OperatorActivityTracker.acting`), out of the saved task
+  and `run_status`. Fixture re-recorded: `operator-signals/state.json` (`startingFresh` out, `lifecycle`
+  in), provenance section added; `brief.md` and `tools.json` unchanged. Model-facing: `run_status`
+  `tasks[].currentAct` removed; the two flush errors from 5c's review round went with the act's flush.
+  No test deleted; added `OperatorLifecycleTests` and four keeper, activity and issue tests. Snapshots
+  in `build/refactor-5f` byte-identical to `build/refactor-5b`; the Operator section poses are
+  hosted-only (they need `AITERM_SNAPSHOT_HOSTED=1`, which opens windows), so they were not compared
+  here: for 9c. Behaviour notes: retirement also waits for tracked acts, an unread wake and a window
+  holding one tab (the one idle rule); an open chat closed before its conversation was recorded no
+  longer reopens by itself.

@@ -51,6 +51,17 @@ extension SignalTask {
     }
 }
 
+extension OperatorSession {
+    /// The Operator's chat open in `window` since `createdAt`, with its conversation when given.
+    static func open(id: UUID = UUID(), createdAt: Date = Build.epoch, window: String? = "operator-window",
+                     conversation: String? = nil, wake: Lifecycle.Wake? = nil) -> OperatorSession {
+        var session = OperatorSession(id: id, createdAt: createdAt)
+        session.window = window; session.conversation = conversation
+        session.lifecycle = .open(since: createdAt, wake: wake)
+        return session
+    }
+}
+
 extension SessionInfo {
     /// A tab as the daemon lists it, tagged with `task` when it belongs to a task.
     static func make(_ sessionId: String = "s", window: String = "w1", tabIndex: Int = 0, task: UUID? = nil,
