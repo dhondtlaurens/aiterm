@@ -1290,3 +1290,7 @@ left.
   as the orphan (it fails without the fix).
 - Review round 2: no findings, "ready". No check is owed to the maintainer for phase 6 beyond those already
   listed.
+- Plain `scripts/test.sh all` green on `a42ce392`. `main` had only the refactor's own merges; merged to `main`
+  (`6f6628db`).
+
+### Phase 7
