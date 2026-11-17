@@ -134,11 +134,12 @@ final class RowFocus {
     }
 
     /// The row with this id, whichever kind it is. The Operator's chat has the fixed `OperatorSession.rowID`.
+    /// Tasks under the Operator keep their signal's heading after the signal is removed.
     func row(id: UUID) -> RowSelection? {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
-        if state.signals.contains(where: { $0.id == id }) || state.tasks.contains(where: { $0.signalTask?.current.signal == id }) { return .signal(id) }
+        if state.signals.contains(where: { $0.id == id }) || state.tasks.filter(\.isUnderOperator).contains(where: { $0.signalTask?.current.signal == id }) { return .signal(id) }
         if state.project(id: id) != nil { return .project(id) }
         if OperatorSession.rowID == id { return .operatorChat }
         return nil

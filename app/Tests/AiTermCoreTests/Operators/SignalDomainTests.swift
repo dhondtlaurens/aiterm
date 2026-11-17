@@ -6,6 +6,18 @@ import Testing
 @Suite struct SignalDomainTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    @Test(arguments: [TaskPhase.launching, .choosing, .working, .watching(.approved), .blocked,
+                      .done, .archived, .unknown(.string("future"))])
+    func aTaskIsUnderTheOperatorExactlyWhenItHasARecord(_ phase: TaskPhase) throws {
+        var world = SignalWorld()
+        let id = world.workingTask(signal: world.signal())
+        var task = try #require(world.state.task(id: id))
+        task.signalTask?.phase = phase
+        #expect(task.isUnderOperator)
+        task.signalTask = nil
+        #expect(!task.isUnderOperator)
+    }
+
     func signal(_ name: String = "Tickets", createdAt: Date? = nil) -> Signal {
         Signal(name: name, createdAt: createdAt ?? now, source: .jira(JiraConditions()),
                work: SignalWork(prompt: "/psg:plan"), agents: [], finish: SignalFinish(doneWhen: .operatorJudges))

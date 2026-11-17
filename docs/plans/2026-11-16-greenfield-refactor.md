@@ -426,7 +426,7 @@ TS tests-scripts.
 
 ### Phase 8. Sidebar and sheets (sidebar after 5; sheets after 1)
 
-- [ ] 8a. **Codex.** One Core rule for "this task is under the Operator" (it has a signal record),
+- [x] 8a. **Codex.** One Core rule for "this task is under the Operator" (it has a signal record),
   read by the eight places that ask (SB F3). The defects the audit tied to a stopped task cannot
   be reached: nothing ever produced that phase, and 5a removes it.
 - [ ] 8b. **Opus.** The projection decides each row's mark and "needs you" once and hands views
@@ -1354,3 +1354,10 @@ left.
   (`ec98214f`). No check is owed to the maintainer for phase 7.
 
 ### Phase 8
+- 8a: `TaskItem.isUnderOperator` (true exactly when the task has a signal record) is the one way the app asks;
+  the sidebar grouping, reveal, Take Over, the project fold, Remove Project's count, `RowFocus`, `PerRow`,
+  `allSignalTasks`, the launcher, teardown and the item router read it. Per the brief, a `done` task under its signal
+  still offers Take Over. Small differences: `adoptOnly:` was already gone from the window plan, the signal id is
+  at `record.current.signal`, and `RequestWatch`'s boolean map over the record's phase became an explicit record
+  read. No test deleted. Added the accessor test across every phase and a `SignalWorld` test that the places agree.
+  Noticed and left: Remove Project's alert says "1 worktrees are run by signals" (grammar; older than this step).

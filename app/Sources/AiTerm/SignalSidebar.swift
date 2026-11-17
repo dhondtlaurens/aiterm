@@ -17,7 +17,7 @@ struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
     init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:]) {
-        let held = state.tasks.filter { $0.signalTask != nil }
+        let held = state.tasks.filter { $0.isUnderOperator }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
             if case .project(let section) = entry { return section.tasks }; return []

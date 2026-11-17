@@ -469,7 +469,7 @@ struct TaskRowView: View {
         .selectionDisabled(removing)
         .contextMenu {
             if let task {
-                if task.signalTask != nil {
+                if task.isUnderOperator {
                     Button("Take Over") { Task { await controller.takeOver(task.id) } }
                         .disabled(!controller.canChangeWorkspace || removing)
                     Divider()

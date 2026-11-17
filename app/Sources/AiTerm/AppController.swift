@@ -490,7 +490,7 @@ final class AppController {
     /// then raised.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
-        if windows.itermSynced, let task = state.task(id: id), task.signalTask != nil, !teardown.isLeaving(id),
+        if windows.itermSynced, let task = state.task(id: id), task.isUnderOperator, !teardown.isLeaving(id),
            let tab = task.tabToBring(sessions: live.sessions) { return bringTab(task: id, sessionId: tab.sessionId) }
         if teardown.isLeaving(id) { return focus.select(.task(id)) }
         return openAndRaise(.task(id), .task(id))

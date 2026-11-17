@@ -70,7 +70,7 @@ import AiTermCore
                     let stage = configured(proposed)
                     guard let task = state.signalItem(id: id) else { continue }
                     var record = task.signalTask ?? SignalTask(current: stage, startedAt: at)
-                    if task.signalTask != nil {
+                    if task.isUnderOperator {
                         guard let next = try? SignalTransitions.apply(.matched(stage), to: record, at: at,
                                                                       workerIsWorking: workerIsWorking(id)) else { continue }
                         record = next

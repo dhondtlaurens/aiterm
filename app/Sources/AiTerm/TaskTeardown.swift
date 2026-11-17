@@ -309,7 +309,7 @@ final class TaskTeardown: CheckoutRemovals {
             let removed = try await run(.init(task: task, force: false, allowUnlisted: false, head: .missing),
                                         verb: .remove, consent: consent) { task, force in
                 try await workflow.remove(task: task, project: project, deleteBranch: false, force: force,
-                                          preserveBranch: task.signalTask != nil)
+                                          preserveBranch: task.isUnderOperator)
             }
             // A signal may have queued another stage while git removed the checkout. Keep the row and put its branch
             // back in a worktree before the new stage can continue.

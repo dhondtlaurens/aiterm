@@ -301,7 +301,7 @@ final class TaskLauncher {
     /// now, as an ordinary task has one, unless the Operator's checkout for it is under way: that one carries
     /// on for the person and saves its folder on the task (`checkOutWorker`). Each failure is said on the task.
     func takeOver(_ id: UUID) async {
-        guard canChangeWorkspace, state.task(id: id)?.signalTask != nil else { return }
+        guard canChangeWorkspace, state.task(id: id)?.isUnderOperator == true else { return }
         var removed: SignalTask?
         workspace.mutate { removed = $0.takeOver(id) }
         guard let record = removed, workspace.flush() else { return }
@@ -355,7 +355,7 @@ final class TaskLauncher {
         guard let opened = try await openWindow(for: ready, command: commands.first, with: daemon) else { return }
         // The window is there, but its first command was never typed: a plain shell, said on the row.
         if let failure = opened.commandError {
-            let title = ready.signalTask == nil ? "Reopened the window, but not every conversation."
+            let title = !ready.isUnderOperator ? "Reopened the window, but not every conversation."
                                                 : "Reopened the window, but its worker didn’t resume."
             notices.report(OperationIssue(title: title, reason: failure, subject: id))
         } else {
@@ -374,7 +374,7 @@ final class TaskLauncher {
     /// remembered conversation plainly (`TaskItem.resumeCommands`); a driven task resumes its first
     /// worker's conversation under its branch guard, with no prompt, on the guard's main slot.
     private func openCommands(for task: TaskItem) async throws -> [String] {
-        guard task.signalTask != nil else { return task.resumeCommands }
+        guard task.isUnderOperator else { return task.resumeCommands }
         guard let conversation = task.firstWorkerConversation?.id else {
             throw ActionUnavailable("Its worker has no saved conversation to reopen.")
         }

@@ -1,5 +1,10 @@
 import Foundation
 
+public extension TaskItem {
+    /// A task under the Operator is drawn under its signal, offers Take Over, and is not one of its project's own rows.
+    var isUnderOperator: Bool { signalTask != nil }
+}
+
 /// Saved before typing or launching. An old transcript cannot finish a newly sent turn.
 public struct SignalWorkerReply: Codable, Equatable, Sendable {
     public var at: Date

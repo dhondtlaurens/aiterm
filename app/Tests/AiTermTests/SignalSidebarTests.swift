@@ -8,6 +8,50 @@ import AiTermUI
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test func signalHeadingsProjectRowsAndRemovalAgreeOnWhichTasksAreUnderTheOperator() async throws {
+        var world = SignalWorld()
+        let signal = world.signal(), working = world.workingTask(signal: signal), done = world.workingTask(signal: signal)
+        world.state.updateSignalTask(done) { $0.phase = .done }
+        let ordinary = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/ordinary")
+        world.state.tasks.append(ordinary)
+        let prompter = ScriptedPrompter(answering: "Cancel", "Cancel", "Cancel")
+        let controller = AppController(preferences: .scratch(), prompter: prompter)
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+
+        let entries = SidebarModel.entries(state: controller.state, sessions: [], branchByCwd: [:], projectBranch: [:])
+        let sidebar = SignalSidebar(state: controller.state, entries: entries)
+        #expect(sidebar.signals.map(\.id) == [signal])
+        #expect(sidebar.signals[0].tasks.map(\.id) == [working, done])
+        let projectTasks = sidebar.projects.flatMap { entry -> [TaskRow] in
+            if case .project(let section) = entry { return section.tasks }; return []
+        }
+        #expect(projectTasks.map(\.id) == [ordinary.id])
+        #expect(controller.projects.hasRows(world.project))
+        await controller.projects.confirmRemove(project: world.project)
+
+        controller.workspace.mutate { $0.tasks.removeAll { $0.id == ordinary.id } }
+        #expect(!controller.projects.hasRows(world.project))
+        controller.workspace.mutate { state in
+            state.tasks[state.tasks.firstIndex { $0.id == working }!].worktreePath = ""
+            state.signals = []
+        }
+        #expect(controller.focus.row(id: signal) == .signal(signal))
+        await controller.projects.confirmRemove(project: world.project)
+        controller.workspace.mutate { state in
+            state.tasks[state.tasks.firstIndex { $0.id == done }!].worktreePath = ""
+        }
+        await controller.projects.confirmRemove(project: world.project)
+
+        #expect(prompter.asked.map(\.detail) == [
+            "Removes the project and its 3 tasks from AiTerm. Files, worktrees and windows are kept. 2 worktrees are run by signals.",
+            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept. 1 worktrees are run by signals.",
+            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept.",
+        ])
+        #expect(controller.state.project(id: world.project.id) != nil, "Cancel keeps the project.")
+    }
+
     @Test func aSignalTaskKeepsTheOrdinaryTasksTwoLineHeight() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
         defer { controller.shutdown() }

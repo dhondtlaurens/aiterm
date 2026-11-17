@@ -238,9 +238,9 @@ final class ProjectActions {
         workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
     }
 
-    /// Whether the project has a task, review or terminal row, anything to fold.
+    /// Whether the project has its own task or terminal rows to fold; tasks under the Operator are drawn under their signal.
     func hasRows(_ project: Project) -> Bool {
-        return state.tasks.contains(where: { $0.projectId == project.id && $0.signalTask == nil })
+        return state.tasks.contains(where: { $0.projectId == project.id && !$0.isUnderOperator })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
@@ -268,13 +268,13 @@ final class ProjectActions {
     }
 
     // -- removing a project -----------------------------------------------------------------
-    /// Plan self-review: removing a project only forgets it. Worktrees created for its
-    /// tasks stay on disk — the alert says so, and how many tasks go — and no git command runs.
+    /// Removing a project only forgets it. The alert counts its tasks and the worktrees under the Operator;
+    /// files, worktrees and windows stay, and no git command is made.
     func confirmRemove(project: Project) async {
         guard canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
         let tasks = state.tasks.filter { $0.projectId == project.id }
-        let held = tasks.filter { $0.signalTask != nil && $0.hasCheckout }.count
+        let held = tasks.filter { $0.isUnderOperator && $0.hasCheckout }.count
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
             detail: Self.removalDetail(tasks: tasks.count, archived: state.archived(projectId: project.id), operatorWorktrees: held),
