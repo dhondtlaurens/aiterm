@@ -89,38 +89,14 @@ protocol CreationKind {
 }
 
 extension CreationKind {
-    /// New Task and New Review: three steps — what and where from, the prompt, the agent — the
-    /// destination summed up only on the last.
-    static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 3, promptSteps: [2], summarizesOnlyOnLast: true) }
+    /// New Task and New Review have three steps — what and where from, the prompt, the agent — and
+    /// the agent's, the last, creates and sums up where the window opens.
+    static var lastStep: Int { 3 }
 
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
     func branchesChanged(in model: CreationModel<Self>) {}
     /// Kinds with no recovery effects need no implementation.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
-}
-
-/// A creation sheet's step count, footer actions, destination summary and prompt editors.
-/// The last step creates; the first offers Cancel and the others Back.
-struct CreationSteps: Equatable {
-    let count: Int
-    /// The step that picks the agent and its model; nil for a sheet that starts no agent of its own.
-    let agentStep: Int?
-    /// New Signal's Agents step lists permitted worker choices and has no prompt editor.
-    var agentsListStep: Int? = nil
-    var promptSteps: Set<Int>? = nil
-    var summarizesOnlyOnLast = false
-
-    func creates(onStep step: Int) -> Bool { step == count }
-    func primaryTitle(onStep step: Int, createLabel: String) -> String { creates(onStep: step) ? createLabel : "Continue" }
-    func secondaryTitle(onStep step: Int) -> String { step == 1 ? "Cancel" : "Back" }
-    /// Step 1, which names where the window opens, and the last, which opens it. Never the agent's
-    /// step, so nothing works the line out there (finding the unused worktree slug looks at the disk).
-    func showsDestination(onStep step: Int) -> Bool { summarizesOnlyOnLast ? step == count : step == 1 || step == count }
-    /// Why no agent can run, on the create step of a sheet that starts one.
-    func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
-    /// The steps past the first that are not the agent's or the Agents list's: a prompt editor, whose completion popup
-    /// ⎋ closes.
-    func hasPrompt(onStep step: Int) -> Bool { promptSteps?.contains(step) ?? (step > 1 && step != agentStep && step != agentsListStep) }
 }
 
 /// The dependencies shared by New Task and New Review; disk and preference sources are explicit.

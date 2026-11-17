@@ -11,11 +11,32 @@ struct NewTaskSheet: View {
     @State private var ticketsOpen = false
     init(model: TaskCreationModel) { self.model = model }
     var body: some View {
-        CreationSheet(model: model, step: $step, title: "New task in \(model.project.name)",
-                      stepNames: ["Task", "Prompt", "Agent"], destination: destination,
-                      createLabel: "Create Task", canAdvance: Self.canAdvance(step: step, model: model), pickers: [$ticketsOpen]) {
+        SteppedSheet(title: "New task in \(model.project.name)", height: Sheet.creationHeight, steps: steps, step: $step,
+                     createLabel: "Create Task", creating: model.creating, create: model.create) {
             content
+        } notices: {
+            CreationNotices(error: model.error, availableAgents: step == TaskCreation.lastStep ? model.availableAgents : nil,
+                            creating: model.creating, recoverAndCreate: model.recoverAndCreate)
+        } closing: {
+            CreationSummary(model: model, destination: destination)
         }
+        .creationLoads(model)
+    }
+    /// Leaving the Task step closes its ticket list; the Prompt step's list is the completion popup.
+    private var steps: [Step] {
+        let canChange = model.canChangeWorkspace()
+        let completions = model.completions
+        return [
+            Step(name: "Task", canAdvance: canChange && Self.canAdvance(step: 1, model: model), closeList: {
+                guard ticketsOpen else { return false }
+                ticketsOpen = false; return true
+            }),
+            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: 2, model: model), closeList: {
+                guard completions.isOpen else { return false }
+                completions.close(); return true
+            }),
+            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: 3, model: model)),
+        ]
     }
     @ViewBuilder private var content: some View {
         switch step {
@@ -35,10 +56,10 @@ struct NewTaskSheet: View {
     static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
         guard !model.creating else { return false }
         guard TaskCreator.isNamed(model.draft.title), !model.draft.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        return step != TaskCreation.steps.agentStep || model.agentIsReady
+        return step != TaskCreation.lastStep || model.agentIsReady
     }
     private var destination: Destination? {
-        guard TaskCreation.steps.showsDestination(onStep: step), !model.worktreeSlug.isEmpty else { return nil }
+        guard step == TaskCreation.lastStep, !model.worktreeSlug.isEmpty else { return nil }
         return .worktree(project: model.project, slug: model.worktreeSlug, branch: model.draft.branch)
     }
 }

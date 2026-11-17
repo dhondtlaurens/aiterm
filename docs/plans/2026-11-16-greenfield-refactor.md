@@ -440,7 +440,7 @@ TS tests-scripts.
   VoiceOver actions (SB F11). Pause and Resume have one home and one wording (SB F16, first item).
 - [x] 8e. **Codex.** The selection follows its row (SB F8). "Which items would start" is one Core
   rule; a heading no longer reads the source (SB F9, SS F11).
-- [ ] 8f. **Opus.** One stepped-sheet frame that each sheet configures with its steps, create
+- [x] 8f. **Opus.** One stepped-sheet frame that each sheet configures with its steps, create
   action, failure and closing block; it owns the stepper, Cancel on every step, Escape, Back,
   Continue and dismissal. Each sheet keeps its height. New Task, New Review and New Signal use it; one-field sheets
   commit on Return (SS F2, F3, F14 Return only).
@@ -1421,3 +1421,29 @@ left.
   is deleted), and Focus View's old expectation that a hidden task stays selected now expects its heading. Added
   Core start-rule tests and app tests for each hand-over the brief lists. Noticed and left: Focus View and List View
   apply saved folds only, not a removed signal's runtime fold (as the 8c brief decided).
+- 8f: one `SteppedSheet` frame, configured with `Step`s, owns the stepper, the footer, the keys and dismissal for New
+  Task, New Review and New Signal. Each sheet keeps its height (500 and 560 pt). Cancel is on every step at the leading
+  end, Back appears from step 2, Escape closes the step's open list and then cancels, and ⌘↩, ⌘1…n and Back are
+  refused while a create runs. Rename, Add Divider and New Terminal commit on plain Return. `CreationSheet`,
+  `SteppedSheetFrame`, `CreationFooter` and `CreationSteps` went; `SignalModel.error` is the sentence it shows.
+  Decisions (within the agreed visible change "Stepped sheets show Cancel on every step"):
+  - With the longest fix label ("Create Empty Commit and Retry"), Cancel, the fix button, Back and Create no longer
+    fit one row: SwiftUI squeezed the primary button and shifted the whole footer. The fix button now sits under
+    the failure notice it answers, leading, and the button row is always Cancel … Back, primary. No control or word
+    changed. The four images with a fix button (`task-unborn-base`, `task-initialization-identity`, `review-rebase`,
+    `review-switch-folder`) grow by that line, with the notice pixel-identical.
+  - Settings › Interface said ⎋ is "Back a step, or close", which is now false; it reads "Close the list, or cancel"
+    (`settings-interface-full.png` changes in that row only).
+  Snapshots against `build/8f-before`: only the footer rows of the stepped sheets and their footer images changed,
+  as the brief lists, plus the two decisions above. Small differences:
+  - `creating` is read when a key acts (an autoclosure): SwiftUI kept stale actions on the hidden ⎋ button and the
+    stepper's ⌘1, so a captured flag let Escape dismiss mid-create.
+  - Leaving a step closes all of its open lists.
+  - A redraw test reaches the frame through a small `Mirror` helper.
+  Tests deleted: `CreationSheetStepsTests.taskAndReviewShareThreeStepsWithTheAgentLast` (survivors: the new
+  footer-titles test in `SteppedSheetTests` and `NewReviewSheetTests.theDestinationAsksForTheSlugOnlyWhereItIsDrawn`)
+  and `NewReviewSheetKeyboardTests.escapeOnAPreviewedLaterStepStepsBack` (behaviour deleted).
+  `onlyCompletedStepsCanBeClickedOrReachedByTheirNumber` moved to `SteppedSheetTests`, and three Escape tests were
+  rewritten to cancel. Added `SteppedSheetTests` and three `SheetDismissalTests`. Noticed and left (docs comments for
+  9a): `SheetStepper`'s "no step is a button" and `SheetPrimaryButton`'s "New Review's Apply";
+  `docs/design/design-system.html` still names the old types (design-system sync).

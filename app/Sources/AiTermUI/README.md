@@ -108,8 +108,9 @@ keeps the shapes and removes rotation.
 
 Specify default, hover, pressed, disabled, focus and selected states together. If a target does not
 exist, omit its control rather than disabling it. Use native semantics and meaningful accessibility
-labels/actions; an icon-only count needs words. Plain Return belongs to the focused field/list;
-⌘Return invokes a sheet's primary action and Escape closes an open popup before backing out.
+labels/actions; an icon-only count needs words. Plain Return belongs to the focused field/list (a
+one-field name sheet's field presses its primary); ⌘Return invokes a sheet's primary action and
+Escape closes an open popup before cancelling.
 [Keyboard rules](../../../docs/keyboard.md) cover the product wiring.
 
 The sidebar keeps an empty titlebar band in `Palette.sidebar` at AppKit's native titlebar height,
@@ -152,7 +153,7 @@ explains ownership and the full reusable vocabulary.
 | `SectionHeading`, `SignalOperatorRow`, `HeadingRow` | Add signals from the + menu, show global pause and Pause Operator/Resume Operator in the Operator heading’s context menu, open the active workload’s chat, and use fold/source/count headings on the project grid. |
 | `SectionFoldLabel`, `SectionFoldChevron` | OPERATOR and PROJECTS fold into each other, projects open by default: the heading's click switches; the chevron sits in the trailing slot before the "+", shown folded and, open, only under the pointer; folded, one amber `StatusCountChips` count opens the section at its first row that needs you. |
 | `TaskRowView`, `OperatorActivityCaption`, `OperatorBadge`, `DecodeWordsView` | The same two-line task row under projects/signals; only the Operator activity caption decodes, by event identity, with a Reduce Motion swap. |
-| `SteppedSheetFrame`, `SheetLayout`, `SheetStepper`, `CreationFooter`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
+| `SteppedSheet`, `Step`, `SheetLayout`, `SheetStepper`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
 | `NewTaskSheet`, `NewReviewSheet`, `SignalSheet` | Source/name/prompt/agent/finish in one order, omitting inapplicable steps. |
 | `ProjectSheet`, `NameSheet` | Add/Edit Project including Jira links/import; one-step terminal/divider/name forms. |
 | `SignalStartsStep`, `SignalConditionPicker`, `SignalDoneStep`, `AgentsStep` | Conditions/JQL, source-valid completion, explicit merge and permitted agent rows. |

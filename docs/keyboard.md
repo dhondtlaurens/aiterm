@@ -1,7 +1,8 @@
 # Keyboard
 
-⌘Return presses a sheet's primary button. Plain Return belongs to the focused field or list.
-Escape closes an open list before going back; clicking Cancel still cancels.
+⌘Return presses a sheet's primary button. Plain Return belongs to the focused field or list; in
+Rename, Add Divider and New Terminal it presses the primary button. Escape closes an open list,
+then cancels.
 
 ## Application
 
@@ -60,8 +61,8 @@ it or type, not when the sheet focuses it.
 | --- | --- |
 | ⌘Return | Continue, then Create Task/Create Review/Create Signal, Add or Save as the button says. A review of an existing task's branch offers Open in Task/Open in Review. |
 | ⌘1…⌘4 | Return to a completed step when it is available. Future steps cannot be skipped. Clicking a completed check does the same. |
-| Return | Pick a highlighted dropdown result; insert a newline in the prompt/JQL editor. No sheet-wide commit. |
-| Escape | Close the current popup first, then go back; on the first step cancel. |
+| Return | Pick a highlighted dropdown result; insert a newline in the prompt/JQL editor. No sheet-wide commit. In Rename, Add Divider and New Terminal, Return presses the primary button too. |
+| Escape | Close the current popup first, then cancel. Back and the completed steps go back. |
 
 ## Picker and prompt completions
 

@@ -92,7 +92,7 @@ struct SignalMatchPreview: View {
         }
     }
     private var heading: String {
-        let title = model.title == "New signal" ? "Starts when you create it" : "Starts when you save it"
+        let title = model.isEditing ? "Starts when you save it" : "Starts when you create it"
         return title + (model.startCount.map { " · " + String($0) } ?? "")
     }
     private func preview(_ item: SignalItem) -> some View {

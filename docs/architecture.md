@@ -47,7 +47,8 @@ performs I/O or reads the whole workspace.
 and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
 does. Owners publish changes through `HookList`, whose hooks return removal tokens; a hook with one
 slot says so in its name. `SheetCoordinator` owns the single sheet slot and cancels stale
-preparation. Creation models share `CreationModel`, `CreationSheet` and model/reasoning controls;
+preparation. Creation models share `CreationModel` and model/reasoning controls, and the stepped sheets one
+`SteppedSheet` frame, where Escape cancels;
 provider lookup and missing-model policy remain with the caller. `LatestTask` replaces a prior
 request, polling passes run from the Operator's tick, one per host and none while that host's last
 pass still reads, and `DebouncedSearch` keeps the latest search after a pause for the pickers and the

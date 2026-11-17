@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import AiTermUI
 import AiTermCore
@@ -42,7 +43,7 @@ struct NameSheet: View {
             if let subtitle { SheetSubtitle(subtitle) }
         } content: {
             FormField(fieldLabel) {
-                Input(placeholder: placeholder, text: $name)
+                Input(placeholder: placeholder, text: $name, onCommand: returnSubmits)
                 if let help { HelpText(help) }
             }
             if let closing {
@@ -54,6 +55,14 @@ struct NameSheet: View {
         } footer: {
             SheetFooter(primary: confirmLabel, canSubmit: canSubmit, cancel: { dismiss.afterThisEvent() }, submit: confirm)
         }
+    }
+
+    /// A plain ↩ in the field presses the primary button, as the sheet asks one question; with
+    /// `canSubmit` false the key stays with the field. Every other key is the field's.
+    private func returnSubmits(_ selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.insertNewline(_:)), canSubmit else { return false }
+        confirm()
+        return true
     }
 
     /// The name reaches `submit` trimmed. What an empty one means is the caller's business: a new

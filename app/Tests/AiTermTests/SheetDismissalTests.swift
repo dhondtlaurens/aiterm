@@ -85,6 +85,49 @@ import AiTermCore
         #expect(submitted == ["Work"])
     }
 
+    /// A plain ↩ in Rename's field presses Rename, as ⌘↩ does: one question, one key.
+    @Test func plainReturnInANameSheetSubmitsAndDismissesAfterTheEvent() throws {
+        var submitted: [String] = []
+        let host = testHost(NameSheet(title: "Rename", subtitle: "Renames it.", fieldLabel: "Name", placeholder: "Name", confirmLabel: "Rename",
+                                      initialName: "  Work  ", canSubmit: true, submit: { submitted.append($0) }),
+                            size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        settle(host) { host.firstDescendant(NSTextField.self) != nil }
+        let field = try #require(host.firstDescendant(NSTextField.self))
+        #expect(window.makeFirstResponder(field))
+        settle(host)
+        window.sendEvent(keyDown("\r", code: 36, in: window)!)
+        pumpRunLoop(describing: "the rename to run") { !submitted.isEmpty }
+        #expect(submitted == ["Work"])
+    }
+
+    /// A name sheet that cannot submit leaves a plain ↩ to its field.
+    @Test func plainReturnInANameSheetThatCannotSubmitDoesNothing() throws {
+        var submitted: [String] = []
+        let host = testHost(NameSheet(title: "Rename", fieldLabel: "Name", placeholder: "Name", confirmLabel: "Rename",
+                                      initialName: "Work", canSubmit: false, submit: { submitted.append($0) }),
+                            size: CGSize(width: Sheet.width, height: Sheet.height))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        settle(host) { host.firstDescendant(NSTextField.self) != nil }
+        let field = try #require(host.firstDescendant(NSTextField.self))
+        #expect(window.makeFirstResponder(field))
+        settle(host)
+        window.sendEvent(keyDown("\r", code: 36, in: window)!)
+        settle(host, for: 0.1)
+        #expect(submitted.isEmpty)
+    }
+
+    /// ⎋ on New Task's second step, with no list open, closes the sheet rather than going back.
+    @Test func escapeOnNewTasksSecondStepClosesTheSheet() async {
+        let model = TaskCreationModel(project: .make(), draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "m", reasoning: nil),
+                                      context: .scratch(git: NoPickerGit()), searchIssues: { _ in [] }, createTask: { _ in })
+        model.draft.setTitle("Fix the login form")
+        let open = await pressEscape(presenting: NewTaskSheet(model: model).seeded(step: 2))
+        #expect(!open)
+    }
+
     @Test func settingsSavesAndDismissesAfterTheEvent() {
         var sizes: [InterfaceSize] = []
         let settings = SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: HarnessSettingsModel.preview(),

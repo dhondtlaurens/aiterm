@@ -67,7 +67,7 @@ enum KeyBindings {
         KeyBindingGroup(title: "Sheets", help: "New Task, New Review, New Terminal, Add Project, Edit Project, Add Divider, Rename, Archive, Settings and New Signal.", bindings: [
             KeyBinding(action: "Go to a completed creation step", keys: ["⌘", "1–4"]),
             KeyBinding(action: "Continue, create or save", keys: ["⌘", "↩"]),
-            KeyBinding(action: "Back a step, or close", keys: ["⎋"]),
+            KeyBinding(action: "Close the list, or cancel", keys: ["⎋"]),
             // One row for the four: the tabs are numbered in the order the tab bar draws them.
             KeyBinding(action: "Switch Settings tabs", keys: ["⌘", "1–4"]),
             KeyBinding(action: "Remove the selected Archive item", keys: ["⌘", "⌫"]),

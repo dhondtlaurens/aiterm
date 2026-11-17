@@ -50,12 +50,15 @@ change persisted state or Operator readiness. Amber means the person needs to ac
 `SidebarSheet` resets native scale. `SheetLayout`, `SheetSubtitle`, `SheetFooter` and
 `SheetPrimaryButton` own header/content/actions. Fixed steps retain one height; short one-step
 sheets fit up to `Sheet.height`. The footer's primary action answers ⌘Return. Plain Return stays
-with a field/list, Escape closes an open list before going back, and Cancel cancels.
+with a field/list, except in a one-field `NameSheet`, where it presses the primary too. Escape closes
+an open list before cancelling, and Cancel cancels.
 
-`SteppedSheetFrame` draws the shared frame. `SheetStepper` ticks completed steps and names the
+`SteppedSheet` is the one frame of New Task, New Review and New Signal, configured with their
+`Step`s: it owns the stepper, Cancel, Back and the primary button, the keys and dismissal. Escape
+closes the step's open list, then cancels. `SheetStepper` ticks completed steps and names the
 current one; completed steps are clickable and answer their command-number keys. Future steps
-cannot be jumped to. `CreationSheet`/`CreationFooter` share task/review validation, destination,
-command preview and failure recovery. `CreationClosingBlock` ends each creation sheet with the effect
+cannot be jumped to. New Task and New Review share their notices, failure recovery, closing summary
+and loads (`CreationParts.swift`). `CreationClosingBlock` ends each creation sheet with the effect
 of its current picks.
 
 | Pattern | Decisions in order |

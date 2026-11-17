@@ -12,7 +12,6 @@ import AiTermCore
         var projects: [JiraProjectRef] = []
     }
     nonisolated let id = UUID()
-    static let steps = CreationSteps(count: 5, agentStep: nil, agentsListStep: 4, promptSteps: [2, 3], summarizesOnlyOnLast: true)
     static let stepNames = ["Signal", "Starts when", "Prompt", "Agents", "Done"]
     let projects: [Project], context: SignalContext
     private let original: Signal?, createdAt: Date
@@ -36,7 +35,8 @@ import AiTermCore
     var then = SignalFinish.Then.archive
     var deleteMergedBranch = false
     private(set) var starting = false
-    private(set) var error: CreationFailure?
+    /// Why the last save failed, as one sentence.
+    private(set) var error: String?
     private(set) var previewItems: [SignalItem] = []
     private(set) var startCount: Int?
     private(set) var previewError: String?
@@ -82,8 +82,10 @@ import AiTermCore
         event = conditions.event; waitingOnMyReply = conditions.waitingOnMyReply; sentBackToMe = conditions.sentBackToMe
         requestProjects = conditions.projects
     }
-    var title: String { original == nil ? "New signal" : "Edit signal" }
-    var createLabel: String { original == nil ? "Create Signal" : "Save" }
+    /// Whether the sheet edits a saved signal rather than making a new one.
+    var isEditing: Bool { original != nil }
+    var title: String { isEditing ? "Edit signal" : "New signal" }
+    var createLabel: String { isEditing ? "Save" : "Create Signal" }
     var source: SignalSource {
         if sourceKind == .jira {
             var conditions = jira; conditions.jql = queryMode == .jql ? jql : nil; return .jira(conditions)
@@ -166,7 +168,7 @@ import AiTermCore
                                              ticketDescription: ticketDescription, requestDescription: requestDescription), agents: agents, finish: finish)
         starting = true; error = nil; defer { starting = false }
         do { try await save(signal); return true }
-        catch { self.error = CreationFailure(reason: OperationIssue.reason(of: error), detail: nil); return false }
+        catch { self.error = OperationIssue.reason(of: error); return false }
     }
     func loadPreview() async {
         let key = UUID(), expected = source; previewKey = key

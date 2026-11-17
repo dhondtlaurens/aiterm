@@ -53,6 +53,7 @@ import Testing
         let model = SignalModel(projects: [], context: context, preview: { _ in previewed += 1; return SignalRead(items: [], complete: true) },
                                 save: { _ in })
         #expect(model.jira == JiraConditions() && model.prompt.isEmpty && model.jql.isEmpty)
+        #expect(!model.isEditing && model.title == "New signal")
         model.name = "Tickets"
         #expect(model.canAdvance(step: 1) && !model.canAdvance(step: 2), "No condition would match every ticket the account can see.")
         await model.loadPreview()
@@ -70,6 +71,7 @@ import Testing
         var saved: Signal?
         let model = SignalModel(signal: original, projects: world.state.projects, context: context,
                                 preview: { _ in SignalRead(items: [world.ticket()], complete: false) }, save: { saved = $0 })
+        #expect(model.isEditing && model.title == "Edit signal")
         await model.loadPreview()
         #expect(model.startCount == nil && model.previewItems.isEmpty && model.previewError != nil)
         model.name = "Updated"; model.done = .merged; model.then = .remove; model.deleteMergedBranch = true

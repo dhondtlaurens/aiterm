@@ -32,9 +32,6 @@ struct SignalDoneStep: View {
             DescriptionToggle("Delete its branch once merged", isOn: $model.deleteMergedBranch,
                               help: "Only when it’s merged and still at the commit that was merged.")
         }
-        CreationClosingBlock {
-            Text(life).font(Typography.body).foregroundStyle(Palette.text).fixedSize(horizontal: false, vertical: true)
-        }
     }
     private var thenHelp: String {
         switch model.then {
@@ -49,25 +46,6 @@ struct SignalDoneStep: View {
     }
     private var statusChoices: [String] {
         Array(Set(model.metadata.statuses.map(\.name) + (model.status.isEmpty ? [] : [model.status]))).sorted()
-    }
-    private var life: String {
-        let what = model.sourceKind == .jira ? "ticket that matches" : model.event == .reviewRequested ? "review you’re asked for" : "merge request of yours that needs you"
-        let agents = ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }.map(\.displayName).joined(separator: " or ")
-        let ending = switch model.then {
-        case .unknown: "this version cannot finish it"
-        case .keep: "the task is kept"
-        case .archive: "it’s archived"
-        case .remove: model.deleteMergedBranch ? "it’s removed, and its branch deleted only if it’s merged and unchanged" : "it’s removed"
-        }
-        let condition = if case .ticketStatus = model.done { "the ticket reaches " + model.status }
-            else if model.done == .operatorJudges { "the Operator judges it done" }
-            else if model.done == .myReviewPosted { "your review is posted" }
-            else { Self.label(model.done).lowercased() }
-        let merge = model.finish.mergesWhenReady ? "AiTerm merges it when it’s ready and " : ""
-        let count = model.startCount.map { "\($0) \($0 == 1 ? "item matches" : "items match") now and \($0 == 1 ? "starts" : "start") at once." }
-            ?? "AiTerm checks for matches when you save."
-        return "Each \(what) starts a task for \(agents). The Operator and the Oracle answer its questions and ask you only when they disagree or it’s yours to decide. "
-            + "It’s done when \(condition); then \(merge)\(ending). \(count)"
     }
     static func label(_ condition: DoneWhen) -> String {
         switch condition {
@@ -94,5 +72,32 @@ struct SignalDoneStep: View {
         case .mergedOrClosed: "You or a colleague merges or closes it."
         case .unknown: "This version of AiTerm cannot follow this condition."
         }
+    }
+}
+
+/// What a signal will do, end to end, in one paragraph: New Signal's closing block on its Done step.
+struct SignalDoneSummary: View {
+    let model: SignalModel
+    var body: some View {
+        Text(life).font(Typography.body).foregroundStyle(Palette.text).fixedSize(horizontal: false, vertical: true)
+    }
+    private var life: String {
+        let what = model.sourceKind == .jira ? "ticket that matches" : model.event == .reviewRequested ? "review you’re asked for" : "merge request of yours that needs you"
+        let agents = ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }.map(\.displayName).joined(separator: " or ")
+        let ending = switch model.then {
+        case .unknown: "this version cannot finish it"
+        case .keep: "the task is kept"
+        case .archive: "it’s archived"
+        case .remove: model.deleteMergedBranch ? "it’s removed, and its branch deleted only if it’s merged and unchanged" : "it’s removed"
+        }
+        let condition = if case .ticketStatus = model.done { "the ticket reaches " + model.status }
+            else if model.done == .operatorJudges { "the Operator judges it done" }
+            else if model.done == .myReviewPosted { "your review is posted" }
+            else { SignalDoneStep.label(model.done).lowercased() }
+        let merge = model.finish.mergesWhenReady ? "AiTerm merges it when it’s ready and " : ""
+        let count = model.startCount.map { "\($0) \($0 == 1 ? "item matches" : "items match") now and \($0 == 1 ? "starts" : "start") at once." }
+            ?? "AiTerm checks for matches when you save."
+        return "Each \(what) starts a task for \(agents). The Operator and the Oracle answer its questions and ask you only when they disagree or it’s yours to decide. "
+            + "It’s done when \(condition); then \(merge)\(ending). \(count)"
     }
 }
