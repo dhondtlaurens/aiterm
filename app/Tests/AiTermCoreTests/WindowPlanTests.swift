@@ -32,7 +32,7 @@ import Testing
     /// a closed one opens only on your click, through its worker's guarded reopen.
     @Test func anOperatorsStartedTaskTakesItsTaggedWindowButIsNeverRestoredHere() {
         var working = task(window: nil)
-        working.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        working.signalTask = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         working.signalTask?.phase = .working
         #expect(state(tasks: [working]).windowPlan(sessions: []).isEmpty)
         let adopted = state(tasks: [working]).windowPlan(sessions: [tab("a", window: "w9", task: working)])

@@ -20,8 +20,8 @@ import AiTermCore
     }
     func apply(_ id: UUID) async {
         guard !running.contains(id), !ports.workerIsWorking(id), let task = workspace.state.task(id: id),
-              let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask, record.canRunThen, record.thenApplied != true,
-              let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { return }
+              let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask, record.canRunThen, record.thenApplied != true else { return }
+        let signal = record.current.configuration
         let allowed: @MainActor () -> Bool = { [self] in
             claim.allows(in: workspace) && workspace.state.signalItem(id: id)?.signalTask?.canRunThen == true
                 && !ports.workerIsWorking(id)

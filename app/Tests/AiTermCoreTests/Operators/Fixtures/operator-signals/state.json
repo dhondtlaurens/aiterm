@@ -25,63 +25,68 @@
         "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
         "reasoning" : "high",
         "signalTask" : {
-          "configuration" : {
-            "agents" : [
-              {
-                "agent" : "claude",
-                "model" : "claude-opus-5-5",
-                "reasoning" : "high"
+          "current" : {
+            "configuration" : {
+              "agents" : [
+                {
+                  "agent" : "claude",
+                  "model" : "claude-opus-5-5",
+                  "reasoning" : "high"
+                },
+                {
+                  "agent" : "codex",
+                  "model" : "gpt-6-astra",
+                  "reasoning" : "medium"
+                }
+              ],
+              "collapsed" : false,
+              "createdAt" : "2026-11-14T12:00:00Z",
+              "enabled" : true,
+              "finish" : {
+                "deletesMergedBranch" : false,
+                "doneWhen" : {
+                  "kind" : "operatorJudges"
+                },
+                "mergesWhenReady" : false,
+                "then" : "keep"
               },
-              {
-                "agent" : "codex",
-                "model" : "gpt-6-astra",
-                "reasoning" : "medium"
+              "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+              "name" : "Plan tickets",
+              "source" : {
+                "kind" : "jira",
+                "value" : {
+                  "inOpenSprints" : false,
+                  "labels" : [
+                    "operator"
+                  ],
+                  "projects" : [
+
+                  ],
+                  "statuses" : [
+
+                  ]
+                }
+              },
+              "work" : {
+                "prompt" : "\/psg:plan",
+                "requestDescription" : true,
+                "ticketDescription" : true
               }
-            ],
-            "collapsed" : false,
-            "createdAt" : "2026-11-14T12:00:00Z",
-            "enabled" : true,
-            "finish" : {
-              "deletesMergedBranch" : false,
-              "doneWhen" : {
-                "kind" : "operatorJudges"
-              },
-              "mergesWhenReady" : false,
-              "then" : "keep"
             },
-            "id" : "E7A1C0DE-0000-4000-8000-000000000002",
-            "name" : "Plan tickets",
-            "source" : {
-              "kind" : "jira",
+            "item" : {
+              "kind" : "ticket",
               "value" : {
-                "inOpenSprints" : false,
-                "labels" : [
-                  "operator"
-                ],
-                "projects" : [
-
-                ],
-                "statuses" : [
-
-                ]
+                "key" : "PAY-2",
+                "site" : "https:\/\/jira.example"
               }
             },
-            "work" : {
-              "prompt" : "\/psg:plan",
-              "requestDescription" : true,
-              "ticketDescription" : true
-            }
+            "matchedAt" : "2026-11-14T12:00:00Z",
+            "prompt" : "\/psg:plan",
+            "signal" : "E7A1C0DE-0000-4000-8000-000000000002"
           },
           "extraTabs" : [
 
           ],
-          "item" : {
-            "kind" : "ticket",
-            "value" : {
-              "key" : "PAY-2",
-              "site" : "https:\/\/jira.example"
-            }
-          },
           "journal" : [
             {
               "at" : "2026-11-14T12:00:00Z",
@@ -107,8 +112,6 @@
           "phase" : {
             "kind" : "archived"
           },
-          "prompt" : "\/psg:plan",
-          "signal" : "E7A1C0DE-0000-4000-8000-000000000002",
           "stage" : 1,
           "startedAt" : "2026-11-14T12:00:00Z",
           "thenApplied" : true
@@ -316,52 +319,64 @@
       "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
       "reasoning" : "high",
       "signalTask" : {
-        "configuration" : {
-          "agents" : [
-            {
-              "agent" : "claude",
-              "model" : "claude-opus-5-5",
-              "reasoning" : "high"
+        "current" : {
+          "configuration" : {
+            "agents" : [
+              {
+                "agent" : "claude",
+                "model" : "claude-opus-5-5",
+                "reasoning" : "high"
+              },
+              {
+                "agent" : "codex",
+                "model" : "gpt-6-astra",
+                "reasoning" : "medium"
+              }
+            ],
+            "collapsed" : false,
+            "createdAt" : "2026-11-14T12:00:00Z",
+            "enabled" : true,
+            "finish" : {
+              "deletesMergedBranch" : false,
+              "doneWhen" : {
+                "kind" : "operatorJudges"
+              },
+              "mergesWhenReady" : false,
+              "then" : "keep"
             },
-            {
-              "agent" : "codex",
-              "model" : "gpt-6-astra",
-              "reasoning" : "medium"
+            "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+            "name" : "Plan tickets",
+            "source" : {
+              "kind" : "jira",
+              "value" : {
+                "inOpenSprints" : false,
+                "labels" : [
+                  "operator"
+                ],
+                "projects" : [
+
+                ],
+                "statuses" : [
+
+                ]
+              }
+            },
+            "work" : {
+              "prompt" : "\/psg:plan",
+              "requestDescription" : true,
+              "ticketDescription" : true
             }
-          ],
-          "collapsed" : false,
-          "createdAt" : "2026-11-14T12:00:00Z",
-          "enabled" : true,
-          "finish" : {
-            "deletesMergedBranch" : false,
-            "doneWhen" : {
-              "kind" : "operatorJudges"
-            },
-            "mergesWhenReady" : false,
-            "then" : "keep"
           },
-          "id" : "E7A1C0DE-0000-4000-8000-000000000002",
-          "name" : "Plan tickets",
-          "source" : {
-            "kind" : "jira",
+          "item" : {
+            "kind" : "ticket",
             "value" : {
-              "inOpenSprints" : false,
-              "labels" : [
-                "operator"
-              ],
-              "projects" : [
-
-              ],
-              "statuses" : [
-
-              ]
+              "key" : "PAY-1",
+              "site" : "https:\/\/jira.example"
             }
           },
-          "work" : {
-            "prompt" : "\/psg:plan",
-            "requestDescription" : true,
-            "ticketDescription" : true
-          }
+          "matchedAt" : "2026-11-14T12:00:00Z",
+          "prompt" : "\/psg:plan",
+          "signal" : "E7A1C0DE-0000-4000-8000-000000000002"
         },
         "extraTabs" : [
           {
@@ -378,13 +393,6 @@
             "sessionId" : "extra-session"
           }
         ],
-        "item" : {
-          "kind" : "ticket",
-          "value" : {
-            "key" : "PAY-1",
-            "site" : "https:\/\/jira.example"
-          }
-        },
         "journal" : [
           {
             "at" : "2026-11-14T12:00:00Z",
@@ -468,8 +476,6 @@
         "phase" : {
           "kind" : "working"
         },
-        "prompt" : "\/psg:plan",
-        "signal" : "E7A1C0DE-0000-4000-8000-000000000002",
         "stage" : 1,
         "startedAt" : "2026-11-14T12:00:00Z"
       },

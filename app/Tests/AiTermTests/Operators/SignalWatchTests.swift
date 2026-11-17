@@ -80,9 +80,9 @@ import Testing
         #expect(running.mergeBlockers == [.approval])
     }
     @Test func aNewStageForgetsWhomThePreviousOneWaitedOn() throws {
-        var record = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        var record = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         record.phase = .done; record.waitingOn = SignalWaitFacts(reviewers: ["Ann"])
-        let stage = SignalStage(signal: record.signal, item: record.item, matchedAt: Date())
+        let stage = SignalStage(signal: record.current.signal, item: record.current.item, matchedAt: Date(), configuration: record.current.configuration)
         let next = try SignalTransitions.apply(.matched(stage), to: record, at: Date())
         #expect(next.stage == 2 && next.waitingOn == nil)
     }
@@ -210,14 +210,14 @@ import Testing
             workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, allowed in
                 h.workspace.mutate { $0.updateSignalTask(task) { record in
                     record.pendingStages.append(SignalStage(signal: next, item: world.ticket().item, matchedAt: world.now,
-                                                           configuration: world.state.signal(id: next), prompt: "/psg:review"))
+                                                           configuration: world.state.signal(id: next)!, prompt: "/psg:review"))
                 } }
                 guard allowed() else { throw ActionUnavailable("A new stage waits.") }
                 removed = true
             }))
         await then.apply(task)
         #expect(!removed && h.workspace.state.tasks.map(\.id) == [task])
-        #expect(h.workspace.state.task(id: task)?.signalTask?.signal == next)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.current.signal == next)
         #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .working)
     }
 }

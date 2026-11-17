@@ -380,7 +380,7 @@ import Foundation
                             agent: .codex, model: "gpt-5.6", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
                             conversations: [TaskConversation(agent: .codex, id: "t-1"), TaskConversation(agent: .claude, id: "c-2")])
-        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
+        task.signalTask = SignalTask.make(item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         #expect(Set(keys) == ["id", "projectId", "title", "branch", "worktreePath", "baseBranch", "jira", "kind", "mr", "agent",

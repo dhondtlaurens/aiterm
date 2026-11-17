@@ -71,8 +71,8 @@ import Testing
         let sidebar = try hostedSidebar(); defer { sidebar.window.orderOut(nil) }
         let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
             agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
-        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        record.phase = .working; record.configuration = signal
+        var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .working
         sidebar.controller.workspace.mutate { state in
             state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Date())
             state.tasks[0].signalTask = record; state.operatorOpen = true
@@ -193,7 +193,7 @@ import Testing
         var world = SignalWorld(); let signal = world.signal()
         var task = sidebar.tasks[0]
         task.windowId = "header-worker"
-        task.signalTask = SignalTask(signal: signal, item: world.ticket().item, startedAt: Date())
+        task.signalTask = SignalTask.make(signal: world.state.signal(id: signal)!, item: world.ticket().item, startedAt: Date())
         let session = SessionInfo.make("header-worker", window: "header-worker", task: task.id)
         sidebar.controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks[0] = task; $0.takeOver(task.id) }
         sidebar.controller.live.sessions = [session]

@@ -23,12 +23,12 @@ struct SignalSidebar {
         }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var definitions = state.signals
         for task in held {
-            if let record = task.signalTask, !definitions.contains(where: { $0.id == record.signal }), let saved = record.configuration {
-                var removed = saved; removed.enabled = false; definitions.append(removed)
+            if let record = task.signalTask, !definitions.contains(where: { $0.id == record.current.signal }) {
+                var removed = record.current.configuration; removed.enabled = false; definitions.append(removed)
             }
         }
         signals = definitions.map { signal in
-            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state) } })
+            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.current.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state) } })
             section.skipped = state.signalSeen.filter { $0.signal == signal.id && $0.disposition == .skipped && $0.isMatching }
                 .map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted()
             section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
@@ -45,7 +45,7 @@ struct SignalSidebar {
         guard let record = task.signalTask else { return original }
         var row = original
         let busy = [.working, .background].contains(row.status)
-        let paused = state.operatorSession?.paused == true || state.signal(id: record.signal)?.enabled == false
+        let paused = state.operatorSession?.paused == true || state.signal(id: record.current.signal)?.enabled == false
         let questions = state.currentOperatorQuestions.filter { $0.task == task.id }
         if row.status == .needsInput { return row }
         if paused && !busy { row.operatorLine = .paused; row.paused = true; row.status = .idle }
@@ -98,7 +98,7 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         let workload = state.operatorWorkTasks
         let questions = state.currentOperatorQuestions
         let tasks = workload.count
-        let signals = Set(workload.compactMap { $0.signalTask?.signal }).count
+        let signals = Set(workload.compactMap { $0.signalTask?.current.signal }).count
         // A closed generation's last snapshot must not resurrect its row or permission prompt.
         let own = session.flatMap { session in
             session.window.flatMap { window in sessions.first { $0.taskUUID == session.id && $0.agent == .claude && $0.windowId == window } }

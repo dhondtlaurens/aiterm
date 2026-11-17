@@ -64,7 +64,7 @@ final class PerRow<Value: Equatable> {
     private func dropGone(from state: AppState) {
         guard !cells.isEmpty else { return }
         let rows = Set(state.items.map(\.id) + state.tasks.map(\.id) + state.terminals.map(\.id)
-            + state.tasks.compactMap { $0.signalTask?.signal } + state.signals.map(\.id) + [OperatorSession.rowID])
+            + state.tasks.compactMap { $0.signalTask?.current.signal } + state.signals.map(\.id) + [OperatorSession.rowID])
         for (id, cell) in cells where !rows.contains(id) && cell.value == defaultValue {
             cells[id] = nil
         }

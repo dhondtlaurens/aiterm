@@ -15,8 +15,8 @@ import Testing
                             finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
         var task = checkout ? try await fixture.addTask(windowId: nil)
             : TaskItem.make(project: fixture.project.id, worktreePath: "", agent: .codex, model: "model", windowId: nil)
-        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        record.phase = phase; record.configuration = signal
+        var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = phase
         task.signalTask = record
         task.conversations = checkout ? [TaskConversation(agent: .codex, id: "worker-conversation")] : []
         fixture.controller.workspace.mutate { state in

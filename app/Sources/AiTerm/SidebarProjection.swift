@@ -89,11 +89,12 @@ struct SectionFold: Equatable {
                 if task.windowId == nil && task.firstWorkerConversation != nil {
                     value.conversations = [.init(agent: task.agent, id: "saved")]
                 }
-                var visible = SignalTask(signal: record.signal, item: .unknown(.null), startedAt: .distantPast)
+                let current = SignalStage(signal: record.current.signal, item: .unknown(.null), matchedAt: .distantPast,
+                                          configuration: record.current.configuration)
+                var visible = SignalTask(current: current, startedAt: .distantPast)
                 visible.phase = record.phase; visible.stage = record.stage; visible.ownership = record.ownership
                 visible.currentAct = record.currentAct; visible.blockedReason = record.blockedReason
                 visible.waitingOn = record.waitingOn
-                if state.signal(id: record.signal) == nil { visible.configuration = record.configuration }
                 value.signalTask = visible
             }
             return value

@@ -19,7 +19,7 @@ import AiTermCore
         guard let project = workspace.state.project(id: task.projectId), let saved = project.remoteUrl else { throw ActionUnavailable("Its project has no connected remote.") }
         let current = try await remote(project, task)
         guard let repository = ItemRef.repository(current), repository == ItemRef.repository(saved) else { throw ActionUnavailable("Its origin changed; check the project's repository before continuing.") }
-        let references = [task.signalTask?.watchedRequest?.remote, task.signalTask.flatMap { record -> String? in if case .mergeRequest(let ref) = record.item { return ref.remote }; return nil }].compactMap { $0 }
+        let references = [task.signalTask?.watchedRequest?.remote, task.signalTask.flatMap { record -> String? in if case .mergeRequest(let ref) = record.current.item { return ref.remote }; return nil }].compactMap { $0 }
         guard references.allSatisfy({ ItemRef.repository($0) == repository }) else {
             throw ActionUnavailable("The saved request belongs to another repository.")
         }
@@ -33,7 +33,7 @@ import AiTermCore
         return (current, host)
     }
     private func requestNumber(_ task: TaskItem) -> Int? {
-        if case .mergeRequest(let reference) = task.signalTask?.item { return reference.number }
+        if case .mergeRequest(let reference) = task.signalTask?.current.item { return reference.number }
         return task.mr?.iid ?? task.signalTask?.watchedRequest?.number
     }
     private func request(_ task: TaskItem, host: any SignalHostReading) async throws -> MergeRequest? {
@@ -51,7 +51,8 @@ import AiTermCore
         return read.items.compactMap(\.ticket).first { $0.key.caseInsensitiveCompare(ref.key) == .orderedSame }
     }
     func read(_ task: TaskItem) async throws -> RequestWatch.Snapshot {
-        guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { throw ActionUnavailable("Its signal is missing.") }
+        guard let record = task.signalTask else { throw ActionUnavailable("The task is no longer the Operator’s.") }
+        let signal = record.current.configuration
         var facts = DoneCheck.Facts(); facts.operatorJudged = record.operatorJudged == true
         let empty = RequestWatch.Snapshot(reference: nil, facts: facts, head: nil, localHead: nil, approvals: false, greenChecks: false)
         if signal.finish.doneWhen == .operatorJudges && !signal.finish.mergesWhenReady { return empty }
@@ -102,7 +103,7 @@ import AiTermCore
     }
     func merge(_ task: TaskItem, snapshot: RequestWatch.Snapshot) async throws {
         guard let claim = SignalClaim(task), let reference = snapshot.reference, let head = snapshot.head, snapshot.canMerge,
-              task.signalTask?.configuration?.finish.mergesWhenReady == true else { throw ActionUnavailable("Automatic merging is not enabled or ready.") }
+              task.signalTask?.current.configuration.finish.mergesWhenReady == true else { throw ActionUnavailable("Automatic merging is not enabled or ready.") }
         let links = await connections(), (remote, host) = try await binding(task, links: links)
         let git = git
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
@@ -134,9 +135,10 @@ import AiTermCore
         return .object(value)
     }
     func additionalContext(_ task: TaskItem) async throws -> String {
-        guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { return "" }
-        let needsTicket: Bool = if case .ticket = record.item { false } else { signal.work.ticketDescription }
-        let needsRequest: Bool = if case .mergeRequest = record.item { false } else { signal.work.requestDescription }
+        guard let record = task.signalTask else { return "" }
+        let signal = record.current.configuration
+        let needsTicket: Bool = if case .ticket = record.current.item { false } else { signal.work.ticketDescription }
+        let needsRequest: Bool = if case .mergeRequest = record.current.item { false } else { signal.work.requestDescription }
         guard needsTicket || needsRequest else { return "" }
         let links = await connections()
         var related = task
@@ -166,7 +168,7 @@ import AiTermCore
         return SignalWork(prompt: "", ticketDescription: needsTicket, requestDescription: needsRequest).workerPrompt(ticket: ticketText, request: requestText)
     }
     func deleteMergedBranch(of task: TaskItem) async {
-        guard enabled(), let record = task.signalTask, let signal = record.configuration, signal.finish.deletesMergedBranch,
+        guard enabled(), let record = task.signalTask, record.current.configuration.finish.deletesMergedBranch,
               task.kind != .review, workspace.state.signalItem(id: task.id) == nil,
               let project = workspace.state.project(id: task.projectId) else { return }
         do {
@@ -178,7 +180,7 @@ import AiTermCore
             _ = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: head, mergedHead: head,
                 kind: task.kind, path: project.path, git: git, saveDeletion: { [workspace] in
                     self.enabled() && workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true
-                        && workspace.state.signal(id: record.signal)?.enabled != false
+                        && workspace.state.signal(id: record.current.signal)?.enabled != false
                         && workspace.state.signalItem(id: task.id) == nil
                         && !workspace.state.tasks.contains { $0.projectId == task.projectId && $0.branch == task.branch }
                         && workspace.flush()

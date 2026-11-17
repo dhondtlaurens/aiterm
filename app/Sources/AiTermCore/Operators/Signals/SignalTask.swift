@@ -8,10 +8,9 @@ public struct SignalWorkerReply: Codable, Equatable, Sendable {
 }
 
 public struct SignalTask: Codable, Equatable, Sendable {
-    public var signal: UUID
-    public var item: ItemRef
-    public var configuration: Signal?
-    public var prompt: String?
+    /// The stage this task runs now: its signal, item, the signal's configuration as it was when
+    /// the stage matched, and its prompt.
+    public var current: SignalStage
     public var candidateProjects: [UUID]?
     /// While `choosing`: the rows the Operator may choose among, in the person's order.
     public var choosableRows: [AgentChoice]?
@@ -33,7 +32,7 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var ownership = 0
     public var blockedReason: String?
     public var journal: [TaskJournal.Entry] = []
-    public init(signal: UUID, item: ItemRef, startedAt: Date) { self.signal = signal; self.item = item; self.startedAt = startedAt }
+    public init(current: SignalStage, startedAt: Date) { self.current = current; self.startedAt = startedAt }
     public var canRunThen: Bool { phase == .done && pendingStages.isEmpty }
     public var needsWorkerReads: Bool { phase.isActive }
     /// Configured sources and retained completed tasks need no model session. Pending stages

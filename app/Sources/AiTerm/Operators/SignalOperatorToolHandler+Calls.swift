@@ -25,7 +25,7 @@ extension SignalOperatorToolHandler {
             let task = try requireTask(task), proposed = try choice(call, task: task)
             guard task.hasCheckout, task.windowId != nil else { throw ToolRefusal("A work tab needs the task's open window and checkout.") }
             let prompt = try call.string("prompt"), why = try call.string("why")
-            let rows = AgentChoiceNeed.decide(permitted: (task.signalTask?.configuration ?? task.signalTask.flatMap { workspace.state.signal(id: $0.signal) })?.agents ?? [],
+            let rows = AgentChoiceNeed.decide(permitted: task.signalTask?.current.configuration.agents ?? [],
                                               projects: nil, conversationAgent: nil)
             var row = proposed, reason = why
             if case .choose(let choosable, _) = rows, choosable.count > 1 {
@@ -74,7 +74,7 @@ extension SignalOperatorToolHandler {
             return ["status": "resumed"]
         case .finishStage:
             let task = try requireTask(task), outcome = try call.string("outcome"), evidence = try call.string("evidence")
-            guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal) else { throw ToolRefusal("The task's signal is missing.") }
+            guard let signal = task.signalTask?.current.configuration else { throw ToolRefusal("The task is no longer the Operator’s.") }
             let action: SignalAction
             switch outcome {
             case "done", "skipped": action = signal.finish.doneWhen == .operatorJudges && !signal.finish.mergesWhenReady ? .finish(.operatorJudges) : .watch(signal.finish.doneWhen)
@@ -105,8 +105,7 @@ extension SignalOperatorToolHandler {
     }
     /// The Operator's row (and project) for a choosing stage, or a new row for a blocked one.
     private func chooseAgent(_ call: ToolCall, task: TaskItem, allowed: () -> Bool) async throws -> JSONValue {
-        guard let record = task.signalTask,
-              let need = task.choiceNeed(configuration: record.configuration ?? workspace.state.signal(id: record.signal)) else {
+        guard let need = task.choiceNeed() else {
             throw ToolRefusal("Only a choosing or blocked task takes an agent choice. Read run_status.")
         }
         let rows: [AgentChoice], projects: [UUID]?
@@ -168,7 +167,7 @@ extension SignalOperatorToolHandler {
     private func choice(_ call: ToolCall, task: TaskItem) throws -> AgentChoice {
         guard let name = AgentKind(rawValue: try call.string("agent")) else { throw ToolRefusal("Choose a permitted agent from run_status.") }
         let choice = AgentChoice(agent: name, model: try call.string("model"), reasoning: call.optionalString("reasoning"))
-        guard let record = task.signalTask, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.agents.contains(choice) else {
+        guard task.signalTask?.current.configuration.agents.contains(choice) == true else {
             throw ToolRefusal("Choose an exact permitted Agent, Model and Reasoning row from run_status.")
         }
         return choice

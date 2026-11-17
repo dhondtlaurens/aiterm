@@ -94,7 +94,7 @@ extension AppController {
             if underOperator != rows.operatorOpen { setOperatorOpen(underOperator) }
         }
         if case .task(let id) = row, let task = state.task(id: id), let record = task.signalTask,
-           let signal = state.signal(id: record.signal), signal.collapsed { toggleCollapsed(signal) }
+           let signal = state.signal(id: record.current.signal), signal.collapsed { toggleCollapsed(signal) }
         else if case .task(let id) = row, let task = state.task(id: id),
                 let project = state.project(id: task.projectId), project.collapsed { projects.toggleCollapsed(project) }
     }

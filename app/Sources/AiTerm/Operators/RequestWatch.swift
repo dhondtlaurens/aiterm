@@ -54,8 +54,9 @@ import AiTermCore
         }
         for id in ids {
             guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
-                  let signal = record.configuration ?? workspace.state.signal(id: record.signal), !ports.workerIsWorking(id) else { continue }
-            let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.item.identity ?? id.uuidString
+                  !ports.workerIsWorking(id) else { continue }
+            let signal = record.current.configuration
+            let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.current.item.identity ?? id.uuidString
             let snapshot: Snapshot
             do {
                 if let saved = cache[key] { snapshot = saved }

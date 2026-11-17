@@ -99,3 +99,7 @@ Re-recorded in step 4e of the greenfield refactor: Take Over removes a task's si
 ## The edge history left the task record
 
 5a (greenfield refactor): re-recorded; the unread `edges` history left the saved task record.
+
+## The current stage is held whole
+
+5b (greenfield refactor): re-recorded; a task's record holds its current stage whole under `current`, with a configuration that is always present.

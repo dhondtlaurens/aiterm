@@ -106,7 +106,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         projects = state.projects.map { ProjectLine(id: $0.id, name: $0.name, path: $0.path) }
         tasks = state.allSignalTasks.compactMap { value in
             guard task == nil || task == value.id, let record = value.signalTask else { return nil }
-            let configuration = record.configuration ?? state.signal(id: record.signal)
+            let configuration = record.current.configuration
             let tabs = [TabLine(key: "main", agent: value.agent, model: value.model, reasoning: value.reasoning, session: nil, conversation: value.firstWorkerConversation?.id)] + record.extraTabs.map {
                 TabLine(key: $0.key, agent: $0.agent, model: $0.model, reasoning: $0.reasoning, session: $0.sessionId, conversation: $0.conversation, reason: $0.modelReason)
             }
@@ -119,17 +119,17 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
                 }
             }
             var line = TaskLine(id: value.id, project: value.projectId, ownership: record.ownership,
-                            candidates: record.candidateProjects, permittedAgents: configuration?.agents ?? [],
+                            candidates: record.candidateProjects, permittedAgents: configuration.agents,
                             choosableRows: record.choosableRows, choice: record.choice,
                             blockedReason: record.blockedReason, currentAct: record.currentAct, tabs: tabs,
-                            signal: record.signal, item: record.item, agent: value.agent, model: value.model,
-                            reasoning: value.reasoning, prompt: task == nil ? nil : configuration?.work.prompt, finish: configuration?.finish,
+                            signal: record.current.signal, item: record.current.item, agent: value.agent, model: value.model,
+                            reasoning: value.reasoning, prompt: task == nil ? nil : configuration.work.prompt, finish: configuration.finish,
                             request: record.watchedRequest, branch: value.branch, stage: record.stage,
                             phase: record.phase, pending: pending, journal: Array(journal.suffix(task == nil ? 1 : TaskJournal.stateLimit)))
             line.pendingReplies = record.pendingReplies ?? [:]
             return line
         }
-        questions = (state.operatorSession?.questions ?? []).filter { ($0.resolvedAt == nil || ($0.workerQuestion != nil && $0.answer != nil && $0.deliveredAt == nil)) && (task == nil || task == $0.task) }
+        questions = (state.operatorSession?.questions ?? []).filter { $0.isPending && (task == nil || task == $0.task) }
         waitingOnYou = questions.filter { $0.resolvedAt == nil }.count
     }
 }

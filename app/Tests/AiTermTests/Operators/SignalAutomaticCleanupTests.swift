@@ -12,7 +12,7 @@ import Testing
         defer { git.open(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let original = try await fixture.addTask(windowId: "alive")
-        var record = SignalTask(signal: UUID(), item: .unknown(.null), startedAt: Date()); record.phase = .done
+        var record = SignalTask.make(item: .unknown(.null), startedAt: Date()); record.phase = .done
         fixture.controller.workspace.mutate { state in if let index = state.tasks.firstIndex(where: { $0.id == original.id }) { state.tasks[index].signalTask = record } }
         let task = try #require(fixture.controller.state.task(id: original.id))
         git.arm()

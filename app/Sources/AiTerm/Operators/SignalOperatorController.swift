@@ -107,7 +107,7 @@ import AiTermCore
             oracle: { [weak self] input in
                 guard let self else { return .unavailable("The Operator stopped.") }
                 let data: JSONValue = ["question": .string(input.question.text), "workerMessage": .string(input.question.message),
-                    "proposal": .string(input.proposal), "brief": .string(input.task.signalTask?.prompt ?? ""),
+                    "proposal": .string(input.proposal), "brief": .string(input.task.signalTask?.current.prompt ?? ""),
                     "discussion": .array(input.discussion.map(JSONValue.string))]
                 let answer = try await self.oracle("""
                 You are the Oracle checking the Operator's proposed answer to a worker. Read the
@@ -135,9 +135,9 @@ import AiTermCore
             }
             let data: JSONValue = [
                 "choosing": .string(input.scope == .stage ? "the agent row for this stage" : "the agent row for a new work tab"),
-                "item": .string(input.task.signalTask?.item.identity ?? ""), "title": .string(input.task.title),
-                "brief": .string(input.work ?? input.task.signalTask?.prompt ?? ""),
-                "stageBrief": input.work == nil ? .null : .string(input.task.signalTask?.prompt ?? ""),
+                "item": .string(input.task.signalTask?.current.item.identity ?? ""), "title": .string(input.task.title),
+                "brief": .string(input.work ?? input.task.signalTask?.current.prompt ?? ""),
+                "stageBrief": input.work == nil ? .null : .string(input.task.signalTask?.current.prompt ?? ""),
                 "project": input.proposal.project.map(project) ?? project(input.task.projectId),
                 "candidateProjects": input.projects.map { .array($0.map(project)) } ?? .null,
                 "permittedRows": .array(input.rows.map { .string($0.label) }),
@@ -564,7 +564,7 @@ import AiTermCore
         let records = Dictionary(tasks.compactMap { task in task.signalTask.map { (task.id, $0) } }, uniquingKeysWith: { first, _ in first })
         let activeSignals = Set(workspace.state.signals.map(\.id))
         let liveItems = Set(records.values.flatMap { record in
-            ([record.item] + record.pendingStages.map(\.item) + (record.watchedRequest.map { [ItemRef.mergeRequest($0)] } ?? [])).compactMap(\.identity)
+            ([record.current.item] + record.pendingStages.map(\.item) + (record.watchedRequest.map { [ItemRef.mergeRequest($0)] } ?? [])).compactMap(\.identity)
         })
         workspace.mutate { state in
             state.signalSeen = SignalSeen.pruned(state.signalSeen, liveItems: liveItems, now: at)

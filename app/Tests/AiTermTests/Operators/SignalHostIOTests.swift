@@ -8,7 +8,7 @@ import Testing
     @Test func thePrimaryRequestWinsOverAPreviousStagesWatch() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.tasks[0].mr = .init(iid: 2, title: "Current", url: "https://git.example/shop/web/-/merge_requests/2")
-        world.state.updateSignalTask(id) { $0.item = .request(remote: "git@git.example:shop/web.git", number: 2); $0.watchedRequest = .init(remote: "git@git.example:shop/web.git", number: 1) }
+        world.state.updateSignalTask(id) { $0.current.item = .request(remote: "git@git.example:shop/web.git", number: 2); $0.watchedRequest = .init(remote: "git@git.example:shop/web.git", number: 1) }
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let stub = StubSession { request in
             let number = request.url!.lastPathComponent == "2" ? 2 : 1
@@ -143,7 +143,7 @@ import Testing
         world.state.signals[0].work.requestDescription = false
         let id = world.workingTask(signal: signal)
         world.state.tasks[0].branch = "feat/PAY-1-work"
-        world.state.updateSignalTask(id) { $0.item = .request(remote: "git@git.example:shop/web.git", number: 7) }
+        world.state.updateSignalTask(id) { $0.current.item = .request(remote: "git@git.example:shop/web.git", number: 7) }
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let stub = StubSession { request in
             #expect(request.url!.host == "jira.example")

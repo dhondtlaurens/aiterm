@@ -127,8 +127,8 @@ import Testing
         let controller = try controller(); defer { controller.shutdown() }
         let signal = Signal(name: "Requests", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
             agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .approved, then: .keep))
-        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        record.phase = .watching(.approved); record.configuration = signal
+        var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .watching(.approved)
         controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record }
         let rows = controller.rows
         func line() -> String? { rows.signalSections.first?.tasks.first?.operatorLine?.text }
@@ -142,7 +142,7 @@ import Testing
         let controller = try controller(); defer { controller.shutdown() }
         let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
             agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
-        var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date()); record.phase = .working; record.configuration = signal
+        var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date()); record.phase = .working
         controller.workspace.mutate { $0.signals = [signal]; $0.updateSignalTask(Self.taskId) { $0 = record } }
         // The ordinary row initially has no SignalTask to update.
         controller.workspace.mutate { $0.tasks[0].signalTask = record }

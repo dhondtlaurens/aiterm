@@ -34,7 +34,7 @@ import Testing
         live.sessions[1].state = .done
         await root.reconcile(); await ports.work.settled()
         #expect(launches == 1)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.signal == next)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.current.signal == next)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
         #expect(h.workspace.state.task(id: id)?.signalTask?.pendingStages.isEmpty == true)
         await root.reconcile(); await ports.work.settled()
@@ -109,7 +109,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, ports = controller.signalController.ports
         var task = try await fixture.addTask(windowId: "worker-window")
-        var record = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        var record = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         record.phase = .working; record.ownership = 2
         record.extraTabs = [ExtraTab(key: "review", agent: .claude, model: "model", reasoning: nil, modelReason: "", brief: "",
                                      launch: LaunchAttempt(number: 1, requestedAt: Date()))]

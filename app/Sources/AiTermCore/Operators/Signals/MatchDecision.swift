@@ -18,9 +18,9 @@ public enum MatchDecision: Equatable, Sendable {
         }.sorted { ranks[$0.signal, default: .max] < ranks[$1.signal, default: .max] }
         var decisions: [Self] = [], started: [String: Int] = [:], handled = Set<String>()
         for match in ordered {
-            guard let identity = match.item.identity else { continue }
+            guard let identity = match.item.identity, let signal = enabled.first(where: { $0.id == match.signal }) else { continue }
             guard handled.insert(match.signal.uuidString + ":" + identity).inserted else { continue }
-            let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt)
+            let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt, configuration: signal)
             if let task = tasks.first(where: { candidate in
                 if matchesItem(match.item, task: candidate) { return true }
                 // A real Jira read can bind an existing request/manual branch before that task
@@ -46,7 +46,7 @@ public enum MatchDecision: Equatable, Sendable {
     }
 
     public static func matchesItem(_ item: ItemRef, task: TaskItem) -> Bool {
-        if let identity = item.identity, identity == task.signalTask?.item.identity { return true }
+        if let identity = item.identity, identity == task.signalTask?.current.item.identity { return true }
         switch item {
         case .ticket(let ticket):
             guard let jira = task.jira, jira.key.caseInsensitiveCompare(ticket.key) == .orderedSame else { return false }

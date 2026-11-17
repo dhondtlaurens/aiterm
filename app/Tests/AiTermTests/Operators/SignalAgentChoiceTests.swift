@@ -170,7 +170,7 @@ import Testing
         let task = try #require(id)
         for signal in [try #require(later), try #require(keep)] {
             let configuration = try #require(r.h.workspace.state.signal(id: signal))
-            r.h.workspace.mutate { $0.updateSignalTask(task) { $0.pendingStages.append(SignalStage(signal: signal, item: $0.item, matchedAt: r.world.now, configuration: configuration, prompt: "Next.")) } }
+            r.h.workspace.mutate { $0.updateSignalTask(task) { $0.pendingStages.append(SignalStage(signal: signal, item: $0.current.item, matchedAt: r.world.now, configuration: configuration, prompt: "Next.")) } }
         }
         try await r.stages.finish(task, action: .finish(.operatorJudges))
         #expect(r.record(task)?.phase == .choosing && r.record(task)?.choosableRows == [SignalWorld.agent, Self.sonnet])

@@ -29,8 +29,7 @@ public extension AppState {
         if signals.contains(where: \.isRunnable) { return true }
         return allSignalTasks.contains { task in
             guard let record = task.signalTask,
-                  signal(id: record.signal)?.enabled != false,
-                  let configuration = record.configuration ?? signal(id: record.signal), configuration.isRunnable else { return false }
+                  signal(id: record.current.signal)?.enabled != false, record.current.configuration.isRunnable else { return false }
             switch record.phase {
             case .launching, .choosing, .working, .watching, .blocked: return true
             case .done: return record.thenApplied != true || !record.pendingStages.isEmpty

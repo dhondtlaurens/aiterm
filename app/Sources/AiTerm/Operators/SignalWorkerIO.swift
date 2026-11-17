@@ -176,7 +176,7 @@ import AiTermCore
         // A row the Operator chose (with weekly usage in hand) launches as chosen. Only the row a
         // three-round disagreement fell back to still moves off an agent at its weekly limit.
         if task.firstWorkerConversation == nil, (task.signalTask?.launch?.number ?? 1) == 1,
-           task.signalTask?.choice?.decided == .disagreed, let configuration = task.signalTask?.configuration {
+           task.signalTask?.choice?.decided == .disagreed, let configuration = task.signalTask?.current.configuration {
             let planned = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
             let choice = ModelChoice.launchChoice(planned: planned, pinned: false,
                 weekly: SidebarModel.weeklyUsage(live.usage, now: ports.now()), installed: ports.installedAgents(), rows: configuration.agents)
@@ -224,8 +224,7 @@ import AiTermCore
         return opening.id
     }
     private func command(for task: TaskItem, prompt: String, slot: String, conversation: String? = nil) async throws -> String {
-        guard let record = task.signalTask, let configuration = record.configuration ?? workspace.state.signal(id: record.signal),
-              configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) else {
+        guard task.signalTask?.current.configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) == true else {
             throw ActionUnavailable("This agent and model are not permitted by the task's signal.")
         }
         let git = ports.git, home = ports.home, executable = ports.workerGuardExecutable
@@ -291,7 +290,7 @@ import AiTermCore
                 workers.append(["tab": .string(tab.reference.name), "session": tab.session.map { .string($0.sessionId) } ?? .null,
                                 "state": tab.status.map { .string($0.rawValue) } ?? .null, "lastMessage": text.map(JSONValue.string) ?? .null])
             }
-            return ["workers": .array(workers), "savedPrompt": snapshot.signalTask?.prompt.map(JSONValue.string) ?? .null]
+            return ["workers": .array(workers), "savedPrompt": snapshot.signalTask?.current.prompt.map(JSONValue.string) ?? .null]
         }
     }
     func openTab(_ task: TaskItem, key: String, choice: AgentChoice, prompt: String, why: String,

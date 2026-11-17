@@ -31,8 +31,9 @@ import AiTermUI
         signal.enabled = pose != "off"
         controller.workspace.mutate { state in
             state.signals = [signal]
-            var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-142"), startedAt: Snapshots.clock.now)
-            record.phase = waiting(pose)?.0 ?? .working; record.waitingOn = waiting(pose)?.1; record.configuration = signal
+            let stage = SignalStage(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-142"), matchedAt: Snapshots.clock.now, configuration: signal)
+            var record = SignalTask(current: stage, startedAt: Snapshots.clock.now)
+            record.phase = waiting(pose)?.0 ?? .working; record.waitingOn = waiting(pose)?.1
             if pose == "acting" { record.currentAct = "answering its worker" }
             if pose == "choosing" { record.phase = .choosing; record.choosableRows = signal.agents + [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")] }
             if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming." }
@@ -71,8 +72,8 @@ import AiTermUI
             state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now); state.operatorOpen = true
             for (offset, id) in [fixture.working.id, fixture.other.id].enumerated() {
                 guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { continue }
-                var record = SignalTask(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-14\(offset)"), startedAt: Snapshots.clock.now)
-                record.configuration = signal
+                let stage = SignalStage(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-14\(offset)"), matchedAt: Snapshots.clock.now, configuration: signal)
+                var record = SignalTask(current: stage, startedAt: Snapshots.clock.now)
                 record.phase = offset == 0 ? .watching(.approved) : .working
                 record.waitingOn = SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire", "Jan De Visscher"])
                 state.tasks[index].signalTask = record

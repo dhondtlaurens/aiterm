@@ -7,7 +7,7 @@ struct SignalClaim: Equatable {
     let stage: Int, ownership: Int
     init?(_ task: TaskItem) {
         guard let record = task.signalTask else { return nil }
-        self.task = task.id; signal = record.signal; stage = record.stage; ownership = record.ownership
+        self.task = task.id; signal = record.current.signal; stage = record.stage; ownership = record.ownership
     }
     func holds(in state: AppState) -> Bool {
         state.signalItem(id: task).flatMap(Self.init) == self
@@ -19,9 +19,9 @@ struct SignalClaim: Equatable {
         let state = workspace.state
         guard workspace.canChangeWorkspace, !Task.isCancelled, holds(in: state), state.operatorSession?.paused != true,
               state.signal(id: signal)?.enabled != false,
-              let record = state.signalItem(id: task)?.signalTask,
-              let configuration = record.configuration ?? state.signal(id: signal),
-              configuration.source.isSupported, configuration.finish.isValid(for: configuration.source) else { return false }
+              let record = state.signalItem(id: task)?.signalTask else { return false }
+        let configuration = record.current.configuration
+        guard configuration.source.isSupported, configuration.finish.isValid(for: configuration.source) else { return false }
         if case .unknown = record.phase { return false }
         return true
     }

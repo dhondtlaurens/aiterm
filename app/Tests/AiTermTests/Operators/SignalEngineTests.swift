@@ -19,7 +19,7 @@ import Testing
         busy = false
         let launches = router.apply(signals: [latest], read: read)
         let task = try #require(h.workspace.state.task(id: id))
-        #expect(task.signalTask?.signal == first && task.signalTask?.phase == .launching)
+        #expect(task.signalTask?.current.signal == first && task.signalTask?.phase == .launching)
         #expect(task.agent == SignalWorld.agent.agent && task.model == SignalWorld.agent.model && task.reasoning == SignalWorld.agent.reasoning)
         #expect(task.signalTask?.pendingStages.map(\.signal) == [latest])
         #expect(launches == [id])
@@ -33,7 +33,7 @@ import Testing
         let ids = router.apply(observations: [.init(signals: [newer], read: read), .init(signals: [oldest], read: read)])
         let task = try #require(h.workspace.state.tasks.first)
         #expect(ids == [task.id] && h.workspace.state.tasks.count == 1)
-        #expect(task.signalTask?.signal == oldest)
+        #expect(task.signalTask?.current.signal == oldest)
         #expect(task.signalTask?.pendingStages.map(\.signal) == [newer])
     }
 
@@ -129,7 +129,7 @@ import Testing
         try await runner.finish(id, action: .finish(.operatorJudges))
         #expect(prompts.count == 2 && prompts.last?.contains("/psg:review") == true)
         #expect(h.workspace.state.tasks.count == 1)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.signal == second)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.current.signal == second)
         #expect(h.workspace.state.task(id: id)?.signalTask?.canRunThen == false)
     }
 

@@ -21,6 +21,8 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         public init(id: String, task: UUID?, text: String, openedAt: Date, resolvedAt: Date? = nil) {
             self.id = id; self.task = task; self.text = text; self.openedAt = openedAt; self.resolvedAt = resolvedAt
         }
+        /// Open, or a worker's question whose answer has not reached the worker yet.
+        public var isPending: Bool { resolvedAt == nil || (workerQuestion != nil && answer != nil && deliveredAt == nil) }
     }
     public struct LedgerEntry: Codable, Equatable, Sendable {
         public var key: String
@@ -64,10 +66,7 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public mutating func prune(at now: Date = Date()) {
         ledger = Array(ledger.filter { now.timeIntervalSince($0.at) <= 7 * 86400 }.suffix(500))
         snags = Array(snags.suffix(100))
-        func pending(_ question: Question) -> Bool {
-            question.resolvedAt == nil || (question.workerQuestion != nil && question.answer != nil && question.deliveredAt == nil)
-        }
-        let closed = questions.filter { !pending($0) }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
-        questions = questions.filter(pending) + closed
+        let closed = questions.filter { !$0.isPending }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
+        questions = questions.filter(\.isPending) + closed
     }
 }

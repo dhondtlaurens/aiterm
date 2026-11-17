@@ -16,4 +16,15 @@ struct SignalRetentionTests {
         #expect(session.ledger.count == 500 && session.ledger.first?.key == "k100")
         #expect(session.questions.count == 1002 && session.waitingOnYou == 1001)
     }
+    @Test func aQuestionIsPendingWhileOpenOrWhileAWorkersAnswerIsUndelivered() {
+        let now = Date()
+        let open = OperatorSession.Question(id: "open", task: UUID(), text: "Which locale?", openedAt: now)
+        var undelivered = OperatorSession.Question(id: "worker", task: UUID(), text: "Which locale?", openedAt: now, resolvedAt: now)
+        undelivered.workerQuestion = "Which locale?"; undelivered.answer = "en-GB"
+        var delivered = undelivered; delivered.deliveredAt = now
+        var answered = OperatorSession.Question(id: "operator", task: UUID(), text: "Merge it?", openedAt: now, resolvedAt: now)
+        answered.answer = "Yes"
+        #expect(open.isPending && undelivered.isPending)
+        #expect(!delivered.isPending && !answered.isPending)
+    }
 }

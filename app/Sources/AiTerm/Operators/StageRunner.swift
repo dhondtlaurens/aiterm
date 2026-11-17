@@ -29,8 +29,8 @@ import AiTermCore
     func run(_ id: UUID) async {
         guard !isStopped, !running.contains(id), !ports.workerIsWorking(id),
               let initial = workspace.state.signalItem(id: id), let claim = SignalClaim(initial), claim.allows(in: workspace),
-              let record = initial.signalTask, record.phase == .launching,
-              let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else { return }
+              let record = initial.signalTask, record.phase == .launching, record.current.configuration.isRunnable else { return }
+        let signal = record.current.configuration
         let launchGeneration = generation
         running.insert(id); defer {
             running.remove(id)
@@ -46,7 +46,7 @@ import AiTermCore
             let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
             workspace.mutate { state in
                 state.updateSignalItem(id) { task in
-                    task.firstPrompt = task.signalTask?.prompt ?? signal.work.prompt
+                    task.firstPrompt = task.signalTask?.current.prompt ?? signal.work.prompt
                     task.signalTask?.launch = attempt
                     task.signalTask?.currentAct = "starting its worker"
                 }
@@ -88,9 +88,10 @@ import AiTermCore
         }
         guard !ports.workerIsWorking(id), !isStopped,
               let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
-              record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
+              record.phase == .blocked, record.current.configuration.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")
         }
+        let signal = record.current.configuration
         let current = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
         if let project, project != task.projectId { throw ActionUnavailable("resume_task keeps the task's project. Use choose_agent to change it.") }
         if let agent, agent != current { throw ActionUnavailable("resume_task keeps the decided agent row. Use choose_agent to change it.") }
@@ -107,8 +108,7 @@ import AiTermCore
     func choose(_ id: UUID, choice: AgentChoiceRecord) async throws {
         guard !ports.workerIsWorking(id), !isStopped,
               let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
-              record.phase == .choosing || record.phase == .blocked,
-              let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
+              record.phase == .choosing || record.phase == .blocked, record.current.configuration.isRunnable else {
             throw ActionUnavailable("Only a choosing or blocked task of the Operator takes an agent choice.")
         }
         if let project = choice.project, project != task.projectId {
@@ -132,11 +132,10 @@ import AiTermCore
         }
         var next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: ports.workerIsWorking(id))
         if judged, next.stage == record.stage { next.operatorJudged = true }
-        let configuration = next.configuration ?? workspace.state.signal(id: next.signal)
         workspace.mutate { state in
             state.updateSignalItem(id) { task in
                 task.signalTask = next
-                if next.phase == .launching, let configuration { task.prepareLaunch(configuration: configuration, candidates: nil, at: now()) }
+                if next.phase == .launching { task.prepareLaunch(candidates: nil, at: now()) }
             }
         }
         guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }

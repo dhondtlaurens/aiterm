@@ -363,7 +363,7 @@ TS tests-scripts.
   recovered worker and the failed launch; the unreachable `stopped` phase, the unused `stop` action
   and the unread edge history go. One claim check covers workspace, pause, signal enabled and
   cancellation; the thirteen repeated pause checks go (RT F5, OC F2).
-- [ ] 5b. **Opus.** A task's record holds its current stage whole with a configuration that is
+- [x] 5b. **Opus.** A task's record holds its current stage whole with a configuration that is
   always present; the eighteen `configuration ?? signal` fallbacks and the field-by-field stage
   copy go; one "question still pending" rule (OC F7 part b). Saved format re-recorded.
 - [ ] 5c. **Opus.** One Oracle owner: one consult with a kind, a binding and a round limit,
@@ -1065,3 +1065,16 @@ left.
   `SignalClaimTests`, three `SignalDomainTests` and
   `SignalEngineTests.aLaunchErrorAfterTheStageWasBlockedLeavesTheFirstReason`. Noticed and left: the
   doc comment of `LaunchAttempt.workerPending` names a `WorkerStarter.checkLaunches` that no longer exists.
+- 5b: a task's record holds its current stage whole (`SignalTask.current: SignalStage`, whose
+  `configuration` is always present); the `configuration ?? signal` fallbacks and the field-by-field
+  stage copy went; `continueStage` makes the first pending stage the current one; one
+  `Question.isPending` rule. Fixture re-recorded: `operator-signals/state.json` with
+  `AITERM_RECORD_SIGNAL_STATE=1` (both records move signal, item, configuration and prompt under
+  `current`, which gains `matchedAt`; nothing else), provenance section added. No test deleted; added
+  two `SignalDomainTests` and `SignalRetentionTests.aQuestionIsPendingWhileOpenOrWhileAWorkersAnswerIsUndelivered`;
+  new test builders `Signal.make` and `SignalTask.make`. Snapshots in `build/refactor-5b`
+  byte-identical to `build/refactor-phase4`. Differences: two refusals for a missing signal now read
+  "The task is no longer the Operator’s." for a task with no record (no test, fixture or doc names
+  them); the drawn copy always carries the configuration. Found, not this step's: the signal sidebar
+  snapshot fixtures (`Snapshots/SignalSidebarSnapshots.swift`) use real people's names as reviewers,
+  in a public repository; changing them changes drawn pixels, so it is left to the maintainer.
