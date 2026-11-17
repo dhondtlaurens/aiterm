@@ -399,7 +399,7 @@ TS tests-scripts.
 - [x] 6a. **Opus.** One ordered work list per session, each item saying whether it holds the turn;
   `background` plus `displayWork` with `legacyIndex`, and the app's merge, go (DM F2, SB F10).
   Wire frames and `docs/daemon-protocol.md` follow.
-- [ ] 6b. **Opus.** The app owns its helper: a stale holder of the socket is ended and a new one
+- [x] 6b. **Opus.** The app owns its helper: a stale holder of the socket is ended and a new one
   started; adoption, the held status, the mismatch hold and the unreadable-line limiter go; the
   stop in `scripts/run-dev.sh` becomes unnecessary (WD F4).
 - [ ] 6c. **Codex.** One method per daemon command returning its full reply; `workspace.snapshot`
@@ -1212,3 +1212,14 @@ left.
   Stop's order" case is not reachable, the test asserts what happens. Behaviour note: a Stop shell the
   reader still lists now holds the turn mid-turn, so a needsInput tab with such a shell counts as at
   work (the brief's decisions accept this kind of difference).
+- 6b: the app owns its helper: a helper still holding this socket (matched by the exact
+  `aitermd run --socket <path>` command line) is ended (SIGTERM, then SIGKILL after the grace) and the
+  app starts its own at once; a held socket with no such holder is a failed launch through the backoff.
+  Adoption, the held status, the mismatch hold and the unreadable-line limiter went; the stop in
+  `scripts/run-dev.sh` went (not run). Tests deleted with their behaviour: two supervisor adoption tests
+  and two connection mismatch-hold tests; added `testOnlyAHelperOnThisExactSocketIsStale`,
+  `testAStaleHelperHoldingTheSocketIsEndedAndTheChildStartedAgain` (a stand-in process on a scratch
+  socket) and `testAHeldSocketWithNoStaleHelperIsAFailedLaunchRetriedThroughTheBackoff`. Docs and
+  `docs/workflow/verify.md` follow. The brief's grep for "adopted" still matches other concepts
+  (windows, workers, worktrees, remotes, the chat). Left: `SessionAgent`'s lenient-decoding doc cites
+  adoption; the daemon and the app both launch iTerm2 at start.

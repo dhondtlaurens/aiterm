@@ -125,8 +125,8 @@ private let neverAbandoned: TimeInterval = 3600
     }
 
     // C8: `exited(_:)` used to act on any `Process` its `terminationHandler` was ever given, not
-    // just the one it currently supervises. A stale child's callback firing after a restart or an
-    // adoption would then treat the process that replaced it as itself having exited.
+    // just the one it currently supervises. A stale child's callback firing after a restart would
+    // then treat the process that replaced it as itself having exited.
     @Test func testAStaleChildsExitIsIgnored() async {
         let box = StateBox()
         let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/stale-\(UUID().uuidString).sock", arguments: ["-c", "sleep 30"], logURL: logURL, bindDeadline: neverAbandoned) { state in
@@ -256,47 +256,75 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(box.states.count == countAfterStop, "no further state changes should arrive after stop()")
     }
 
-    // The bug this fixes: an app that died without a graceful quit leaves a healthy daemon
-    // holding the socket. The next launch's daemon refuses to start (exit
-    // `alreadyRunningExitStatus`), and treating that as a crash restart-looped forever behind a
-    // "Daemon keeps exiting" banner. The right answer is to use the daemon that is already there.
-    @Test func testSupervisorAdoptsARunningDaemonInsteadOfRestarting() async {
-        let box = StateBox()
-        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/adopt-\(UUID().uuidString).sock",
-                                   arguments: ["-c", "exit \(DaemonSupervisor.alreadyRunningExitStatus)"], logURL: logURL, adoptedProbeInterval: 30) { state in
-            box.append(state)
-        }
-        sup.start()
-
-        await eventually { box.states.contains(.adopted) }
-        sup.stop()
-
-        #expect(box.states.contains(.adopted), "exit status \(DaemonSupervisor.alreadyRunningExitStatus) must report .adopted, got \(box.states)")
-        #expect(!box.states.contains { if case .failed = $0 { return true } else { return false } },
-                "adopting a running daemon is not a failure, so no backoff/restart may be scheduled: \(box.states)")
+    // A stale helper is found by its command line as `ps` prints it: the arguments joined by
+    // spaces, so the socket path's own space is part of the text, and only this exact socket
+    // counts. Whatever runs the module in front does not matter.
+    @Test func testOnlyAHelperOnThisExactSocketIsStale() {
+        let socket = "/Users/someone/Library/Application Support/AiTerm/aitermd.sock"
+        let listing = """
+          101 /opt/homebrew/bin/python3 -m aitermd run --socket \(socket) --hook-port 47821 --cookies-from-app
+          202 /usr/bin/python3 -m aitermd run --socket /tmp/other.sock --hook-port 47821 --cookies-from-app
+          303 /usr/bin/python3 -m aitermd run --socket \(socket).old --hook-port 47821 --cookies-from-app
+          404 /usr/bin/python3 -m http.server 8000
+        """
+        #expect(DaemonSupervisor.helperPids(holding: socket, in: listing) == [101])
+        #expect(DaemonSupervisor.helperPids(holding: socket, in: "7 python3 -m aitermd run --socket \(socket)\n") == [7],
+                "a command line that ends with the path matches too")
     }
 
-    // Adoption gives up ownership of the process, so the supervisor no longer gets a termination
-    // callback if that daemon dies. Without this probe the app would sit with no daemon and no
-    // recovery — a regression against the owned-process path, which restarts.
-    @Test func testSupervisorTakesOverWhenTheAdoptedDaemonGoesAway() async {
+    // An app that crashed or was force-quit leaves its helper holding the socket, and the next
+    // launch's child refuses to start (exit `alreadyRunningExitStatus`). The app talks only to a
+    // helper it started: the stale one is ended and the child started again, with no failure.
+    @Test func testAStaleHelperHoldingTheSocketIsEndedAndTheChildStartedAgain() async throws {
+        let socketPath = NSTemporaryDirectory() + "stale helper \(UUID().uuidString.prefix(8)).sock"
+        let standIn = Process()
+        standIn.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        standIn.arguments = ["-c", "import time; time.sleep(120)", "aitermd", "run", "--socket", socketPath]
+        standIn.standardOutput = FileHandle.nullDevice; standIn.standardError = FileHandle.nullDevice
+        try standIn.run()
+        defer { if standIn.isRunning { kill(standIn.processIdentifier, SIGKILL) } }
+
         let box = StateBox()
-        // The socket path never has a listener, so the first probe after .adopted finds the
-        // daemon gone and the supervisor launches its own.
-        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/gone-\(UUID().uuidString).sock",
-                                   arguments: ["-c", "exit \(DaemonSupervisor.alreadyRunningExitStatus)"], logURL: logURL, adoptedProbeInterval: 0.05) { state in
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: socketPath,
+                                   arguments: ["-c", "exit \(DaemonSupervisor.alreadyRunningExitStatus)"], logURL: logURL,
+                                   backoff: { _ in 3600 }) { state in
             box.append(state)
         }
         sup.start()
-
-        func startsAfterFirstAdoption() -> Int {
-            guard let i = box.states.firstIndex(of: .adopted) else { return 0 }
-            return box.states[i...].filter { $0 == .starting }.count
-        }
-        await eventually { startsAfterFirstAdoption() >= 1 }
+        func secondStart() -> Int? { box.states.indices.filter { box.states[$0] == .starting }.dropFirst().first }
+        await eventually { secondStart() != nil }
         sup.stop()
 
-        #expect(startsAfterFirstAdoption() >= 1, "a vanished adopted daemon must be replaced, got \(box.states)")
+        let states = box.states
+        let restart = try #require(states.indices.filter { states[$0] == .starting }.dropFirst().first, "never started again, got \(states)")
+        #expect(!states[..<restart].contains { if case .failed = $0 { true } else { false } },
+                "ending a stale helper is not a failed launch, got \(states)")
+        await eventually(describing: "the stale helper to be ended") { !standIn.isRunning }
+        #expect(!standIn.isRunning)
+    }
+
+    // A socket held with no helper of this socket to end (or none that could be signalled) is a
+    // failed launch, retried through the backoff, so the loop cannot spin.
+    @Test func testAHeldSocketWithNoStaleHelperIsAFailedLaunchRetriedThroughTheBackoff() async {
+        let box = StateBox()
+        let waits = RecordedBackoff { _ in 0.01 }
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/held-\(UUID().uuidString.prefix(8)).sock",
+                                   arguments: ["-c", "exit \(DaemonSupervisor.alreadyRunningExitStatus)"], logURL: logURL, backoff: waits.backoff) { state in
+            box.append(state)
+        }
+        sup.start()
+        func failures() -> [(attempt: Int, message: String)] {
+            box.states.compactMap { state -> (attempt: Int, message: String)? in
+                if case .failed(let attempt, let message) = state { return (attempt, message) }
+                return nil
+            }
+        }
+        await eventually { failures().count >= 2 }
+        sup.stop()
+
+        #expect(failures().prefix(2).map(\.attempt) == [1, 2], "got \(box.states)")
+        #expect(failures().first?.message.contains("held by another process") == true, "got \(box.states)")
+        #expect(Array(waits.attempts.prefix(2)) == [0, 1])
     }
 
     // The app connects when the supervisor says the daemon is there. A daemon binds its
@@ -380,7 +408,7 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(logText().contains("hello-from-daemon"), "the daemon's output must reach \(logURL.path), got “\(logText())”")
     }
 
-    // A daemon that still has the old file open (an orphan about to be adopted, or one
+    // A daemon that still has the old file open (a stale helper about to be ended, or one
     // still exiting) must keep writing into the file the banner points at, so the log is emptied
     // in place rather than replaced.
     //

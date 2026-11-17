@@ -190,8 +190,8 @@ import Testing
         #expect(fixture.controller.issue?.subject == terminal.id)
     }
 
-    /// AiTerm starting while iTerm2 is not running starts it, once: an adopted daemon, still running
-    /// from the last launch, never does. Already running, it is left be.
+    /// AiTerm starting while iTerm2 is not running starts it, once, without waiting for its helper.
+    /// Already running, it is left be.
     @Test func startingWhileITerm2IsNotRunningStartsItOnce() async throws {
         let launches = ControllerCallCounter()
         let fixture = try await RaceFixture(launchIterm: { launches.record() }, itermRunning: { false })

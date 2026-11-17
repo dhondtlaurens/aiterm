@@ -272,8 +272,8 @@ final class AppController {
         agentProbe = Task { await agents.probe() }
         helper.start()
         signalController.start()
-        // The daemon launches iTerm2 only at its own start, which an AiTerm adopting the daemon a
-        // previous one left running never causes: starting AiTerm is the person asking for it.
+        // Starting AiTerm is the person asking for iTerm2: it is started here, without waiting for
+        // the helper to start and launch it too.
         if !itermRunning() { launchIterm() }
     }
 

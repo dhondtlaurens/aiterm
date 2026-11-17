@@ -9,16 +9,15 @@ import Darwin
 /// in `state`, so the compiler, not that convention, keeps every access under its lock.
 public final class DaemonSupervisor: Sendable {
     /// `.running` is a spawned child; `.listening` is that child once its socket accepts
-    /// connections, which is when the app connects. `.adopted` means a daemon we did not start is
-    /// serving the socket, so there is no child process of ours to supervise — the app connects to
-    /// it exactly as it would to `.listening`.
+    /// connections, which is when the app connects. The app only ever talks to a helper it started.
     public enum State: Equatable, Sendable {
-        case stopped, starting, running(pid: Int32), listening(pid: Int32), adopted, failed(attempt: Int, message: String)
+        case stopped, starting, running(pid: Int32), listening(pid: Int32), failed(attempt: Int, message: String)
     }
 
     /// Mirrors `EXIT_ALREADY_RUNNING` in `daemon/aitermd/__main__.py`: the daemon's way of saying
-    /// "another instance already owns this socket", which is a reason to adopt that instance, not
-    /// to restart. Any other non-zero status is a genuine crash.
+    /// "another instance already owns this socket". That instance is a stale helper (one an app
+    /// that crashed or was force-quit left behind), so it is ended and the child started again
+    /// (`replaceStaleHelpers`). Any other non-zero status is a genuine crash.
     public static let alreadyRunningExitStatus: Int32 = 3
 
     /// How long a child has to open its socket before it counts as a failed launch. A daemon binds
@@ -30,7 +29,6 @@ public final class DaemonSupervisor: Sendable {
 
     private let python: URL, daemonDir: URL, socketPath: String, hookPort: Int, arguments: [String]?
     private let logURL: URL
-    private let adoptedProbeInterval: TimeInterval
     private let bindDeadline: TimeInterval
     private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
     private let onStateChange: @Sendable (State) -> Void
@@ -41,16 +39,16 @@ public final class DaemonSupervisor: Sendable {
         var attempt = 0
         var stopping = false
         var startedAt = Date.distantPast
-        /// Names the one timed action still to run — a probe for a new child's socket, a backoff
-        /// restart or an adopted-daemon liveness probe. Scheduling another, an exit and `stop()`
-        /// each bump it, which cancels the one outstanding.
+        /// Names the one timed action still to run — a probe for a new child's socket or a backoff
+        /// restart. Scheduling another, an exit and `stop()` each bump it, which cancels the one
+        /// outstanding.
         var scheduled = 0
     }
     private let state = Mutex(Supervision())
     private let queue = DispatchQueue(label: "aiterm.supervisor")
 
-    public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, adoptedProbeInterval: TimeInterval = 5, bindDeadline: TimeInterval = DaemonSupervisor.bindDeadline, backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) }, onStateChange: @escaping @Sendable (State) -> Void) {
-        self.python = python; self.daemonDir = daemonDir; self.socketPath = socketPath; self.hookPort = hookPort; self.arguments = arguments; self.logURL = logURL; self.adoptedProbeInterval = adoptedProbeInterval; self.bindDeadline = bindDeadline; self.backoff = backoff; self.onStateChange = onStateChange
+    public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, bindDeadline: TimeInterval = DaemonSupervisor.bindDeadline, backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) }, onStateChange: @escaping @Sendable (State) -> Void) {
+        self.python = python; self.daemonDir = daemonDir; self.socketPath = socketPath; self.hookPort = hookPort; self.arguments = arguments; self.logURL = logURL; self.bindDeadline = bindDeadline; self.backoff = backoff; self.onStateChange = onStateChange
     }
 
     public func start() {
@@ -64,8 +62,8 @@ public final class DaemonSupervisor: Sendable {
     /// One launch's worth of log, not a forever-growing file: the log exists so the banner's
     /// "see …/aitermd.log" can be acted on, and a crash loop's last output is what matters.
     ///
-    /// Emptied in place, never replaced: a daemon that already has the file open (an orphan about
-    /// to be adopted, or one still exiting) would otherwise keep writing into an unlinked inode.
+    /// Emptied in place, never replaced: a daemon that already has the file open (a stale helper
+    /// about to be ended, or one still exiting) would otherwise keep writing into an unlinked inode.
     private func truncateLog() {
         makeLogFolder()
         let fd = open(logURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
@@ -80,7 +78,7 @@ public final class DaemonSupervisor: Sendable {
     }
 
     /// Append-mode handle for the child's stdout+stderr. `O_APPEND` makes every write land at the
-    /// end of the file, so a second writer (an adopted daemon's) cannot overwrite the child's lines.
+    /// end of the file, so a second writer (a stale helper's) cannot overwrite the child's lines.
     /// `nil` (unwritable support directory, a read-only volume) means the child inherits our own
     /// descriptors, exactly as before — a daemon that runs without a log is far better than one
     /// that cannot be started at all.
@@ -114,16 +112,40 @@ public final class DaemonSupervisor: Sendable {
         let running = victims.filter(\.isRunning)
         guard !running.isEmpty else { return }
         running.forEach { $0.terminate() }
-        // Poll rather than block in `waitUntilExit()`: a daemon that ignored SIGTERM would
-        // otherwise hang the quit forever. After the grace period it gets SIGKILL, which the
-        // kernel always delivers.
-        let deadline = Date().addingTimeInterval(Self.stopGracePeriod)
-        while running.contains(where: \.isRunning), Date() < deadline { usleep(20_000) }
-        let stuck = running.filter(\.isRunning)
+        Self.awaitEnd(running.map { child in (child.processIdentifier, { child.isRunning }) })
+    }
+
+    /// Waits for processes already sent SIGTERM to exit, and sends SIGKILL to those still running
+    /// after `stopGracePeriod`, waiting up to half a second more. Polls rather than blocks in
+    /// `waitUntilExit()`: a daemon that ignored SIGTERM would otherwise hang the caller forever;
+    /// SIGKILL the kernel always delivers.
+    private static func awaitEnd(_ processes: [(pid: Int32, isRunning: () -> Bool)]) {
+        let deadline = Date().addingTimeInterval(stopGracePeriod)
+        while processes.contains(where: { $0.isRunning() }), Date() < deadline { usleep(20_000) }
+        let stuck = processes.filter { $0.isRunning() }
         guard !stuck.isEmpty else { return }
-        stuck.forEach { kill($0.processIdentifier, SIGKILL) }
+        stuck.forEach { kill($0.pid, SIGKILL) }
         let killDeadline = Date().addingTimeInterval(0.5)
-        while stuck.contains(where: \.isRunning), Date() < killDeadline { usleep(20_000) }
+        while stuck.contains(where: { $0.isRunning() }), Date() < killDeadline { usleep(20_000) }
+    }
+
+    /// The pids in a process listing (one process per line: its pid, then its full command line,
+    /// as `ps -o pid=,command=` prints it) whose command line runs `aitermd run --socket` on exactly
+    /// `socketPath`. `ps` joins the arguments with spaces and the path itself can hold one
+    /// (`Application Support`), so the match is on that text, followed by a space or the end of
+    /// the line: another socket, or one whose path merely starts with this one, does not match.
+    /// Whatever runs the module in front of it does not matter.
+    static func helperPids(holding socketPath: String, in listing: String) -> [Int32] {
+        let needle = "aitermd run --socket " + socketPath
+        return listing.split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.drop { $0 == " " }
+            guard let space = fields.firstIndex(of: " "), let pid = Int32(fields[..<space]) else { return nil }
+            let command = fields[space...]
+            let runsHelper = command.ranges(of: needle).contains { match in
+                match.upperBound == command.endIndex || command[match.upperBound] == " "
+            }
+            return runsHelper ? pid : nil
+        }
     }
 
     /// `--cookies-from-app`: the daemon asks this app for each iTerm2 API cookie instead of running
@@ -202,36 +224,36 @@ public final class DaemonSupervisor: Sendable {
             // Reaped: an abandoned child leaves nothing for `stop()` to wait for.
             state.abandoned.removeAll { $0 === proc }
             // `proc` is whichever child's `terminationHandler` fired; a `launch()` since it started
-            // (a restart, an adoption handoff) can have moved `process` on before its callback
-            // runs. Without this guard, that stale callback would restart or adopt on top of the
-            // process that already replaced it.
+            // (a restart) can have moved `process` on before its callback runs. Without this
+            // guard, that stale callback would restart on top of the process that already
+            // replaced it.
             guard !state.stopping, proc === state.process else { return false }
             // A child that exits before it listens leaves its socket probe behind.
             state.scheduled += 1
             return true
         }
         guard supervised else { return }
-        // A daemon that refused to start because one is already running is not a crash: the app
-        // wants *that* daemon. Restarting instead is what produced the "Daemon keeps exiting"
-        // loop, since every retry hit the same live socket.
-        if proc.terminationStatus == Self.alreadyRunningExitStatus { adopt(); return }
+        if proc.terminationStatus == Self.alreadyRunningExitStatus { replaceStaleHelpers(); return }
         state.withLock { if Date().timeIntervalSince($0.startedAt) > 60 { $0.attempt = 0 } }
         recordFailure(message: "exited with status \(proc.terminationStatus)")
     }
 
-    private func adopt() {
-        state.withLock { $0.attempt = 0; $0.process = nil }
-        onStateChange(.adopted)
-        scheduleAdoptedProbe()
-    }
-
-    /// Adoption gives up the termination callback that tells us an owned daemon died, so the only
-    /// way to notice an adopted one going away is to ask the socket. When it stops answering we
-    /// take over and start our own.
-    private func scheduleAdoptedProbe() {
-        schedule(after: adoptedProbeInterval) { supervisor in
-            if SocketProbe.isLive(path: supervisor.socketPath) { supervisor.scheduleAdoptedProbe() } else { supervisor.launch() }
+    /// A child that refused to start because the socket is held: a helper an app that crashed or
+    /// was force-quit left behind still serves it, maybe from another build. It is found by its command
+    /// line, ended as `stop()` ends a child, and the child started again at once. With none found,
+    /// or none that could be signalled, the launch has failed and is retried through the backoff,
+    /// so a socket held by something else cannot spin this loop.
+    private func replaceStaleHelpers() {
+        let listing = try? ProcessRunner.run(URL(fileURLWithPath: "/bin/ps"), ["-axww", "-o", "pid=,command="], timeout: 2)
+        let found = listing.map { $0.status == 0 && !$0.timedOut ? Self.helperPids(holding: socketPath, in: $0.stdout) : [] } ?? []
+        let signalled = found.filter { kill($0, SIGTERM) == 0 }
+        guard !signalled.isEmpty else {
+            recordFailure(message: "its socket is held by another process")
+            return
         }
+        Log.daemon.notice("Ending the stale helper that holds the socket, pid \(signalled.map(String.init).joined(separator: ", "), privacy: .public)")
+        Self.awaitEnd(signalled.map { pid in (pid, { kill(pid, 0) == 0 }) })
+        launch()
     }
 
     /// Shared bookkeeping for the "process never started" (`launch()`'s `catch`), "process started

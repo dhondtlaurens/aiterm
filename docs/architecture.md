@@ -153,8 +153,9 @@ from attaching to a replacement process.
 
 The app-resolved Claude configuration directory travels in `workspace.snapshot` and is echoed as a
 bootstrap compatibility check. A snapshot is a barrier before later events; overflow, malformed
-frames or an unreadable known event disconnect and bootstrap again. An adopted daemon is not killed
-as though it belonged to the current app. [Protocol reference](daemon-protocol.md) and
+frames or an unreadable known event disconnect and bootstrap again. The app talks only to a helper
+it started: one a crash left holding the socket is ended, and the app starts its own.
+[Protocol reference](daemon-protocol.md) and
 [daemon development](../daemon/README.md).
 
 ## Where the facts come from

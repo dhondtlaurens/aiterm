@@ -35,10 +35,11 @@ signature without running the app. Both signing and verification must succeed.
 scripts/run-dev.sh
 ```
 
-This builds a DEV app, normally quits the current AiTerm, stops its orphaned helper and opens the
-new bundle. Installed/development copies share their identifier, workspace, socket and hook port.
-This is a live switch; do not use it while another run must remain undisturbed. A stable signing
-identity preserves automation/Keychain grants across rebuilds.
+This builds a DEV app, normally quits the current AiTerm and opens the new bundle; a helper a
+crash left behind is ended by the new app, which starts its own. Installed/development copies share
+their identifier, workspace, socket and hook port. This is a live switch; do not use it while
+another run must remain undisturbed. A stable signing identity preserves automation/Keychain grants
+across rebuilds.
 
 `reset-operator-state.sh [path]` clears `operatorSession` and active/archived tasks' `signalTask`
 records, preserves takeover marks on the tasks, and keeps every other saved value with a dated copy

@@ -30,7 +30,7 @@ class ClaudeSessionFiles:
         self._index: dict[Path, _Entry] = {}
 
     def configure(self, directory: Path) -> None:
-        """The app resolves the login shell's configuration, including on helper adoption."""
+        """The app resolves the login shell's configuration."""
         root = directory / "sessions"
         if root != self.root:
             self.root = root

@@ -15,14 +15,14 @@ from .models import support_dir
 from .rpc_server import AlreadyRunning
 
 #: Exit status for "another daemon already owns the socket". Kept distinct from the
-#: generic failure status so a supervisor can adopt the running daemon instead of
-#: treating the refusal as a crash and restarting forever.
+#: generic failure status so the app's supervisor ends that stale holder and starts again,
+#: instead of treating the refusal as a crash and restarting into the same held socket.
 EXIT_ALREADY_RUNNING = 3
 
 #: How long the daemon keeps running with no app attached before quitting. The app holds an
 #: RPC connection for its whole lifetime, so "no client" means "no app" - and a daemon with no
-#: app is useless while still holding the socket the next launch needs. Generous enough that a
-#: relaunch inside the window still finds it up and adopts it, which beats a cold start.
+#: app is useless while still holding the socket the next launch needs. This reaps a helper
+#: whose app died and never came back; an app that does come back ends it and starts its own.
 IDLE_EXIT_SECONDS = 60.0
 IDLE_CHECK_SECONDS = 2.0
 log = logging.getLogger("aitermd")

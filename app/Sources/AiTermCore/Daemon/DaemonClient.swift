@@ -301,20 +301,8 @@ public final class DaemonClient: Sendable {
         }
     }
 
-    /// When each event, or a line that is none, was last logged as unreadable. A helper that sends
-    /// a shape this app cannot read sends it every time it sends that event, and each time this
-    /// client reconnects to it, so each one's failure is logged at most once a minute.
-    private static let unreadableLogged = Mutex<[String: ContinuousClock.Instant]>([:])
-
     private static func logUnreadable(_ name: String, _ error: Error) {
-        let now = ContinuousClock.now
-        let due = unreadableLogged.withLock { logged in
-            if let last = logged[name], now - last < .seconds(60) { return false }
-            logged[name] = now
-            return true
-        }
-        guard due else { return }
-        Log.daemon.error("Unreadable \(name, privacy: .public) from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
+        Log.daemon.error("Unreadable \(name, privacy: .public) from the helper, so reconnecting to a fresh snapshot: \(String(describing: error), privacy: .public)")
     }
 
     private func allocateID() -> Int {

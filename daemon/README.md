@@ -36,9 +36,9 @@ sends one RPC. The app normally starts and supervises the bundled helper.
 ## App connection
 
 `workspace.snapshot` returns protocol version 1, availability, tagged sessions and usage. The app
-supplies its resolved `claudeConfigDirectory`; the helper applies it and echoes it exactly, including
-when adopted by a new app connection. Requests omitting it retain the current directory. This
-acknowledgement is part of compatibility checking.
+supplies its resolved `claudeConfigDirectory`; the helper applies it and echoes it exactly.
+Requests omitting it retain the current directory. This acknowledgement is part of compatibility
+checking.
 
 The snapshot is written before later events and acts as the client's bootstrap barrier. A
 disconnected snapshot proves no window closure. Overflow or malformed framing closes the
