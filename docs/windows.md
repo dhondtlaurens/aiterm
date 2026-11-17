@@ -131,10 +131,11 @@ ended.
 
 Some windows close because AiTerm closed them:
 
-- **Remove Task… / Remove Review…** asks all its questions first, then closes the window before
-  deleting the worktree. A task with a window needs iTerm2 connected to close it: without, it stops
-  before closing or deleting anything, and the row says **Not removed: iTerm2 isn’t connected**. A
-  task with no window is removed either way.
+- **Remove Task… / Remove Review…** asks all its questions first, then closes the window, and any
+  other window one of the task's tabs was moved to, before deleting the worktree. A task with a
+  window needs iTerm2 connected to close it: without, it stops before closing or deleting anything,
+  and the row says **Not removed: iTerm2 isn’t connected**. A task with no window is removed either
+  way.
 - **Archive Task** does the same, then moves the row to the Archive. Without iTerm2 connected, a
   task with a window says **Not archived: iTerm2 isn’t connected**.
 - **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
@@ -150,7 +151,8 @@ the task in the sidebar without a window, like any other.
 
 The banner above the list says that the window could not open, and why. A terminal's names the
 terminal; a task's names no row, and goes when that task opens or leaves the sidebar. Nothing else
-marks the row. Choose it again to try again.
+marks the row. Choose it again to try again. A task's window that opens but whose resume command
+iTerm2 could not type stays open as a plain shell, and the banner says so, with why.
 
 A row whose worktree is missing opens nothing and says **Worktree missing**: restore the worktree
 or remove the task.

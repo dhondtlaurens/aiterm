@@ -1028,3 +1028,20 @@ left.
   after its task was taken over meanwhile reports "The task is yours, but its worktree couldn’t be
   made." on the task, once, in `checkOutWorker` (this also covers a fork found during that read). The
   round-1 test runs for a 200 and a 500 answer (`readFails:`).
+- Review round 3 (the last allowed): two new Important findings, both confirmed and fixed (fix round
+  3, by the 4d implementer), verified by the orchestrator's reading of the diff and the gates, with no
+  fourth review round: (1) the shared task opener from 4d dropped the daemon's `commandError`, so a
+  window whose resume command iTerm2 could not type showed a bare shell with no reason;
+  `createTaskWindow` now returns `WorkerOpening` (id and command error) from its one decoding and the
+  opener reports "Reopened the window, but not every conversation." or, for a driven task, "…but its
+  worker didn’t resume." on the task (test `RowWindowsControllerTests.aWindowWhoseCommandWasNotTypedIsAdoptedAndSaidOnItsTask`,
+  `DaemonClientTests.aTaskWindowWhoseCommandWasNotTypedReadsItsIdAndWhy`); (2) with a task's tabs in
+  two windows, Remove closed one, the row adopted the other, and the task was forgotten with that
+  window running; the teardown now closes every window the task holds (its own and each window one of
+  its tagged tabs is in) before git runs (test `RemoveTaskControllerTests.aTaskWithTabsInTwoWindowsHasBothClosedAndItsRowAndWorktreeGo`).
+  The same round fixed the race behind the two intermittent failures of
+  `ItermFocusControllerTests.aTakenOverRequestOpensItsSourceBranchAndRefusesAFork`: a checkout scan
+  adopted the test's local `origin` as the project's remote before the request lookup; the test's
+  scanner now returns no remotes (five green runs in a row). Noticed and left: `TaskLauncher.create`
+  also ignores a `commandError` (a new task's agent that iTerm2 could not type says nothing, as before
+  the refactor); `openWorkerWindow` and `createTaskWindow` could merge (6c).

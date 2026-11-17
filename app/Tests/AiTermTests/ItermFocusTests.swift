@@ -62,7 +62,16 @@ import Testing
     @Test(arguments: [false, true])
     func aTakenOverRequestOpensItsSourceBranchAndRefusesAFork(fork: Bool) async throws {
         let focus = ControllerItermFocus()
-        let fixture = try await RaceFixture(activateIterm: { focus.activate() }, provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        // The request's host is the project's GitLab remote, while git fetches from a local `origin`: the checkout
+        // monitor's passes read every other thing from disk, but leave the project's remote as it was saved, rather
+        // than adopt that local path at whichever pass lands before the Take Over's request lookup.
+        let keepingRemote: CheckoutMonitor.Scanner = { cwds, projects, tasks, branches, remotes, diffs in
+            var scan = WorkspaceScan.run(cwds: cwds, projects: projects, tasks: tasks, branches: branches, remotes: remotes, diffs: diffs)
+            scan.remotes = [:]
+            return scan
+        }
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() }, scan: keepingRemote, provider: .gitlab,
+                                            remoteUrl: "git@git.example:shop/web.git")
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller, git = fixture.git, repo = fixture.repo.path

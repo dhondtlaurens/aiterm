@@ -548,23 +548,30 @@ final class TaskTeardown: CheckoutRemovals {
         return answer.button == 1 && workspace.canChangeWorkspace
     }
 
-    /// Closes the window the task has now. The row drops it first, so the window's own `window.closed` finds it
-    /// windowless already. A window that will not close is given back, and nothing is deleted. A row with no window
-    /// has nothing to close and needs no helper; one with a window and no helper to close it stops the teardown.
+    /// Closes every window the task holds now: the row's own, and each other window one of its tagged tabs is in, which
+    /// the row would take once its own closed (`AppState.windowPlan`) and which would otherwise outlive the row and its
+    /// worktree. The row drops its window first, so that window's own `window.closed` finds it windowless already; a
+    /// row that takes another of them meanwhile holds a window this closes too. A window that will not close is given
+    /// back, and nothing is deleted. A task with no window has nothing to close and needs no helper; one with a window
+    /// and no helper to close it stops the teardown.
     private func closeWindow(of task: TaskItem) async throws {
-        guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }),
-              let wid = workspace.state.tasks[i].windowId else { return }
+        guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        var windows = workspace.state.tasks[i].windowId.map { [$0] } ?? []
+        for tab in live.sessions where tab.taskUUID == task.id && !windows.contains(tab.windowId) { windows.append(tab.windowId) }
+        guard !windows.isEmpty else { return }
         guard let daemon = daemon() else { throw TeardownStop.noDaemon }
         // Windowless at once, so the window's own `window.closed` finds it so; a snapshot no longer drops a row, so this
         // need not be on disk before the window closes.
         workspace.mutate { $0.tasks[i].windowId = nil }
-        do { try await daemon.closeWindowIfOpen(wid) }
-        catch {
-            if let j = workspace.state.tasks.firstIndex(where: { $0.id == task.id }), workspace.state.tasks[j].windowId == nil {
-                workspace.mutate { $0.tasks[j].windowId = wid }
+        for wid in windows {
+            do { try await daemon.closeWindowIfOpen(wid) }
+            catch {
+                if let j = workspace.state.tasks.firstIndex(where: { $0.id == task.id }), workspace.state.tasks[j].windowId == nil {
+                    workspace.mutate { $0.tasks[j].windowId = wid }
+                }
+                throw TeardownStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted. "
+                                                                      + OperationIssue.reason(of: error)))
             }
-            throw TeardownStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted. "
-                                                                  + OperationIssue.reason(of: error)))
         }
     }
 

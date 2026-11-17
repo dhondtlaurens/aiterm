@@ -137,6 +137,35 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
+    /// A task whose tagged tabs are in two windows: closing its own window hands it the other (`AppState.windowPlan`),
+    /// which Remove closes too, before the worktree and the row go, so nothing is left running in a deleted folder
+    /// with no row to show it.
+    @Test func aTaskWithTabsInTwoWindowsHasBothClosedAndItsRowAndWorktreeGo() async throws {
+        let (fixture, server, task) = try await removing(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let own = SessionInfo.make("own", window: "alive", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath)
+        let moved = SessionInfo.make("moved", window: "other", task: task.id, agent: .shell, state: .idle, cwd: task.worktreePath)
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [own, moved], usage: .empty)))
+        #expect(controller.state.task(id: task.id)?.windowId == "alive")
+        // iTerm2's next snapshot, once the first window has closed, shows the other: the row takes it meanwhile.
+        var adopted: String?
+        server.beforeReply = { method in
+            guard method == "window.close", adopted == nil else { return }
+            controller.helper.handle(.windowClosed("alive"))
+            controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [moved], usage: .empty)))
+            adopted = controller.state.task(id: task.id)?.windowId ?? "none"
+        }
+
+        try await controller.teardown.remove(task, consent: .ask)
+
+        #expect(adopted == "other", "the row took its other window while the first closed")
+        #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive", "other"])
+        #expect(controller.state.tasks.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(controller.toastState.toast?.message == "Task removed.")
+    }
+
     /// A task with a window and the helper connected, "Delete local branch" ticked. `answers` start
     /// with the Remove alert's.
     private func removing(answering answers: String...) async throws -> (RaceFixture, RecordingDaemon, TaskItem) {

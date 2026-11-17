@@ -336,8 +336,9 @@ final class TaskLauncher {
     /// A task's or review's window, manual or driven, opened in its worktree when it has none: the first
     /// of `openCommands(for:)` in the window's own tab, each other in a tab of its own. A worktree gone
     /// opens nothing, and the checkout monitor's pass, asked for now, says so on the row. Returns at once
-    /// when the row has a window, is gone or busy, or no helper is there. A tab that does not open is
-    /// said on the row; a window that does not open is thrown.
+    /// when the row has a window, is gone or busy, or no helper is there. A window whose command could
+    /// not be typed, and a tab that does not open, are said on the row; a window that does not open is
+    /// thrown.
     func open(_ id: UUID) async throws {
         guard let task = state.task(id: id), task.windowId == nil, let daemon = daemon(),
               let token = work.begin(.reopening, onTask: id) else { return }
@@ -351,10 +352,17 @@ final class TaskLauncher {
         guard let current = state.task(id: id), current.windowId == nil else { return }
         let commands = try await openCommands(for: current)
         guard let ready = state.task(id: id), ready.windowId == nil else { return }
-        guard let wid = try await openWindow(for: ready, command: commands.first, with: daemon) else { return }
-        notices.dropIssues(about: id)
+        guard let opened = try await openWindow(for: ready, command: commands.first, with: daemon) else { return }
+        // The window is there, but its first command was never typed: a plain shell, said on the row.
+        if let failure = opened.commandError {
+            let title = ready.signalTask == nil ? "Reopened the window, but not every conversation."
+                                                : "Reopened the window, but its worker didn’t resume."
+            notices.report(OperationIssue(title: title, reason: failure, subject: id))
+        } else {
+            notices.dropIssues(about: id)
+        }
         for command in commands.dropFirst() {
-            do { _ = try await daemon.createTab(windowId: wid, cwd: ready.worktreePath, agentCommand: command) }
+            do { _ = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: command) }
             catch {
                 notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", error: error, subject: id))
                 break
@@ -378,22 +386,23 @@ final class TaskLauncher {
         return [command]
     }
 
-    /// A task's window, in its worktree, adopted by the row: its id, or nil when the row went while the
-    /// window opened — it cannot adopt it, so the window is closed rather than left behind with nothing
-    /// to show it. `command` is what the window's first tab runs: the agent at creation, a resumed
-    /// conversation when a chosen row opens its window again, or nothing — the first prompt is never
-    /// replayed. `open(_:)` opens a chosen task's window through it too.
+    /// A task's window, in its worktree, adopted by the row: its id and why its command could not be
+    /// typed, if it could not, or nil when the row went while the window opened — it cannot adopt it, so
+    /// the window is closed rather than left behind with nothing to show it. `command` is what the
+    /// window's first tab runs: the agent at creation, a resumed conversation when a chosen row opens its
+    /// window again, or nothing — the first prompt is never replayed. `open(_:)` opens a chosen task's
+    /// window through it too.
     @discardableResult
-    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
+    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> WorkerOpening? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
         defer { if let opening { work.end(opening) } }
-        let wid = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
-                                                    agentCommand: command, frame: tiling.taskFrame())
+        let opened = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
+                                                       agentCommand: command, frame: tiling.taskFrame())
         guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
-            try? await daemon.closeWindowIfOpen(wid)
+            try? await daemon.closeWindowIfOpen(opened.id)
             return nil
         }
-        workspace.mutate { $0.tasks[i].windowId = wid }
-        return wid
+        workspace.mutate { $0.tasks[i].windowId = opened.id }
+        return opened
     }
 }

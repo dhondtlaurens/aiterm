@@ -71,6 +71,35 @@ import Testing
         #expect(focus.seen.count == 1)
     }
 
+    /// iTerm2 made the window but could not type its command: the row takes the window, and the plain shell it shows
+    /// is said on the row, with the daemon's reason, instead of passing for a resumed conversation.
+    @Test(arguments: [false, true])
+    func aWindowWhoseCommandWasNotTypedIsAdoptedAndSaidOnItsTask(isDriven: Bool) async throws {
+        let fixture = try await RaceFixture()
+        let server = RecordingDaemon()
+        server.commandErrors["window.createTask"] = "The session ended before the command was typed."
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task: TaskItem
+        if isDriven { task = try await driven(fixture) }
+        else {
+            task = try await fixture.addTask(windowId: nil)
+            controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1")] }
+        }
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+
+        await controller.choose(.task(task.id))?.value
+
+        #expect(server.requests("window.createTask").count == 1)
+        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
+        let issue = try #require(controller.issue)
+        #expect(issue.subject == task.id)
+        #expect(issue.title == (isDriven ? "Reopened the window, but its worker didn’t resume."
+                                       : "Reopened the window, but not every conversation."))
+        #expect(issue.reason == "The session ended before the command was typed.")
+    }
+
     @Test func aDrivenWorkerReopenThatFailsIsReportedOnTheClickAboutItsTask() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon(failing: ["window.createTask": "temporary_failure"])
