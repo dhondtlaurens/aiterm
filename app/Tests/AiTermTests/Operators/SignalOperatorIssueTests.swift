@@ -27,10 +27,10 @@ import Testing
         var row: SignalOperatorRowValue { SignalOperatorRowValue.make(state: h.workspace.state, sessions: live.sessions, issue: root.statusIssue) }
         func pass() async { await root.reconcile(); await ports.work.settled() }
         func request(_ tool: String, _ arguments: JSONValue = [:], id: String = UUID().uuidString) async {
-            root.handle(.operatorRequest(.init(requestId: id, runId: session.id.uuidString, tool: tool, arguments: arguments, generation: 1)))
+            root.handle(.operatorRequest(.init(requestId: id, operatorId: session.id.uuidString, tool: tool, arguments: arguments, generation: 1)))
             await ports.work.settled()
         }
-        var activity: [ActivityEntry] { ActivityLog.read(runFolder: SignalOperatorCommand.folder(home: ports.home)).entries }
+        var activity: [ActivityEntry] { ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries }
     }
 
     @Test func aWakeThatKeepsFailingNeedsYouAndTheNextDeliveredWakeClearsItWithoutOpeningAWindow() async throws {
@@ -106,7 +106,7 @@ import Testing
         r.daemon.failing = ["operator.reply": .timeout]
         await r.pass()
         #expect(r.root.issues.current.map(\.source) == [.reply] && r.root.statusIssue?.hasPrefix("Answering the Operator:") == true)
-        let status = await r.root.tools.respond(OperatorRequest(requestId: "s", runId: r.session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
+        let status = await r.root.tools.respond(OperatorRequest(requestId: "s", operatorId: r.session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
         let issue = try #require(status.value?["appIssues"]?.arrayValue?.first)
         #expect(issue["source"] == "reply" && issue["needsYou"] == true && issue["text"]?.stringValue?.contains("could not be sent") == true)
     }
@@ -121,7 +121,7 @@ import Testing
         r.daemon.failing = [:]
         await r.request("note", note)
         #expect(r.root.issues.current.isEmpty)
-        let notes = try TaskJournal.read(task: r.task, folder: SignalOperatorCommand.folder(home: r.ports.home).appendingPathComponent("journals"))
+        let notes = try TaskJournal.read(task: r.task, folder: OperatorLaunch.folder(home: r.ports.home).appendingPathComponent("journals"))
         #expect(notes.count == 1, "The ledger replays the note instead of writing it again.")
         r.daemon.failing = ["operator.reply": .timeout]
         for _ in 0..<3 { await r.request("run_status") }
@@ -130,7 +130,7 @@ import Testing
 
     @Test func anUnwrittenActivityEntryLandsLaterWithItsOwnTimeAndTheWriteFailureIsLogged() async throws {
         let r = try await Rig(); defer { r.cleanUp() }
-        let log = SignalOperatorCommand.folder(home: r.ports.home).appendingPathComponent(ActivityLog.file)
+        let log = OperatorLaunch.folder(home: r.ports.home).appendingPathComponent(ActivityLog.file)
         try? FileManager.default.removeItem(at: log)
         try FileManager.default.createDirectory(at: log, withIntermediateDirectories: true)
         r.daemon.failing["session.deliver"] = .timeout
@@ -150,7 +150,7 @@ import Testing
 
     @Test func aTakeOverWhoseJournalCannotBeWrittenShowsAtOnceAndIsRepairedOnTheNextPass() async throws {
         let r = try await Rig(); defer { r.cleanUp() }
-        let journals = SignalOperatorCommand.folder(home: r.ports.home).appendingPathComponent("journals")
+        let journals = OperatorLaunch.folder(home: r.ports.home).appendingPathComponent("journals")
         try? FileManager.default.removeItem(at: journals)
         try FileManager.default.createDirectory(at: journals.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: journals)

@@ -129,7 +129,7 @@ struct TaskCreationModelTests {
         let wholeSheet = { _ = sheet.body; _ = sheet.body.body }
         #expect(!invalidates(wholeSheet, by: { model.promptText = "g" }))
         #expect(!invalidates(wholeSheet, by: { model.draft.promptText = "go" }), "nor through the draft")
-        #expect(model.draft.promptText == "go" && model.previewCommand.contains("go"))
+        #expect(model.draft.promptText == "go")
 
         #expect(invalidates({ _ = PromptStep(text: Bindable(model).promptText, agent: .claude, completions: model.completions).body },
                             by: { model.draft.promptText = "" }))
@@ -210,11 +210,11 @@ struct TaskCreationModelTests {
         try FileManager.default.createDirectory(atPath: repo + "/.worktrees/login", withIntermediateDirectories: true)
         let project = Project.make(name: "Repo", path: repo, addedAt: Date())
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
-        draft.setBranch("fix/login")
+        draft.setFullBranch("fix/login")
         let model = TaskCreationModel(project: project, draft: draft, context: .scratch(), searchIssues: { _ in [] }, createTask: { _ in })
         #expect(model.worktreeSlug == "login-2")
         #expect(model.worktreeSlug == BranchNaming.unused(draft.worktreeSlug, in: repo))
-        model.draft.setBranch("fix/logout")
+        model.draft.setFullBranch("fix/logout")
         #expect(model.worktreeSlug == "logout")
 
         let review = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
@@ -222,22 +222,6 @@ struct TaskCreationModelTests {
         try FileManager.default.createDirectory(atPath: repo + "/.worktrees/review-card", withIntermediateDirectories: true)
         review.draft.setBranch("feat/card")
         #expect(review.worktreeSlug == "review-card-2")
-    }
-
-    /// The command both sheets preview is the model's, and a task's carries its ticket only while
-    /// "Include Jira ticket details" is kept — the same composition `create` hands the agent.
-    @Test func thePreviewedCommandCarriesTheTicketOnlyWhenItIsIncluded() {
-        let model = fixture()
-        let ticket = JiraTicket(key: "ML-7", summary: "Drain the queue", description: "Drain it carefully.",
-                                issueType: "Task", status: "To Do", url: "https://example/ML-7")
-        model.draft.apply(ticket: ticket)
-        model.draft.promptText = "Start here."
-        model.draft.appendTicket = true
-        #expect(model.previewCommand.contains("Drain it carefully."))
-        #expect(model.previewCommand.contains("Start here."))
-        model.draft.appendTicket = false
-        #expect(!model.previewCommand.contains("ML-7"))
-        #expect(model.previewCommand.contains("Start here."))
     }
 
     private func fixture(search: @escaping @MainActor (String) async throws -> [JiraTicket] = { _ in [] },

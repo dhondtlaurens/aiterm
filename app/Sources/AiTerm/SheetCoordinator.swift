@@ -14,17 +14,7 @@ import AiTermCore
 final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
-    var sheet: SheetKind? {
-        didSet {
-            if sheet?.id != oldValue?.id { onChange?() }
-            if sheet == nil { onDismiss?() }
-        }
-    }
-    /// Told when what the slot holds changed: the rows derive the board while its sheet shows.
-    @ObservationIgnored var onChange: (@MainActor () -> Void)?
-    @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
-    /// New Review's Fix for a project: the controller's `fixPipeline`, the banner's too.
-    @ObservationIgnored private let fixPipeline: @MainActor (Project) -> FixPipeline
+    var sheet: SheetKind?
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -46,15 +36,12 @@ final class SheetCoordinator {
     private let gitHubSettings: @Sendable () -> GitHubConfig?
     /// What the creation sheets' Create runs.
     private let launcher: TaskLauncher
-    /// The queue a New Review Fix lands on, with creation, removal and pull.
-    private let workflow: TaskWorkflow
 
     init(projects: ProjectActions, workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults,
-         fixPipeline: @escaping @MainActor (Project) -> FixPipeline) {
+         launcher: TaskLauncher, defaults: UserDefaults) {
         self.projects = projects
         self.defaults = defaults
         self.workspace = workspace
@@ -66,8 +53,6 @@ final class SheetCoordinator {
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
         self.launcher = launcher
-        self.workflow = workflow
-        self.fixPipeline = fixPipeline
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -137,8 +122,6 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
-
-
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘B and the footer's Mac rows reach it while one may be up, and it refuses rather than
     /// take that sheet's place, as Settings does.
@@ -177,9 +160,6 @@ final class SheetCoordinator {
             sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: agent == nil ? tab : .agents, agent: agent)
         }
     }
-
-    /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
-
 
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
     /// terminal opens in the project folder and starts no agent. The branch the destination line
@@ -298,8 +278,6 @@ final class SheetCoordinator {
                                    searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    tickets: ReviewTicketLookup(project: project, jira: jira, gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    createReview: { try await launcher.createReview(draft: $0, project: project) },
-                                   recover: { try await launcher.recover($0, in: project) }, fixer: { [agents] in agents.fixer },
-                                   pipeline: fixPipeline(project), fixLanded: { launcher.announceFix($0, by: $1) },
-                                   backupKept: { launcher.announceBackup($0) })
+                                   recover: { try await launcher.recover($0, in: project) })
     }
 }

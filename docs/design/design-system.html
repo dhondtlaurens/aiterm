@@ -639,7 +639,7 @@
   .mk-stack { display: flex; flex-direction: column; gap: var(--space-snug); }
   .mk-help { font: 11px/1.4 var(--font); color: var(--muted); }
 
-  /* SearchPicker's results: Size.control + Space.tight under the field, Space.tight padding,
+  /* ChipsPicker's results: Size.control + Space.tight under the field, Space.tight padding,
      menuChrome (Palette.menu, the firm borderStrong edge, Radius.panel), Size.menuRow rows, Space.base
      inside. The highlighted row is menuRowHighlight's neutral wash (menuHighlight): it keeps its
      resting inks, its link-coloured key and its brand mark. The key is Typography.caption.tabular. */
@@ -1399,7 +1399,7 @@
           <div class="chip" style="background: #2A2C31"></div>
           <div><div class="name">menu</div><div class="value">#2A2C31</div><div class="appkit">literal 0x2A2C31</div></div>
           <div class="use">The fill of anything that hangs over content, drawn in
-            <code>menuChrome()</code>: a dropdown, a <code>SearchPicker</code>'s results, the
+            <code>menuChrome()</code>: a dropdown, a <code>ChipsPicker</code>'s results, the
             completion popup, the background-work card, and the toast. Lighter than a card, so a popup
             over a card still stands off it.</div>
         </div>
@@ -1646,8 +1646,7 @@
         <div class="token">
           <div class="chip wash" style="--w: rgba(38,132,255,0.18)"></div>
           <div><div class="name">Brand.wash</div><div class="value">brand colour · 18 %</div><div class="appkit">color.opacity(0.18)</div></div>
-          <div class="use">A brand's colour as a faint wash behind a label in its own ink — a ticket's
-            or merge request's lane in a picker (<code>LaneChip</code>): neutral information in the
+          <div class="use">A brand's colour as a faint wash behind its content: neutral information in the
             vendor's colour, not a warning. The one derivation off a token, because it is one rule for
             every vendor. Drawn here for Jira.</div>
         </div>
@@ -2026,7 +2025,7 @@
         <div class="step"><div class="label m">slot <span style="color: var(--muted)">20 pt</span></div>
           <div class="draw"><div class="box" style="width: 20px; height: 20px"></div><span class="purpose">The click target the sidebar's trailing column is built from.</span></div></div>
         <div class="step"><div class="label m">menuRow <span style="color: var(--muted)">24 pt</span></div>
-          <div class="draw"><div class="box" style="width: 120px; height: 24px"></div><span class="purpose">A row in a menu, a dropdown or the completion popup; the sidebar's Projects header and a <code>DividerRow</code>; a sidebar footer row and its System and Usage headings. Also the width a picker's list toggle answers to clicks in (<code>SearchPicker</code>), and a <code>Select</code>'s chevron slot.</span></div></div>
+          <div class="draw"><div class="box" style="width: 120px; height: 24px"></div><span class="purpose">A row in a menu, a dropdown or the completion popup; the sidebar's Projects header and a <code>DividerRow</code>; a sidebar footer row and its System and Usage headings. Also a <code>Select</code>'s chevron slot.</span></div></div>
         <div class="step"><div class="label m">control <span style="color: var(--muted)">28 pt</span></div>
           <div class="draw"><div class="box" style="width: 120px; height: 28px"></div><span class="purpose">A field, a pop-up button (<code>.controlSize(.large)</code>), a segmented track, a push button (<code>PushButtonStyle</code>).</span></div></div>
         <div class="step"><div class="label m">projectRow <span style="color: var(--muted)">28 pt</span></div>
@@ -2581,7 +2580,7 @@
             segments: a sheet's tabs are a <code>TabBar</code>.</p>
           <div class="stage">
             <div class="demo">
-              <span class="cap">agent picker · AgentSegmented · Codex disabled, its CLI is not on PATH</span>
+              <span class="cap">SegmentedControl · selected, unavailable and unselected options</span>
               <div class="ai-seg">
                 <span class="on">
                   <span class="mark" style="width: 16px; height: 16px; background: #D97757">
@@ -2769,7 +2768,7 @@
               picker.</div>
             <div class="no"><span class="h">Not for</span>Ordinary single-line entry — that is
               <code>Input</code>, which costs no <code>NSView</code>. It carries no list of its own:
-              the dropdown, its rows and its key contract belong to <code>SearchPicker</code>, a
+              the dropdown, its rows and its key contract belong to <code>ChipsPicker</code>, a
               pattern, because hanging results under a field is this app's layout decision rather
               than a library part.</div>
           </div>
@@ -2892,7 +2891,6 @@
 <tr><td><code>NameSheet</code></td><td>Terminal, Divider and rename forms.</td><td>NameSheet.swift</td></tr>
 <tr><td><code>DescriptionToggle</code></td><td>Description-only context with consistent help.</td><td>DescriptionToggle.swift</td></tr>
 <tr><td><code>WorktreeIncludeToggle</code></td><td>Optional copying of .worktreeinclude files.</td><td>WorktreeIncludeToggle.swift</td></tr>
-<tr><td><code>SearchPicker</code></td><td>Search, focused result and keyboard ownership.</td><td>SearchPicker.swift</td></tr>
 <tr><td><code>ChipsPicker</code></td><td>Single/multiple picked items in the search field.</td><td>ChipsPicker.swift</td></tr>
 <tr><td><code>PickChip</code></td><td>Picked item with a meaningful clear action.</td><td>ChipsPicker.swift</td></tr>
 <tr><td><code>PromptStep</code></td><td>Shared prompt label/editor/help and description choices.</td><td>Steps/PromptStep.swift</td></tr>

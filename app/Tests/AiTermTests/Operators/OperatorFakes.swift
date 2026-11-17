@@ -6,7 +6,7 @@ import Synchronization
 @testable import AiTermTestSupport
 
 enum OperatorServiceFixtures {
-    /// The profile a broadcast froze: Claude on Opus, every slice off, the Oracle off unless asked for.
+    /// The test Operator profile: Claude on Opus, with the Oracle off unless requested.
     static func profile(oracle: Bool = false, oracleAgent: AgentKind = .codex) -> OperatorProfile {
         OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
                         oracle: OracleSetting(isOn: oracle, agent: oracleAgent, model: oracleAgent == .codex ? "gpt-6-astra" : "claude-opus-5-5",
@@ -18,7 +18,6 @@ enum OperatorServiceFixtures {
         .make(name: name, path: path, jiraProjects: jira)
     }
 
-    /// A legacy run, unless given the Agents rows, task settings or a goal: then a run set up with those steps.
 
 
     /// Agents rows on the scratch ports' model lists: Claude's first model, then Codex's.
@@ -28,7 +27,7 @@ enum OperatorServiceFixtures {
 
 
 
-    /// A tab tagged with `tag`: a task's id, or a run's for the operator's own tab.
+    /// A tab tagged with `tag`: a task's id, or the session's id for the Operator's own tab.
     static func session(_ id: String, window: String = "w1", tag: UUID, agent: SessionAgent = .claude, state: SessionState = .idle,
                         conversation: String? = nil, cwd: String = "/") -> SessionInfo {
         .make(id, window: window, task: tag, agent: agent, state: state, cwd: cwd, conversation: conversation)
@@ -67,14 +66,9 @@ extension TestClock {
     static func operators() -> TestClock { TestClock(Date(timeIntervalSince1970: 1_000_000)) }
 }
 
-extension OperatorClock {
-    /// Replaces just the wait the fixture controls; all other purposes keep their previous sleep.
-    @MainActor mutating func overrideSleep(_ wait: Wait, _ replacement: @escaping @MainActor @Sendable (Duration) async throws -> Void) {
-        let previous = sleep
-        sleep = { purpose, duration in
-            if purpose == wait { try await replacement(duration) }
-            else { try await previous(purpose, duration) }
-        }
+extension ItemRouter {
+    @discardableResult func apply(signals ids: [UUID], read: SignalRead) -> [UUID] {
+        apply(observations: [SignalObservation(signals: ids, read: read)])
     }
 }
 
@@ -89,20 +83,12 @@ extension OperatorWork {
 }
 
 extension OperatorPorts {
-    /// Ports that reach nothing real: a fresh temporary folder as the home — run folders and the agents'
-    /// conversations under it — notifications recorded,
-    /// hermetic git, wake lines with no wait.
+    /// Ports that reach nothing real: a fresh temporary home for the agents' conversations,
+    /// recorded notifications and hermetic git.
     @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = ScratchFolder.path("aiterm-operators-")
-        var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
-        // Nothing is published but through a test's own fake host, and no merge watch waits for real.
-        ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
-        // No wait for a summary ends but a test's own: a test that gives up on one moves the clock or the sleep.
-        ports.clock.sleep = { purpose, duration in
-            guard purpose == .wake else { throw CancellationError() }
-            try await Task.sleep(for: duration)
-        }
+        var ports = OperatorPorts(home: home, git: git, notifications: notifications)
         // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
         ports.installedAgents = { [.claude, .codex] }
         ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }
@@ -123,8 +109,7 @@ extension OperatorPorts {
 }
 
 extension WorkspaceStore {
-    /// A loaded workspace holding `state`, saved to a file nothing else uses: a broadcast's start
-    /// waits for its run to be on disk.
+    /// A loaded workspace holding `state`, saved to a file nothing else uses. The Operator's launch waits for its save.
     static func saving(_ state: AppState) throws -> WorkspaceStore {
         let store = WorkspaceStore(file: StateStore(url: ScratchFolder.path("aiterm-operators-state-", suffix: ".json")))
         try store.load()

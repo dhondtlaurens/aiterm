@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import AiTermCore
 
-/// The delivery check's file as Settings › Agents and New Broadcast read it: which version a pass covers,
+/// The delivery check's file as Settings › Agents and New Signal read it: which version a pass covers,
 /// each agent's Messaging sentence, iTerm2's own checks, and the command Run check types.
 @Suite struct DeliveryCheckTests {
     /// One entry as `delivery_check.agent_entry` writes it.

@@ -36,8 +36,7 @@ struct StatusMark: View {
             switch status {
             case .idle: Circle().strokeBorder(Palette.idleRing, lineWidth: RingGeometry.strokeWidth(size))
             case .working:
-                // The whole track: a trim that left out the arc's resting slice showed that slice
-                // as a gap at four o'clock once the arc turned away from it.
+                // The whole track stays visible as the arc turns.
                 Circle().strokeBorder(surface.isOnAccent ? Palette.spinnerTrackOnAccent : Palette.spinnerTrack, lineWidth: RingGeometry.strokeWidth(size))
                 ZStack {
                     // Preserve Reduce Motion's half-circle; the snapshot pose below is a shorter arc.

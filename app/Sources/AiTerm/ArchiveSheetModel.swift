@@ -3,21 +3,21 @@ import AiTermCore
 
 /// The Archive's state, apart from its view so it is tested without one: the query, the rows it ranks —
 /// read from the workspace as it is now, so a restore or removal drops its row at once — and the
-/// highlighted row, which ↑ ↓ move, wrapping, and ⌘↩ restores, or opens when it is an ended broadcast.
+/// highlighted row, which ↑ ↓ move, wrapping, and ⌘↩ restores.
 @MainActor @Observable
 final class ArchiveSheetModel: Identifiable {
     let id = UUID()
     var query = "" { didSet { if query != oldValue { highlightedId = nil } } }
     /// The row ↑ ↓ last landed on; nil follows the first row.
     private var highlightedId: UUID?
-    @ObservationIgnored private let entries: @MainActor () -> [ShelfRow]
+    @ObservationIgnored private let entries: @MainActor () -> [ArchiveSearch.Entry]
     @ObservationIgnored private let restore: @MainActor (UUID) -> Void
     @ObservationIgnored private let remove: @MainActor (UUID) -> Void
     /// The clock the rows' dates are read against; the snapshots fix it.
     @ObservationIgnored var now: @MainActor () -> Date = { Date() }
 
-    /// `restore` takes a task's or review's id, `open` an ended broadcast's; `remove` either.
-    init(entries: @escaping @MainActor () -> [ShelfRow], restore: @escaping @MainActor (UUID) -> Void,
+    /// `restore` and `remove` take an archived task or review id.
+    init(entries: @escaping @MainActor () -> [ArchiveSearch.Entry], restore: @escaping @MainActor (UUID) -> Void,
          remove: @escaping @MainActor (UUID) -> Void) {
         self.entries = entries; self.restore = restore; self.remove = remove
     }
@@ -25,27 +25,20 @@ final class ArchiveSheetModel: Identifiable {
     /// One render or command's consistent view of the Archive. Ranking is reused only while
     /// the source's current rows and the query are equal.
     struct Projection {
-        let rows: [ShelfRow]
+        let rows: [ArchiveSearch.Entry]
         let total: Int
-        let highlighted: ShelfRow?
+        let highlighted: ArchiveSearch.Entry?
         let status: String
 
         /// The footer's primary button on the highlighted row; none with nothing highlighted.
-        var primaryTitle: String? { highlighted.map(ArchiveSheetModel.primaryTitle(of:)) }
-    }
-
-    /// What ⌘↩ does to a row: Open for an ended broadcast, Restore for a task or review.
-    nonisolated static func primaryTitle(of row: ShelfRow) -> String {
-        switch row {
-        case .task: "Restore"
-        }
+        var primaryTitle: String? { highlighted == nil ? nil : "Restore" }
     }
 
     /// One retained ranking. The source is still read every time, under Observation,
     /// so replacement rows, restored/removed entries and edits invalidate it immediately.
-    @ObservationIgnored private var rankedInput: [ShelfRow]?
+    @ObservationIgnored private var rankedInput: [ArchiveSearch.Entry]?
     @ObservationIgnored private var rankedQuery = ""
-    @ObservationIgnored private var rankedRows: [ShelfRow] = []
+    @ObservationIgnored private var rankedRows: [ArchiveSearch.Entry] = []
 
     var projection: Projection {
         let entries = entries()
@@ -76,14 +69,11 @@ final class ArchiveSheetModel: Identifiable {
         return true
     }
 
-    /// ⌘↩, the primary button or a double-click: the highlighted task restored, or the highlighted
-    /// broadcast opened. False when nothing is highlighted.
+    /// Restores the highlighted entry; false when nothing is highlighted.
     @discardableResult
     func performHighlighted() -> Bool {
-        switch projection.highlighted {
-        case .task(let entry): restore(entry.archived.id)
-        case nil: return false
-        }
+        guard let entry = projection.highlighted else { return false }
+        restore(entry.id)
         return true
     }
 

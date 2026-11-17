@@ -185,7 +185,7 @@ struct PaletteDistinctionTests {
     /// through `ColorProbe`, to one 8-bit step per channel, so a hardcoded or stale `rowHoverSolid`
     /// fails here rather than only showing up as a hover halo. Every other solid is on the same
     /// rule over its own ground: the Operator row's rings at rest and hovered and a selected row's
-    /// over the sidebar, a selected Archive row's over the sheet, a hovered board card over the card.
+    /// over the sidebar, a selected Archive row's over the sheet, a hovered sheet card over the card.
     ///
     /// Both sides are resolved live, in-process, through `ColorProbe` — never against a literal
     /// hex — so what is pinned is the relationship: each solid tracks its wash composited over its

@@ -64,7 +64,7 @@ final class AppController {
     /// The agent CLIs on this machine and AiTerm's hooks into them; probed at `start()`.
     let agents: AgentIntegrations
     /// Whether AiTerm may type into Claude Code and Codex, as the delivery check last wrote it: their
-    /// cards' Messaging in Settings › Agents, and part of what New Broadcast waits for.
+    /// cards' Messaging in Settings › Agents, and part of what New Signal waits for.
     let messaging: MessagingChecks
     /// Every modal question the app asks goes through here, so tests answer them from a script.
     let prompter: Prompter
@@ -76,9 +76,6 @@ final class AppController {
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
-    /// What the banner's and New Review's Fix run for a project: the live pipeline — a clone, the agent, AiTerm's
-    /// landing — unless the ports name one (`AppPorts.fixPipeline`), as a test's stub does.
-    let fixPipeline: @MainActor (Project) -> FixPipeline
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
@@ -163,8 +160,7 @@ final class AppController {
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
-        // The agents a task may run, their model lists and the profile a broadcast freezes are Settings › Agents', unless
-        // the caller made its own ports.
+        // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
         let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
                                                     agents: agents, preferences: preferences.defaults)
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
@@ -186,11 +182,9 @@ final class AppController {
         signalController.remove = { [remover] task, allowed in try await remover.removeAutomatically(task, starting: allowed, stillAllowed: allowed) }
         helper.onEvent { [weak signalController] in signalController?.handle($0) }
         helper.onAttach { [weak signalController] in signalController?.daemonAttached() }
-        let fixPipeline = ports.fixPipeline ?? { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
-        self.fixPipeline = fixPipeline
         sheets = SheetCoordinator(projects: projects, workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                                  launcher: launcher, workflow: workflow, defaults: preferences.defaults, fixPipeline: fixPipeline)
+                                  launcher: launcher, defaults: preferences.defaults)
         projects.presentAdd = { [weak sheets] path in
             guard let sheets else { return }
             sheets.presentAddProject(path: path)
@@ -227,9 +221,7 @@ final class AppController {
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
-        // The banner's Fix needs the agents and the pull, both built after the notices.
-        notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
-        // A notification's click: a broadcast's board opens over the sidebar, a task's window comes forward.
+        // A notification's click selects the Operator's row or brings a task's window forward.
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
             switch target {
@@ -237,12 +229,10 @@ final class AppController {
             case .task(let id): self.focus.select(.task(id))
             }
         }
-        // The broadcast's group and the driven task rows read what the Operator is acting on, which the
-        // operator controller owns; a change to it derives the rows again.
+        // Rows read the Operator's current activity and issues from its controller; a change derives the rows again.
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         signalController.onChange { [weak self] in self?.refreshRows() }
-        sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
         // controller's to reopen, in front.
@@ -259,10 +249,6 @@ final class AppController {
             }
             return Task { await self.signalController.reopenWorker(id) }
         }
-        // A notification's click on a waiting plan, a done or a blocked broadcast opens its board:
-        // D7 records the request on the operator controller; this presents it, and any made before now.
-
-
     }
 
     // -- lifecycle ------------------------------------------------------------------
@@ -281,9 +267,6 @@ final class AppController {
         agentProbe = Task { await agents.probe() }
         helper.start()
         signalController.start()
-        // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
-        // Blocking disk work, so off the cooperative pool.
-        DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
         // The daemon launches iTerm2 only at its own start, which an AiTerm adopting the daemon a
         // previous one left running never causes: starting AiTerm is the person asking for it.
         if !itermRunning() { launchIterm() }
@@ -300,9 +283,6 @@ final class AppController {
         agentProbe = nil
         checkouts.stop()
         sheets.cancelPreparation()
-        // A fix's agent runs in a process group of its own, which would outlive the app.
-        notices.fixSession?.stop()
-        if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
         signalController.stop()
@@ -333,25 +313,19 @@ final class AppController {
     /// moved — a section changed, a removal started or ended — and the label almost never changes.
     /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let count = rows.projectsNeedingAttention.filter { row in
-            if case .task(let id) = row { return !remover.leavingTasks.contains(id) }; return true
-        }.count
+        let count = rows.needingAttention(skipping: remover.leavingTasks).count
         let label = count == 0 ? nil : String(count)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         setBadge(label)
     }
 
-    // -- Focus View and List View -----------------------------------------------------
-    /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
-    /// would otherwise land, and with no project that has rows and no broadcast (`SidebarModel.focusView`).
+    // Whether Focus View would change any project's collapsed state. A sheet keeps ⌘F for its search fields.
     var canShowFocusView: Bool { canApplyView(signalLayout(focus: true)) }
-    /// Whether List View would do anything: off behind a sheet, as Focus View, and with no project
-    /// that has rows to open and no broadcast.
+    /// Whether List View would open any project with rows. A sheet keeps the command disabled.
     var canShowListView: Bool { canApplyView(signalLayout(focus: false)) }
 
-    /// ⌘F: opens every project with a done or needs-input row, and the broadcast's group while something
-    /// in it needs you, and folds the rest — all of them when nothing is waiting — in one save, then peeks
+    /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
     /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
     /// and a task still unseen. With nothing waiting the selection stays. The peek is returned, when there
     /// is one.
@@ -360,13 +334,11 @@ final class AppController {
         guard applyView(signalLayout(focus: true)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = rows.projectsNeedingAttention.first(where: { row in
-            if case .task(let id) = row { return !remover.leavingTasks.contains(id) }; return true
-        })
+        guard let first = rows.needingAttention(skipping: remover.leavingTasks).first
         else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
-    /// ⌘L: opens every project with rows, and the broadcast's group, in one save.
+    /// ⌘L: opens every project with rows in one save.
     func showListView() { applyView(signalLayout(focus: false)) }
 
     private func signalLayout(focus: Bool) -> [UUID: Bool] {
@@ -394,17 +366,17 @@ final class AppController {
     var canPresentSettings: Bool { sheets.canPresentSettings }
     var canPresentArchive: Bool { sheets.canPresentArchive }
 
-    /// The Shelf, reading the archive and the ended broadcasts as they are whenever it draws.
+    /// The Archive, reading the current archived tasks and reviews whenever it draws.
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
-            entries: { [weak self] in self?.state.shelfRows ?? [] },
+            entries: { [weak self] in self?.state.archiveEntries ?? [] },
             restore: { [weak self] in self?.archiver.restore($0) },
             // A turn later, never inside the key handler that asked (`Prompter`).
-            remove: { [weak self] id in Task { await self?.removeFromShelf(id) } }))
+            remove: { [weak self] id in Task { await self?.removeFromArchive(id) } }))
     }
 
-    /// Remove on the Shelf: an ended broadcast's own question, or a shelved task's or review's.
-    func removeFromShelf(_ id: UUID) async {
+    /// Asks before removing an archived task or review.
+    func removeFromArchive(_ id: UUID) async {
         await archiver.confirmRemove(archived: id)
     }
 
@@ -425,28 +397,6 @@ final class AppController {
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return nil }
             return projects.rebaseDefault(project: project)
-        }
-    }
-
-    /// The banner's Find a Fix for a refused Pull main or its rebase, as Help with problems allows: once
-    /// the fix has landed, the banner goes, what waited behind it comes up, and the pull runs
-    /// again — saying where the branch as it was is kept, however it ends, or in a toast when the
-    /// project's default branch is no longer the one fixed. None for a problem
-    /// another surface retries, or for a project that has gone.
-    private func makeFix(for request: FixRequest) -> FixSession? {
-        guard case .pullDefault(let id) = request.retry, let project = state.project(id: id) else { return nil }
-        let resolution = agents.fixer
-        let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
-        return FixSession(request: request, fixer: resolution, pipeline: fixPipeline(project)) { [weak self] landing in
-            guard let self else { return }
-            // Only this fix's banner: nothing replaces it while it lands, and the landed session is the shown one.
-            if case .done? = notices.fixSession?.state { notices.clearIssue() }
-            guard let project = state.project(id: id) else { return }
-            // A default branch that is no longer the one fixed is not the pull this fix was for.
-            let git = self.git
-            let current = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
-            guard current == landing.branch else { return notices.showToast(landing.keptSentence) }
-            projects.pullDefault(project: project, after: (landing, agent))
         }
     }
 
@@ -472,35 +422,8 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// What a notification's click opens (spec §10.3): a broadcast's board — the sidebar presents
-    /// what `presentBoard` names — at a question's block under Waiting on you when it is about one, or for a note an older
-    /// AiTerm posted, the task whose prompt waits on you, its tab that asks in front (`choose(task:)`).
-    func openNote(_ target: OperatorNote.Target) {
-        switch target {
-        case .operatorWindow: focus.select(.operation(OperatorSession.rowID))
-        case .task(let id): choose(task: id)
-        }
-    }
-
-    /// The board of `run`, presented if it isn't up, at the block of its question `key` (`BoardFocus`).
-
-
-    /// A prompt's block's Open its window: its own tab in front, by its key, as a tab line on a card brings it; with that
-    /// tab not listed, the task as its row's click chooses it.
-    @discardableResult
-    func choose(task id: UUID, tab key: String) -> Task<Void, Never>? {
-        if let task = state.task(id: id),
-           let session = task.workerTabs(in: live.sessions).first(where: { $0.reference.name == key })?.session {
-            return bringTab(task: id, sessionId: session.sessionId)
-        }
-        return choose(task: id)
-    }
-
-    /// ↩ on the list: a header folds or opens its project; any other row
-    /// goes to its window, the Operator's row to the Operator's or the question it waits on (`chooseOperatorRow`), a driven task's to its tab that asks
-    /// (`choose(task:)`), and a queued task's to none. An empty
-    /// project has nothing to fold, so its header opens its context menu — its first items are the ones
-    /// that give it a row.
+    /// Return folds a populated project or signal; an empty project's header opens its menu.
+    /// Other rows open their window through the managed focus path.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if case .signal(let id) = focus.selection, let section = rows.signalSections.first(where: { $0.id == id }) {
@@ -526,29 +449,20 @@ final class AppController {
         }
     }
 
-    /// A row chosen, by its click or ↩: the one owner of what that does. A task's row goes through `choose(task:)` — a
-    /// driven one brings the tab that asks — the live broadcast's Operator's row through `chooseOperatorRow` — a
-    /// question it waits on opens the board at its block — and every other row to `RowFocus.select`, which raises its
-    /// window or has it restored.
+    /// A task selects its asking tab; other rows go through the managed focus path.
     @discardableResult
     func choose(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
         case .task(let id):
             return choose(task: id)
-        case .operation(let id):
-            if id == OperatorSession.rowID { return focus.select(.operation(id)) }
-            return focus.select(row)
-        case .terminal, .project, .signal:
+        case .operation, .terminal, .project, .signal:
             return focus.select(row)
         }
     }
 
-    /// A task row's click or ↩. An unresolved Operator question about the task opens the Operator's
-    /// window, unless a worker prompt needs attention first. Otherwise a task the live broadcast drives brings its tab that asks, else the one last in
-    /// front (`TaskItem.tabToBring(sessions:requests:)`, P5 A), through `bringTab`, so with several worker tabs
-    /// the one that needs you stands in front. Any other task, a driven one with no tab listed (its window comes
-    /// back as `RowFocus.select` brings it), one being removed and a queued one, which opens nothing, go to
-    /// `RowFocus.select` as they are.
+    /// A task row's click or ↩ opens an unresolved question in the Operator's window unless a worker needs attention.
+    /// A signal's task brings forward its tab that asks, otherwise its last foreground tab.
+    /// `RowFocus.select` restores a closed window, selects a queued task without opening it, and handles other rows.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
         if let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
@@ -611,7 +525,7 @@ extension AppController {
                                  NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                              },
                              machineSensor: machineSensor, git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                             operatorPorts: nil, fixPipeline: nil)
+                             operatorPorts: nil)
         return AppController(preferences: preferences, ports: ports, timings: .live)
     }
 

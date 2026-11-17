@@ -27,8 +27,8 @@ enum SheetHeight: Equatable {
 ///
 /// The header is the title row — the title in `Typography.title`, cut in the middle, and an optional
 /// trailing `accessory` (a stepped sheet's `SheetStepper`) that never gives way to it — then the optional
-/// `header` content `Space.tight` under it: a `SheetSubtitle`, the Shelf's search field, the board's
-/// lines and tabs, Settings' tabs. It is `Space.section` from the top and `Space.margin` from the sides,
+/// `header` content `Space.tight` under it: a `SheetSubtitle`, the Archive's search field or
+/// Settings' tabs. It is `Space.section` from the top and `Space.margin` from the sides,
 /// and `Space.block` from its rule, except when its last line is a `TabBar` (`headerEndsInTabs`): then the
 /// tabs stand on the rule and the selected one's underline covers it.
 struct SheetLayout<Accessory: View, Header: View, Content: View, Footer: View>: View {
@@ -37,7 +37,7 @@ struct SheetLayout<Accessory: View, Header: View, Content: View, Footer: View>: 
     /// The header ends in a `TabBar`, whose selected underline lies on the header's rule.
     let headerEndsInTabs: Bool
     /// The axes the content scrolls on, as one, between the rules and from edge to edge, its margins inside the
-    /// scroll: down for a form, down and sideways for the board's row of columns.
+    /// scroll: down for a form, down and sideways for a row of columns.
     let scrolls: Axis.Set
     /// The content's inset from the rules above and below it: a sheet's margin, or less for a list of
     /// rows whose own pills already pad them (the Archive sheet's).
@@ -246,7 +246,7 @@ struct SheetPrimaryButton: View {
 /// With no `secondary` there is nothing for ⎋ to do, and it does nothing.
 ///
 /// Every button in it is the house push button: Cancel or Back, and whatever `status` carries (a failure's
-/// recovery, Find a Fix, the board's leading actions), secondary; the primary, primary.
+/// recovery or leading actions), secondary; the primary, primary.
 ///
 /// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
 struct SheetFooter<Status: View>: View {
@@ -298,12 +298,6 @@ struct SheetFooter<Status: View>: View {
 /// lines of it used to be all there was room for. The reason is git's failure lines as one sentence
 /// (`GitError.sentence`), or any other error's own, as the banner has it — short by construction, so
 /// it is never cut, and the Notice's title alone; git's whole output is the tooltip.
-///
-/// A failure an agent can fix (`fix`, New Review's) offers Find a Fix after the recovery, led by the
-/// Operator's mark; from then on the session's state is drawn where the failure was, and takes
-/// Cancel and the primary while the agent looks, proposes — Apply on ⌘↩ — and applies
-/// (`FixFooterPresentation`). A fix that fails keeps the failure's sentence as the title, with why
-/// it failed as the description.
 struct CreationFooter: View {
     let step: Int
     /// How many steps there are and which picks the agent: New Task's and New Review's unless told.
@@ -318,85 +312,27 @@ struct CreationFooter: View {
     let advance: () -> Void
     /// The failure's fix, then the create it stopped.
     let recover: () -> Void
-    /// The Fix offered for the failure, if any; its state is the one thing here it observes.
-    var fix: FixSession? = nil
-    /// Whether Apply may run: the workspace can change, so the create after the fix can too.
-    var canApply = true
-    /// Apply on the proposal that is up.
-    var applyFix: () -> Void = {}
     /// What the create waits for, one line each, under a title: New Signal's `SignalReadiness`.
     /// A Notice with no actions, as a failure is; none while nothing waits.
     var waiting: (title: String, lines: [String])? = nil
 
     var body: some View {
-        let state = fix?.state
-        // Read only while it is drawn: it is never cleared, so in any other state it is stale.
-        let applied: FixProposal? = switch state { case .applying?, .done?: fix?.lastProposal; default: nil }
-        let shown = FixFooterPresentation(error: error, state: state, fixer: fix?.fixer, lastProposal: applied)
         VStack(alignment: .leading, spacing: Space.gap) {
-            switch shown.lead {
-            case .failure(let text, let description, let help)?:
-                Notice(title: text, description: description, help: help)
-            case .busy(let text)?: FixBusyLine(text: text)
-            case .proposal(let agent, let proposal)?: FixProposalBlock(agent: agent, proposal: proposal)
-            case nil: EmptyView()
-            }
+            if let error { Notice(title: error.reason, help: error.detail) }
             if steps.saysNoAgentCanRun(onStep: step), availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
                 Notice(title: note)
             }
             if let waiting, !waiting.lines.isEmpty {
                 Notice(title: waiting.title, description: waiting.lines.joined(separator: "\n"))
             }
-            SheetFooter(secondary: shown.buttons == .sheet ? steps.secondaryTitle(onStep: step) : "Cancel",
-                        primary: primaryTitle(shown.buttons),
-                        canCancel: shown.buttons == .applying ? false : !creating,
-                        canSubmit: canSubmit(shown.buttons),
-                        primaryBusy: shown.buttons == .applying,
-                        primaryHelp: shown.buttons == .proposal ? "Applies \(fix?.fixer?.shortName ?? "the agent")’s fix, then creates the review." : nil,
-                        closeList: closeList,
-                        // While a fix holds the buttons, Cancel — and ⎋ — are its: they stop a Look,
-                        // decline a proposal, and do nothing while it is applied. ⌘↩ is Apply only
-                        // on a proposal; while it is applied, nothing.
-                        cancel: shown.buttons == .sheet ? back : { fix?.cancel() },
-                        submit: submit(shown.buttons)) {
-                if shown.showsRecovery, let recovery = error?.recovery {
+            SheetFooter(secondary: steps.secondaryTitle(onStep: step),
+                        primary: steps.primaryTitle(onStep: step, createLabel: createLabel),
+                        canCancel: !creating, canSubmit: canAdvance,
+                        closeList: closeList, cancel: back, submit: advance) {
+                if let recovery = error?.recovery {
                     Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
                 }
-                if let offer = shown.offer {
-                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: {
-                        if offer.retries { Text(offer.title) } else { FixOfferLabel() }
-                    }
-                    .help(offer.help).disabled(!offer.isEnabled || creating)
-                }
-                if shown.buttons == .applying {
-                    Text("Applying…").font(Typography.caption).foregroundStyle(Palette.muted)
-                }
             }
-        }
-    }
-
-    private func canSubmit(_ buttons: FixFooterPresentation.Buttons) -> Bool {
-        switch buttons {
-        case .sheet: canAdvance
-        case .looking: false
-        case .proposal: canApply
-        // Drawn as the mock has it, turning and not dimmed; `submit` makes it do nothing.
-        case .applying: true
-        }
-    }
-
-    private func submit(_ buttons: FixFooterPresentation.Buttons) -> () -> Void {
-        switch buttons {
-        case .sheet, .looking: advance
-        case .proposal: applyFix
-        case .applying: {}
-        }
-    }
-
-    private func primaryTitle(_ buttons: FixFooterPresentation.Buttons) -> String {
-        switch buttons {
-        case .proposal, .applying: "Apply"
-        case .sheet, .looking: steps.primaryTitle(onStep: step, createLabel: createLabel)
         }
     }
 }
@@ -484,61 +420,5 @@ private extension View {
     func ring() -> some View {
         frame(width: Size.chip, height: Size.chip)
             .overlay(Circle().strokeBorder(Palette.borderStrong, lineWidth: 1))
-    }
-}
-
-/// Claude Code / Codex, with the vendor marks. An agent whose CLI is not on the login shell's
-/// `PATH` cannot be picked, and says so.
-struct AgentSegmented: View {
-    let agents: [AgentKind]
-    let available: Set<AgentKind>
-    @Binding var selection: AgentKind
-
-    /// Only an installed CLI can be picked. With none installed every segment is disabled: each
-    /// would open a window that prints "command not found". An unknown answer — the login shell
-    /// failed — arrives here as every agent, never as none (`AgentIntegrations.availableAgents`).
-    static func isSelectable(_ agent: AgentKind, available: Set<AgentKind>) -> Bool { available.contains(agent) }
-
-    var body: some View {
-        SegmentedControl(values: agents, selection: $selection,
-                       isSelectable: { Self.isSelectable($0, available: available) },
-                       help: { Self.isSelectable($0, available: available)
-                           ? nil : "\($0.displayName) isn’t installed. Install it in Settings › Agents." }) { agent, on in
-            AgentSegmentLabel(agent: agent, on: on)
-        }
-    }
-}
-
-/// An agent's segment: its vendor mark and name, the name in the emphasised weight while selected.
-struct AgentSegmentLabel: View {
-    let agent: AgentKind
-    let on: Bool
-
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            VendorMark(agent: agent.session, size: Size.vendorMark)
-            Text(agent.displayName).font(on ? Typography.bodyEmphasis : Typography.body)
-        }
-    }
-}
-
-/// The exact command the task will run, on one line, with the whole thing in the tooltip.
-struct CommandBlock: View {
-    let caption: String
-    let command: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            HelpText(caption, fixedVerticalSize: false).lineLimit(1).truncationMode(.middle)
-            HStack(spacing: Space.snug) {
-                Text("$").font(Typography.monoCode).foregroundStyle(Palette.green)
-                Text(String(command.prefix(300))).font(Typography.monoCode).foregroundStyle(Palette.text)
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Space.inset).padding(.vertical, Space.base)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.codeBackground))
-            .help(command)
-        }
     }
 }

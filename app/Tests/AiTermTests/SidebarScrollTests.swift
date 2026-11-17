@@ -23,7 +23,7 @@ struct SidebarScrollTests {
             first = first ?? project.id
             controller.workspace.mutate { $0.append(project: project) }
         }
-        // The broadcast folded into OPERATOR, so the projects are open and the list scrolls.
+        // The projects are open and the list scrolls.
         controller.focus.browse(.project(try #require(first)))
         let host = testHost(SidebarView(controller: controller), size: CGSize(width: Size.sidebarMinWidth, height: 400))
         let window = testWindow(contentRect: host.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])

@@ -32,8 +32,8 @@ import Darwin
         #expect(try AgentCommand.build(agent: .pi, model: "openai-codex/gpt-5.6-sol",
                                        reasoning: "high", prompt: "review", worktreePath: wt, git: .hermetic())
                 == "pi --model openai-codex/gpt-5.6-sol --thinking high 'review'")
-        #expect(AgentCommand.previewCommand(agent: .pi, model: "anthropic/claude-sonnet",
-                                            reasoning: nil, prompt: nil)
+        #expect(try AgentCommand.build(agent: .pi, model: "anthropic/claude-sonnet",
+                                            reasoning: nil, prompt: nil, worktreePath: wt, git: .hermetic())
                 == "pi --model anthropic/claude-sonnet")
     }
 
@@ -43,7 +43,7 @@ import Darwin
     @Test func testAWordZshWouldExpandIsQuoted() throws {
         #expect(try AgentCommand.build(agent: .claude, model: "claude-fable-5-1[1m]", reasoning: "max*", prompt: nil, worktreePath: wt, git: .hermetic())
                 == "claude --model 'claude-fable-5-1[1m]' --effort 'max*'")
-        #expect(AgentCommand.previewCommand(agent: .codex, model: "gpt-5.6", reasoning: "x y", prompt: nil)
+        #expect(try AgentCommand.build(agent: .codex, model: "gpt-5.6", reasoning: "x y", prompt: nil, worktreePath: wt, git: .hermetic())
                 == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c 'model_reasoning_effort=x y'")
         #expect(AgentCommand.shellWord("openai-codex/gpt-5.6-sol") == "openai-codex/gpt-5.6-sol")
         #expect(AgentCommand.shellWord("") == "''")
@@ -103,7 +103,6 @@ import Darwin
             let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
             #expect(cmd == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"")
             #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == prompt)
-            #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: prompt) == cmd)
         }
     }
 
@@ -116,11 +115,9 @@ import Darwin
             let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
             #expect(cmd == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"", "\(prompt.debugDescription)")
             #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == prompt)
-            #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: prompt) == cmd)
         }
         let crlf = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: "one\r\ntwo\n", worktreePath: wt, git: .hermetic())
         #expect(crlf == "claude --model opus 'one\ntwo\n'")
-        #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: "one\r\ntwo") == "claude --model opus 'one\ntwo'")
     }
 
     /// Writing the long prompt must also add `.aiterm/` to the worktree repository's
@@ -165,18 +162,6 @@ import Darwin
         #expect(exclude.contains(".aiterm/"))
         let occurrences = exclude.components(separatedBy: ".aiterm/").count - 1
         #expect(occurrences == 1)
-    }
-
-    /// Final review item H: the New Task footer must show the exact command before any worktree
-    /// exists, so the preview never touches the disk and switches to the `$(command cat …)` form at the same
-    /// threshold `build` uses.
-    @Test func testPreviewCommandMatchesBuildWithoutTouchingDisk() {
-        #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: "high", prompt: "/plan fix it") == "claude --model opus --effort high '/plan fix it'")
-        #expect(AgentCommand.previewCommand(agent: .codex, model: "gpt-5.6", reasoning: nil, prompt: nil) == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6")
-
-        let long = String(repeating: "x", count: 9000)
-        #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: long) == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"")
-        #expect(!FileManager.default.fileExists(atPath: wt), "the preview must not create a worktree directory")
     }
 
     @Test func testComposePrompt() {

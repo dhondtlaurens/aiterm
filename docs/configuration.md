@@ -3,8 +3,8 @@
 Open **AiTerm › Settings…** (⌘,) to configure agents, the Operator, integrations and the interface.
 For installation and a first task, start with the [README](../README.md#install).
 
-**Save** applies settings edits. Agent installation/repair and **Help with problems** take effect
-immediately; **Cancel** does not undo them. Sidebar size previews immediately, and Cancel restores
+**Save** applies settings edits. Agent installation/repair takes effect
+immediately; **Cancel** does not undo it. Sidebar size previews immediately, and Cancel restores
 its previous size. The Mac card's **Allow…** and **Remove** permission actions also apply immediately.
 
 ## Agents
@@ -31,19 +31,10 @@ Sign in through your chosen agent's CLI as needed. AiTerm uses that agent's acco
 installing an agent does not supply a subscription or API credentials. PI lists models from its
 signed-in providers; run `/login` in PI if none are available.
 
-**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet previews
-the command before launch. An ordinary **New Review…** uses the normal agent launch command;
+**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet summarises
+the destination before launch. An ordinary **New Review…** uses the normal agent launch command;
 signal workers also use the task-branch publishing guard. See the
 [Operator guide](operators.md#publishing-done-conditions-and-merging) for publishing and merge boundaries.
-
-### Help with problems
-
-Enable **Help with problems** in Agents to offer **Find a Fix** for supported Git failures, such
-as a diverged branch or a conflicted rebase. It requires Claude Code and uses the Operator's model
-and reasoning settings.
-
-Claude inspects an isolated clone and proposes a fix. **Apply** checks and lands the proposed fix
-before retrying the failed action. Nothing in the project changes until you press Apply.
 
 ## Operator
 
@@ -78,8 +69,8 @@ after you finish editing the fields. **Save** stores service tokens in the Keych
 | Service | Configuration and permissions |
 | --- | --- |
 | Jira | Site URL, account email and API token. Optionally link Jira projects from a project's context menu; the New Task sheet can use a ticket to fill its name and branch. |
-| GitLab | Host URL and access token. Reading needs `read_api`; an Operator that opens or merges requests needs `api`. |
-| GitHub | Access token for the relevant repositories. Reading requests needs pull-request read access. An Operator that opens or merges them needs pull-request and contents write access, plus administration read access to inspect branch protection. |
+| GitLab | Host URL and access token. Reading needs `read_api`; an Operator that merges requests needs `api`. |
+| GitHub | Access token for the relevant repositories. Reading requests needs pull-request read access. An Operator that merges them needs pull-request and contents write access, plus administration read access to inspect branch protection. |
 
 ### Mac and Backpack Mode
 

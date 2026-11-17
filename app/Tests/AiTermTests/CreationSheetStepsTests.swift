@@ -4,9 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The creation frame's steps (`CreationSteps`): New Task and New Review keep their three — what and
-/// where from, the prompt, the agent — and New Broadcast has five, its Agents list third and no agent
-/// step, creating on the fifth.
+/// New Task and New Review share three steps: source and name, prompt, then agent.
 @MainActor
 struct CreationSheetStepsTests {
     @Test func taskAndReviewShareThreeStepsWithTheAgentLast() {
@@ -17,7 +15,6 @@ struct CreationSheetStepsTests {
         #expect((1...3).map(steps.secondaryTitle(onStep:)) == ["Cancel", "Back", "Back"])
         #expect((1...3).map(steps.creates(onStep:)) == [false, false, true])
         #expect((1...3).map(steps.showsDestination(onStep:)) == [false, false, true])
-        #expect((1...3).map(steps.showsCommand(onStep:)) == [false, false, true])
         #expect((1...3).map(steps.hasPrompt(onStep:)) == [false, true, false])
     }
 
@@ -28,16 +25,4 @@ struct CreationSheetStepsTests {
         #expect(!SheetStepper.canNavigate(from: 3, to: 0, count: 4))
     }
 
-    @Test func broadcastCreatesOnStepFive() {
-        let steps = CreationSteps.broadcast
-        #expect(steps == CreationSteps(count: 5, agentStep: nil, agentsListStep: 3))
-        #expect((1...5).map { steps.primaryTitle(onStep: $0, createLabel: "Create") }
-                == ["Continue", "Continue", "Continue", "Continue", "Create"])
-        #expect((1...5).map(steps.secondaryTitle(onStep:)) == ["Cancel", "Back", "Back", "Back", "Back"])
-        #expect((1...5).map(steps.creates(onStep:)) == [false, false, false, false, true])
-        #expect((1...5).map(steps.showsDestination(onStep:)) == [true, false, false, false, true])
-        #expect((1...5).map(steps.showsCommand(onStep:)) == [false, false, false, false, false], "no agent of its own, so no command")
-        #expect((1...5).map(steps.saysNoAgentCanRun(onStep:)) == [false, false, false, false, false])
-        #expect((1...5).map(steps.hasPrompt(onStep:)) == [false, true, false, true, true], "Prompt, Task's review and Done's goal are prompt editors")
-    }
 }

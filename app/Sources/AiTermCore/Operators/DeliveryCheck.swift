@@ -61,8 +61,8 @@ public struct DeliveryCheckFile: Equatable, Sendable {
     }
 }
 
-/// What one piece a broadcast needs says about itself: ready, or why not, in one short sentence with no
-/// full stop. Settings › Agents shows it on the agent's card; New Broadcast's footer the same words.
+/// What one piece the Operator needs says about itself: ready, or why not, in one short sentence with no
+/// full stop. Settings › Agents shows it on the agent's card; New Signal's footer the same words.
 public enum DeliveryReadiness: Equatable, Sendable {
     case ready(String)
     case needsAttention(String)

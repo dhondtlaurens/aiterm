@@ -26,22 +26,4 @@ public enum BranchType: String, CaseIterable, Equatable, Sendable {
         else { self = .feat }
     }
 
-    /// The type a task's title suggests, for a task with no Jira issue type: maintenance words
-    /// (a dependency, an upgrade, a bump, a refactor) are `chore`, `fix` and `bug` are `fix`, and any
-    /// other title is feature work. Words are matched where they start, so `prefix` is not a fix, and
-    /// `fix` as a whole word, so `fixture` is not either.
-    public init(title: String) {
-        let name = title.lowercased()
-        func matches(_ patterns: String...) -> Bool { patterns.contains { name.range(of: "\\b" + $0, options: .regularExpression) != nil } }
-        if matches("dependenc", "upgrade", "bump", "update deps", "chore", "maintenance", "refactor") { self = .chore }
-        else if matches("(hot)?fix(es|ed|ing)?\\b", "bug") { self = .fix }
-        else { self = .feat }
-    }
-
-    /// `branch` split at its first `/`, when what comes before it is a type. Case-sensitive, as git
-    /// branch names are.
-    public static func split(_ branch: String) -> (type: BranchType, name: String)? {
-        guard let slash = branch.firstIndex(of: "/"), let type = BranchType(rawValue: String(branch[..<slash])) else { return nil }
-        return (type, String(branch[branch.index(after: slash)...]))
-    }
 }

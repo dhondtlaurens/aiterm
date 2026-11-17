@@ -1,12 +1,18 @@
 import Foundation
 
+/// A person returned by Jira's Signal person picker.
+public struct JiraUser: Equatable, Sendable {
+    public let accountId: String, displayName: String, email: String?
+    public init(accountId: String, displayName: String, email: String?) { self.accountId = accountId; self.displayName = displayName; self.email = email }
+}
+
 public extension JiraClient {
     /// Unlike the picker search, a signal reads every page and rejects malformed entries as a
     /// partial read. The caller owns membership and cursor advancement across those pages.
     func search(jql: String, fields: [String], pageToken: String?) async throws -> JiraSearchPage {
         struct Body: Encodable { var jql: String; var maxResults = 100; var fields: [String]; var nextPageToken: String? }
         let path = "/rest/api/3/search/jql"
-        let data = try await send(method: "POST", path: path, json: JSONEncoder().encode(Body(jql: jql, fields: fields, nextPageToken: pageToken)), write: false)
+        let data = try await send(method: "POST", path: path, json: JSONEncoder().encode(Body(jql: jql, fields: fields, nextPageToken: pageToken)))
         let page = try decode(SignalSearchResponse.self, data: data, reading: path)
         let tickets = page.issues.compactMap(\.value).map { issue in
             let text = ADFText.plain(issue.fields.description)
@@ -41,7 +47,7 @@ public extension JiraClient {
         struct Body: Encodable { var jql: String }
         struct Answer: Decodable { var count: Int }
         let path = "/rest/api/3/search/approximate-count"
-        let data = try await send(method: "POST", path: path, json: JSONEncoder().encode(Body(jql: jql)), write: false)
+        let data = try await send(method: "POST", path: path, json: JSONEncoder().encode(Body(jql: jql)))
         let value = try decode(Answer.self, data: data, reading: path).count
         guard value >= 0 else { throw JiraError.decoding }
         return value
@@ -53,8 +59,7 @@ public extension JiraClient {
             let page = try await decode(SignalValuesPage<Value>.self, request(path: path, queryItems: [
                 URLQueryItem(name: "startAt", value: String(start)), URLQueryItem(name: "maxResults", value: "100")]))
             values += page.values; start += page.values.count
-            if page.isLast == true || page.total.map({ start >= $0 }) == true ||
-                (page.isLast == nil && page.total == nil && page.values.count < 100) { return values }
+            if page.isLast { return values }
             guard !page.values.isEmpty else { throw IncompleteRead(path) }
         }
         throw IncompleteRead(path)
@@ -63,8 +68,7 @@ public extension JiraClient {
 
 private struct SignalValuesPage<Value: Decodable>: Decodable {
     var values: [Value]
-    var isLast: Bool?
-    var total: Int?
+    var isLast: Bool
 }
 private struct SignalSearchResponse: Decodable {
     struct Named: Decodable { var name: String? }

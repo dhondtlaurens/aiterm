@@ -2,11 +2,8 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Signal's Agents step (broadcast setup v2, design 1A): the combinations the Operator may start workers, tabs and
-/// reviewers on, a row each of an Agent `Select`, an unlabelled `ModelReasoningFields` and a ✕, the column labels once
-/// above them, then “Add an agent” in the link's ink and the step's help. A row's models and reasoning levels are its
-/// agent's own, as Settings › Agents lists them; picking an agent takes its default there, and a model keeps the
-/// reasoning while it offers it. With no agent installed there is nothing to add, and the link is left out.
+/// New Signal's Agents step lists the agent, model and reasoning combinations available to its workers.
+/// Each row uses its agent's models and defaults from Settings › Agents. With no agent installed, Add is absent.
 struct AgentsStep: View {
     let rows: [AgentChoiceRow]
     let offeredAgents: [AgentKind]

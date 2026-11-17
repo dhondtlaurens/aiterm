@@ -5,16 +5,13 @@ public struct GitHubConfig: Equatable, Sendable {
     public init(token: String) { self.token = token }
 }
 
-public enum GitHubError: HostFailure, Equatable, LocalizedError {
-    /// The preparation failed before a host write was sent; the original sentence is kept.
-    indirect case notSent(GitHubError)
+public enum GitHubError: Equatable, LocalizedError {
     case unauthorized, forbidden, network(String), badResponse(Int), decoding, repoNotFound(String)
     /// GraphQL answered with an error of its own, in GitHub's words.
     case refused(String)
 
     public var errorDescription: String? {
         switch self {
-        case .notSent(let error): return error.errorDescription
         case .unauthorized: return "Check your GitHub access token in Settings › Integrations."
         // GitHub answers both a token without access to the repository and a spent rate limit with 403.
         case .forbidden: return "GitHub refused: the token can’t read this repository, or the rate limit was reached."
@@ -38,8 +35,6 @@ public struct GitHubClient: HostRepository {
         self.config = config; self.session = session; self.repo = repo
         boundPath = Self.repositoryPath(repo)
     }
-
-    public var repository: String { "github.com/" + repo }
 
     static let api = "https://api.github.com"
     /// How many open pull requests one search reads, and how many it shows.
@@ -145,9 +140,6 @@ public struct GitHubClient: HostRepository {
         return ReviewThreads(resolutions: resolutions)
     }
 
-    // MARK: Publishing — the only writes this client makes, for an operator's finish_task (spec §6).
-    // A fine-grained token needs write access to pull requests (open, retarget) and contents (merge).
-
     /// `owner/name` as its two parts; nil for anything else.
     static func ownerAndName(_ repo: String) -> (owner: String, name: String)? {
         let parts = repo.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
@@ -158,15 +150,12 @@ public struct GitHubClient: HostRepository {
     /// How many pages of 100 a listing reads before it gives up: check runs, statuses, rules.
     static let listedPages = 20
 
-    /// The open pull request from `source` in `repo` itself, if there is one: what a repeated
-    /// finish_task finds instead of opening a second after a reply was lost. An entry that does not
-    /// decode is no answer, not an absent request, and one from a fork's branch of the same name is
-    /// not this one.
+    /// The open pull request from `source` in `repo` itself, excluding forks; an unreadable entry throws.
     public func existingRequest(from source: String) async throws -> MergeRequest? {
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
                      URLQueryItem(name: "per_page", value: "100")]
-        guard let encoded = HTTPJSON.url(Self.api + boundPath + "/pulls", query: query) else { throw GitHubError.notSent(.decoding) }
+        guard let encoded = HTTPJSON.url(Self.api + boundPath + "/pulls", query: query) else { throw GitHubError.decoding }
         return try await HTTPJSON.decode([PullPayload].self, HTTPJSON.request(encoded, headers: headers), session: session) {
             Self.error(for: $0, notFound: .repoNotFound(repo))
         }.value
@@ -189,16 +178,6 @@ public struct GitHubClient: HostRepository {
             if values.count < 100 { return nil }
         }
         throw IncompleteRead("branch requests")
-    }
-
-    /// A pull request from `source` into `target`, a draft or not. The branch is never deleted
-    /// afterwards and auto-merge is never enabled: merging is `merge`, at the accepted commit.
-    public func createRequest(from source: String, into target: String, title: String, description body: String,
-                                  draft: Bool) async throws -> MergeRequest {
-        struct Create: Encodable { var title, head, base, body: String; var draft: Bool }
-        return try await send(PullPayload.self, method: "POST", path: boundPath + "/pulls",
-                              body: Create(title: title, head: source, base: target, body: body, draft: draft),
-                              notFound: .repoNotFound(repo)).mergeRequest
     }
 
     /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
@@ -235,11 +214,9 @@ public struct GitHubClient: HostRepository {
         }
     }
 
-    /// The pull request as the Operator reads it (`MergeRequestState`). `mergeable` is GitHub's `mergeable_state`
-    /// (`merged` or `closed` once it is); `pipeline` is its checks as one word (`checkSummary`: `failure`, `pending` or
-    /// `success`), nil when a list was not read to its end or there are no checks at all.
+    /// Its head, approvals and checks as one word, nil when absent or not read to the end.
     public func state(of request: MergeRequest) async throws -> MergeRequestState {
-        let number = request.iid, url = request.url
+        let number = request.iid
         async let read = get(PullStatusPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
         async let approved = approvals(of: number)
         let (pull, by) = try await (read, approved)
@@ -254,9 +231,7 @@ public struct GitHubClient: HostRepository {
             case .green: pipeline = "success"
             }
         }
-        let mergeable = pull.merged == true ? "merged" : pull.state == "open" ? pull.mergeableState ?? "unknown" : "closed"
-        return MergeRequestState(iid: number, url: url, draft: pull.draft ?? false, pipeline: pipeline, mergeable: mergeable,
-                                 approvedBy: by, head: pull.head.sha)
+        return MergeRequestState(pipeline: pipeline, approvedBy: by, head: pull.head.sha)
     }
 
     /// A head's checks as merging reads them, one table for `readiness` and `state` alike: GitHub's own,
@@ -323,68 +298,6 @@ public struct GitHubClient: HostRepository {
         }
     }
 
-    /// Points it at `target`: a stacked pull request, once its parent has merged.
-    public func retarget(_ number: Int, to target: String) async throws {
-        struct Retarget: Encodable { var base: String }
-        _ = try await send(PullPayload.self, method: "PATCH", path: boundPath + "/pulls/\(number)",
-                           body: Retarget(base: target), notFound: .repoNotFound(repo))
-    }
-
-    /// Changes its title, body and assignee, each nil one left as it is; the assignee replaces any it has. Two writes,
-    /// the pull request's then its issue's, each safe to repeat. `beforeWrite` gets the pull request as read, right before
-    /// each of them.
-    public func updateRequest(_ number: Int, _ edit: RequestContent,
-                                  beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws {
-        let title = edit.title, body = edit.description, assignee = edit.assignee
-        let pull = try await HTTPJSON.preparingWrite(GitHubError.self) {
-            try await get(PullPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
-        }
-        try await beforeWrite(pull.mergeRequest)
-        if title != nil || body != nil {
-            struct Edit: Encodable { var title, body: String? }
-            _ = try await send(PullPayload.self, method: "PATCH", path: boundPath + "/pulls/\(number)",
-                               body: Edit(title: title, body: body), notFound: .repoNotFound(repo))
-        }
-        if let assignee {
-            if title != nil || body != nil { try await beforeWrite(pull.mergeRequest) }
-            struct Assign: Encodable { var assignees: [String] }
-            struct Answer: Decodable { var number: Int? }
-            _ = try await send(Answer.self, method: "PATCH", path: boundPath + "/issues/\(number)",
-                               body: Assign(assignees: [assignee]), notFound: .repoNotFound(repo))
-        }
-    }
-
-    // MARK: The Review slice (spec §5): people on the pull request, only for an operator whose broadcast allows it.
-    // A fine-grained token needs write access to pull requests.
-
-    static let readyMutation = """
-        mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }
-        """
-
-    /// Takes it out of draft. REST cannot, so this is GraphQL's `markPullRequestReadyForReview`, on the
-    /// pull request's node id. One that is not a draft is not written to.
-    public func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
-        struct Pull: Decodable { var nodeId: String?, draft: Bool? }
-        let pull = try await HTTPJSON.preparingWrite(GitHubError.self) {
-            try await get(Pull.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
-        }
-        guard pull.draft == true else { return }
-        guard let node = pull.nodeId else { throw GitHubError.notSent(.decoding) }
-        try await beforeWrite()
-        struct Variables: Encodable { var id: String }
-        struct Done: Decodable {}
-        _ = try await graphQL(Done.self, query: Self.readyMutation, variables: Variables(id: node))
-    }
-
-    /// Asks `logins` to review it; GitHub keeps whoever it asked already, and asking again is no change.
-    public func assignReviewers(_ number: Int, usernames logins: [String], beforeWrite: @Sendable () async throws -> Void = {}) async throws {
-        try await beforeWrite()
-        struct Request: Encodable { var reviewers: [String] }
-        struct Answer: Decodable { var number: Int? }
-        _ = try await send(Answer.self, method: "POST", path: boundPath + "/pulls/\(number)/requested_reviewers",
-                           body: Request(reviewers: logins), notFound: .repoNotFound(repo))
-    }
-
     /// One query, never a mutation: each review thread with its id, whether it is resolved, and its last comment.
     static let threadDetailsQuery = """
         query($owner: String!, $name: String!, $number: Int!, $after: String) {
@@ -431,145 +344,6 @@ public struct GitHubClient: HostRepository {
             })
     }
 
-    static let replyMutation = """
-        mutation($thread: ID!, $body: String!) {
-          addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $thread, body: $body}) { comment { id } }
-        }
-        """
-
-    /// A reply in the review thread `thread`, by its node id.
-    public func reply(_ number: Int, thread: String, body: String) async throws {
-        struct Variables: Encodable { var thread: String, body: String }
-        struct Done: Decodable {}
-        _ = try await graphQL(Done.self, query: Self.replyMutation, variables: Variables(thread: thread, body: body))
-    }
-
-    private static let threadDetailNode = """
-        node(id: $thread) {
-          ... on PullRequestReviewThread {
-            id path line originalLine pullRequest { number repository { id } }
-            comments(first: 50) { nodes { body author { login } } }
-          }
-        }
-        """
-
-    /// Resolving the remote in this same query follows GitHub's renames and transfers.
-    static let threadDetailQuery = """
-        query($thread: ID!, $owner: String!, $name: String!) {
-          repository(owner: $owner, name: $name) { id }
-          \(threadDetailNode)
-        }
-        """
-
-    /// A binding that has no owner/name pair still permits the original node-only read.
-    private static let threadDetailNodeQuery = """
-        query($thread: ID!) {
-          \(threadDetailNode)
-        }
-        """
-
-    /// The review thread `thread` whole, by its node id: its file and line, and its comments, oldest first, up to 50. One
-    /// that is not a thread of pull request `number` is no thread of it. Known repository ids must agree;
-    /// without a resolvable binding, keep reading the detail rather than infer identity from a name.
-    public func threadDetail(_ number: Int, thread: String) async throws -> ReviewThreadDetail {
-        struct Variables: Encodable { var thread: String, owner: String?, name: String? }
-        struct Payload: Decodable {
-            struct Repository: Decodable { var id: String? }
-            struct Node: Decodable {
-                struct Pull: Decodable {
-                    var number: Int, repository: Repository?
-                }
-                struct Comments: Decodable {
-                    struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
-                    var nodes: [Comment]?
-                }
-                var id: String?, path: String?, line: Int?, originalLine: Int?, pullRequest: Pull?, comments: Comments?
-            }
-            var node: Node?, repository: Repository?
-        }
-        let binding = Self.ownerAndName(repo)
-        let read = try await graphQL(Payload.self,
-            query: binding == nil ? Self.threadDetailNodeQuery : Self.threadDetailQuery,
-            variables: Variables(thread: thread, owner: binding?.owner, name: binding?.name),
-            answer: { (answer: GraphQLAnswer<Payload, GraphQLProblem>) in
-                // Only errors on the added lookup may leave the original node read intact.
-                let errors = answer.errors?.filter { binding == nil || $0.path?.first?.stringValue != "repository" }
-                return try GraphQLAnswer(data: answer.data, errors: errors).checked(repo: repo)
-            })
-        let expected = read.repository?.id, actual = read.node?.pullRequest?.repository?.id
-        guard let node = read.node, let id = node.id, node.pullRequest?.number == number,
-              binding == nil || expected == nil || actual == nil || expected == actual else {
-            throw GitHubError.refused("thread \(thread) is not on pull request #\(number)")
-        }
-        return ReviewThreadDetail(id: id, path: node.path, line: node.line ?? node.originalLine,
-                            notes: (node.comments?.nodes ?? []).map { ReviewThreadDetail.Note(author: $0.author?.login, body: $0.body ?? "") })
-    }
-
-    static let resolveMutation = """
-        mutation($thread: ID!) { resolveReviewThread(input: {threadId: $thread}) { thread { isResolved } } }
-        """
-
-    /// Resolves the review thread `thread`, by its node id; GitHub leaves one resolved already as it is.
-    public func resolve(_ number: Int, thread: String) async throws {
-        struct Variables: Encodable { var thread: String }
-        struct Done: Decodable {}
-        _ = try await graphQL(Done.self, query: Self.resolveMutation, variables: Variables(thread: thread))
-    }
-
-    /// The conclusions of a finished Actions run that failed, which `rerun-failed-jobs` reruns.
-    static let failedConclusions: Set<String> = ["failure", "timed_out", "startup_failure"]
-
-    /// Reruns the failed jobs of each workflow whose latest Actions run on the pull request's head failed, for each event
-    /// that ran it. Older runs of a workflow that ran again for the same event are left alone, and another app's checks have no rerun AiTerm can ask for. None failed:
-    /// `.notFailed`, nothing written. `beforeWrite` gets the pull request as read, right before each rerun.
-    public func retryPipeline(_ number: Int,
-                                beforeWrite: @Sendable (MergeRequest) async throws -> Void = { _ in }) async throws -> PipelineRetry {
-        let pull = try await HTTPJSON.preparingWrite(GitHubError.self) {
-            try await get(PullPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
-        }
-        guard let sha = pull.head.sha else { throw GitHubError.notSent(.decoding) }
-        struct Runs: Decodable {
-            struct Run: Decodable { var id: Int, workflowId: Int?, name: String?, event: String?, status: String?, conclusion: String? }
-            var workflowRuns: [Run]
-        }
-        let runs = try await HTTPJSON.preparingWrite(GitHubError.self) { try await get(Runs.self, path: boundPath + "/actions/runs",
-                                 query: [URLQueryItem(name: "head_sha", value: sha), URLQueryItem(name: "per_page", value: "100")],
-                                 notFound: .repoNotFound(repo)) }.workflowRuns
-        // Newest first: the first run seen of each workflow, for each event that ran it (a push and the pull request run the
-        // same workflow on the same head apart), is its latest.
-        var seen: Set<String> = []
-        let failed = runs.filter { seen.insert("\($0.workflowId ?? $0.id) \($0.event ?? "")").inserted }
-            .filter { $0.status == "completed" && Self.failedConclusions.contains($0.conclusion ?? "") }
-        guard !failed.isEmpty else { return .notFailed("no GitHub Actions run of its head failed; another app's check is rerun in that app") }
-        struct Nothing: Encodable {}
-        for run in failed {
-            try await beforeWrite(pull.mergeRequest)
-            try await api(.repoNotFound(repo)).write(method: "POST", path: boundPath + "/actions/runs/\(run.id)/rerun-failed-jobs", body: Nothing())
-        }
-        return .retried("the failed jobs of " + failed.map { $0.name ?? "run \($0.id)" }.joined(separator: ", "))
-    }
-
-    static let assigneePages = 20
-
-    /// The people who may be assigned in `repo` whose login matches `query`. GitHub lists assignees by login
-    /// only, so a name is not known.
-    public func findUsers(_ query: String) async throws -> [HostUser] {
-        struct User: Decodable { var login: String }
-        var users: [User] = []
-        for page in 1...Self.assigneePages {
-            // Keep the first page's existing request; later pages add only their offset.
-            var query = [URLQueryItem(name: "per_page", value: "100")]
-            if page > 1 { query.append(URLQueryItem(name: "page", value: String(page))) }
-            let read = try await get([User].self, path: boundPath + "/assignees", query: query,
-                                     notFound: .repoNotFound(repo))
-            users += read
-            if read.count < 100 { break }
-        }
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-        return users.filter { text.isEmpty || $0.login.range(of: text, options: .caseInsensitive) != nil }
-            .map { HostUser(username: $0.login, name: nil) }
-    }
-
     /// Who approved it, by login: each reviewer's latest review that approves or asks for changes counts. Every page
     /// is read, a page of 100 at a time until an empty one; `threadPagesRead` pages without reaching it throws
     /// `IncompleteRead`, as a later review may take an approval back.
@@ -587,12 +361,6 @@ public struct GitHubClient: HostRepository {
             latest[login] = state
         }
         return order.filter { latest[$0] == "APPROVED" }
-    }
-
-    /// One GraphQL request: its data, or the first error beside it as GitHub's refusal.
-    private func graphQL<Variables: Encodable, Payload: Decodable>(_ type: Payload.Type, query: String, variables: Variables) async throws -> Payload {
-        try await graphQL(type, query: query, variables: variables,
-                          answer: { (answer: GraphQLAnswer<Payload, GraphQLProblem>) in try answer.checked(repo: repo) })
     }
 
     /// The shared request/envelope path; callers retain the error policy of the read they serve.
@@ -750,7 +518,7 @@ public struct GitHubClient: HostRepository {
     private func api(_ notFound: GitHubError) -> HostAPI { Self.api(config, session: session, notFound: notFound) }
 
     static func api(_ config: GitHubConfig, session: URLSession, notFound: GitHubError) -> HostAPI {
-        HostAPI(base: Self.api, headers: headers(config), session: session, malformed: GitHubError.notSent(.decoding),
+        HostAPI(base: Self.api, headers: headers(config), session: session, malformed: GitHubError.decoding,
                 mapping: { Self.error(for: $0, notFound: notFound) })
     }
 
@@ -800,7 +568,6 @@ private struct GraphQLAnswer<Payload: Decodable, Problem: Decodable>: Decodable 
 
 private struct GraphQLProblem: Decodable {
     var type: String?, message: String?
-    @Lenient var path: [JSONValue]?
 }
 
 extension GraphQLAnswer where Problem == GraphQLProblem {
@@ -879,15 +646,6 @@ private struct GraphQLPageInfo: Decodable {
     }
 }
 
-public extension GitHubError {
-    var outcomeUnknown: Bool {
-        switch self {
-        case .network, .decoding: return true
-        case .badResponse(let status): return HTTPJSON.Failure.status(status).outcomeUnknown
-        case .unauthorized, .forbidden, .repoNotFound, .refused, .notSent: return false
-        }
-    }
-}
 
 /// One successful open listing for the lifetime of the client captured by a sheet's searcher.
 /// The caller owns its read and cancellation; overlapping cold reads are not coalesced.

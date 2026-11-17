@@ -16,7 +16,7 @@ struct KeyBinding: Equatable, Identifiable {
     private static let spokenNames = [
         "⌘": "Command", "⇧": "Shift", "⌥": "Option", "⌃": "Control", "↩": "Return", "⎋": "Escape",
         "⌫": "Delete", "⇥": "Tab", "↑": "Up Arrow", "↓": "Down Arrow", "←": "Left Arrow", "→": "Right Arrow",
-        "−": "minus", "+": "plus", "1–4": "1 to 4", "1–3": "1 to 3", "1–5": "1 to 5",
+        "−": "minus", "+": "plus", "1–4": "1 to 4",
     ]
 }
 

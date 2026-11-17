@@ -30,7 +30,7 @@ import Testing
 }
 
 /// A task row's trailing mark: its status's `StatusMark`, the green check once the Operator's work on the task
-/// is over (1A, 21 Oct 2026), or the pause sign while the Operator has it queued.
+/// is over, or the pause sign while paused.
 @Suite struct TaskRowMarkTests {
     let ended = OperatorLine("merged · 9b3e07d", look: .ended)
 
@@ -46,12 +46,6 @@ import Testing
         #expect(TaskRowMark(status: .idle, line: OperatorLine("failed · the tests fail"), removing: false) == .status(.idle))
         #expect(TaskRowMark(status: .done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou), removing: false) == .status(.done))
         #expect(TaskRowMark(status: .done, line: nil, removing: false) == .status(.done), "a task of your own")
-    }
-
-    @Test func aQueuedTaskShowsThePauseSignUnlessItIsBeingRemoved() {
-        let queued = OperatorLine("queued · after PAY-232")
-        #expect(TaskRowMark(status: .idle, line: queued, removing: false, queued: true) == .pauseSign)
-        #expect(TaskRowMark(status: .idle, line: queued, removing: true, queued: true) == .status(.working))
     }
 
     @Test func aTaskPausedByYouShowsThePauseSignUnlessItIsBeingRemoved() {

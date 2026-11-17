@@ -9,7 +9,7 @@ import Foundation
 
     private func entry(_ n: Int = 0, tool: String = "note") -> ActivityEntry {
         ActivityEntry(id: UUID(), at: Date(timeIntervalSince1970: 1_800_000_000 + Double(n)), tool: tool, task: nil,
-                      taskLabel: nil, arguments: ["n": .int(n)], outcome: .ok, result: "done \(n)", line: "Line \(n)", reason: nil)
+                      arguments: ["n": .int(n)], outcome: .ok, result: "done \(n)", line: "Line \(n)", reason: nil)
     }
 
     private func write(_ text: String, in folder: URL) throws {
@@ -27,32 +27,12 @@ import Foundation
         return String(decoding: try encoder.encode(entry), as: UTF8.self)
     }
 
-    /// Activity lists what changed until Show everything: a call that only looked and went through waits, a status
-    /// check, a read, a shell command; a call that did not go through always shows, whatever it was.
-    @Test func whatOnlyLookedWaitsBehindShowEverything() {
-        func shows(_ tool: String, _ outcome: ActivityEntry.Outcome = .ok) -> Bool {
-            var entry = entry(tool: tool)
-            entry.outcome = outcome
-            return entry.showsAmongChanges
-        }
-        for tool in SignalOperatorTool.allCases.filter(\.mutating).map(\.rawValue) {
-            #expect(shows(tool), "\(tool) changes something")
-        }
-        for tool in ["run_status", "read_task", "jira_search", "shell_read", "shell"] {
-            #expect(!shows(tool), "\(tool) only looks")
-            #expect(!shows(tool, .repeated))
-            for outcome in [ActivityEntry.Outcome.refused, .challenged, .failed] {
-                #expect(shows(tool, outcome), "\(tool) \(outcome.rawValue): what did not go through always shows")
-            }
-        }
-    }
-
     @Test func appendsAndReadsInOrder() throws {
         let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2, tool: "log_decision")
-        try ActivityLog.append(first, runFolder: dir)
-        try ActivityLog.append(second, runFolder: dir)
-        let read = ActivityLog.read(runFolder: dir)
+        try ActivityLog.append(first, folder: dir)
+        try ActivityLog.append(second, folder: dir)
+        let read = ActivityLog.read(folder: dir)
         #expect(read.entries == [first, second])
         #expect(read.end == UInt64(try Data(contentsOf: dir.appendingPathComponent(ActivityLog.file)).count))
     }
@@ -61,7 +41,7 @@ import Foundation
         let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2)
         try write(try line(first) + "\n{\"x\":\n" + (try line(second)) + "\n", in: dir)
-        #expect(ActivityLog.read(runFolder: dir).entries == [first, second])
+        #expect(ActivityLog.read(folder: dir).entries == [first, second])
     }
 
     @Test func aTornLastLineWaits() throws {
@@ -71,16 +51,16 @@ import Foundation
         let secondLine = try line(second)
         let half = secondLine.index(secondLine.startIndex, offsetBy: secondLine.count / 2)
         try write(firstLine + String(secondLine[..<half]), in: dir)
-        let torn = ActivityLog.read(runFolder: dir)
+        let torn = ActivityLog.read(folder: dir)
         #expect(torn.entries == [first])
         #expect(torn.end == UInt64(firstLine.utf8.count))
         try write(String(secondLine[half...]) + "\n", in: dir)
-        let next = ActivityLog.read(runFolder: dir, from: torn.end)
+        let next = ActivityLog.read(folder: dir, from: torn.end)
         #expect(next.entries == [second])
     }
 
     @Test func aMissingFileIsEmpty() throws {
-        let read = ActivityLog.read(runFolder: try ScratchFolder.make("activity-"))
+        let read = ActivityLog.read(folder: try ScratchFolder.make("activity-"))
         #expect(read.entries.isEmpty)
         #expect(read.end == 0)
     }
@@ -88,15 +68,14 @@ import Foundation
     @Test func fiveHundredAppends() throws {
         let dir = try ScratchFolder.make("activity-")
         let all = (0..<500).map { entry($0) }
-        for entry in all { try ActivityLog.append(entry, runFolder: dir) }
-        #expect(ActivityLog.read(runFolder: dir).entries == all)
+        for entry in all { try ActivityLog.append(entry, folder: dir) }
+        #expect(ActivityLog.read(folder: dir).entries == all)
     }
 
     @Test func aResultIsTrimmedToItsLimit() {
         let long = String(repeating: "x", count: ActivityEntry.resultLimit + 50)
-        let made = ActivityEntry(id: UUID(), at: Date(), tool: "run_status", task: nil, taskLabel: nil, arguments: .null,
+        let made = ActivityEntry(id: UUID(), at: Date(), tool: "run_status", task: nil, arguments: .null,
                                  outcome: .ok, result: long, line: "", reason: nil)
         #expect(made.result.count == ActivityEntry.resultLimit)
-        #expect(made.isRead)
     }
 }

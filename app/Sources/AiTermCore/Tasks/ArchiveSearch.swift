@@ -1,43 +1,11 @@
 import Foundation
 
-/// An ended broadcast as the Shelf lists it: its name, what it was asked, and when it ended.
-
-
-/// One row of the Shelf: a shelved task or review, or an ended broadcast.
-public enum ShelfRow: Equatable, Sendable, Identifiable {
-    case task(ArchiveSearch.Entry)
-
-    /// The archived task's id, or the run's.
-    public var id: UUID {
-        switch self {
-        case .task(let entry): entry.archived.id
-        }
-    }
-
-    /// When it went on the Shelf: shelved, or ended.
-    public var shelvedAt: Date {
-        switch self {
-        case .task(let entry): entry.archived.archivedAt
-        }
-    }
-}
-
-/// Orders the Shelf for its search field: a pure function over what is in hand, so it is tested
-/// without a sheet. Each row scores its best field — for a task its title, ticket key and summary,
-/// merge request number and title, branch, project; for an ended broadcast its name and what it was
-/// asked — in five tiers, because a long archive buries the one you mean under a plain substring match:
-///
-/// 0. the exact ticket key, or the merge request's number written `482`, `!482` or `#482`;
-/// 1. a field that starts with the query, which for the merge request number counts with or without
-///    the `!` or `#`, so `!4` and `!48` find !482 while it is being typed;
-/// 2. a word in a field that starts with it (words split on space, `/`, `-`, `_` and `.`);
-/// 3. the query anywhere in a field;
-/// 4. every letter of the query in order in a field — the fuzzy tier.
-///
-/// Tiers 0 and 1's numbers and keys are a task's alone. Within a tier, and for an empty query, the most
-/// recently shelved comes first.
+/// Ranks archived tasks and reviews by their best matching field: exact ticket or request number,
+/// field prefix, word prefix, substring, then fuzzy match. Equal matches and empty queries put
+/// the most recently archived entry first.
 public enum ArchiveSearch {
-    public struct Entry: Equatable, Sendable {
+    public struct Entry: Equatable, Sendable, Identifiable {
+        public var id: UUID { archived.id }
         public let archived: ArchivedTask
         public let projectName: String
         /// Which host's mark the row's merge request badge wears.
@@ -47,8 +15,8 @@ public enum ArchiveSearch {
         }
     }
 
-    public static func rank(_ rows: [ShelfRow], query: String) -> [ShelfRow] {
-        let newestFirst = rows.sorted { $0.shelvedAt > $1.shelvedAt }
+    public static func rank(_ entries: [Entry], query: String) -> [Entry] {
+        let newestFirst = entries.sorted { $0.archived.archivedAt > $1.archived.archivedAt }
         let query = normalized(query.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !query.isEmpty else { return newestFirst }
         return newestFirst.enumerated()
@@ -57,18 +25,7 @@ public enum ArchiveSearch {
             .map(\.row)
     }
 
-    /// The tasks and reviews alone, ranked as the Shelf ranks them.
-    public static func rank(_ entries: [Entry], query: String) -> [Entry] {
-        rank(entries.map(ShelfRow.task), query: query).compactMap { if case .task(let entry) = $0 { entry } else { nil } }
-    }
-
     /// `query` is normalized already.
-    static func tier(of row: ShelfRow, query: String) -> Int? {
-        switch row {
-        case .task(let entry): tier(of: entry, query: query)
-        }
-    }
-
     static func tier(of entry: Entry, query: String) -> Int? {
         let task = entry.archived.task
         if let iid = task.mr?.iid, number(in: query) == iid { return 0 }

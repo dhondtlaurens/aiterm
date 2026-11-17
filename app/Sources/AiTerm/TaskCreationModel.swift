@@ -23,10 +23,6 @@ struct TaskCreation: CreationKind {
 
     func slug(for draft: TaskDraft) -> String { draft.worktreeSlug }
 
-    /// A task's prompt carries its ticket too, when the person kept "Include ticket details".
-    func composedPrompt(_ text: String, draft: TaskDraft) -> String? {
-        AgentCommand.composePrompt(userText: text, ticket: draft.ticket, appendTicket: draft.appendTicket)
-    }
 }
 
 /// The New Task sheet's state.

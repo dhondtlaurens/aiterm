@@ -21,6 +21,18 @@ import Testing
         #expect(loaded.operatorSession?.waitingOnYou == 1)
         #expect(loaded.operatorSession?.oracleRounds.count == 1)
     }
+    /// A workspace saved before the Operator's section could be open,
+    /// opens on the projects; the Operator open is kept, and the default is written as it always was.
+    @Test func theProjectsAreTheDefaultSectionAndAnOpenOperatorIsKept() throws {
+        let decoder = JSONDecoder(), encoder = JSONEncoder()
+        let old = try decoder.decode(AppState.self, from: Data(#"{"items":[],"tasks":[],"terminals":[]}"#.utf8))
+        #expect(!old.operatorOpen)
+        let plain = try #require(JSONSerialization.jsonObject(with: encoder.encode(old)) as? [String: Any])
+        #expect(plain["operatorOpen"] == nil)
+        var open = old; open.operatorOpen = true
+        #expect(try decoder.decode(AppState.self, from: encoder.encode(open)).operatorOpen)
+    }
+
     private static func state() -> AppState {
         func id(_ n: Int) -> UUID { UUID(uuidString: "E7A1C0DE-0000-4000-8000-" + String(format: "%012X", n))! }
         let at = Date(timeIntervalSince1970: 1_794_657_600)
@@ -59,7 +71,7 @@ import Testing
         var question = OperatorSession.Question(id: "locale", task: task.id, text: "Which locale?", openedAt: at)
         question.stage = 1; question.ownership = 0; question.tab = "main"; question.workerQuestion = "Which locale?"
         session.questions = [question]
-        session.oracleRounds = [ChallengeRecord(id: "round", tool: "answer_worker", askedAt: at, askedEvidence: "question-bound", round: 1)]
+        session.oracleRounds = [OracleRound(id: "round", tool: "answer_worker", askedAt: at, askedEvidence: "question-bound", round: 1)]
         session.remember(key: "tool:note:note", result: ["status": "recorded"], at: at, arguments: "{}")
         var state = AppState(); state.append(project: project); state.signals = [first, next]; state.tasks = [task]
         state.archive = [ArchivedTask(task: archived, archivedAt: at)]; state.operatorSession = session

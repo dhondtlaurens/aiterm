@@ -38,11 +38,11 @@ extension TaskItem {
 extension SessionInfo {
     /// A tab as the daemon lists it, tagged with `task` when it belongs to a task.
     static func make(_ sessionId: String = "s", window: String = "w1", tabIndex: Int = 0, task: UUID? = nil,
-                     project: UUID? = nil, agent: SessionAgent = .claude, model: String? = nil,
-                     state: SessionState = .idle, title: String = "", cwd: String = "/", conversation: String? = nil,
+                     project: UUID? = nil, agent: SessionAgent = .claude,
+                     state: SessionState = .idle, cwd: String = "/", conversation: String? = nil,
                      tabKey: String? = nil, active: Bool = false) -> SessionInfo {
         var session = SessionInfo(sessionId: sessionId, windowId: window, tabIndex: tabIndex, taskId: task?.uuidString,
-                                  projectId: project?.uuidString, agent: agent, model: model, state: state, title: title, cwd: cwd, active: active,
+                                  projectId: project?.uuidString, agent: agent, state: state, cwd: cwd, active: active,
                                   tabKey: tabKey)
         session.conversationId = conversation
         return session

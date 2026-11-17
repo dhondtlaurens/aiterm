@@ -1,5 +1,5 @@
 # daemon/tests/test_delivery.py
-"""The delivery adapter (Operators spec §7.1): what it reads off a screen, the policy it obeys, and
+"""The delivery adapter: what it reads off a screen, the policy it obeys, and
 how it types."""
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aitermd import delivery
+from aitermd import delivery, screens
 from aitermd.delivery import PASTE_END, PASTE_START, Deliverer, DeliveryResult, load_policy, open_prompt, shows_input_box
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.keystrokes import TypingGuard
@@ -437,12 +437,14 @@ async def test_an_interrupted_paste_is_partial_and_not_retried(rig):
     assert rig.iterm.sent == []
 
 
+def current_prompt(rig):
+    return screens._session_prompt(rig.registry.get(rig.sid), rig.iterm.screens[rig.sid])
+
+
 async def test_the_prompt_is_read_from_the_screen(rig):
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
+    assert current_prompt(rig) is None
     rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] == "permission"
-    with pytest.raises(KeyError):
-        await rig.deliverer.prompt_details("s404")
+    assert current_prompt(rig) == "permission"
 
 
 async def test_deliveries_to_one_session_take_turns(rig):
@@ -481,7 +483,7 @@ async def test_an_input_box_that_disappears_between_paste_and_enter_gets_no_ente
     assert rig.iterm.sent == [(rig.sid, pasted("hello"))]
 
 
-WAKE = "[AiTerm] updates waiting, call run_status"
+WAKE = "[AiTerm] worker_ended 11111111-1111-1111-1111-111111111111; call run_status"
 
 
 async def test_a_send_older_than_the_tasks_ownership_is_refused(rig):
@@ -553,9 +555,8 @@ async def test_text_left_without_its_enter_holds_back_the_next_wake_line(rig):
 
 # Claude Code 2.1.318 idle, as captured: its empty input shows its placeholder, drawn faint.
 CAPTURED_IDLE = captured_screens.lines(captured_screens.CLAUDE_IDLE)
-# The wake line T8 and T10 finishing and T5's quiet review brought (snag A, case 2).
-SNAG_WAKE = ("[AiTerm] letter-tee-eight needs acceptance; letter-tee-five has no review activity waiting; "
-             "letter-tee-one-zero needs acceptance, call run_status")
+# A worker completion wakes the Operator.
+SNAG_WAKE = "[AiTerm] worker_ended 22222222-2222-2222-2222-222222222222; call run_status"
 
 
 def show_captured_idle(rig) -> None:
@@ -806,7 +807,7 @@ async def test_screen_read_rechecks_safety_after_await(rig, read_number, change)
         return await original(sid)
 
     rig.iterm.screen_text = held
-    task = asyncio.create_task(rig.deliverer.deliver(rig.sid, "wake", 1, wake=True))
+    task = asyncio.create_task(rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True))
     await entered.wait()
     if change == "ownership":
         rig.deliverer.set_ownership(rig.sid, 2)
@@ -829,7 +830,7 @@ async def test_wake_refused_without_observed_input_history_while_its_screen_show
     # An empty input on screen settles an unknown history (test_an_idle_empty_input_takes_the_wake_line_...); text does not.
     rig.guard.forget(rig.sid)
     rig.iterm.screens[rig.sid] = drafted("half a thought")
-    result = await rig.deliverer.deliver(rig.sid, "wake", 1, wake=True)
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
     assert (result.result, result.code) == ("refused", "unsentInput")
     assert rig.iterm.sent == []
 
@@ -931,45 +932,25 @@ async def test_a_wake_line_to_a_cli_whose_prompts_cannot_be_read_is_refused(rig)
     assert rig.iterm.sent == []
 
 
-@pytest.mark.parametrize("text,reason", [
-    ("[AiTerm] 2 updates, call run_status", "a wake line may not carry a digit"),
-    ("[AiTerm] review feedback on PAY-12: call run_status", "a wake line may not carry a digit"),
-    ("[AiTerm] y", "a wake line may not carry a one-letter word"),
-    ("[AiTerm] a task merged: call run_status", "a wake line may not carry a one-letter word"),
-    ("[AiTerm] “a” waits", "a wake line may not carry a one-letter word"),
+@pytest.mark.parametrize("text", [
+    "[AiTerm] updates waiting, call run_status",
+    "1",
+    "[AiTerm] wrong_event 11111111-1111-1111-1111-111111111111; call run_status",
+    "[AiTerm] worker_ended malformed; call run_status",
+    "[AiTerm] worker_ended 11111111-1111-1111-1111-111111111111; call run_status extra",
 ])
-async def test_a_wake_line_that_a_prompt_could_read_as_an_answer_is_refused(rig, text, reason):
+async def test_a_wake_line_outside_the_app_grammar_is_refused(rig, text):
     result = await rig.deliverer.deliver(rig.sid, text, 1, wake=True)
-    assert (result.result, result.reason, result.code) == ("refused", reason, "wakeText")
+    assert (result.result, result.code, result.reason) == (
+        "refused", "wakeText", "a wake line is the app's fixed wake line or nothing")
     assert rig.iterm.sent == []
 
 
-@pytest.mark.parametrize("text", [
-    WAKE, "[AiTerm] reconnected, call run_status", "[AiTerm] Codex’s review failed: call run_status",
-    "[AiTerm] broadcast complete, call run_status",
-    # A worker's turn (the app's OperatorWaker.turnReasons): the kind of news, never the task's key.
-    "[AiTerm] one worker asks something, call run_status", "[AiTerm] one task changed after acceptance, call run_status",
-    "[AiTerm] one task finished with no commit, call run_status",
-    "[AiTerm] one task is in review with nothing waiting, call run_status",
-    "[AiTerm] you may have answered one question in its worker's window, call run_status",
-])
-def test_plain_wake_lines_pass(text):
+async def test_the_app_grammar_wake_line_passes(rig):
+    text = "[AiTerm] worker_ended 11111111-1111-1111-1111-111111111111; call run_status"
     assert delivery.wake_text_problem(text) is None
-
-
-# The table the app's OperatorWakerTests reads too: its rule (OperatorWaker.isPlain) and this one agree on each line.
-WAKE_LINES = json.loads((Path(__file__).parent / "fixtures" / "wake-lines.json").read_text(encoding="utf-8"))
-
-
-@pytest.mark.parametrize("row", WAKE_LINES, ids=[row["text"][:60] for row in WAKE_LINES])
-def test_the_daemon_and_the_app_agree_on_which_wake_lines_are_plain(row):
-    assert (delivery.wake_text_problem(row["text"]) is None) == row["plain"]
-
-
-async def test_a_wake_line_never_goes_through_a_message_file(rig, tmp_path):
-    result = await rig.deliverer.deliver(rig.sid, "wake " * 500, 1, wake=True, worktree=str(tmp_path))
-    assert (result.result, result.reason, result.code) == ("refused", "a wake line is too long to paste", "wakeText")
-    assert rig.iterm.sent == [] and not (tmp_path / ".aiterm").exists()
+    assert (await rig.deliverer.deliver(rig.sid, text, 1, wake=True)).result == "delivered"
+    assert rig.iterm.sent == [(rig.sid, pasted(text)), (rig.sid, "\r")]
 
 
 # -- why, in one word ----------------------------------------------------------------------------
@@ -1053,13 +1034,6 @@ def test_policy_retries_a_transient_read_failure(tmp_path, monkeypatch):
     assert delivery.read_policy()["claude"].policy == "pasteOnly"
 
 
-@pytest.mark.parametrize("screen", ["", "  \n \n"])
-async def test_a_blank_prompt_read_is_unknown(rig, screen):
-    rig.iterm.screens[rig.sid] = screen
-    with pytest.raises(ItermUnavailable, match="screen came back empty"):
-        await rig.deliverer.prompt_details(rig.sid)
-
-
 async def test_a_sent_numbered_message_above_the_input_does_not_block_delivery(rig):
     rig.iterm.screens[rig.sid] = "❯ 1. Reply with only OK. Do not use tools.\n⏺ OK\n" + IDLE
     result = await rig.deliverer.deliver(rig.sid, "Continue", 1)
@@ -1077,7 +1051,7 @@ async def test_a_numbered_paste_in_the_input_frame_gets_its_enter(rig):
 async def test_a_quoted_permission_above_the_input_is_not_an_unannounced_prompt(rig, state):
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = '⏺ The dialog says "Do you want to proceed?"\n' + IDLE
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
+    assert current_prompt(rig) is None
 
 
 @pytest.mark.parametrize("state", ["idle", "working"])
@@ -1085,7 +1059,7 @@ async def test_update_words_above_codex_input_never_send_escape(rig, state):
     await _now_codex(rig)
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = '• Read models.py\n  update_prompt=("Update now", "Skip until next version"),\n' + CODEX_WORKING
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
+    assert current_prompt(rig) is None
     assert await rig.deliverer.dismiss_startup(rig.sid) is False
     assert rig.iterm.sent == []
 
@@ -1107,7 +1081,7 @@ def test_sent_numbered_text_in_claudes_transcript_view_is_not_a_menu():
 async def test_an_announced_prompt_keeps_its_marker_even_with_input_below(rig):
     rig.registry.set_state(rig.sid, "needsInput")
     rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION + IDLE
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] == "permission"
+    assert current_prompt(rig) == "permission"
 
 
 async def test_update_dismissal_rechecks_working_after_reading_the_screen(rig):
@@ -1167,7 +1141,7 @@ QUOTED_PERMISSION = '⏺ Confirmed: "Do you want to proceed?" quoted above reads
 async def test_a_quoted_marker_above_the_input_box_takes_a_message(rig, screen, state):
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = screen
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] is None
+    assert current_prompt(rig) is None
     assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("delivered", None)
 
 
@@ -1175,7 +1149,7 @@ async def test_a_quoted_marker_above_the_input_box_takes_a_message(rig, screen, 
 async def test_a_real_menu_is_refused_whatever_the_session_says(rig, state):
     rig.registry.set_state(rig.sid, state)
     rig.iterm.screens[rig.sid] = CLAUDE_MENU
-    assert (await rig.deliverer.prompt_details(rig.sid))["kind"] == "menu"
+    assert current_prompt(rig) == "menu"
     assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("refused", "a menu prompt is open")
     assert rig.iterm.sent == []
 

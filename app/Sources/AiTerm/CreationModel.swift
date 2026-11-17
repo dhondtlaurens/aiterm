@@ -4,8 +4,7 @@ import AiTermCore
 
 /// Why the last create failed: `reason` is what the footer always shows, `detail` everything else
 /// that was said — for a git failure, the command and its whole stderr, in the tooltip —
-/// `recovery` the fix the footer offers for it, when there is one, and `fix` the problem an agent
-/// can be asked to fix (`FixSession`), when it is one.
+/// `recovery` the action the footer offers for it, when there is one.
 struct CreationFailure: Equatable {
     /// A recovery for a refused create, offered as a button that then creates again. A case,
     /// not a closure, as `OperationIssue.Action` is: the app maps it to its call, and a failure
@@ -37,43 +36,27 @@ struct CreationFailure: Equatable {
 
     let reason: String, detail: String?
     let recovery: Recovery?
-    /// The problem a Fix hands its agent: a review's diverged branch, or its rebase's conflict.
-    let fix: FixRequest?
-    /// The sentence that sends the person off to do it themselves — “Rebase it by hand.” — which
-    /// `reason` leaves out while a Fix is offered, since the button is the way out then. The footer
-    /// puts it back when no fix can help: Fix turned off, its agent not installed, or no fix found.
-    let byHand: String?
-    /// Once a fix has landed and the create it was for failed again: where the branch as it was is
-    /// kept (`FixLanding.keptSentence`), said after the new failure. Never part of the next fix's problem.
-    var afterFix: String?
 
     init(reason: String, detail: String?, recovery: Recovery? = nil) {
-        self.reason = reason; self.detail = detail; self.recovery = recovery; fix = nil; byHand = nil
+        self.reason = reason; self.detail = detail; self.recovery = recovery
     }
 
     /// The error as a sentence, by the banner's rule (`OperationIssue.reason(of:)`): git's failure
     /// lines tidied into one (`GitError.sentence`), any other error's own description. A review's
     /// branch in the project's folder offers the switch while the folder has no changes, and a
     /// diverged one the rebase, which its sentence says, as the banner's does for the default branch.
-    /// A diverged branch and a conflicted rebase are also problems for a Fix, in `projectPath`; the
-    /// conflict's request carries what git said as it stopped.
-    init(_ error: Error, projectPath: String) {
+    init(_ error: Error) {
         let gitError: GitError? = if case .commitFailed(_, let cause) = error as? RepositoryInitializationError { cause } else { error as? GitError }
-        detail = gitError.map { "git \($0.args.joined(separator: " ")) failed:\n\($0.stderr)" }
-        var sentence = OperationIssue.reason(of: error), byHand: String?
-        func request(_ branch: String, gitWords: String?, recreateRebase: Bool) -> FixRequest {
-            FixRequest(title: "Couldn’t create the review.", reason: sentence, detail: gitWords, projectPath: projectPath,
-                       branch: branch, recreateRebase: recreateRebase, retry: .createReview)
+        if case .rebaseConflicted(_, let gitWords) = error as? WorktreeError {
+            detail = gitWords
+        } else {
+            detail = gitError.map { "git \($0.args.joined(separator: " ")) failed:\n\($0.stderr)" }
         }
         switch error as? WorktreeError {
         case .branchInProjectFolder(let branch, _, let target, hasChanges: false)?:
-            recovery = .switchProjectFolder(off: branch, to: target); fix = nil
+            recovery = .switchProjectFolder(off: branch, to: target)
         case .branchDiverged(let branch, _, _)?:
-            recovery = .rebase(branch); fix = request(branch, gitWords: detail, recreateRebase: false)
-        case .rebaseConflicted(let branch, let gitWords)?:
-            let ending = " " + WorktreeError.rebaseByHand
-            if sentence.hasSuffix(ending) { sentence.removeLast(ending.count); byHand = WorktreeError.rebaseByHand }
-            recovery = nil; fix = request(branch, gitWords: gitWords, recreateRebase: true)
+            recovery = .rebase(branch)
         default:
             if let unborn = error as? UnbornBranchError {
                 recovery = .initializeRepository(on: unborn.branch)
@@ -82,17 +65,10 @@ struct CreationFailure: Equatable {
             } else {
                 recovery = nil
             }
-            fix = nil
         }
-        self.byHand = byHand
         let offer = if case .rebase = recovery { " " + OperationIssue.rebaseOffer } else { "" }
-        reason = sentence + offer
+        reason = OperationIssue.reason(of: error) + offer
     }
-
-    /// `reason`, and what a landed fix left behind: what the footer says while a fix is offered.
-    var shownReason: String { [reason, afterFix].compactMap { $0 }.joined(separator: " ") }
-    /// `reason` with `byHand` put back: what the footer says while no fix can help.
-    var reasonByHand: String { [reason, byHand, afterFix].compactMap { $0 }.joined(separator: " ") }
 }
 
 /// What one kind of creation sheet brings to `CreationModel`: what it searches and builds, and what
@@ -104,8 +80,6 @@ protocol CreationKind {
     associatedtype Item: Equatable & Sendable
     /// The worktree directory `draft` would get, before `BranchNaming.unused` makes it one not taken.
     func slug(for draft: Draft) -> String
-    /// The first prompt the command carries, from `text`, the prompt as typed.
-    func composedPrompt(_ text: String, draft: Draft) -> String?
     /// Told after anything in the draft but its prompt changed, with what the draft was before.
     func draftChanged(from old: Draft, in model: CreationModel<Self>)
     /// Told after the branch list was read.
@@ -115,46 +89,30 @@ protocol CreationKind {
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
-    /// Whether an agent's fix for `request` is still about `draft`: its branch is the draft's.
-    func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool
 }
 
 extension CreationKind {
     /// New Task and New Review: three steps — what and where from, the prompt, the agent — the
-    /// destination and command summed up only on the last.
+    /// destination summed up only on the last.
     static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 3, promptSteps: [2], summarizesOnlyOnLast: true) }
 
-    /// The person's text, trimmed. New Task appends its ticket.
-    func composedPrompt(_ text: String, draft: Draft) -> String? {
-        AgentCommand.composePrompt(userText: text, ticket: nil, appendTicket: false)
-    }
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
     func branchesChanged(in model: CreationModel<Self>) {}
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
     /// Kinds with no recovery effects need no implementation.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
-    /// Kinds with no agent-assisted fixes never apply a Fix request to their draft.
-    func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool { false }
 }
 
-/// What a creation sheet's steps decide about its frame, in one place: the footer's buttons, where
-/// the destination line and the command preview are drawn, and which steps are prompt editors. New
-/// Task and New Review have three steps, the agent last (`CreationKind`'s defaults); New Broadcast
-/// has five, its Agents list third and no agent step (`broadcast`). The last step creates; the first
-/// has Cancel, every other Back.
+/// A creation sheet's step count, footer actions, destination summary and prompt editors.
+/// The last step creates; the first offers Cancel and the others Back.
 struct CreationSteps: Equatable {
     let count: Int
     /// The step that picks the agent and its model; nil for a sheet that starts no agent of its own.
     let agentStep: Int?
-    /// New Broadcast's Agents step: the rows the Operator may start workers on, which starts no agent of the sheet's
-    /// own and is no prompt editor.
+    /// New Signal's Agents step lists permitted worker choices and has no prompt editor.
     var agentsListStep: Int? = nil
     var promptSteps: Set<Int>? = nil
     var summarizesOnlyOnLast = false
-
-    /// Broadcast · Prompt · Agents · Task · Done: the Operator chooses each task's agent from the Agents rows, so no
-    /// step starts one.
-    static let broadcast = CreationSteps(count: 5, agentStep: nil, agentsListStep: 3)
 
     func creates(onStep step: Int) -> Bool { step == count }
     func primaryTitle(onStep step: Int, createLabel: String) -> String { creates(onStep: step) ? createLabel : "Continue" }
@@ -162,8 +120,6 @@ struct CreationSteps: Equatable {
     /// Step 1, which names where the window opens, and the last, which opens it. Never the agent's
     /// step, so nothing works the line out there (finding the unused worktree slug looks at the disk).
     func showsDestination(onStep step: Int) -> Bool { summarizesOnlyOnLast ? step == count : step == 1 || step == count }
-    /// The command preview, under every step past the first of a sheet that starts an agent.
-    func showsCommand(onStep step: Int) -> Bool { agentStep != nil && (summarizesOnlyOnLast ? step == count : step > 1) }
     /// Why no agent can run, on the create step of a sheet that starts one.
     func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
     /// The steps past the first that are not the agent's or the Agents list's: a prompt editor, whose completion popup
@@ -234,14 +190,7 @@ final class CreationModel<Kind: CreationKind> {
     /// complaint, shown where the model picker would be.
     private(set) var catalogueFailure: String?
     private(set) var creating = false
-    /// Written through `show(_:)`, which keeps `fixSession` beside it.
     private(set) var error: CreationFailure?
-    /// The Fix offered for the last failure, when it is a problem for one (`CreationFailure.fix`) and
-    /// the sheet was given a pipeline: made when the failure is shown, dropped when it goes — unless
-    /// it is working, since a Look or an Apply in flight is never let go of mid-way.
-    private(set) var fixSession: FixSession?
-    /// Set once a create run by a landed fix has succeeded: the sheet closes on it, as on its own create.
-    private(set) var createdAfterFix = false
     let completions = PromptCompletions()
     private let context: CreationContext
     var canChangeWorkspace: @MainActor () -> Bool { context.canChangeWorkspace }
@@ -255,28 +204,15 @@ final class CreationModel<Kind: CreationKind> {
     @ObservationIgnored private var resetModel = false
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
-    /// Settings › Agents' Help with problems, read as a failure is shown.
-    private let fixer: @MainActor () -> FixerResolution
-    /// What a Fix runs; nil makes no Fix — New Task's sheet has none.
-    private let pipeline: FixPipeline?
-    /// Told once a fix's create succeeded, with the landing and the agent that made it: the toast.
-    private let fixLanded: @MainActor (FixLanding, FixerAgent) -> Void
-    /// Told once a fix landed but no create followed that could say so in its failure — it never
-    /// started, or the draft had moved to another branch: the toast naming the backup.
-    private let backupKept: @MainActor (FixLanding) -> Void
 
     init(kind: Kind, project: Project, draft: Draft, context: CreationContext,
-         search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void,
-         fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
-         fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
-         backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
+         search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void) {
         var fields = draft
         fields.promptText = ""
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
         self.context = context
         self.initialCatalogue = context.initialCatalogue.map { (draft.agent, $0, context.initialCatalogueFailure) }
         itemSearch = DebouncedSearch(lookup: search); self.submit = submit
-        self.fixer = fixer; self.pipeline = pipeline; self.fixLanded = fixLanded; self.backupKept = backupKept
     }
 
     /// The draft as create submits it, prompt included. A view reading it is not redrawn as the
@@ -323,15 +259,6 @@ final class CreationModel<Kind: CreationKind> {
         let unused = BranchNaming.unused(slug, in: project.path, reserved: context.reservedSlugs)
         unusedSlugMemo = (slug, unused)
         return unused
-    }
-
-    /// The first prompt the command carries.
-    var composedPrompt: String? { kind.composedPrompt(promptText, draft: draft) }
-
-    /// Spec 4.4's "exact command", built without touching disk (`previewCommand`, not `build`): the
-    /// sheet shows it on one line and truncates, the tooltip carries the whole thing.
-    var previewCommand: String {
-        AgentCommand.previewCommand(agent: draft.agent, model: draft.model, reasoning: draft.reasoning, prompt: composedPrompt)
     }
 
     var selectedModelIsCurrent: Bool {
@@ -442,25 +369,9 @@ final class CreationModel<Kind: CreationKind> {
     /// Stops a create before it starts, saying why in the footer.
     func refuse(_ reason: String) { show(CreationFailure(reason: reason, detail: nil)) }
 
-    enum PrimaryAction: Equatable { case advance, applyFix }
-
-    /// What ⌘↩ and the primary button do: Apply while a fix's proposal is up, else the sheet's own.
-    func primaryAction() -> PrimaryAction {
-        if case .proposal = fixSession?.state { .applyFix } else { .advance }
-    }
-
-    /// Apply on the proposal that is up: the fix made, checked, landed, then the create run again.
-    /// Refused while the workspace cannot change — the create after it could not run — and for a
-    /// proposal about a branch the draft no longer has.
-    func applyFix() {
-        guard let session = fixSession, canChangeWorkspace(), kind.fixApplies(session.request, to: draft) else { return }
-        session.apply()
-    }
-
-    /// The draft moved off what the last failure was about — its branch — so the failure and the
-    /// fixes it offered go with it; a fix at work keeps the footer until it ends.
+    /// The draft moved off the branch the last failure was about.
     func dropFailure() {
-        guard fixSession?.isBusy != true, error != nil || fixSession != nil else { return }
+        guard error != nil else { return }
         show(nil)
     }
 
@@ -481,53 +392,13 @@ final class CreationModel<Kind: CreationKind> {
         creating = true; show(nil)
         defer { creating = false }
         if let recovery {
-            do { try await kind.recover(recovery) } catch { show(CreationFailure(error, projectPath: project.path)); return false }
+            do { try await kind.recover(recovery) } catch { show(CreationFailure(error)); return false }
         }
         guard await kind.confirmBeforeSubmit(self) else { return false }
         do { try await submit(draft); return true }
-        catch { show(CreationFailure(error, projectPath: project.path)) }
+        catch { show(CreationFailure(error)) }
         return false
     }
 
-    /// The footer's failure, and the Fix it offers: a new session for a failure that is a problem
-    /// for one, none otherwise. Clearing the failure keeps a working session.
-    private func show(_ failure: CreationFailure?) {
-        error = failure
-        if failure == nil, fixSession?.isBusy == true { return }
-        let session = failure?.fix.flatMap { request in pipeline.map { makeFixSession(request, pipeline: $0) } }
-        guard session !== fixSession else { return }
-        // Let go of, not orphaned: a Look stops and a proposal is declined, each removing its clone.
-        fixSession?.cancel()
-        fixSession = session
-    }
-
-    /// Once the fix has landed, the create it stopped runs again; a create that fails shows its own
-    /// failure, which may offer a Fix of its own. Whenever no review follows, the person is told
-    /// where the branch as it was is kept: after the new failure, or in a toast when there is none.
-    private func makeFixSession(_ request: FixRequest, pipeline: FixPipeline) -> FixSession {
-        let resolution = fixer()
-        let agent = resolution.agent
-        return FixSession(request: request, fixer: resolution, pipeline: pipeline) { [weak self] landing in
-            guard let self else { return }
-            // A draft on another branch is not the create this fix was for, and the failure still
-            // up — held while the fix applied — was about the branch it left.
-            guard self.kind.fixApplies(request, to: self.draft) else { return self.landedWithoutCreate(landing) }
-            guard await self.create() else {
-                // A create that never started — the workspace locked meanwhile — showed nothing, so
-                // the landed session is still here, beside the failure the fix answered: let both
-                // go, and the footer is the sheet's again.
-                if case .done? = self.fixSession?.state { return self.landedWithoutCreate(landing) }
-                if self.error != nil { self.error?.afterFix = landing.keptSentence } else { self.backupKept(landing) }
-                return
-            }
-            if let agent { self.fixLanded(landing, agent) }
-            self.createdAfterFix = true
-        }
-    }
-
-    /// A landed fix with no create after it: its failure goes, and the toast names the backup.
-    private func landedWithoutCreate(_ landing: FixLanding) {
-        show(nil)
-        backupKept(landing)
-    }
+    private func show(_ failure: CreationFailure?) { error = failure }
 }

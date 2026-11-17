@@ -271,7 +271,7 @@ extension SidebarFooterGeometryTests {
         }
     }
 
-    /// The first group is System (spec 2026-10-05): with the Mac's row beside it, the heading no
+    /// The first group is System: with the Mac's row beside it, the heading no
     /// longer says what the context number is, so its row carries `ctx` (measured in
     /// `theTaskRowDrawsOnlyItsMarkAndContext`).
     @Test func theFirstGroupIsSystem() {

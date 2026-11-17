@@ -42,8 +42,7 @@ import Foundation
                        defaults: defaults, create: create, recover: recover)
     }
 
-    /// A review model on a scratch home and hermetic git, for this suite and `ReviewFixTests`:
-    /// `fixer` and `pipeline` are what a failure's Fix runs with — none by default.
+    /// A review model on a scratch home and hermetic git.
     static func makeModel(project: Project = Project.make(name: "acme-web", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git",
         addedAt: Date()),
                           search: @escaping @MainActor (String) async throws -> [MergeRequest] = { _ in [] },
@@ -52,14 +51,10 @@ import Foundation
                           defaults: UserDefaults = ScratchDefaults.make(),
                           create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in },
                           recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void = { _ in },
-                          fixer: FixerResolution = .off, pipeline: FixPipeline = .stub(look: .none("n")),
-                          fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
-                          backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in },
                           canChangeWorkspace: @escaping @MainActor () -> Bool = { true }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
                             context: .scratch(availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, canChangeWorkspace: canChangeWorkspace),
-                            searchMergeRequests: search, createReview: create, recover: recover, fixer: { fixer }, pipeline: pipeline,
-                            fixLanded: fixLanded, backupKept: backupKept)
+                            searchMergeRequests: search, createReview: create, recover: recover)
     }
 
     /// The GitLab connection and the project's remote are read once, when the sheet is prepared —
@@ -163,56 +158,15 @@ import Foundation
         #expect(m.draft.branch == "feat-gift-card")
     }
 
-    /// A refusal the footer can fix carries the fix: the project's folder switched off the branch
-    /// while it has no changes, and a diverged branch rebased, said after how far apart they are.
-    /// Any other failure — the folder with changes included — has none.
-    @Test func aRefusalTheFooterCanFixCarriesTheFix() {
-        let folder = "/Users/sam/Sites/acme-storefront"
-        let switchable = CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: false), projectPath: folder)
-        #expect(switchable.recovery == .switchProjectFolder(off: "shop-412", to: "main"))
-        #expect(switchable.recovery?.title == "Switch to main")
-        #expect(CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: true), projectPath: folder).recovery == nil)
-        let diverged = CreationFailure(WorktreeError.branchDiverged("shop-412", local: 2, remote: 5), projectPath: folder)
-        #expect(diverged.reason == "Your local “shop-412” has 2 commits that aren’t on origin, and origin has 5 commits it doesn’t. "
-                + "Rebase puts yours on top of origin’s; nothing is pushed.")
-        #expect(diverged.recovery == .rebase("shop-412"))
+    @Test func rebaseRefusalsKeepTheirSentenceAndDivergenceOffersRecovery() {
+        let conflict = CreationFailure(WorktreeError.rebaseConflicted("feat/work", detail: "CONFLICT x"))
+        #expect(conflict.reason == "Rebasing “feat/work” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand.")
+        #expect(conflict.recovery == nil)
+        #expect(conflict.detail == "CONFLICT x")
+        let diverged = CreationFailure(WorktreeError.branchDiverged("feat/work", local: 2, remote: 5))
+        #expect(diverged.reason == "Your local “feat/work” has 2 commits that aren’t on origin, and origin has 5 commits it doesn’t. " + OperationIssue.rebaseOffer)
+        #expect(diverged.recovery == .rebase("feat/work"))
         #expect(diverged.recovery?.title == "Rebase")
-        #expect(CreationFailure(GitError(args: ["worktree", "add"], code: 128, stderr: "fatal: nope"), projectPath: folder).recovery == nil)
-    }
-
-    /// The footer's fix is one press: the fix, then the create it stopped.
-    @Test func theFixRunsAndThenTheCreateItStopped() async {
-        var created = 0, fixes: [CreationFailure.Recovery] = []
-        let m = model(create: { _ in
-            created += 1
-            if created == 1 { throw WorktreeError.branchDiverged("feat-gift-card", local: 1, remote: 1) }
-        }, recover: { fixes.append($0) })
-        m.draft.apply(mr: mr)
-        await m.loadAgentCatalogue()
-        #expect(await m.create() == false)
-        #expect(m.error?.recovery == .rebase("feat-gift-card"))
-        #expect(await m.recoverAndCreate())
-        #expect(fixes == [.rebase("feat-gift-card")])
-        #expect(created == 2)
-        #expect(m.error == nil)
-    }
-
-    /// A fix that fails says why in the failure's place, and nothing is created.
-    @Test func aFixThatFailsSaysWhyAndCreatesNothing() async {
-        var created = 0
-        let folder = "/tmp/p"
-        let m = model(create: { _ in
-            created += 1
-            throw WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: false)
-        }, recover: { _ in throw WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: true) })
-        m.draft.apply(mr: mr)
-        await m.loadAgentCatalogue()
-        #expect(await m.create() == false)
-        #expect(await m.recoverAndCreate() == false)
-        #expect(created == 1)
-        #expect(m.error == CreationFailure(WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: true), projectPath: project.path))
-        #expect(m.error?.recovery == nil)
-        #expect(!m.creating)
     }
 
     /// Where a review will open is decided by its branch, and the sheet has to know before

@@ -16,7 +16,6 @@ from .iterm_port import ItermPort
 from .models import HARNESS_BY_AGENT, SessionInfo
 from .resolver import SessionResolver
 from .sessions import SessionRegistry
-from .slash_commands import SlashCommands, TranscriptRecord
 from .status import StatusEngine
 from .screens import shows_trust_prompt
 from .stop_failures import LIMIT_ERRORS, RESET_READ_SECONDS, StopReading, StopTranscripts
@@ -45,9 +44,9 @@ class ReadPlan(Generic[T]):
 
 class CorroboratingReaders:
     def __init__(self, registry: SessionRegistry, status: StatusEngine, resolver: SessionResolver,
-                 iterm: ItermPort, clock: Callable[[], float], slash_commands: SlashCommands):
+                 iterm: ItermPort, clock: Callable[[], float]):
         self.registry, self.status, self.resolver = registry, status, resolver
-        self.iterm, self.clock, self.slash_commands = iterm, clock, slash_commands
+        self.iterm, self.clock = iterm, clock
 
     def snapshot(self, sessions: list[SessionInfo], changed: list[str]) -> tuple[dict[str, str], list[str]]:
         threads: dict[str, str] = {}
@@ -169,17 +168,6 @@ class CorroboratingReaders:
             return changed
 
         return ReadPlan("the Claude background read", lambda: read(requests, recoveries), {}, apply)
-
-    def slash(self) -> ReadPlan[dict[str, tuple[TranscriptRecord, ...] | None] | None]:
-        now, read = self.clock(), self.slash_commands.reader.read_all
-        starts = self.slash_commands.starts(now)
-
-        def apply(records: dict[str, tuple[TranscriptRecord, ...] | None] | None) -> list[str]:
-            return [] if records is None else self.slash_commands.apply(records, now)
-
-        if not starts:
-            return ReadPlan("the slash command read", None, {}, apply)
-        return ReadPlan("the slash command read", lambda: read(starts), None, apply)
 
     def stops(self, reader: StopTranscripts) -> ReadPlan[dict[str, StopReading]]:
         now = self.clock()

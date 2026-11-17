@@ -1,9 +1,9 @@
 import Foundation
 
-/// What the Operator's shell is refused whatever the Oracle says, and whether or not it can answer (spec §A.2): a push,
+/// What the Operator's shell is refused whatever the Oracle says, and whether or not it can answer: a push,
 /// the changes to a checkout that only a worker's task makes, and a merge or a change to a merge request on the host.
 /// They are AiTerm's own, read from the command's words before any allowance, read or Oracle, so they hold on every path
-/// that lets a command run unchallenged. `OperatorCommand.shellDenials` is Claude's backstop for when AiTerm isn't there.
+/// that lets a command run unchecked. `OperatorLaunch.shellDenials` is Claude's backstop for when AiTerm isn't there.
 ///
 /// The words are read the way the shell splits them, but forgivingly: where `route` gives up on what it can't see
 /// through, this looks inside. Every simple command between `;`, `&&`, `||`, `|`, `&`, a newline or parentheses counts,
@@ -21,7 +21,7 @@ extension ShellGate {
         denial(in: command, depth: 0, check: check)
     }
 
-    static let pushDenial = "AiTerm refuses `git push` from the Operator's shell: pushes go through finish_task."
+    static let pushDenial = "AiTerm refuses `git push` from the Operator's shell: a task's worker pushes its own branch. Ask it with message_task."
 
     static func workerDenial(_ what: String) -> String {
         "AiTerm refuses `\(what)` from the Operator's shell: commits, hard resets, checkouts and cleans are a worker's. "
@@ -29,15 +29,13 @@ extension ShellGate {
     }
 
     static func hostDenial(_ what: String) -> String {
-        "AiTerm refuses `\(what)` from the Operator's shell: merges and changes to a merge request are AiTerm's. "
-            + "Change a task's request's title, description or assignee with update_request; merge through finish_task."
+        "AiTerm refuses `\(what)` from the Operator's shell: a merge request's title, description, reviewers and threads are its worker's job, "
+            + "through the worker's skill, and AiTerm alone merges, when the signal says Merge it when it’s ready. Ask the worker with message_task."
     }
 
     static func apiDenial(_ tool: String) -> String {
-        "AiTerm refuses a `\(tool) api` call other than a GET from the Operator's shell: changes on the host, merges and merge "
-            + "requests among them, are AiTerm's: update_request changes a task's request's title, description or assignee, "
-            + "retry_pipeline reruns its failed pipeline, reply_thread and resolve_thread answer and resolve its review threads, and "
-            + "finish_task merges."
+        "AiTerm refuses a `\(tool) api` call other than a GET from the Operator's shell: changes on the host are its worker's job, "
+            + "through the worker's skill, and AiTerm alone merges, when the signal says Merge it when it’s ready. Ask the worker with message_task."
     }
 
     // MARK: Reading the words

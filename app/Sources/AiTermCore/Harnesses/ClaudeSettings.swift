@@ -6,13 +6,8 @@ import Foundation
 /// writes the file; launch asks only whether Claude Code still runs the usage shim.
 public enum ClaudeSettings {
     /// `StopFailure` fires in place of `Stop` when an API error ended the turn: a usage limit, a billing or sign-in failure.
-    static let events = ["SessionStart", "PostModelSwitch", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
+    static let events = ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
                          "Notification", "PermissionRequest"]
-    /// Events AiTerm used to install and no longer does. `PreToolUse` was a *synchronous* Bash hook
-    /// for a cleanup interception the daemon has since dropped, so every Bash tool call waited on a
-    /// round trip that answered nothing. A merge removes AiTerm's own entries from these and leaves
-    /// anyone else's in place.
-    static let retiredEvents = ["PreToolUse"]
     static let marker = "_aiterm"
 
     static func isOurHook(_ hook: [String: Any]) -> Bool { hook[marker] as? Bool == true }
@@ -95,16 +90,6 @@ public enum ClaudeSettings {
     static func merge(_ json: Data?, hookURL: String, shimPath: String) throws -> (Data, originalStatusLine: [String: Any]?) {
         var obj = try mergeable(json)
         var hooks = obj["hooks"] as? [String: Any] ?? [:]
-        for event in retiredEvents {
-            guard let entries = hooks[event] as? [[String: Any]] else { continue }
-            let kept = entries.compactMap { entry -> [String: Any]? in
-                guard let installed = entry["hooks"] as? [[String: Any]], installed.contains(where: isOurHook) else { return entry }
-                let foreign = installed.filter { !isOurHook($0) }
-                guard !foreign.isEmpty else { return nil }
-                var entry = entry; entry["hooks"] = foreign; return entry
-            }
-            hooks[event] = kept.isEmpty ? nil : kept
-        }
         for event in events {
             var inserted = false
             var entries: [[String: Any]] = []
@@ -171,7 +156,7 @@ public enum ClaudeSettings {
         statusLineIsInstalled(try? Data(contentsOf: claudeConfig.settingsURL(home: home)), shimPath: shimPath)
     }
 
-    /// Exactly the hooks and status line a merge writes, and nothing retired left behind. The
+    /// The hooks and status line a merge writes. The
     /// status line counts as current when it names this bundle's shim, or another copy of the shim
     /// that still runs — what the footer would call a working feed. A path that runs nothing, a
     /// moved or deleted bundle, is outdated: Repair repoints it.
@@ -187,9 +172,7 @@ public enum ClaudeSettings {
               let command = statusLineCommand(settings),
               command == shimPath || (isOurShim(command, shimPath: shimPath) && isRunnable(command)) else { return false }
         let hookURL = Harness.claude.hookURL(port: daemonPort)
-        // A retired hook still in place is an outdated install: repairing it is what removes it.
-        let retiredRemain = retiredEvents.contains { (hooks[$0] as? [[String: Any]])?.contains(where: holdsOurHook) == true }
-        return !retiredRemain && events.allSatisfy { event in
+        return events.allSatisfy { event in
             let ownedEntries = (hooks[event] as? [[String: Any]] ?? []).filter(holdsOurHook)
             guard ownedEntries.count == 1, let entry = ownedEntries.first,
                   entry["matcher"] as? String == "" else { return false }

@@ -65,17 +65,13 @@ struct SystemKeychainItems: KeychainItems {
 }
 
 /// Every AiTerm secret, kept as one JSON object in one Keychain item. macOS asks for access per
-/// item, so one item is one prompt where an item per secret was one per secret. The item is read once per
+/// item, so all secrets share one access prompt. The item is read once per
 /// process and kept: `shared` is the one the app uses, so every reader after the first, on any
 /// thread, is answered from memory, and readers that arrive together wait for that first read
 /// instead of each asking.
 public final class Keychain: SecretStore, Sendable {
     public static let shared = Keychain()
     static let account = "secrets"
-    /// Earlier versions kept each token in an item of its own. They move into the one item the
-    /// first time it is missing, and go once it holds them.
-    static let separateAccounts = ["jira.token", "gitlab.token", "github.token", "backpack.password"]
-
     private let items: any KeychainItems
     /// `nil` until the item has been read. A refused read leaves it `nil`, so a later call asks again.
     private let secrets = Mutex<[String: String]?>(nil)
@@ -104,26 +100,11 @@ public final class Keychain: SecretStore, Sendable {
         case .found(let data):
             cached = try? JSONDecoder().decode([String: String].self, from: data)
         case .missing:
-            cached = moveSeparateItems()
+            cached = [:]
         case .refused:
             break
         }
         return cached
-    }
-
-    private func moveSeparateItems() -> [String: String]? {
-        var moved: [String: String] = [:]
-        for account in Self.separateAccounts {
-            switch items.read(account) {
-            case .found(let data): moved[account] = String(decoding: data, as: UTF8.self)
-            case .missing: continue
-            case .refused: return nil
-            }
-        }
-        if !moved.isEmpty, store(moved) {
-            for account in moved.keys { _ = items.delete(account) }
-        }
-        return moved
     }
 
     /// No secrets left is no item at all.
@@ -135,7 +116,7 @@ public final class Keychain: SecretStore, Sendable {
     }
 }
 
-/// Worker guard subprocesses read only. They cannot prompt, migrate old items, save or delete.
+/// Worker guard subprocesses read only. They cannot prompt, save or delete.
 public struct ReadOnlyKeychain: SecretStore, Sendable {
     private let items: any KeychainItems
     public init(service: String = "com.laurensdhondt.aiterm") {
@@ -145,9 +126,7 @@ public struct ReadOnlyKeychain: SecretStore, Sendable {
     public func get(_ key: String) -> String? {
         switch items.read(Keychain.account) {
         case .found(let bytes): return (try? JSONDecoder().decode([String: String].self, from: bytes))?[key]
-        case .missing:
-            if case .found(let bytes) = items.read(key) { return String(data: bytes, encoding: .utf8) }
-            return nil
+        case .missing: return nil
         case .refused: return nil
         }
     }

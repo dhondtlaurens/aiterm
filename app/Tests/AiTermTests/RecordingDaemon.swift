@@ -22,10 +22,6 @@ final class RecordingDaemon: DaemonCommands {
     /// What `session.deliver` answers, in order, the last one repeated; delivered when empty.
     var deliveries: [Delivery] = []
     var idleClosures: [Delivery] = []
-    /// What `session.prompt` answers for each session; none open when absent.
-    var prompts: [String: PromptKind] = [:]
-    /// The sessions whose startup dialog `session.dismissStartup` declines (an update offer); others answer false.
-    var dismissible: Set<String> = []
     /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
     var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
                                                           .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
@@ -81,7 +77,7 @@ final class RecordingDaemon: DaemonCommands {
     func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String {
         var params: [String: Any] = ["taskId": taskId, "cwd": cwd, "title": title, "frame": Self.frame(frame)]
         params["agentCommand"] = agentCommand
-        if background { params["background"] = true }
+        params["background"] = background
         return try await answer("window.createTask", params, id: "reopened")
     }
 
@@ -104,7 +100,7 @@ final class RecordingDaemon: DaemonCommands {
         var params: [String: Any] = ["windowId": windowId, "cwd": cwd]
         params["agentCommand"] = agentCommand
         params["tabKey"] = tabKey
-        if background { params["background"] = true }
+        params["background"] = background
         return try await answer("tab.create", params, id: "s-review")
     }
 
@@ -147,21 +143,6 @@ final class RecordingDaemon: DaemonCommands {
         if idleClosures.count > 1 { idleClosures.removeFirst() }
         return first
     }
-    func prompt(sessionId: String) async throws -> PromptKind? {
-        try await answer("session.prompt", ["sessionId": sessionId])
-        return prompts[sessionId]
-    }
-
-
-    func promptDetails(sessionId: String) async throws -> PromptDetails {
-        PromptDetails(kind: try await prompt(sessionId: sessionId))
-    }
-
-    func dismissStartup(sessionId: String) async throws -> Bool {
-        try await answer("session.dismissStartup", ["sessionId": sessionId])
-        return dismissible.contains(sessionId)
-    }
-
     func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict] {
         try await answer("delivery.policy", [:])
         return deliveryVerdicts
@@ -172,11 +153,11 @@ final class RecordingDaemon: DaemonCommands {
     }
 
 
-    func registerOperator(runId: String, token: String, generation: Int) async throws {
-        try await answer("operator.register", ["runId": runId, "token": token, "generation": generation])
+    func registerOperator(operatorId: String, token: String, generation: Int) async throws {
+        try await answer("operator.register", ["operatorId": operatorId, "token": token, "generation": generation])
     }
-    func revokeOperator(runId: String, generation: Int) async throws {
-        try await answer("operator.revoke", ["runId": runId, "generation": generation])
+    func revokeOperator(operatorId: String, generation: Int) async throws {
+        try await answer("operator.revoke", ["operatorId": operatorId, "generation": generation])
     }
 
     /// Recorded with `result` as the `JSONValue` itself, so a test reads the answer as the operator would.

@@ -2,26 +2,23 @@ import Foundation
 
 public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public var ticket: JiraTicket?
-    /// The branch is kept as its two halves — the type the select shows and the name the field
-    /// shows — so each can be changed without the other.
-    public private(set) var title = "", branchType = BranchType.feat, branchName = ""
+    public private(set) var title = ""
+    /// The whole branch, automatically named until the person edits it.
+    public private(set) var branch = "feat/"
     public var baseBranch: String, agent: AgentKind, model: String, reasoning: String?
     public var promptText = "", appendTicket = true
     /// Whether the new worktree starts with what the project's `.worktreeinclude` selects: step 1's
     /// checkbox, ticked unless the person unticks it. `TaskCreator` reads the files again when it
     /// creates, so one made after the sheet opened still comes.
     public var copiesWorktreeInclude = true
-    private var titleEdited = false, branchEdited = false, typeEdited = false
-    private var fullBranch: String?
+    private var titleEdited = false, branchEdited = false
+    private var automaticPrefix = BranchType.feat
 
-    public var branch: String { fullBranch ?? "\(branchType.rawValue)/\(branchName)" }
-
-    /// The branch's worktree directory before a taken one is skipped (`BranchNaming.unused`, which
-    /// the sheet applies): nothing while the name field is empty, rather than the type alone that
-    /// `BranchNaming.worktreeSlug` falls back to for a bare `feat/`.
+    /// No directory while the automatic branch has only its prefix, or an edited branch is blank.
     public var worktreeSlug: String {
-        if let fullBranch { return fullBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : BranchNaming.worktreeSlug(branch: fullBranch) }
-        return branchName.trimmingCharacters(in: .whitespaces).isEmpty ? "" : BranchNaming.worktreeSlug(branch: branch)
+        guard !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              branchEdited || branch != automaticPrefix.rawValue + "/" else { return "" }
+        return BranchNaming.worktreeSlug(branch: branch)
     }
 
     /// A draft with no ticket and no title yet. `initial(project:state:git:agent:catalog:)` is the one a sheet
@@ -44,8 +41,10 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public mutating func apply(ticket: JiraTicket?) {
         self.ticket = ticket
         if !titleEdited { title = ticket?.summary ?? title }
-        if !typeEdited, let ticket { branchType = BranchType(issueType: ticket.issueType) }
-        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.branchKey, summary: ticket?.summary ?? title) }
+        if !branchEdited {
+            if let ticket { automaticPrefix = BranchType(issueType: ticket.issueType) }
+            branch = automaticPrefix.rawValue + "/" + BranchNaming.branchSlug(key: ticket?.branchKey, summary: ticket?.summary ?? title)
+        }
     }
 
     /// Both guard against being handed what they already hold: SwiftUI writes a `TextField`'s value
@@ -55,30 +54,13 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public mutating func setTitle(_ t: String) {
         guard t != title else { return }
         title = t; titleEdited = true
-        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.branchKey, summary: t) }
-    }
-
-    /// The branch field's text: a name, or a whole branch whose known type prefix moves into the
-    /// select — typing `fix/` is picking the type.
-    public mutating func setBranch(_ b: String) {
-        fullBranch = nil
-        let split = BranchType.split(b)
-        if let split { branchType = split.type; typeEdited = true }
-        guard (split?.name ?? b) != branchName else { return }
-        branchName = split?.name ?? b; branchEdited = true
-    }
-
-    public mutating func setBranchType(_ type: BranchType) {
-        guard type != branchType else { return }
-        branchType = type; typeEdited = true
+        if !branchEdited { branch = automaticPrefix.rawValue + "/" + BranchNaming.branchSlug(key: ticket?.branchKey, summary: t) }
     }
 
     /// A whole branch entered in the shared Branch input. Automatic naming stops after an edit.
     public mutating func setFullBranch(_ branch: String) {
         guard branch != self.branch else { return }
-        fullBranch = branch; branchEdited = true; typeEdited = true
-        if let split = BranchType.split(branch) { branchType = split.type; branchName = split.name }
-        else { branchName = branch }
+        self.branch = branch; branchEdited = true
     }
 }
 

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from aitermd.models import BackgroundJob, DisplayWork, DisplayWorkItem, SlashCommand
+from aitermd.models import BackgroundJob, DisplayWork, DisplayWorkItem
 from aitermd.sessions import SessionRegistry
 
 from tests.builders import (
@@ -15,9 +15,9 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.apply_snapshot([raw(cmd="claude", aiterm_task="t1")]).opened == ["s1"]
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
-        "agent": "claude", "model": None, "reasoning": None, "state": "idle", "subagentsWrittenAt": None, "title": "zsh", "cwd": "/home",
+        "agent": "claude", "state": "idle", "cwd": "/home",
         "agentCwd": None, "active": False, "contextPercent": None, "contextTokens": None, "conversationId": None, "terminalId": None,
-        "tabKey": None, "background": [], "yourPrompt": None, "slashCommands": [], "stoppedOn": None, "testActivity": None,
+        "tabKey": None, "background": [], "yourPrompt": None, "stoppedOn": None, "testActivity": None,
         "displayWork": None})
 
 
@@ -77,8 +77,6 @@ def test_lookups():
     assert reg.by_job_pid(2).session_id == "b"
     assert [s.session_id for s in reg.by_cwd_and_agent("/x", "claude")] == ["a", "b"]
     assert [s.session_id for s in reg.for_task("t1")] == ["a"]
-    assert reg.set_model("a", "claude-opus-5") is True and reg.get("a").model == "claude-opus-5"
-    assert reg.set_reasoning("a", "high") is True and reg.get("a").reasoning == "high"
 
 
 def test_most_recent_uses_first_seen_order():
@@ -191,29 +189,17 @@ def test_context_survives_the_next_iterm_snapshot():
     assert reg.get("a").to_json()["contextPercent"] == 42
 
 
-def test_reasoning_survives_the_next_iterm_snapshot_and_is_published():
-    reg = SessionRegistry()
-    reg.apply_snapshot([raw(sid="a", cmd="pi", pid=1, cwd="/x")])
-    reg.set_reasoning("a", "high")
-
-    reg.apply_snapshot([raw(sid="a", cmd="pi", pid=1, cwd="/x", title="busy")])
-
-    assert reg.get("a").reasoning == "high"
-    assert reg.get("a").to_json()["reasoning"] == "high"
-
-
-def test_a_claudes_transcript_and_slash_commands_go_with_its_process():
+def test_a_claudes_transcript_goes_with_its_process():
     reg = SessionRegistry()
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x")])
     reg.set_transcript("a", "/p/c.jsonl")
-    reg.set_slash_commands("a", (SlashCommand("/effort high", 1000.0),))
     assert not reg.set_transcript("a", None), "no transcript named leaves the last one standing"
 
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x", title="busy")])
-    assert (reg.get("a").transcript, reg.get("a").slash_commands) == ("/p/c.jsonl", (SlashCommand("/effort high", 1000.0),))
+    assert reg.get("a").transcript == "/p/c.jsonl"
 
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=2, cwd="/x")])
-    assert (reg.get("a").transcript, reg.get("a").slash_commands) == (None, ())
+    assert reg.get("a").transcript is None
 
 
 def test_context_does_not_cross_providers_when_a_tab_starts_another_agent():
@@ -232,14 +218,12 @@ def test_a_shell_tab_drops_the_exited_agents_metadata():
     reg = SessionRegistry()
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=100, cwd="/repo")])
     reg.set_agent_cwd("a", "/repo/.worktrees/feat")
-    reg.set_model("a", "claude-opus-5")
-    reg.set_reasoning("a", "high")
     reg.set_state("a", "done")
 
     reg.apply_snapshot([raw(sid="a", cmd="-zsh", pid=200, cwd="/repo")])
 
     s = reg.get("a")
-    assert (s.agent, s.agent_cwd, s.model, s.reasoning) == ("shell", None, None, None)
+    assert (s.agent, s.agent_cwd) == ("shell", None)
     # The state is the status engine's to settle: an unseen `done` stays until then -- which, for a
     # tab back at its shell, is the same tick (StatusEngine.agent_exited).
     assert s.state == "done"
@@ -249,11 +233,9 @@ def test_the_same_agent_under_a_new_process_starts_without_the_old_metadata():
     reg = SessionRegistry()
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=100, cwd="/repo")])
     reg.set_agent_cwd("a", "/repo/.worktrees/feat")
-    reg.set_model("a", "claude-opus-5")
 
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=300, cwd="/repo")])
-
-    assert (reg.get("a").agent_cwd, reg.get("a").model) == (None, None)
+    assert reg.get("a").agent_cwd is None
 
 
 def test_a_title_only_change_is_no_change_but_the_registry_keeps_the_new_title():
@@ -269,14 +251,14 @@ def test_a_title_only_change_is_no_change_but_the_registry_keeps_the_new_title()
     assert reg.get("s1").title == "⠙ repo"
 
 
-def test_a_title_change_alongside_another_change_is_still_announced_with_the_new_title():
+def test_a_title_change_alongside_another_change_keeps_the_internal_title():
     reg = SessionRegistry()
     reg.apply_snapshot([raw(sid="s1", cmd="codex", title="⠋ repo", cwd="/a")])
 
     diff = reg.apply_snapshot([raw(sid="s1", cmd="codex", title="⠙ repo", cwd="/b")])
 
     assert diff.changed == ["s1"]
-    assert reg.get("s1").title == "⠙ repo" and reg.get("s1").to_json()["title"] == "⠙ repo"
+    assert reg.get("s1").title == "⠙ repo"
 
 
 def test_a_conversation_survives_a_snapshot_and_goes_with_its_process():
@@ -287,20 +269,9 @@ def test_a_conversation_survives_a_snapshot_and_goes_with_its_process():
     assert reg.set_conversation("s1", None) is False    # nothing to learn
     reg.apply_snapshot([raw(cmd="claude", pid=4242, title="busy")])
     assert reg.get("s1").to_json()["conversationId"] == "c-1"
-    # Another process in the tab is another conversation, as it is another model.
+    # Another process in the tab is another conversation.
     diff = reg.apply_snapshot([raw(cmd="claude", pid=5151)])
     assert diff.replaced == ["s1"] and reg.get("s1").conversation_id is None
-
-
-def test_when_its_subagents_wrote_survives_a_snapshot_and_goes_with_its_process():
-    reg = SessionRegistry()
-    reg.apply_snapshot([raw(cmd="claude", pid=4242)])
-    assert reg.set_subagents_written_at("s1", 1_900_000_000.5) is True
-    assert reg.set_subagents_written_at("s1", 1_900_000_000.5) is False
-    reg.apply_snapshot([raw(cmd="claude", pid=4242, title="busy")])
-    assert reg.get("s1").to_json()["subagentsWrittenAt"] == 1_900_000_000.5
-    diff = reg.apply_snapshot([raw(cmd="claude", pid=5151)])
-    assert diff.replaced == ["s1"] and reg.get("s1").subagents_written_at is None
 
 
 def test_the_cli_version_goes_with_the_agents_process():

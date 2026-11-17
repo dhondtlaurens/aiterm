@@ -1,7 +1,7 @@
 import Foundation
 
-/// The agent and model a task starts on (spec §15). The Operator may only step to a model in the
-/// broadcast's allowed Agents rows, and it moves a task to the other agent only when the
+/// The agent and model a task starts on. The Operator may only step to a model in the
+/// signal's permitted Agents rows, and it moves a task to the other agent only when the
 /// planned one is close to its weekly limit.
 public enum ModelChoice {
     /// The weekly use, in percent, at which new tasks move to the other agent: AiTerm's amber line.
@@ -10,12 +10,6 @@ public enum ModelChoice {
 
     /// The two agents the Operator chooses between. An agent outside them never switches.
     public static let pair: [AgentKind] = [.claude, .codex]
-
-    /// Omitted fields take the first matching Agents row, in the person's list order.
-    public static func row(agent: AgentKind, model: String?, reasoning: String?, in rows: [AgentChoice]) -> AgentChoice? {
-        rows.first { $0.agent == agent && (model == nil || $0.model == model)
-            && (reasoning == nil || $0.reasoning == reasoning) }
-    }
 
     /// The weekly-use switch takes the first row on the other agent, or stays put.
     public static func launchChoice(planned: AgentChoice, pinned: Bool, weekly: [AgentKind: Int],

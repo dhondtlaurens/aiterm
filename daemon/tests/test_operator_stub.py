@@ -10,7 +10,7 @@ from pathlib import Path
 
 DAEMON = Path(__file__).resolve().parent.parent
 TOOLS = [
-    {"name": "run_status", "description": "The broadcast now.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "run_status", "description": "The Operator's status.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "read_task", "description": "Reads a task.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "find_user", "description": "Finds people.", "inputSchema": {"type": "object", "properties": {}}},
 ]

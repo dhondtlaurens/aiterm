@@ -42,7 +42,7 @@ struct RemoteURLTests {
         "/srv/repos/caf%C3%A9.git": ("/srv/repos/caf%C3%A9", "/srv/repos/café"),
     ]
 
-    /// The check reads every URL as it did before phase 2, kept above as the reference, but the percent-encoded rows in
+    /// The check reads every URL as the reference implementation above does, but the percent-encoded rows in
     /// `changed`.
     @Test(arguments: urls) func theSameLocationRuleIsTodaysButForPercentEncodedPaths(url: String) {
         let before = Self.reference(url), now = RemoteURL.location(of: url)

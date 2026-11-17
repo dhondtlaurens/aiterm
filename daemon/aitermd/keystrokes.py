@@ -1,4 +1,4 @@
-"""The keys you type in each session, which an operator's wake line waits on (Operators spec §7.4)."""
+"""The keys you type in each session, which an operator's wake line waits on."""
 from __future__ import annotations
 
 from collections.abc import Callable

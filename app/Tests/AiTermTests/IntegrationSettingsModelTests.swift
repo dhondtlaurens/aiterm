@@ -16,7 +16,7 @@ import AiTermCore
         #expect(store.writes == 0)
     }
 
-    /// Save is one step, as before phase 7: an edit made while it runs lands after it, never between its writes and what it
+    /// Save is one step: an edit made while it runs lands after it, never between its writes and what it
     /// notes, so the token Save stored is the one it says is saved and the edit stays on the card.
     @Test func anEditMadeWhileSaveRunsLandsAfterIt() async {
         let store = MemorySecretStore()
@@ -37,7 +37,7 @@ import AiTermCore
         #expect(m.gitHub.fields == GitHubFields(GitHubConfig(token: "token-b")), "and stays on the card")
     }
 
-    /// A connection test of the new credentials that answers while Save runs lands after it, as before phase 7: by then the
+    /// A connection test of the new credentials that answers while Save runs lands after it: by then the
     /// credentials it tested are the saved ones, so its failure is the saved service's last test, which the tab Settings
     /// opens on reads.
     @Test func aTestAnswerArrivingWhileSaveRunsIsTheSavedServicesLastTest() async {

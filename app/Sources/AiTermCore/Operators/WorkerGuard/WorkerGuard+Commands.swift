@@ -47,8 +47,8 @@ extension WorkerGuard {
         for refspec in refs.dropFirst() {
             if refspec.hasPrefix("+") { return "Workers never force-push." }
             let parts = refspec.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
-            let target = Repository.shortBranch(parts.last ?? "")
-            let source = Repository.shortBranch(parts.first ?? "")
+            let target = WorkerGuard.shortBranch(parts.last ?? "")
+            let source = WorkerGuard.shortBranch(parts.first ?? "")
             guard parts.count <= 2, [branch, "HEAD"].contains(target), [branch, "HEAD"].contains(source) else {
                 return "A worker may push only its own task branch."
             }

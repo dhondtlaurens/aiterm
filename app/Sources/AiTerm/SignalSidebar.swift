@@ -37,9 +37,7 @@ struct SignalSidebar {
         }
         projects = entries.map { entry in
             guard case .project(var section) = entry else { return entry }
-            let owned = held.filter { $0.projectId == section.project.id }
             section.tasks.removeAll { ids.contains($0.id) }
-            section.operatorTasks += owned.count; section.operatorWorktrees += owned.filter(\.hasCheckout).count
             return .project(section)
         }
     }

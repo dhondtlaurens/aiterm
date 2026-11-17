@@ -5,13 +5,18 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import stat
 import time
 from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID
 
-from .operator_token import well_formed
+_TOKEN = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def well_formed(token: str) -> bool:
+    return _TOKEN.fullmatch(token) is not None
 
 
 class OperatorSessionTokens:
@@ -47,16 +52,16 @@ class OperatorSessionTokens:
     def owns(self, session_id: str, generation: int) -> bool:
         return self._current is not None and self._current[:2] == (session_id, generation)
 
-    def revoke(self, session_id: str, generation: int | None = None) -> None:
+    def revoke(self, session_id: str, generation: int) -> None:
         session_id = str(UUID(session_id)).upper()
         current = self._current
         if current is not None:
-            if current[0] != session_id or (generation is not None and generation != current[1]):
+            if current[0] != session_id or generation != current[1]:
                 return
             self._retiring = current[:2]
             self._revoked.add(current[:2])
             self._current = None
-        elif self._retiring is None or self._retiring[0] != session_id or (generation is not None and generation != self._retiring[1]):
+        elif self._retiring is None or self._retiring[0] != session_id or generation != self._retiring[1]:
             return
         if self.root is not None:
             # A failed deletion remains owed on retry, including when memory has already revoked it.

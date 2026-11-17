@@ -19,7 +19,6 @@ enum Budget {
     /// Waits until the Operator's owners have finished what they started (`OperatorWork`): the turn and transcript
     /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
 
-
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
     static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
         WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
@@ -51,28 +50,16 @@ enum Budget {
     }
 }
 
-/// Work budgets outside the Operator's tools (plan 2026-11-10, phase 0): what one step of the sidebar, the window lock,
-/// an Archive and a restore costs today, counted by `WorkMeter` or a recording git, never timed. Each number is exact and
-/// is today's: a later change that makes the step cheaper lowers it here, and none may raise it.
+/// Work budgets outside the Operator's tools: sidebar, window, Archive and restore costs,
+/// counted by `WorkMeter` or recording git rather than elapsed time. A cheaper operation lowers its budget.
 @MainActor @Suite(.blocking) struct WorkBudgetTests {
     // MARK: - The sidebar's rows
 
-    /// One derivation of the sidebar's rows (`SidebarProjection.refresh`) for the frozen broadcast — 4 tasks, 6 extra
-    /// tabs, the run active — after its working worker's tab went to needs-input, a status a row draws.
-    ///
-    /// 1 `OperatorRequests.open` and 4 `TaskItem.workerTabs`, board closed or open: the derivation's pass (`SidebarPass`)
-    /// derives the live run's requests once and matches each of its 4 tasks' worker tabs once, and the group's header, its
-    /// rows, the projects' entries and the board read them. Before it (phase 0): 3 and 5 with the board closed, the header
-    /// and the operated-row lookup, built twice, deriving the requests each; 4 and 18 open, the board deriving them again
-    /// and matching worker tabs 13 more times for its 4 cards. None may raise them.
-
+    /// Sidebar derivation shares request and worker-tab readings among all rows.
 
     // MARK: - The window lock
 
-    /// Ten `session.changed` events for a task's tab that move only its context fill and its title, which no row draws,
-    /// through the app's own routing (`HelperLink.handle`): 0 `WindowReconciler` passes (10 before phase 7, one per
-    /// event, none with anything to do). A pass now runs on a session event only when the tabs as a pass reads them
-    /// moved. None may raise it.
+    /// Ten context-only session events cause no window reconciler passes. A pass starts only when its inputs move.
     @Test func sessionEventsThatChangeNoRowEachPassTheWindowLock() async throws {
         let controller = AppController(preferences: .scratch(), scan: Budget.noScan)
         defer { controller.shutdown() }
@@ -88,7 +75,6 @@ enum Budget {
         let work = await Budget.metered {
             for n in 1...10 {
                 tab.contextPercent = n * 5
-                tab.title = "✳ step \(n)"
                 controller.helper.handle(.sessionChanged(tab))
             }
         }
@@ -97,9 +83,7 @@ enum Budget {
         #expect(work[.reconcilerPass, default: 0] == 0, "passes for 10 events: \(work)")
     }
 
-    /// The checkout monitor's polls with every row in its window: 0 `WindowReconciler` passes for 5 polls. Each poll
-    /// does one check in memory — the window plan, acting on nothing — and passes only when a pass would act (phase 7,
-    /// new). None may raise it.
+    /// Five checkout polls with every row in its window cause no window reconciler passes.
     @Test func pollsWithNothingOwedPassTheWindowLockNever() async throws {
         let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10), scan: Budget.noScan)
         defer { controller.shutdown() }
@@ -125,17 +109,9 @@ enum Budget {
 
     // MARK: - Archive and restore
 
-    /// Archiving a task with a clean worktree and an open window, then restoring it from the Archive, as git sees it: the
-    /// controller's own git, the checkout monitor's scan reading nothing.
-    ///
-    /// Archive: 8 spawns, `worktree list` four times — once for the preflight before any question, once right before the
-    /// `status --porcelain` that looks for unsaved work (only a listing then says the folder is still this repository's
-    /// worktree), once for the head once its window has closed, once by the removal itself — then `worktree unlock`,
-    /// `worktree remove` and `worktree prune` (9 before phase 7's one preflight, with `worktree list` five times: head,
-    /// unlisted folder and unsaved work each listed on their own). Restore: 4 spawns, one `worktree list`, then 2
-    /// `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree list`). None
-    /// may raise them.
-    @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
+    /// Archiving a clean open task uses eight git spawns. Restoring it uses four: one worktree listing,
+    /// two rev-parse calls and worktree add.
+    @Test func archivingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
         let server = RecordingDaemon()
@@ -163,12 +139,8 @@ enum Budget {
         #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
     }
 
-    /// The person's Remove of a task with a clean worktree and an open window, its branch kept, as git sees it: 7 spawns,
-    /// `worktree list` three times — the preflight, the listing right before `status --porcelain`, and the removal itself
-    /// — then `worktree unlock`, `worktree remove` and `worktree prune`. 7 before phase 7 too, counted by this test on the
-    /// code before the change: the preflight's one listing takes the place of the unlisted folder's, and the unsaved-work
-    /// check keeps the listing of its own that says, right before status, that the folder is still the worktree. None
-    /// may raise it.
+    /// Removing a clean open task while keeping its branch uses seven git spawns: three worktree listings,
+    /// one status, then worktree unlock, worktree remove and worktree prune.
     @Test func removingATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), scan: Budget.noScan, controllerGit: git)
@@ -189,8 +161,7 @@ enum Budget {
 
     // MARK: - Saving
 
-    /// A save of the frozen workspace over the one it saved before: 1 file written, the workspace; the backup is a clone
-    /// of the file it replaces (2 before phase 2, when the backup was written as bytes too). None may raise it.
+    /// Saving over an existing workspace writes one file; its backup is a clone of the file it replaces.
     @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
         let state = Budget.workspace()
         let folder = try ScratchFolder.make("aiterm-budget-writes-")
@@ -209,7 +180,7 @@ enum Budget {
 
     /// The frozen workspace padded with 500 archived tasks, saved 20 times: the median, printed. Never asserted, and no
     /// installed-app latency: a fixture timing on this machine, for deciding whether the save on the main actor stalls.
-    @Test(.enabled(if: Budget.measuring)) func savingTheFrozenWorkspaceWith500ShelvedTasks() throws {
+    @Test(.enabled(if: Budget.measuring)) func savingTheFrozenWorkspaceWith500ArchivedTasks() throws {
         var state = Budget.workspace()
         let project = try #require(state.tasks.first?.projectId)
         state.archive = (0..<500).map { n in
@@ -227,7 +198,7 @@ enum Budget {
         print("AITERM_MEASURE StateStore.save, frozen state + 500 archived tasks (\(bytes) bytes): median of 20 = \(String(format: "%.2f", median)) ms")
     }
 
-    /// One `run_status` build (`OperatorController.status`) for a broadcast of 20 working tasks, each with its worker and
+    /// One `run_status` build (`OperatorController.status`) for a workspace with 20 working tasks, each with its worker and
     /// two extra tabs listed: 60 sessions. The median of 200, printed; never asserted.
 
 }

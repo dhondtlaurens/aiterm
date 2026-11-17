@@ -26,12 +26,12 @@ import Testing
         let clock = SignalPollClock(), reader = SignalPollReader(), work = OperatorWork()
         let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
         let a = UUID(), b = UUID()
-        var published: [[UUID]] = []
-        poller.onRead = { ids, _ in published.append(ids) }
+        var batches: [[UUID]] = []
+        poller.onPass = { batches.append($0.flatMap(\.signals)) }
         poller.replace([.init(id: a, sourceHost: "jira", readKey: "query", isJira: true, reader: reader),
                         .init(id: b, sourceHost: "jira", readKey: "query", isJira: true, reader: reader)])
         poller.tick(); await work.settled()
-        #expect(await reader.calls.count == 1 && published.first?.count == 2)
+        #expect(await reader.calls.count == 1 && batches.first?.count == 2)
         clock.date += 61
         poller.tick(); await work.settled()
         #expect(await reader.calls.map(\.full) == [true, false])
@@ -46,7 +46,7 @@ import Testing
         await reader.setComplete(false)
         let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
         var published = 0
-        poller.onRead = { _, _ in published += 1 }
+        poller.onPass = { _ in published += 1 }
         poller.replace([.init(id: UUID(), sourceHost: "jira", readKey: "query", isJira: true, reader: reader)])
         poller.tick(); await work.settled()
         clock.date += 60
@@ -65,7 +65,7 @@ import Testing
         let reader = SignalHeldReader(entered: entered, release: release)
         let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
         var published = 0
-        poller.onRead = { _, _ in published += 1 }
+        poller.onPass = { _ in published += 1 }
         poller.replace([.init(id: UUID(), sourceHost: "host", readKey: "query", isJira: false, reader: reader)])
         poller.tick(); await entered.wait()
         poller.tick(); poller.stop(); release.signal()

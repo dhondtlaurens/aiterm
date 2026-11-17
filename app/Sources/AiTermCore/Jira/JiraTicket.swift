@@ -36,7 +36,7 @@ public struct JiraTicket: Equatable, Sendable {
     public var branchKey: String { issueNumber.map(String.init) ?? key }
 }
 
-/// `SearchPicker` is generic over `Item: Identifiable`; a ticket's `key` is already unique and
+/// `ChipsPicker` is generic over `Item: Identifiable`; a ticket's `key` is already unique and
 /// `ForEach` keyed on it before this conformance existed. Jira keys hold a letter and issue keys
 /// start with `#`, so the two sources never share one.
 extension JiraTicket: Identifiable { public var id: String { key } }

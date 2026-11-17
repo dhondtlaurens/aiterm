@@ -23,7 +23,7 @@ FRESH = 1000.0
 
 def hook(kind, subagent_id=None, **fields):
     """A hook that reports `kind`: the engine reads only what it says of the turn, not whose it is."""
-    return HookEvent("claude", kind, None, None, None, subagent_id=subagent_id, **fields)
+    return HookEvent("claude", kind, None, None, subagent_id=subagent_id, **fields)
 
 
 @pytest.fixture
@@ -134,15 +134,6 @@ def test_stop_descriptions_and_native_ids_anchor_the_same_interleaved_list(eng, 
         {"type": "shell", "command": "unknown ID", "status": "running"}]}))
     engine.apply_shell_reading("s1", ShellReading((), frozenset()))
     assert reg.get("s1").to_json()["displayWork"]["shells"] is None
-
-
-@pytest.mark.parametrize("field,value", [("model", "claude-opus-5"), ("reasoning", "high")])
-def test_a_metadata_signal_sets_its_field_without_touching_state(eng, field, value):
-    engine, reg = eng
-    engine.apply_event("s1", hook("working"))
-    assert engine.apply_metadata("s1", **{field: value}) == ["s1"]
-    assert getattr(reg.get("s1"), field) == value and reg.get("s1").state == "working"
-    assert engine.apply_metadata("s1", **{field: value}) == []
 
 
 def test_claude_file_status_mapping(eng):
@@ -506,7 +497,7 @@ def _tail(ended=False, written_at=200.0, size=10, ended_at=None):
 
 
 def test_every_counted_childs_transcript_is_read(clock):
-    # Its turn deferred or under way: what shows the child still at work (`subagents_written_at`).
+    # Its turn deferred or under way, the child is still at work.
     eng, reg, _ = _claude_engine(clock)
     assert eng.subagent_transcripts() == {TRANSCRIPT}
     eng.apply_event("s1", hook("working"))
@@ -829,31 +820,28 @@ def test_a_new_conversation_takes_its_children_off_what_the_turn_waits_on(clock)
     assert reg.get("s1").background == (SHELL,)
 
 
-def test_when_the_counted_childrens_transcripts_were_last_written_is_published(clock):
-    # Turn under way or ended, it shows a child still at work: the newest write of any child the daemon counts.
+def test_counted_children_keep_working_until_their_transcripts_end(clock):
+    # Counted children keep the turn working until their transcripts show they ended.
     reg = SessionRegistry()
     reg.apply_snapshot([RawSession("s1", "w1", 0, "claude", 1, "", "/x", {"aiterm_task": "t1"})])
     eng = StatusEngine(reg, Clock(), monotonic=clock)
     eng.apply_event("s1", hook("working"))
     eng.apply_event("s1", hook("subagentStart", "c1", subagent_transcript=TRANSCRIPT))
     eng.apply_event("s1", hook("subagentStart", "c2", subagent_transcript=OTHER))
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail(written_at=210.0), OTHER: _tail(written_at=230.0)}) == ["s1"]
-    assert reg.get("s1").subagents_written_at == 230.0 and reg.get("s1").state == "working"
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail(written_at=210.0), OTHER: _tail(written_at=230.0)}) == []
+    assert reg.get("s1").state == "working"
     assert eng.release_dead_subagents({}) == [], "a read that did not answer changes nothing"
     eng.apply_event("s1", hook("subagentStop", "c2"))
     eng.release_dead_subagents({TRANSCRIPT: _tail(written_at=210.0), OTHER: _tail(ended=True, written_at=240.0, size=20)})
-    assert reg.get("s1").subagents_written_at == 210.0, "an ended child's writes are not its parent's"
     eng.apply_event("s1", hook("subagentStop", "c1"))
     eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=250.0, size=20)})
-    assert reg.get("s1").subagents_written_at is None
+    assert eng.subagent_transcripts() == set()
 
 
-def test_a_new_conversation_forgets_when_its_children_wrote(clock):
+def test_a_new_conversation_forgets_its_children(clock):
     eng, reg, _ = _claude_engine(clock)
     eng.release_dead_subagents({TRANSCRIPT: _tail()})
-    assert reg.get("s1").subagents_written_at == 200.0
     assert eng.apply_event("s1", hook("sessionStart")) == ["s1"]
-    assert reg.get("s1").subagents_written_at is None
 
 
 # What Claude Code 2.1.299 draws in a folder it has not been told to trust, read back from iTerm2.

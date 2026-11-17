@@ -18,7 +18,6 @@ from aitermd.claude_sessions import ClaudeSessionFiles
 from aitermd.claude_subagents import SubagentTranscripts
 from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hook_events import parse_claude_hook, parse_claude_statusline, parse_codex_hook, parse_pi_hook
-from aitermd.slash_commands import TranscriptReader
 from aitermd.status import CLAUDE_FILE_STATUS, _has_spinner
 from aitermd.usage import parse_codex_rate_limits
 
@@ -111,15 +110,15 @@ def test_claude_stop_names_the_shell_it_left_running():
     assert any(job.kind == "shell" and "DELTA-DONE" in job.text for job in work), named("claude", "Stop")
 
 
-def test_claude_status_line_gives_usage_context_model_and_transcript():
+def test_claude_status_line_gives_usage_context_and_transcript():
     ticks = [parse_claude_statusline(body, 0) for route, body in posts("claude") if route == "/statusline"]
     assert ticks, "the status line never reached AiTerm"
     sessions = {body["session_id"] for body in hooks("claude")}
     last = ticks[-1]
+    assert last.context_percent is not None and last.transcript
     assert last.session_id in sessions
     assert last.usage is not None and last.usage.five_hour is not None, "the status line lost its rate limits"
     assert any(tick.context_percent is not None for tick in ticks), "the status line lost its context fill"
-    assert last.model and last.transcript
 
 
 def test_claude_session_file_names_its_process_version_and_a_known_status():
@@ -172,15 +171,6 @@ def test_claude_transcript_shows_the_background_shell_start_and_end(tmp_path):
     assert ended is not None and shell in ended.ended, "the background shell's end is not seen"
 
 
-def test_claude_transcript_shows_the_slash_command_and_its_output():
-    path = str(_main_transcript())
-    records = TranscriptReader().read_all({path: 0})[path] or ()
-    commands = [record for record in records if record.kind == "command"]
-    assert any(record.text == "/model sonnet" for record in commands), records
-    ran = next(record for record in commands if record.text == "/model sonnet")
-    assert any(record.kind == "output" and record.prompt == ran.prompt for record in records), "its output is not seen"
-
-
 # -- Codex ---------------------------------------------------------------------------------------------
 def test_codex_posts_every_event_the_capture_raised():
     raised = {body.get("hook_event_name") for body in hooks("codex")}
@@ -194,7 +184,7 @@ def test_codex_hook_posts_read_as_the_events_aiterm_tracks():
         assert event is not None, f"{body.get('hook_event_name')} no longer reads: {body}"
         assert event.session_id and event.cwd
     start = parse_codex_hook(named("codex", "SessionStart")[0])
-    assert start.kind == "sessionStart" and start.model == note("codex")["model"]
+    assert start.kind == "sessionStart"
     assert first_prompt() in [parse_codex_hook(body).prompt for body in named("codex", "UserPromptSubmit")]
     assert parse_codex_hook(named("codex", "PermissionRequest")[0]).kind == "needsInput"
     assert all(parse_codex_hook(body).kind == "done" for body in named("codex", "Stop"))
@@ -227,10 +217,8 @@ def test_pi_extension_posts_every_event_the_capture_raised():
     assert not missing, f"PI no longer posts {sorted(missing)} to AiTerm's extension"
 
 
-def test_pi_extension_posts_read_with_session_model_reasoning_and_context():
+def test_pi_extension_posts_read_with_session_and_context():
     events = [parse_pi_hook(body) for body in hooks("pi")]
     assert all(event is not None and event.session_id and event.cwd for event in events), hooks("pi")
     assert events[0].kind == "sessionStart"
-    assert {event.model for event in events} == {note("pi")["model"]}
-    assert {event.reasoning for event in events} == {note("pi")["reasoning"]}
     assert any(event.context_percent is not None for event in events), "PI no longer reports its context"

@@ -5,16 +5,10 @@ import Foundation
 @Suite struct OperatorTimingTests {
     /// The contract's table, value for value.
     @Test func theTimingsAreTheContractsValues() {
-        #expect(OperatorTiming.wakeCoalesce == 3)
         #expect(OperatorTiming.reconcileInterval == 60)
-        #expect(OperatorTiming.stallAfter == 1200)
-        #expect(OperatorTiming.challengeTimeout == 180)
+        #expect(OperatorTiming.oracleTimeout == 180)
         #expect(OperatorTiming.gateTimeout == 200)
         #expect(OperatorTiming.operatorRequestTimeout == 30)
-        #expect(OperatorTiming.launchAdoptAfter == 60)
-        #expect(OperatorTiming.mergePoll == 30)
-        #expect(OperatorTiming.mergeWait == 3600)
-        #expect(OperatorTiming.liveQuietMinutes == 2)
     }
 
     /// The daemon spells the same constants in `aitermd/delivery.py` (part A): each shared value
@@ -54,6 +48,6 @@ import Foundation
         return first * (number(2) ?? 1)
     }
 
-    /// Each end as the plan, the board and a refusal say it.
+    /// Each end as the stage and its refusal say it.
 
 }

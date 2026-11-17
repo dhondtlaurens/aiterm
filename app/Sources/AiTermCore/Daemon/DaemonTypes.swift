@@ -5,13 +5,13 @@ public struct Frame: Codable, Equatable, Sendable { public var x, y, w, h: Doubl
 
 public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var sessionId: String, windowId: String, tabIndex: Int, taskId: String?, projectId: String?
-    public var agent: SessionAgent, model: String?, reasoning: String? = nil, state: SessionState, title: String, cwd: String
+    public var agent: SessionAgent, state: SessionState, cwd: String
     /// The directory the *agent* is in. `cwd` is iTerm2's, which is the shell's and never follows
     /// a Claude that has entered a worktree; the daemon fills this in from the agent's own session
     /// file (Claude) or its hook posts (Codex). Absent for a plain shell.
     public var agentCwd: String? = nil
     /// True for the tab that was current in its window as of the daemon's last snapshot. The
-    /// bundled daemon always says; one that does not is read as saying no.
+    /// daemon sends this flag for every tab.
     public var active = false
     /// This provider's last-known context fill within the task, 0-100. The daemon shares it across
     /// sibling tabs running the same provider so tab changes cannot erase it. An unassociated
@@ -21,34 +21,26 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var contextTokens: Int? = nil
     /// The conversation this tab's agent runs, as the agent's own hooks name it: what reopening its
     /// task's window resumes (`TaskItem.conversations`). Nil for a shell, before the agent's first
-    /// hook placed on this tab, and from a daemon too old to send it.
+    /// hook placed on this tab.
     public var conversationId: String? = nil
     /// The terminal row this tab's window was opened for, which adopts a window iTerm2 renumbered or
-    /// restored. Nil for a task's tab, and from a daemon too old to send it.
+    /// restored. Nil for a task's tab.
     public var terminalId: String? = nil
     /// The key of the Operator's extra worker tab this is (`open_tab`): it tells that tab apart from its task's
-    /// first worker and from the task's other extra tabs, all tagged with the task. Nil for any other tab, and
-    /// from a daemon too old to send it.
+    /// first worker and from the task's other extra tabs, all tagged with the task. Nil for any other tab.
     public var tabKey: String? = nil
     /// What its agent left running in the background when its last turn ended, which wakes it again (Claude's
     /// `background_tasks`): a shell by its command, other work by its description. A turn ended with any is paused,
-    /// not finished. Empty once a new turn starts, and from a daemon too old to send it. A subagent the daemon still
+    /// not finished. Empty once a new turn starts. A subagent the daemon still
     /// counts stays on it while it holds the tab at working.
     public var background: [BackgroundJob] = []
     /// Display-only source observations. Neither this inventory nor its availability decides readiness.
     public var displayWork: DisplayWork? = nil
-    /// When the transcripts of the Claude subagents it counts were last written, the newest, in seconds since 1970: a
-    /// child still at work while its parent's own transcript says nothing (`WorkerQuietWatch`). Nil while it counts
-    /// none, and from a daemon too old to send it.
-    public var subagentsWrittenAt: Double? = nil
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
-    /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
+    /// the agent with or delivered. Nil once that turn ends, for any other prompt.
     public var yourPrompt: String? = nil
-    /// The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each as the tab's
-    /// own transcript shows it. Empty for any other tab, and from a daemon too old to send it.
-    public var slashCommands: [SlashCommand] = []
     /// What ended its last turn short, an API error Claude Code reported in place of its Stop, until it works again. Nil
-    /// for any other tab, and from a daemon too old to send it.
+    /// for any other tab.
     public var stoppedOn: StoppedOn? = nil
     /// The test runner's own exact-worktree lifecycle; only queued/running states are live work.
     public var testActivity: TestActivity? = nil
@@ -60,47 +52,6 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var terminalUUID: UUID? { terminalId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
-    /// The model and effort this tab runs now, as its own Claude Code says them, never a subagent's: the model from its
-    /// SessionStart as it starts, its PostModelSwitch once a switch has happened and its status line, the effort from its
-    /// status line alone. A /model or /effort moves them once it has run, never when it is typed. Nil for any other agent,
-    /// whose hooks may carry a child thread's model, and while Claude hasn't said.
-    public var liveModel: String? { agent == .claude ? model : nil }
-    public var liveReasoning: String? { agent == .claude ? reasoning : nil }
-}
-
-extension SessionInfo {
-    /// Written by hand for `active` alone, which an older daemon leaves out; every other field is
-    /// read as the synthesised decoder would. In an extension, so the memberwise initialiser stays.
-    /// `WireContractTests` reads the daemon's own sessions with it and compares each field with the
-    /// daemon's JSON, so a field this misreads, or a key it reads under another name, shows there.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        sessionId = try c.decode(String.self, forKey: .sessionId)
-        windowId = try c.decode(String.self, forKey: .windowId)
-        tabIndex = try c.decode(Int.self, forKey: .tabIndex)
-        taskId = try c.decodeIfPresent(String.self, forKey: .taskId)
-        projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
-        agent = try c.decode(SessionAgent.self, forKey: .agent)
-        model = try c.decodeIfPresent(String.self, forKey: .model)
-        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
-        state = try c.decode(SessionState.self, forKey: .state)
-        title = try c.decode(String.self, forKey: .title)
-        cwd = try c.decode(String.self, forKey: .cwd)
-        agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
-        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
-        contextPercent = try c.decodeIfPresent(Int.self, forKey: .contextPercent)
-        contextTokens = try c.decodeIfPresent(Int.self, forKey: .contextTokens)
-        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
-        terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
-        tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
-        background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
-        displayWork = try c.decodeIfPresent(DisplayWork.self, forKey: .displayWork)
-        subagentsWrittenAt = try c.decodeIfPresent(Double.self, forKey: .subagentsWrittenAt)
-        yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
-        slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
-        stoppedOn = try c.decodeIfPresent(StoppedOn.self, forKey: .stoppedOn)
-        testActivity = try c.decodeIfPresent(TestActivity.self, forKey: .testActivity)
-    }
 }
 
 /// A test run the project's runner reports through an inherited kernel lock and exit record, in the format
@@ -150,29 +101,6 @@ public struct StoppedOn: Codable, Equatable, Sendable {
     public var isLimit: Bool { error == "rate_limit" }
 }
 
-/// A slash command AiTerm typed into a Claude tab and pressed Enter on (`message_task`), and what became of it, as the
-/// tab's own transcript shows it (the daemon's `slash_commands.py`).
-public struct SlashCommand: Codable, Equatable, Sendable {
-    /// `delivered`: typed, nothing of it seen yet. `queued`: Claude Code queued it, and nothing has been taken from the
-    /// queue since. `ran`: its own command record is there. `unknown`: nothing of it seen within a minute, or a
-    /// transcript that can't be read; something taken from the queue since it was queued; or an hour passed without its
-    /// run. Within that hour it can still become `ran`, but not once a remove, popAll or popOne named it, nor, never
-    /// queued, once the same text was sent again; a /model or /effort run mid-turn takes effect and writes nothing.
-    /// See `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
-    public enum State: String, Codable, LenientRawDecodable, Sendable {
-        case delivered, queued, ran, unknown
-        static var unrecognized: Self { .unknown }
-    }
-    public var text: String, state: State
-    /// When AiTerm typed it, and when its transcript recorded it queued or run: seconds since 1970.
-    public var deliveredAt: Double, seenAt: Double?
-    /// A local command's output, on one line, once it ran.
-    public var output: String?
-    public init(text: String, state: State, deliveredAt: Double, seenAt: Double? = nil, output: String? = nil) {
-        self.text = text; self.state = state; self.deliveredAt = deliveredAt; self.seenAt = seenAt; self.output = output
-    }
-}
-
 /// Display sources are independent of the legacy ended-turn obligations and each other's availability.
 public struct DisplayWork: Codable, Equatable, Sendable {
     /// nil is unavailable; an empty array establishes that this source has no jobs.
@@ -201,17 +129,6 @@ public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
     }
     public var kind: Kind, text: String
     public init(kind: Kind, text: String) { self.kind = kind; self.text = text }
-
-    /// A daemon older than the kinds — one left running after a crash — sends each job as its text alone: read as
-    /// a task, described, rather than failing the session it came in.
-    public init(from decoder: Decoder) throws {
-        if let text = try? decoder.singleValueContainer().decode(String.self) {
-            self.init(kind: .task, text: text)
-            return
-        }
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(kind: try c.decode(Kind.self, forKey: .kind), text: try c.decode(String.self, forKey: .text))
-    }
 }
 
 /// A literal title for one iTerm2 tab. The daemon keeps it separate from the session's process
@@ -266,7 +183,7 @@ public struct DaemonError: Error, Equatable, LocalizedError, CustomStringConvert
 
 public struct DaemonSnapshot: Decodable, Equatable, Sendable {
     public let protocolVersion: Int
-    /// Acknowledges the app-resolved Claude folder. Older helpers omit it.
+    /// Acknowledges the app-resolved Claude folder.
     public var claudeConfigDirectory: String? = nil
     public let connected: Bool
     public let sessions: [SessionInfo]
@@ -274,10 +191,9 @@ public struct DaemonSnapshot: Decodable, Equatable, Sendable {
     /// Why iTerm2 is refusing the daemon's API connection, while it is. A refusal at startup comes
     /// before the app has attached to hear the `iterm.auth_failed` event, so the snapshot carries it.
     public var itermAuthError: String? = nil
-    /// The iTerm2 the daemon is connected to, while it is. Older daemons do not send it.
+    /// The iTerm2 the daemon is connected to, while it is.
     public var itermVersion: String? = nil
     /// A cookie request the daemon made before the app attached to hear `iterm.cookieRequested`.
-    /// Older daemons, which ask iTerm2 themselves, do not send it.
     public var itermCookieRequest: Int? = nil
 }
 
@@ -310,7 +226,7 @@ public enum DeliveryCode: String, Codable, LenientRawDecodable, CaseIterable, Se
 public struct Delivery: Codable, Equatable, Sendable {
     public var result: DeliveryOutcome
     public var reason: String?
-    /// Nil when delivered, and from a daemon that names no code.
+    /// Nil when delivered.
     public var code: DeliveryCode?
     public init(result: DeliveryOutcome, reason: String?, code: DeliveryCode? = nil) {
         self.result = result; self.reason = reason; self.code = code
@@ -333,28 +249,20 @@ public struct DeliveryVerdict: Codable, Equatable, Sendable {
     public init(policy: DeliveryPolicy, version: String?) { self.policy = policy; self.version = version }
 }
 
-/// The prompt a session has open, as the daemon's screen markers classify it.
-/// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
-/// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)
-public enum PromptKind: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
-    case permission, startup, menu
-    static var unrecognized: Self { .menu }
-}
-
 /// One tool call from an operator: answered with `operator.reply` and the same `requestId`.
 public struct OperatorRequest: Decodable, Equatable, Sendable {
-    public var requestId: String, runId: String, tool: String
+    public var requestId: String, operatorId: String, tool: String
     public var generation: Int
     /// An object; a call with none reads as an empty one.
     public var arguments: JSONValue
-    public init(requestId: String, runId: String, tool: String, arguments: JSONValue, generation: Int) {
-        self.requestId = requestId; self.runId = runId; self.tool = tool; self.arguments = arguments; self.generation = generation
+    public init(requestId: String, operatorId: String, tool: String, arguments: JSONValue, generation: Int) {
+        self.requestId = requestId; self.operatorId = operatorId; self.tool = tool; self.arguments = arguments; self.generation = generation
     }
-    private enum CodingKeys: String, CodingKey { case requestId, runId, tool, arguments, generation }
+    private enum CodingKeys: String, CodingKey { case requestId, operatorId, tool, arguments, generation }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         requestId = try c.decode(String.self, forKey: .requestId)
-        runId = try c.decode(String.self, forKey: .runId)
+        operatorId = try c.decode(String.self, forKey: .operatorId)
         tool = try c.decode(String.self, forKey: .tool)
         arguments = try c.decodeIfPresent(JSONValue.self, forKey: .arguments) ?? .object([:])
         generation = try c.decode(Int.self, forKey: .generation)
@@ -378,13 +286,6 @@ struct DaemonErrorBody: Decodable { var code: DaemonError.Code, message: String 
 struct Reply<Value: Decodable>: Decodable { var result: Value }
 /// An event's `payload`, as the type its name says.
 struct EventPayload<Value: Decodable>: Decodable { var payload: Value }
-
-/// A prompt and the visible screen read with it. Older helpers may know only its kind.
-public struct PromptDetails: Codable, Equatable, Sendable {
-    public var kind: PromptKind?
-    public var text: String?
-    public init(kind: PromptKind?, text: String? = nil) { self.kind = kind; self.text = text }
-}
 
 extension DaemonError {
     /// Whether what the request asked for may still happen: it timed out, or the helper or iTerm2 went before it

@@ -24,13 +24,13 @@ final class DaemonOperatorWireTests {
     private func params(_ index: Int = 0) -> [String: Any] { server.received[index]["params"] as? [String: Any] ?? [:] }
     private func method(_ index: Int = 0) -> String? { server.received[index]["method"] as? String }
 
-    @Test func aBackgroundTaskWindowSaysSoAndAForegroundOneSaysNothing() async throws {
+    @Test func taskWindowsAlwaysSendTheirBackgroundFlag() async throws {
         try connect { _ in ["windowId": "w1"] }
         let frame = Frame(x: 0, y: 0, w: 1, h: 1)
         _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame, background: true)
         _ = try await client.createTaskWindow(taskId: "t", cwd: "/wt", title: "x", agentCommand: nil, frame: frame)
         #expect(params(0)["background"] as? Bool == true)
-        #expect(params(1)["background"] == nil)
+        #expect(params(1)["background"] as? Bool == false)
     }
 
     @Test func aDeliveryCarriesItsOwnershipAndReadsItsResult() async throws {
@@ -45,22 +45,6 @@ final class DaemonOperatorWireTests {
         #expect(params()["worktree"] as? String == "/wt")
     }
 
-    @Test func blockingPromptIncludesReadableTextAndOptions() async throws {
-        try connect { _ in ["kind": "menu", "text": "Select reasoning\n1. Medium\n2. High"] }
-        let details = try await client.promptDetails(sessionId: "s1")
-        #expect(details.kind == .menu)
-        #expect(details.text == "Select reasoning\n1. Medium\n2. High")
-    }
-
-    @Test func anOpenPromptReadsAsItsKindAndNoneAsNil() async throws {
-        try connect { req in
-            ["kind": (req["params"] as? [String: Any])?["sessionId"] as? String == "s1" ? "permission" as Any : NSNull()]
-        }
-        #expect(try await client.prompt(sessionId: "s1") == .permission)
-        #expect(try await client.prompt(sessionId: "s2") == nil)
-        #expect(method() == "session.prompt")
-    }
-
     /// What the delivery check vouches for, per agent: a policy a newer daemon names reads as off, and a
     /// harness this app doesn't know is left out.
     @Test func theDeliveryPolicyReadsAsEachAgentsVerdict() async throws {
@@ -71,17 +55,6 @@ final class DaemonOperatorWireTests {
         #expect(method() == "delivery.policy")
         #expect(verdicts == [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"), .codex: DeliveryVerdict(policy: .pasteOnly, version: "0.160.0"),
                              .pi: DeliveryVerdict(policy: .off, version: "1.0.0")])
-    }
-
-    @Test func anUnknownPromptKindReadsAsAnOpenMenuAndANullKindStaysNone() async throws {
-        try connect { req in
-            switch (req["params"] as? [String: Any])?["sessionId"] as? String {
-            case "s1": ["kind": "somethingNew"]
-            default: ["kind": NSNull()]
-            }
-        }
-        #expect(try await client.prompt(sessionId: "s1") == .menu)
-        #expect(try await client.prompt(sessionId: "s2") == nil)
     }
 
     @Test func anUnknownDeliveryResultReadsAsRefused() async throws {
@@ -106,34 +79,26 @@ final class DaemonOperatorWireTests {
     @Test func theSessionAndOperatorRequestsNameWhatTheyAreAbout() async throws {
         try connect { _ in [String: Any]() }
         try await client.setOwnership(sessionId: "s1", ownership: 4)
-        try await client.registerOperator(runId: "R", token: "tok", generation: 1)
-        try await client.revokeOperator(runId: "R", generation: 1)
+        try await client.registerOperator(operatorId: "R", token: "tok", generation: 1)
+        try await client.revokeOperator(operatorId: "R", generation: 1)
         #expect((0..<3).map { method($0) } == ["session.setOwnership", "operator.register", "operator.revoke"])
         #expect(params(0)["ownership"] as? Int == 4)
         #expect(params(1)["token"] as? String == "tok")
-        #expect(params(2)["runId"] as? String == "R")
+        #expect(params(2)["operatorId"] as? String == "R")
     }
 
     @Test func aSingleOperatorsRequestRetainsTheTokensGeneration() throws {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","generation":3,"tool":"run_status","arguments":{}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","operatorId":"R","generation":3,"tool":"run_status","arguments":{}}}"#.utf8)
         let event = try DaemonClient.decodeEvent("operator.request", from: line)
-        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", runId: "R", tool: "run_status", arguments: [:], generation: 3)))
+        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", operatorId: "R", tool: "run_status", arguments: [:], generation: 3)))
     }
 
     @Test func singleOperatorAuthorityCarriesItsGenerationOnRegisterAndRevoke() async throws {
         try connect { _ in [String: Any]() }
-        try await client.registerOperator(runId: "R", token: "tok", generation: 2)
-        try await client.revokeOperator(runId: "R", generation: 2)
+        try await client.registerOperator(operatorId: "R", token: "tok", generation: 2)
+        try await client.revokeOperator(operatorId: "R", generation: 2)
         #expect(params(0)["generation"] as? Int == 2)
         #expect(params(1)["generation"] as? Int == 2)
-    }
-
-    @Test func aStartupDialogIsDismissedOnlyWhenTheDaemonSaysItDeclinedOne() async throws {
-        try connect { req in ["dismissed": (req["params"] as? [String: Any])?["sessionId"] as? String == "s1"] }
-        #expect(try await client.dismissStartup(sessionId: "s1"))
-        #expect(try await client.dismissStartup(sessionId: "s2") == false)
-        #expect(method() == "session.dismissStartup")
-        #expect(params(1)["sessionId"] as? String == "s2")
     }
 
     @Test func aReplyToTheOperatorSendsItsResultAndAnExplicitNullError() async throws {
@@ -149,13 +114,13 @@ final class DaemonOperatorWireTests {
     }
 
     @Test func anOperatorRequestArrivesWithItsArguments() throws {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","generation":2,"tool":"read_task","arguments":{"task":"task-id","stage":1,"ownership":0}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","operatorId":"R","generation":2,"tool":"read_task","arguments":{"task":"task-id","stage":1,"ownership":0}}}"#.utf8)
         let event = try DaemonClient.decodeEvent("operator.request", from: line)
-        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", runId: "R", tool: "read_task",
+        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", operatorId: "R", tool: "read_task",
             arguments: ["task": "task-id", "stage": 1, "ownership": 0], generation: 2)))
     }
     @Test func aRequestWithoutSingleOperatorAuthorityIsRefused() {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","tool":"run_status","arguments":{}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","operatorId":"R","tool":"run_status","arguments":{}}}"#.utf8)
         #expect(throws: (any Error).self) { try DaemonClient.decodeEvent("operator.request", from: line) }
     }
 

@@ -1,13 +1,13 @@
 import SwiftUI
 import AiTermUI
 
-/// Every “needs your attention or your answer” in the app, drawn one way (spec §6.1, §13, §14): the
+/// Every “needs your attention or your answer” in the app, drawn one way: the
 /// sidebar's banner about a failed operation or a refused connection, a failed create in a sheet's
-/// footer, the Backpack sheet's permission ask, and Find a Fix's states.
+/// footer, and the Backpack sheet's permission ask.
 ///
 /// An amber `exclamationmark.circle.fill` at `Size.inlineMark`, `Space.snug` before the title in
 /// `Typography.label` and `Palette.text`, on one row; the description under it in `Typography.help` and
-/// `Palette.muted`; then whatever a fix adds (`extra`: its busy line or its proposal); then the
+/// `Palette.muted`; then any extra content; then the
 /// actions as links `Space.gap` apart. `Space.tight` between the rows, and nothing indented: the
 /// description starts under the mark. No amber text — the mark carries the tone, and the words say
 /// whether it is a question or a failure. `help` is the tooltip, git's whole output where there is one.
@@ -31,8 +31,7 @@ struct Notice<Actions: View>: View {
         self.actions = actions()
     }
 
-    /// With `extra` drawn under the description: a fix's busy line or its proposal, in the same Notice
-    /// as the problem it is for.
+    /// With `extra` drawn under the description, before the actions.
     init<Extra: View>(title: String, description: String?, help: String? = nil, @ViewBuilder extra: () -> Extra,
                       @ViewBuilder actions: () -> Actions) {
         self.title = title; self.description = description; self.help = help

@@ -81,7 +81,7 @@ final class TaskArchiver {
     private func archive(_ task: TaskItem, in project: Project, holding token: WorkInFlight.Token) async throws {
         // A detached worktree is refused before anything is asked or closed. Read again once the
         // window is closed (below): until then its agent can still move it. Remove's question about a
-        // folder git no longer lists comes next, and Keep keeps it, unshelved.
+        // folder git no longer lists comes next, and Keep keeps it, unarchived.
         guard let prepared = try await teardown.prepare(task, in: project, verb: .archive, refusing: {
             if $0.head == .detached { throw Stop.detached }
         }) else { throw Stop.kept }

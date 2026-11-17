@@ -4,6 +4,15 @@ import Testing
 
 @Suite struct WorkerGuardRulesTests {
     let branch = "feat/pay-1"
+    @Test func aDefaultBranchIsRecognisedUnderAnySpelling() {
+        let scope = WorkerGuard.Scope(task: UUID(), worktree: "/repo/work", branch: "main",
+                                      remote: "git@git.example:shop/web.git", allowsPush: true)
+        for spelling in ["Main", "MAIN", "refs/heads/main", "refs/heads/Main"] {
+            #expect(WorkerGuard.pushDenial([], scope: scope, remote: scope.remote, head: String(repeating: "a", count: 40),
+                defaultBranch: spelling, protection: .unprotected, isAncestor: { _, _ in true }) != nil)
+        }
+        #expect(WorkerGuard.shortBranch("refs/heads/feat/x") == "feat/x")
+    }
     @Test(arguments: [
         "git push --no-verify", "git push -f origin HEAD", "git push --force-with-lease origin HEAD",
         "git -C /repo push origin +HEAD:feat/pay-1", "git push origin HEAD:main", "git push origin other",
@@ -47,5 +56,23 @@ import Testing
         #expect(try WorkerGuard.pushDenial(foreign, scope: scope, remote: scope.remote, head: head,
             defaultBranch: "main", protection: .unprotected, isAncestor: { _, _ in true }) != nil)
         #expect(throws: (any Error).self) { try WorkerGuard.pushes("a malformed line") }
+    }
+    @Test(arguments: [
+        ("https://github.com/acme/app.git", "git@github.com:acme/app.git", true),
+        ("https://github.com/acme/app", "ssh://git@github.com:22/acme/app.git/", true),
+        ("https://GitHub.com/Acme/App.git", "git@github.com:acme/app", true),
+        ("https://gitlab.com/acme/app.git", "git@gitlab.com:/acme/app.git", true),
+        ("/tmp/a/origin", "file:///tmp/a/origin", true),
+        ("/tmp/a/origin/", "/tmp/a/origin", true),
+        ("https://github.com/acme/app.git", "https://github.com/acme/other.git", false),
+        ("https://github.com/acme/app.git", "https://evil.example/acme/app.git", false),
+        ("/tmp/a/origin", "/tmp/b/origin", false),
+        ("/tmp/a/origin", "https://github.com/tmp/a/origin", false),
+        ("tmp/a/origin", "/tmp/a/origin", false),
+        ("git@host:team/.git", "git@host:team", false),
+    ])
+    func twoUrlsAreTheSamePlaceWhenHostAndPathAre(a: String, b: String, same: Bool) {
+        #expect(WorkerGuard.sameLocation(a, b) == same)
+        #expect(WorkerGuard.sameLocation(b, a) == same)
     }
 }

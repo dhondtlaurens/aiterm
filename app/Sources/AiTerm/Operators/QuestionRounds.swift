@@ -3,7 +3,7 @@ import CryptoKit
 import AiTermCore
 
 /// The Operator proposes; the Oracle agrees or critiques, at most three times. Only ask_you
-/// records a question asked in the Operator's chat. No board, menu or worker turn is blocked.
+/// records a question asked in the Operator's chat. No menu or worker turn is blocked.
 @MainActor final class QuestionRounds {
     struct Question: Equatable, Sendable {
         var session: String, tab: String, text: String, message: String
@@ -73,7 +73,7 @@ import AiTermCore
             }
             humanAnswer = true
         }
-        var previous: ChallengeRecord?
+        var previous: OracleRound?
         if !humanAnswer {
             if let asked = workspace.state.operatorSession?.questions.first(where: {
                 $0.task == id && $0.stage == claim.stage && $0.ownership == claim.ownership && $0.tab == tab
@@ -83,8 +83,8 @@ import AiTermCore
                                      "next": "Wait for the person's answer in your chat."], key: ledgerKey, arguments: arguments)
             }
             if let open = rounds.open(binding: binding) {
-                if open.stage == .unchallenged || (open.round ?? 0) >= OracleRoundLedger.maximumRounds {
-                    return try remember(askPerson(question, reason: open.unchallengedReason ?? "The Operator and Oracle still disagree after three rounds."), key: ledgerKey, arguments: arguments)
+                if open.stage == .unanswered || (open.round ?? 0) >= OracleRoundLedger.maximumRounds {
+                    return try remember(askPerson(question, reason: open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds."), key: ledgerKey, arguments: arguments)
                 }
                 if open.stage == .running || open.stage == .ready {
                     markForPerson(open.id, reason: "The earlier attempt was interrupted; check the worker before answering again.")
@@ -176,7 +176,7 @@ import AiTermCore
             state.operatorSession?.questions.append(question)
             if let binding {
                 state.operatorSession?.oracleRounds.removeAll {
-                    $0.tool == "answer_worker" && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unchallenged)
+                    $0.tool == "answer_worker" && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unanswered)
                 }
             }
             state.operatorSession?.prune(at: now())
@@ -199,7 +199,7 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
         changed()
     }
-    private func markForPerson(_ id: String, reason: String) { rounds.unchallenged(id, reason: reason) }
+    private func markForPerson(_ id: String, reason: String) { rounds.unanswered(id, reason: reason) }
     private func clear(_ id: String) { rounds.clear(id) }
     private func remember(_ result: JSONValue, key: String, arguments: String) throws -> JSONValue {
         workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }

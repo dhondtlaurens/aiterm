@@ -74,7 +74,7 @@ suites only `ControllerApplicationTests` is serialized.
 
 ## Current Operator contract
 
-Signals deliberately replace the broadcast contract. Current fixtures live under
+Current fixtures live under
 `AiTermCoreTests/Operators/Fixtures/operator-signals/`; their `PROVENANCE.md` records the decision,
 synthetic inputs and model proof. They are not regenerated to accommodate incidental refactors.
 
@@ -82,22 +82,18 @@ synthetic inputs and model proof. They are not regenerated to accommodate incide
 | --- | --- |
 | `operator-signals/state.json` | `SignalSavedFormatTests`: save through `StateStore`, exact bytes and reload, pending stages, archive, reply intent, generation, questions and idempotency. |
 | `operator-signals/brief.md`, `tools.json` | `SignalOperatorContractTests`: the stable role prompt and fourteen-tool schema contract. |
-| `AiTermTests/Fixtures/operator-saved-format/state.json` | `SignalRetiredKeysTests`: old broadcast/task keys load as ordinary tasks and disappear on the next save, including archived tasks. |
 | `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, generation, context size and field parity. |
-| `daemon/tests/codex_reference.py` | `test_codex_sessions.py`: reference rollout parser used to compare bounded-tail answers. |
 
 Swift paths are relative to `app/Tests/`; verify exact fixture paths from the owning test when
 adding coverage. Unknown associated enum kinds and sparse new optional fields have focused tests.
 Pure rules and native/fake-host journeys own behavior; byte fixtures do not substitute for them.
 
-Historical `operator-current/eval-brief.md`, `eval-status.json` and the old thirty-seven-tool file
-remain immutable evaluation input. They are not served or decoded as a legacy runtime.
-`SignalOperatorEvalRunner` compares each contract's representation of unavailable app, product
-question and hostile source text: three repetitions, same model/effort, twelve turns and six hundred
-seconds maximum. These isolated stub runs are opt-in with `AITERM_LIVE_OPERATOR=1` and spend quota.
-Keep full streams: a question written before a tool call still counts as chat, and a quota error
-never counts as behavior. Change the current brief deliberately with provenance and rerun capped
-comparisons; preserve the historical baseline.
+`SignalOperatorEvalRunner` evaluates the current contract in three situations: unavailable app,
+product question and hostile source text. Each is repeated three times with the same model and
+effort, with twelve turns and six hundred seconds at most per repetition. These isolated stub
+runs are opt-in with `AITERM_LIVE_OPERATOR=1` and spend quota. Keep full streams: a question
+written before a tool call still counts as chat, and a quota error never counts as behavior.
+Change the brief deliberately with provenance and rerun the capped comparison.
 
 `SignalWorld`/`SignalHarness` cover routing and stage/claim races. `SignalJourneyTests` drives one
 signal from a Jira match through its worker's turn and done condition to its archived task, through

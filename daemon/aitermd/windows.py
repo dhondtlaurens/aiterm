@@ -96,7 +96,7 @@ class WindowManager:
 
     async def create_task(self, p: Any) -> dict[str, Any]:
         task_id, title = param(p, "taskId", str), optional_param(p, "title", str)
-        # A task an operator starts opens behind your current work (Operators spec §10.9).
+        # A task an operator starts opens behind your current work.
         background = bool(optional_param(p, "background", bool))
         frame_param(p)  # rejected before a retry could return an existing window for it
         async with self._creation_lock:
@@ -207,8 +207,7 @@ class WindowManager:
 
         The tab that was active when it was opened, and *that tab's agent's* directory when
         it has one — pressing Cmd+T next to a Claude that has moved into a worktree means
-        "give me a shell where it is". Falls back to the window's first session, which is
-        what spec 2.4 originally did for every tab."""
+        "give me a shell where it is". Uses the window's first session when no active tab is available."""
         sid = self.registry.active_for_window(window_id)
         anchor = self.registry.get(sid) if sid and sid != exclude else None
         if anchor is None:
@@ -275,8 +274,7 @@ class WindowManager:
             # createTerminal, tab.create) already got their agent command (if
             # any) sent directly to their known session id in _create/
             # create_tab. Tagging and cd-redirecting here as well would
-            # race that command (spec 2.4's redirect is only for *user*-
-            # opened tabs in a tagged window), so skip it for those.
+            # race that command, so skip it for those.
             if session_id in self._self_created:
                 self._self_created.discard(session_id)
                 await self.tick()
@@ -294,7 +292,7 @@ class WindowManager:
                 # racing it.
                 await self.tick()
                 return
-            # Spec 2.4 applies to every window AiTerm owns, whether it is a
+            # Redirect tabs in every window AiTerm owns, whether it is a
             # task window (`aiterm_task`) or a terminal window
             # (`aiterm_project`): Cmd+T inherits neither the tag nor the cwd.
             tags = {k: v for k, v in self._window_tags(new.window_id).items() if not new.user_vars.get(k)}

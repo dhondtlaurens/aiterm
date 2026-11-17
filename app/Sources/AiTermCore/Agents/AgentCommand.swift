@@ -17,25 +17,23 @@ public enum AgentCommand {
         s.range(of: "^[A-Za-z0-9_@%+:,./-][A-Za-z0-9_@%+=:,./-]*$", options: .regularExpression) != nil ? s : shellQuote(s)
     }
 
-    /// The invocation without its prompt argument — shared by `build` and `previewCommand` so the
-    /// footer preview can never drift from the command that is actually run. Every word goes
-    /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
-    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false, publishing: Bool = false, resuming: String? = nil) -> [String] {
-        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly, publishing: publishing)
+    /// The invocation without its prompt argument. Model and reasoning words are shell-quoted
+    /// because they come from catalogues the app does not write.
+    static func invocation(agent: AgentKind, model: String, reasoning: String?, worker: Bool = false, readOnly: Bool = false, publishing: Bool = false, resuming: String? = nil) -> [String] {
+        let words = worker ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly, publishing: publishing)
             : agent.harness.launchWords(model: model, reasoning: reasoning)
         guard let resuming else { return words.map(shellWord) }
         return ([agent.harness.executable] + agent.harness.resumeArguments(resuming) + words.dropFirst()).map(shellWord)
     }
 
-    /// The agents an operator may give a task (spec §4.0): the two whose limits AiTerm can set.
-    public static let operatedAgents: [AgentKind] = [.claude, .codex]
+    /// The agents an operator may give a task: the two whose limits AiTerm can set.
+    public static let workerAgents: [AgentKind] = [.claude, .codex]
 
-    /// What Claude workers under an operator may never do themselves: ask through a menu, which the
-    /// operator cannot answer (spec §4.1), push — only AiTerm's `finish_task` pushes — or merge,
-    /// which `finish_task` does through the host when the plan's end says so (spec §4.3).
-    public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
+    /// What Claude workers may not do outside a publishing stage: ask through a menu, push or change a request.
+    /// A publishing stage uses `publishingClaudeDenials`; AiTerm alone merges when the signal permits it.
+    public static let workerClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
 
-    /// What a Claude review tab may never do on top of `operatedClaudeDenials`, which deny its push already: write a
+    /// What a Claude review tab may never do on top of `workerClaudeDenials`, which deny its push already: write a
     /// file, or write through git, so the commit it reviews is the one it reads. Each git command is denied in the
     /// three forms the push is: plain, after `-C <dir>`, and after any other option.
     public static let publishingClaudeDenials = ["AskUserQuestion", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(glab mr accept:*)", "Bash(git merge:*)"]
@@ -45,22 +43,21 @@ public enum AgentCommand {
             ["Bash(git \(command):*)", "Bash(git -C * \(command):*)", "Bash(git * \(command):*)"]
         }
 
-    /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
-    /// broadcast, whatever the slices (spec §12's worker launch profile):
+    /// A worker's launch words, unquoted, when the Operator drives its task: one launch policy for every worker:
     ///
-    /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
+    /// - Claude: its usual words, then `--disallowedTools` with `workerClaudeDenials`, then
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
     ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool. A review tab
     ///   (`readOnly`) adds `reviewClaudeDenials`.
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make. A review tab launches
     ///   read-only instead (`codexReadOnlyLaunchWords`).
-    /// - PI is not offered to the Operator (`operatedAgents`) and launches as it always does.
+    /// - PI is not offered to the Operator (`workerAgents`) and launches as it always does.
     /// Neither review launch removes subagents or read-only shell commands.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false, publishing: Bool = false) -> [String] {
         let harness = agent.harness
         switch agent {
         case .claude:
-            let denials = (publishing ? publishingClaudeDenials : operatedClaudeDenials) + (readOnly ? reviewClaudeDenials : [])
+            let denials = (publishing ? publishingClaudeDenials : workerClaudeDenials) + (readOnly ? reviewClaudeDenials : [])
             return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
         case .codex where readOnly:
             return harness.codexReadOnlyLaunchWords(model: model, reasoning: reasoning)
@@ -87,25 +84,13 @@ public enum AgentCommand {
         return agent.harness.resumeWords(conversation: id, model: model, reasoning: reasoning).map(shellWord).joined(separator: " ")
     }
 
-    /// The exact command a task would launch, built without touching the disk: a prompt that goes
-    /// through the file shows the `$(command cat …)` form the real build would produce, instead of
-    /// pretending the prompt is inline. For the New Task footer (spec 4.4), where no worktree exists yet.
-    public static func previewCommand(agent: AgentKind, model: String, reasoning: String?, prompt: String?,
-                                      operated: Bool = false) -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
-        if let prompt = prompt.map(normalized), !prompt.isEmpty {
-            parts.append(readsFromFile(prompt, after: parts) ? "\"$(command cat .aiterm/first-prompt.md)\"" : shellQuote(prompt))
-        }
-        return parts.joined(separator: " ")
-    }
-
-    /// `operated`: the Operator drives the task, and its worker launches with `workerWords`; false for a
+    /// `worker`: the task is a signal's, so its worker launches with `workerWords`; false for a
     /// task you make yourself. `promptFile` names the file under `.aiterm/` a prompt that does not go inline is
     /// written to: an extra worker tab's own (`TabOpener`), so two agents started in one worktree never read
     /// each other's. It is typed into the command as it is, so it is a plain file name.
     public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
-                             git: any GitRunning, operated: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md", publishing: Bool = false, resuming: String? = nil) throws -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated, readOnly: readOnly, publishing: publishing, resuming: resuming)
+                             git: any GitRunning, worker: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md", publishing: Bool = false, resuming: String? = nil) throws -> String {
+        var parts = invocation(agent: agent, model: model, reasoning: reasoning, worker: worker, readOnly: readOnly, publishing: publishing, resuming: resuming)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"

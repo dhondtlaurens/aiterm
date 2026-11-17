@@ -70,7 +70,7 @@ enum HarnessCardPresentation {
 
 struct HarnessSettingsPane: View {
     let model: HarnessSettingsModel
-    /// Help with problems' switch, and which agents are installed.
+    /// Claude Code's configuration path, shown on its card.
     let agents: AgentIntegrations
     /// Each card's Messaging, and its Run check; its versions are also what the verified line reads.
     var messaging = MessagingChecks.inert()
@@ -83,8 +83,6 @@ struct HarnessSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
-            HelpWithProblemsGroup(choice: Binding(get: { agents.helpWithProblems }, set: { agents.helpWithProblems = $0 }),
-                               installed: agents.availableAgents)
             ForEach(HarnessCardPresentation.agents, id: \.self) { agent in
                 if let snapshot = model.snapshots[agent] {
                     card(HarnessCardPresentation.snapshot(snapshot, messaging: messaging.readiness(of: agent),
@@ -94,7 +92,7 @@ struct HarnessSettingsPane: View {
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Claude Code and Codex are fully supported; other providers, such as Grok, work through PI. Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. The install and Help with problems both take effect immediately; Cancel does not undo them.")
+            HelpText("Claude Code and Codex are fully supported; other providers, such as Grok, work through PI. Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. The install takes effect immediately; Cancel does not undo it.")
         }
         .onChange(of: focus.map { model.snapshots[$0] != nil } ?? false, initial: true) { _, drawn in
             if drawn, let focus { scroll?.scrollTo(focus, anchor: .top) }
@@ -204,41 +202,6 @@ struct CheckFailureDetails: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-    }
-}
-
-/// “Help with problems” (spec §8, §13), the first group on Settings › Agents: one switch for whether
-/// a problem AiTerm hits offers Find a Fix. No agent select: the fix runs as the Operator, Claude, at
-/// Settings › Operator's model and reasoning. With Claude Code missing the switch is off and
-/// disabled, and the help says why.
-struct HelpWithProblemsGroup: View {
-    @Binding var choice: HelpWithProblems
-    let installed: Set<AgentKind>
-
-    static let title = "Help with problems"
-
-    /// The group's one line of help; without Claude Code it says what to do instead.
-    static func groupHelp(installed: Set<AgentKind>) -> String {
-        HelpWithProblems(isOn: true).isAvailable(installed: installed)
-            ? "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix: "
-                + "Claude Code, at the model and reasoning set in Settings › Operator. Nothing changes until you press Apply."
-            : "Needs Claude Code, the Operator’s agent. Install it on its card below."
-    }
-
-    /// What the switch shows: off, and disabled, while Claude Code is not installed.
-    static func switchIsOn(_ choice: HelpWithProblems, installed: Set<AgentKind>) -> Bool {
-        choice.isOn && choice.isAvailable(installed: installed)
-    }
-
-    var body: some View {
-        SettingsGroup(title: Self.title, help: Self.groupHelp(installed: installed)) {
-            SettingsSwitch(title: Self.title,
-                           isOn: Binding(get: { Self.switchIsOn(choice, installed: installed) }, set: { choice.isOn = $0 }))
-                .disabled(!choice.isAvailable(installed: installed))
-                .accessibilityIdentifier("help-with-problems-switch")
-        } rows: {
-            EmptyView()
         }
     }
 }

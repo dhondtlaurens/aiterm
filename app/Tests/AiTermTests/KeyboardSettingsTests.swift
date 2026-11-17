@@ -61,7 +61,7 @@ import Testing
         #expect(alias.action == keyed.first { $0.keyEquivalent == "+" }?.action)
     }
 
-    /// The File menu and the HIG's app-menu items are there, in order, with the keys the spec gives
+    /// The File menu and the HIG's app-menu items are there, in order, with the assigned keys for
     /// them.
     @Test func theFileAndAppMenusCarryTheirKeys() throws {
         let saved = NSApplication.shared.mainMenu
@@ -201,8 +201,7 @@ import Testing
         #expect(SettingsTab.allCases.count == 4)
     }
 
-    /// There is no ⌘I (spec §3, §10): the broadcast header's board button and Open Board open its board, and ↩
-    /// on the header folds its group. No row lists it, no menu item claims it, and the list hands it on.
+    /// There is no ⌘I command. Return opens the selected row.
     @Test func thereIsNoCommandI() throws {
         #expect(KeyBindings.all.flatMap(\.bindings).filter { $0.keys.last == "I" }.isEmpty)
         let saved = NSApplication.shared.mainMenu

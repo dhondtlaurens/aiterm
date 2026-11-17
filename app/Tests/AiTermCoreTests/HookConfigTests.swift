@@ -15,7 +15,7 @@ import Foundation
         let obj = try JSONSerialization.jsonObject(with: once) as! [String: Any]
         let hooks = obj["hooks"] as! [String: [[String: Any]]]
         #expect(hooks["Stop"]!.count == 2, "Emdash entry kept, ours added")
-        #expect(Set(hooks.keys) == ["SessionStart", "PostModelSwitch", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
+        #expect(Set(hooks.keys) == ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
                                     "Notification", "PermissionRequest"])
         #expect(hooks.values.allSatisfy { $0.allSatisfy { entry in
             (entry["hooks"] as! [[String: Any]]).allSatisfy { $0["_aiterm"] == nil || $0["async"] as? Bool == true }
@@ -37,8 +37,8 @@ import Foundation
     func testClaudeMergeFromNoOrEmptySettingsStartsEmpty(_ settings: Data?) throws {
         let (data, original) = try ClaudeSettings.merge(settings, hookURL: "u", shimPath: "s")
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect((obj["hooks"] as! [String: Any]).count == 9)
-        #expect(ClaudeSettings.events.count == 9)
+        #expect((obj["hooks"] as! [String: Any]).count == 8)
+        #expect(ClaudeSettings.events.count == 8)
         #expect(original == nil)
     }
 
@@ -52,26 +52,16 @@ import Foundation
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
         let command = AiTermPaths.statusLineOriginalURL(home: home)
         #expect(try String(contentsOf: command, encoding: .utf8) == "my-statusline", "the shim reads the command as plain text")
-        #expect(!FileManager.default.fileExists(atPath: AiTermPaths.legacyStatusLineOriginalURL(home: home).path),
-                "the JSON record nothing reads is no longer written")
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
         #expect(try String(contentsOf: command, encoding: .utf8) == "my-statusline")
-        // An old install's JSON record goes with the command when the user's status line does.
-        let legacy = AiTermPaths.legacyStatusLineOriginalURL(home: home)
-        try Data(#"{"command":"my-statusline"}"#.utf8).write(to: legacy)
         try Data("{}".utf8).write(to: settings)
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        #expect(!FileManager.default.fileExists(atPath: legacy.path))
         #expect(!FileManager.default.fileExists(atPath: command.path))
         #expect(ClaudeSettings.statusLineIsInstalled(try Data(contentsOf: settings), shimPath: shim, isRunnable: { _ in true }))
     }
 
-    /// The shim posts to the port in `hook-port`, so Install writes it, and settings that are
-    /// current without it are outdated until a Repair does. It writes it into a support folder it
-    /// finds, however the folder is spelled, and never renames the user's data: an install that
-    /// found both "AIterm" and "AiTerm" once threw "Both … folders exist" about a file it was not
-    /// writing.
-    @Test func installRecordsTheShimsPortAndNeverMigratesTheDataFolder() throws {
+    /// Install records the port the shim posts to; a missing or different port requires Repair.
+    @Test func installRecordsTheShimsPort() throws {
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let shim = "/Applications/AiTerm.app/claude-statusline-shim.sh"
         let driver = ClaudeDriver(home: home, daemonPort: 50123, shimPath: shim)
@@ -85,48 +75,6 @@ import Foundation
         #expect(driver.state == .outdated, "another port than the hooks' own")
         try driver.install()
         #expect(driver.state == .current)
-
-        let base = AiTermPaths.supportDirectory(home: home).deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: base.appendingPathComponent("AIterm"), withIntermediateDirectories: true)
-        try driver.install()
-        #expect(FileManager.default.fileExists(atPath: base.appendingPathComponent("AIterm").path), "the legacy folder is left to launch")
-    }
-
-    /// AiTerm once installed `PreToolUse` as a synchronous Bash hook. A merge takes out only our
-    /// own entry — a foreign hook sharing the entry or the event stays — and until that repair has
-    /// run, the install reads as outdated rather than current.
-    @Test func testRetiredPreToolUseHookIsRemovedButForeignOnesStay() throws {
-        let ours: [String: Any] = ["type": "http", "url": "http://127.0.0.1:47821/hook/claude", "_aiterm": true, "timeout": 3]
-        let foreign: [String: Any] = ["type": "command", "command": "/usr/local/bin/guard.sh"]
-        let old = try JSONSerialization.data(withJSONObject: ["hooks": ["PreToolUse": [
-            ["matcher": "Bash", "hooks": [ours]],
-            ["matcher": "Bash", "hooks": [ours, foreign]],
-        ]]])
-        let (merged, _) = try ClaudeSettings.merge(old, hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: "s")
-        let hooks = (try JSONSerialization.jsonObject(with: merged) as! [String: Any])["hooks"] as! [String: Any]
-        let preTool = hooks["PreToolUse"] as! [[String: Any]]
-        #expect(preTool.count == 1)
-        #expect((preTool[0]["hooks"] as! [[String: Any]]).map { $0["command"] as? String } == ["/usr/local/bin/guard.sh"])
-
-        let onlyOurs = try JSONSerialization.data(withJSONObject: ["hooks": ["PreToolUse": [["matcher": "Bash", "hooks": [ours]]]]])
-        let (cleaned, _) = try ClaudeSettings.merge(onlyOurs, hookURL: "u", shimPath: "s")
-        #expect(((try JSONSerialization.jsonObject(with: cleaned) as! [String: Any])["hooks"] as! [String: Any])["PreToolUse"] == nil)
-
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-home-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: home) }
-        let settings = home.appendingPathComponent(".claude/settings.json")
-        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let shim = "/Applications/AiTerm.app/claude-statusline-shim.sh"
-        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).state == .current)
-        var obj = try JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as! [String: Any]
-        var withRetired = obj["hooks"] as! [String: Any]
-        withRetired["PreToolUse"] = [["matcher": "Bash", "hooks": [ours]]]
-        obj["hooks"] = withRetired
-        try JSONSerialization.data(withJSONObject: obj).write(to: settings)
-        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).state != .current)
-        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).state == .current)
     }
 
     /// Claude Code runs a `SessionStart` command hook but never posts a `SessionStart` http hook
@@ -642,25 +590,6 @@ import Foundation
         #expect(CodexDriver(home: home, daemonPort: 9999).state != .current)
         let repaired = CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:9999")
         #expect(repaired == text.replacingOccurrences(of: "127.0.0.1:47821", with: "127.0.0.1:9999"))
-    }
-
-    /// An upgrade must not wait for Settings' Install or Repair to keep the user's status line
-    /// showing: nothing reports an install with only the JSON record as out of date.
-    @Test func anOldJSONRecordIsMigratedAtLaunchWithoutAnInstall() throws {
-        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
-        let support = home.appendingPathComponent("Library/Application Support/AiTerm")
-        let command = support.appendingPathComponent("statusline-original.cmd")
-        try StatusLineOriginal.migrate(home: home)
-        #expect(!FileManager.default.fileExists(atPath: command.path), "no record, nothing to write")
-
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        try Data(#"{"type":"command","command":"~/bin/my status.sh --short"}"#.utf8).write(to: support.appendingPathComponent("statusline-original.json"))
-        try StatusLineOriginal.migrate(home: home)
-        #expect(try String(contentsOf: command, encoding: .utf8) == "~/bin/my status.sh --short")
-
-        try Data("edited".utf8).write(to: command)
-        try StatusLineOriginal.migrate(home: home)
-        #expect(try String(contentsOf: command, encoding: .utf8) == "edited", "once")
     }
 
     /// TOML forbids extending an array or table that is already set inline, by a dotted key or by

@@ -8,7 +8,6 @@ parity remains enabled. Names and other values retain the existing scripted capt
 
 Capture: from `daemon/`, `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py`.
 Then run the producer normally and the app's WireContractTests. No live account or iTerm2 is used.
-The separate frozen operator-current tool and workspace fixtures were not regenerated.
 
 Activation adds `session.closeIdle`, a generation- and conversation-checked idle worker handover.
 Only its new reply frame and the method manifest were captured; existing frames are unchanged.
@@ -19,3 +18,14 @@ On 15 Nov 2026 the Signal activation/deletion deliberately added `generation: 1`
 `operator.request` event. Register and revoke now require the single Operator's generation;
 per-run tokens are retired. The existing capture driver produced this frame through the real
 socket and HTTP route. Every other previously captured frame stayed byte-for-byte unchanged.
+
+On 17 Nov 2026, greenfield refactor step 1g removed `model`, `reasoning`, `title`,
+`subagentsWrittenAt` and `slashCommands` from every session, and `session.prompt` and
+`session.dismissStartup` from the manifest and reply fixtures. Re-recorded with
+`AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py` through the synthetic
+Service and FakeIterm; no live account or iTerm2 used. All other frames retain their bytes.
+
+On 17 Nov 2026, greenfield refactor step 1j renamed `runId` to `operatorId` in the
+`operator.request` event and the `operator.register`/`operator.revoke` params. Re-recorded with
+`AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py` through the synthetic
+Service and FakeIterm; no other frame changed and no live account was used.

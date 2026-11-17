@@ -2,11 +2,9 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Every archived task and review and every ended broadcast, newest first, searched from the navigation
-/// band: ↑ ↓ move the highlight, ⌘↩ or a double-click restores it — or, on a broadcast, opens its sheet in
-/// the Archive's place — ⌘⌫ asks Remove's question about it, ⎋ clears a search and then closes. The search
-/// field keeps the keyboard throughout, so its commands are the sheet's: ⌘⌫ — a field's
-/// delete-to-line-start — removes the highlighted row instead, ⎋ having cleared the line.
+/// Archived tasks and reviews, newest first, searched from the navigation band. ↑ ↓ move the
+/// highlight, ⌘↩ or a double-click restores it, ⌘⌫ asks Remove's question, and ⎋ clears a search
+/// then closes. The search field keeps the keyboard throughout.
 struct ArchiveSheet: View {
     let model: ArchiveSheetModel
     @Environment(\.dismiss) private var dismiss
@@ -41,25 +39,21 @@ struct ArchiveSheet: View {
                 ScrollViewReader { scroller in
                     LazyVStack(spacing: Space.hairline) {
                         ForEach(rows) { row in
-                            let date = ArchiveDate.label(row.shelvedAt, now: now, calendar: calendar, locale: calendar.locale ?? .current)
-                            Group {
-                                switch row {
-                                case .task(let entry): ArchiveRow(entry: entry, date: date)
-                                }
-                            }
+                            let date = ArchiveDate.label(row.archived.archivedAt, now: now, calendar: calendar, locale: calendar.locale ?? .current)
+                            ArchiveRow(entry: row, date: date)
                             .modifier(RowPill(selected: row.id == highlighted, ground: .sheet))
                             .id(row.id)
                             .onTapGesture(count: 2) { model.highlight(row.id); perform() }
                             .onTapGesture { model.highlight(row.id) }
                             .accessibilityAddTraits(row.id == highlighted ? .isSelected : [])
-                            .accessibilityAction(named: ArchiveSheetModel.primaryTitle(of: row)) { model.highlight(row.id); perform() }
+                            .accessibilityAction(named: "Restore") { model.highlight(row.id); perform() }
                         }
                     }
                     .onChange(of: highlighted) { _, id in if let id { scroller.scrollTo(id) } }
                 }
             }
         } footer: {
-            // Nothing archived: no count, and no Restore — absent, not disabled. Open on an ended broadcast.
+            // Nothing archived: no count and no Restore button.
             SheetFooter(secondary: "Close", primary: primary, closeList: model.clearQuery,
                         cancel: { dismiss.afterThisEvent() }, submit: perform) {
                 if total > 0 { HelpText(archive.status) }
@@ -67,11 +61,8 @@ struct ArchiveSheet: View {
         }
     }
 
-    /// Restore closes the sheet; Open puts the broadcast's sheet in its slot, which closes it already — a
-    /// dismiss after would close the broadcast's.
     private func perform() {
-        let opens = false
-        guard model.performHighlighted(), !opens else { return }
+        guard model.performHighlighted() else { return }
         dismiss.afterThisEvent()
     }
 
@@ -137,6 +128,3 @@ struct ArchiveRow: View {
         .accessibilityElement(children: .combine)
     }
 }
-
-/// An ended broadcast on the Archive: the broadcast's glyph, its name, and the day it ended on the
-/// name's line, where a archived task's date sits. Inked from its `Surface`, which the pill around it declares.

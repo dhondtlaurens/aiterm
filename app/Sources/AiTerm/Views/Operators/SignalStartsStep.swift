@@ -113,7 +113,6 @@ struct SignalMatchPreview: View {
         switch item {
         case .ticket(let ticket): ticket.key
         case .mergeRequest(let request): (model.sourceKind == .gitHub ? "#" : "!") + String(request.number)
-        case .branch(let branch): branch.name
         case .unknown: "Item"
         }
     }

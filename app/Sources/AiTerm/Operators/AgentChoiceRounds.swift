@@ -46,7 +46,7 @@ import AiTermCore
         let ledger = OracleRoundLedger(workspace: workspace, now: now, tool: scope.rawValue)
         let binding = try Self.json(["task": .string(task.id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership)])
         guard !active.contains(binding) else { return .reply(["status": "pending"]) }
-        var previous: ChallengeRecord?
+        var previous: OracleRound?
         if let open = ledger.open(binding: binding) {
             switch open.stage {
             case .delivered:

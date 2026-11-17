@@ -74,8 +74,7 @@ extension AppController {
                      findPython: @escaping @Sendable () -> URL? = { nil },
                      jiraSettings: @escaping @Sendable () -> JiraConfig? = { nil },
                      gitLabSettings: @escaping @Sendable () -> GitLabConfig? = { nil },
-                     gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { nil },
-                     fixPipeline: (@MainActor (Project) -> FixPipeline)? = nil) {
+                     gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { nil }) {
         let scratch = ScratchFolder.path("aiterm-test-state-", suffix: ".json")
         let ports = AppPorts(store: store ?? StateStore(url: scratch), harnessHome: harnessHome, claudeConfig: claudeConfig,
                              bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
@@ -83,8 +82,7 @@ extension AppController {
                              prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm,
                              itermRunning: itermRunning, bringForward: bringForward, backpackPorts: backpackPorts,
                              backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor,
-                             git: git, scan: scan, confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch(),
-                             fixPipeline: fixPipeline)
+                             git: git, scan: scan, confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch())
         self.init(preferences: preferences, ports: ports,
                   timings: AppTimings(peekDelay: peekDelay, checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime,
                                       closedWindowHold: closedWindowHold, now: now))

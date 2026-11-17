@@ -20,19 +20,11 @@ agreement. The following tables describe the current contract.
 | `sessions.markSeen` | clear a done mark when its row is opened |
 | `interface.setMatchItermBackground` | paint AiTerm windows #17181B, the sidebar's ground |
 | `iterm.provideCookie` | the answer to `iterm.cookieRequested`: a cookie and key, "not running", or why iTerm2 refused. An answer to a request that has timed out or been answered is not accepted |
-| `session.deliver` | types a message into an agent's tab by the delivery adapter's rules: refused unless the CLI passed the delivery check (`delivery-policy.json`) for the major and minor version the tab runs (`verdict_covers`: a pass for 2.1.301 holds for every 2.1.x; Claude's session file, Codex's rollout), its screen reads and no prompt is open; a bracketed paste, 0.4 s, the same checks again, then Enter — anything changed in between, a takeover among it, holds the Enter back and answers `partial`. Over 2000 characters it is left in `<worktree>/.aiterm/messages/<n>.md`, everything checked again, and one fixed line typed. With `wake`, the Operator's wake line: no pass from the delivery check needed, every other check kept, never a message file, a fixed Signal event plus task UUID is accepted without host text; other text with a digit or one-letter word is refused; and refused while you typed in that tab in the last 10 s, or while its input may hold text not yet sent. The reply's `code` names a refusal's reason in one word (`delivery.RefusalCode`) |
+| `session.deliver` | types a message into an agent's tab by the delivery adapter's rules: refused unless the CLI passed the delivery check (`delivery-policy.json`) for the major and minor version the tab runs (`verdict_covers`: a pass for 2.1.301 holds for every 2.1.x; Claude's session file, Codex's rollout), its screen reads and no prompt is open; a bracketed paste, 0.4 s, the same checks again, then Enter — anything changed in between, a takeover among it, holds the Enter back and answers `partial`. Over 2000 characters it is left in `<worktree>/.aiterm/messages/<n>.md`, everything checked again, and one fixed line typed. With `wake`, the Operator's wake line: no pass from the delivery check needed, every other check kept, never a message file, a fixed Signal event plus task UUID is accepted without host text; all other text is refused; and refused while you typed in that tab in the last 10 s, or while its input may hold text not yet sent. The reply's `code` names a refusal's reason in one word (`delivery.RefusalCode`) |
 | `session.closeIdle` | closes only the addressed ended CLI under the exact conversation/ownership and input checks, preserving sibling tabs. Used to resume a worker or replace the idle Operator without terminating somebody's active turn |
-| `session.prompt` | the prompt the tab's screen shows open: `permission`, `startup`, `menu` or none; a blank screen is an error. Recognition rules are below this table |
-| `session.dismissStartup` | declines the CLI's update offer with Esc only while its tab is not working and its update options appear below any input arrow; other startup dialogs remain yours to answer: `{dismissed: false}` |
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
 | `operator.register` / `operator.revoke` | require `generation`; one private `operators/operator/token` and `session.json` bind session identity, generation and token hash. Stale revocation cannot revoke a successor. A failed deletion remains owed on retry; there are no per-run tokens |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
-
-`session.prompt` recognises Claude's last selection arrow on a numbered option next to its preceding
-or following option, outside the ruled input frame, even without a known footer (including model
-and effort confirmations). Indented wraps, descriptions and blank separators are allowed. A later
-input arrow or the ctrl+o detailed-transcript view rules out a numbered menu. Codex uses its markers.
-For tabs not in needs-input, markers above a later input arrow belong to the transcript.
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of
@@ -54,7 +46,7 @@ effect in the order it was sent.
 | `iterm.cookieRequested` | the daemon needs a cookie for its next connect; the app asks iTerm2 with an Apple event and answers with `iterm.provideCookie`. An attached app that stays silent for 120 s is asked again, under a new id; time with no app attached does not count |
 | `window.activated` | aligns the sidebar selection when iTerm2 is raised from outside — e.g. by clicking an agent's notification |
 | `window.closed` | the row owed that window is windowless at once, and the app decides what follows: a task window the person closed on its own is followed, a second later, by Remove's question, Archive its third answer, a terminal's lone close takes its row, any other close is restored once iTerm2 is quiet; a close during a removal only clears its window |
-| `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its restore), a new write by a subagent it counts (`subagentsWrittenAt`, which tells the Operator a turn that ended on its subagents is still at work); a tab tagged with a row's id in a window the row lacks hands the row that window |
+| `session.opened` / `.changed` | a new tab, a new agent, a new state, a new conversation (`conversationId`, which the task saves for its restore); a tab tagged with a row's id in a window the row lacks hands the row that window |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
 | `operator.request` | the Operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
@@ -77,7 +69,7 @@ The single Operator's `operator.request` includes the token's required `generati
 it before acting. The token serves fourteen Signal tools. Task actions also carry stage/ownership;
 the shell gate is a separate private route. A missing/revoked token always denies `/operator/gate`,
 including revocation while waiting for the app. The app also returns a real gate denial for stale
-session/claim data. An unavailable Oracle follows the explicit unchallenged shell policy; it never
+session/claim data. An unavailable Oracle follows the explicit unchecked shell policy; it never
 counts as agreement to a worker answer or automatic merge.
 
 An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read

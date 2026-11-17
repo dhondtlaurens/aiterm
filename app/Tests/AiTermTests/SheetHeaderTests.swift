@@ -27,8 +27,8 @@ import Testing
     /// On the last step every earlier one is ticked.
     @Test func onTheLastStepEveryEarlierOneIsTicked() {
         #expect(SheetStepper.marks(step: 3, names: names) == [.done, .done, .current("Agent")])
-        let broadcast = SignalModel.stepNames
-        #expect(SheetStepper.marks(step: 3, names: broadcast) == [.done, .done, .current(broadcast[2]), .ahead(4), .ahead(5)])
+        let signal = SignalModel.stepNames
+        #expect(SheetStepper.marks(step: 3, names: signal) == [.done, .done, .current(signal[2]), .ahead(4), .ahead(5)])
     }
 
     /// VoiceOver reads the stepper as one sentence: where you are, of how many, and the step's name.
@@ -38,11 +38,11 @@ import Testing
                 == "Step 1 of 5, \(SignalModel.stepNames[0])")
     }
 
-    /// Beside New Broadcast's title, all five steps keep their size: the title gives way, cut in its
+    /// Beside New Signal's title, all five steps keep their size: the title gives way, cut in its
     /// middle, rather than the stepper.
     @Test func theTitleGivesWayBeforeTheStepper() {
         let stepper = NSHostingView(rootView: SheetStepper(step: 1, names: SignalModel.stepNames))
-        let long = String(repeating: "A long broadcast title ", count: 8)
+        let long = String(repeating: "A long signal title ", count: 8)
         let width = Box()
         let sheet = SheetLayout(title: long, height: .fixed(Sheet.height)) {
             SheetStepper(step: 1, names: SignalModel.stepNames)
@@ -121,7 +121,7 @@ import Testing
                 "\(file): \(document.frame.height) of content in \(scroll.contentView.bounds.height)")
     }
 
-    /// New Broadcast keeps `Sheet.height` on every step.
+    /// New Signal keeps `Sheet.height` on every step.
     @Test func newSignalKeepsTheSheetHeight() {
         for step in 1...5 {
             let model = SignalSnapshots.model(.jira)

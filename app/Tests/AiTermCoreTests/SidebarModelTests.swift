@@ -49,8 +49,6 @@ import Synchronization
         let json = #"[{"kind": "shell", "text": "npm run dev"}, {"kind": "teammate", "text": "Reviewer"}]"#
         let jobs = try JSONDecoder().decode([BackgroundJob].self, from: Data(json.utf8))
         #expect(jobs == [BackgroundJob(kind: .shell, text: "npm run dev"), BackgroundJob(kind: .task, text: "Reviewer")])
-        let older = try JSONDecoder().decode([BackgroundJob].self, from: Data(#"["npm run dev"]"#.utf8))
-        #expect(older == [BackgroundJob(kind: .task, text: "npm run dev")], "an older daemon's bare text")
     }
 
     @Test func displaySourcesPreserveStopOrderAndNeverDecideStatus() {
@@ -104,7 +102,6 @@ import Synchronization
         #expect(counts == [StatusCount(status: .working, count: 1), StatusCount(status: .waiting, count: 2),
                            StatusCount(status: .needsInput, count: 1)])
         #expect(SidebarModel.statusCountsLabel(counts) == "1 working, 2 waiting, 1 needs input")
-        #expect(SidebarModel.needingAttention([ProjectSection(project: Project.make(name: "Repo", path: "/repo", addedAt: Date(), collapsed: true), tasks: [taskRow(.waiting)], terminals: [])]).isEmpty)
     }
 
     func taskRow(_ status: TaskStatus) -> TaskRow {
@@ -166,26 +163,6 @@ import Synchronization
         #expect(SidebarModel.focusView([ProjectSection(project: project, tasks: [taskRow(.working)], terminals: [terminalRow(.idle)])])
                 == [project.id: true])
         #expect(SidebarModel.focusView([]) == [:])
-    }
-
-    /// The row Focus View goes to, in drawing order: projects top to bottom, terminals above tasks,
-    /// a skipped task passed over, and none when nothing waits.
-    @Test func firstNeedingAttentionFollowsTheDrawingOrder() {
-        func section(tasks: [TaskRow] = [], terminals: [TerminalRow] = []) -> ProjectSection {
-            ProjectSection(project: Project.make(name: "Repo", path: "/repo", addedAt: Date()), tasks: tasks, terminals: terminals)
-        }
-        let busy = section(tasks: [taskRow(.working)])
-        let done = taskRow(.done), asking = terminalRow(.needsInput), later = taskRow(.needsInput)
-        let waiting = section(tasks: [done, later], terminals: [asking])
-        #expect(SidebarModel.firstNeedingAttention([busy, waiting]) == .terminal(asking.id))
-        let tasksOnly = section(tasks: [done, later])
-        #expect(SidebarModel.firstNeedingAttention([busy, tasksOnly]) == .task(done.id))
-        #expect(SidebarModel.firstNeedingAttention([tasksOnly], skippingTasks: [done.id]) == .task(later.id))
-        #expect(SidebarModel.firstNeedingAttention([busy]) == nil)
-        // The whole list Focus View steps through, in the same order; the Dock badge counts it.
-        #expect(SidebarModel.needingAttention([busy, waiting]) == [.terminal(asking.id), .task(done.id), .task(later.id)])
-        #expect(SidebarModel.needingAttention([waiting], skippingTasks: [done.id]) == [.terminal(asking.id), .task(later.id)])
-        #expect(SidebarModel.needingAttention([busy]).isEmpty)
     }
 
     /// List View (⌘L): every project with rows opens, whatever its rows say; empty ones are left out.
@@ -265,8 +242,6 @@ import Synchronization
                 == UsageTaskRow(agent: .codex, context: UsageLine(window: .context, percent: 40, reset: nil, warning: false)))
         #expect(SidebarModel.sessionTitles(state: state, sessions: sessions, branchByCwd: [:], projectBranch: [:])
                 == [SessionTitle(sessionId: "a", title: "feat/t")])
-        let asking = [session("a", task: t.id.uuidString.lowercased(), agent: .codex, state: .needsInput, tab: 0)]
-        #expect(DockBadge.label(for: SidebarModel.sections(state: state, sessions: asking, branchByCwd: [:], projectBranch: [:])) == "1")
     }
 
     @Test func testSectionsPutTasksBeforeReviewsWithoutReorderingEitherLane() {

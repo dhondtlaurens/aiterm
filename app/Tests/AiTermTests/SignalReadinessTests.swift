@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// New Broadcast's Start waits for what a broadcast needs: every agent the Operator may plan on Ready,
+/// New Signal's Start waits for what the Operator needs: every agent the Operator may plan on Ready,
 /// Messaging included, and iTerm2's own checks passed. What is not ready is one footer line each, in
 /// the words that agent's card says it.
 @MainActor

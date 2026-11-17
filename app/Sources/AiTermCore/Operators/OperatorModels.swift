@@ -23,13 +23,10 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     public var agent: AgentKind
     public var model: String
     public var reasoning: String?
-    public var requestedLaunch: LaunchRequest?
     /// Why the Operator chose its agent and model, in its words.
     public var modelReason: String
     /// The tab's first prompt as the Operator wrote it, before AiTerm's own lines (`TabOpener.prompt`).
     public var brief: String
-    /// The person's words named its agent: it was not refused for an agent whose workers can't be messaged.
-    public var agentPinned: Bool
     /// Its latest request; `openedAt` once its tab was seen. A tab that showed is never asked for again.
     public var launch: LaunchAttempt
     /// The session it opened, as iTerm2 names it: the daemon's answer, or the tagged tab the reconciler found.
@@ -39,35 +36,14 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     /// The conversation its agent last named (`SessionInfo.conversationId`): read once its tab is closed, and never taken
     /// for the first worker's (`TaskItem.firstWorkerConversation`).
     public var conversation: String?
-    /// More work on the task, or a review of its branch head (`open_tab`'s `role`). Work, its default, is left out of the
-    /// save.
-    @OmittedWhenDefault<SavedDefaults.Work> public var role: TabRole
 
     public init(key: String, agent: AgentKind, model: String, reasoning: String?, modelReason: String, brief: String,
-                agentPinned: Bool = false, launch: LaunchAttempt, sessionId: String? = nil, failure: String? = nil,
-                conversation: String? = nil, role: TabRole = .work) {
+                launch: LaunchAttempt, sessionId: String? = nil, failure: String? = nil,
+                conversation: String? = nil) {
         self.key = key; self.agent = agent; self.model = model; self.reasoning = reasoning; self.modelReason = modelReason
-        self.brief = brief; self.agentPinned = agentPinned; self.launch = launch; self.sessionId = sessionId; self.failure = failure
-        self.conversation = conversation; self.role = role
+        self.brief = brief; self.launch = launch; self.sessionId = sessionId; self.failure = failure
+        self.conversation = conversation
     }
-}
-
-public struct PeopleReview: Codable, Equatable, Sendable {
-    public var reviewers: [String]
-    public var threads: [String: Bool]
-    /// Each thread's last note as `ReviewWatcher.signature` writes it, by the thread's id.
-    public var notes: [String: String]
-    public var approvals: [String]
-    public var ended: Bool
-    public var startedAt: Date?
-
-    public init(reviewers: [String] = [], threads: [String: Bool] = [:], notes: [String: String] = [:], approvals: [String] = [],
-                ended: Bool = false, startedAt: Date? = nil) {
-        self.reviewers = reviewers; self.threads = threads; self.notes = notes; self.approvals = approvals; self.ended = ended
-        self.startedAt = startedAt
-    }
-
-
 }
 
 public enum ClosingWait: String, Codable, Sendable, LocalizedError {
@@ -82,12 +58,6 @@ public enum ClosingWait: String, Codable, Sendable, LocalizedError {
     }
 
     public var errorDescription: String? { text }
-}
-
-public struct LaunchRequest: Codable, Equatable, Sendable {
-    public var model: String?
-    public var reasoning: String?
-    public init(model: String?, reasoning: String?) { self.model = model; self.reasoning = reasoning }
 }
 
 public struct GateRequest: Codable, Equatable, Sendable {
@@ -107,93 +77,45 @@ public struct OperatorSnag: Codable, Equatable, Sendable {
         self.evidence = evidence; self.task = task; self.taskKey = taskKey; self.branch = branch
         self.appVersion = appVersion; self.at = at
     }
-
-    /// The snag as an AiTerm task's prompt: a line with nothing to say (no task, no evidence) is left out.
-    public func fixTask(broadcast: String, runId: UUID) -> String {
-        var seen = "Seen in broadcast \"\(broadcast)\" (\(runId.uuidString))"
-        if let taskKey { seen += ", task \(taskKey)" + (branch.map { " on \($0)" } ?? "") }
-        seen += ", AiTerm \(appVersion), \(ISO8601DateFormatter().string(from: at))."
-        var lines = ["Fix in AiTerm: \(title)", "", seen, "",
-                     "What AiTerm showed: \(showed)", "What was true: \(actual)", "How the Operator got unstuck: \(workaround)"]
-        if let evidence = evidence?.trimmingCharacters(in: .whitespacesAndNewlines), !evidence.isEmpty {
-            lines += ["Evidence:", evidence]
-        }
-        lines += ["", "Make AiTerm show what was true here, so the Operator doesn't have to work around it."]
-        return lines.joined(separator: "\n")
-    }
 }
 
-public struct ThreadCritique: Codable, Equatable, Sendable {
-    public var thread: String
-    public var note: String
-    public var head: String?
-    public var critique: String
-    public var at: Date
-    public init(thread: String, note: String, head: String?, critique: String, at: Date) {
-        self.thread = thread; self.note = note; self.head = head; self.critique = critique; self.at = at
+public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
+    public enum Stage: String, Codable, CaseIterable, Sendable {
+        case running, ready, delivered
+        case unanswered = "unchallenged"
     }
-}
+    private enum CodingKeys: String, CodingKey {
+        case id, tool, stage, critique, askedArguments, askedEvidence, result, askedAt, round, reply
+        case unansweredReason = "unchallengedReason"
+    }
 
-public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case running, ready, delivered, unchallenged, acted }
-
-public enum ChallengeKind: String, Codable, Sendable { case critique, veto }
-
-public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var tool: String
-    /// A critique, or a veto; a record saved before vetoes is a critique.
-    @Defaulted<SavedDefaults.Critique> public var kind: ChallengeKind
-    public var stage: ChallengeStage
-    /// The Oracle's critique, once it gave one; for a veto, the Oracle's reason.
+    public var stage: OracleRound.Stage
+    /// The Oracle's answer, once it gave one.
     public var critique: String?
-    /// A veto's answer once the Oracle gave one: true only for its yes.
-    public var approved: Bool?
-    /// The challenged call's arguments as canonical JSON, as `actedArguments`: a veto's yes acts only for these.
+    /// The proposed call's arguments as canonical JSON.
     public var askedArguments: String?
-    /// A finish_task's veto, on a merge or a push past the hook (`noVerify`): the commit accepted when the Oracle was
-    /// asked. Its yes holds for that commit only.
-    public var askedSHA: String?
-    /// Acceptance and required-check inputs used by this veto; refreshed evidence cannot reuse its verdict.
-    /// For a relay round, the worker's question the Oracle read: its verdict judges no other question.
+    /// The evidence binding this round to its task or question.
     public var askedEvidence: String?
-    /// A finish_task's veto: whether the Oracle was asked about the merge's conditions, alone or with a push past the
-    /// hook. False for one asked about the hook alone, whose yes is no merge's. Nil on a record saved before `noVerify`,
-    /// when every finish_task veto was a merge's (`asksMerge`).
-    public var askedMerge: Bool?
-    /// Why the act proceeded unchallenged: the Oracle missing, failed or too slow.
-    public var unchallengedReason: String?
-    /// The acting call's arguments as canonical JSON, `challengeId` and `challengeReply` left out:
-    /// a repeat is the same call when these are the same.
-    public var actedArguments: String?
-    /// The acting call's answer, as the JSON the operator read.
+    /// Why the action proceeded without the Oracle's agreement: it was missing, failed or too slow.
+    public var unansweredReason: String?
+    /// The call's answer, as the JSON the Operator read.
     public var result: String?
     public var askedAt: Date
-    /// A relay's Oracle round, from 1 (`relay_question`, Agreed first); nil for any other challenge.
+    /// The Oracle round, starting at 1; nil when the call has no discussion.
     public var round: Int?
-    /// A relay's round answered: the Operator's reply to its critique, which the next round reads. Nil otherwise.
+    /// The Operator's proposal or reply to the Oracle, which the next round reads.
     public var reply: String?
 
-    public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
-                approved: Bool? = nil, askedArguments: String? = nil, askedSHA: String? = nil, unchallengedReason: String? = nil,
-                actedArguments: String? = nil, result: String? = nil, askedAt: Date, askedMerge: Bool? = nil, askedEvidence: String? = nil,
-                round: Int? = nil) {
-        self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
-        self.askedArguments = askedArguments; self.askedSHA = askedSHA; self.askedMerge = askedMerge
-        self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
+    public init(id: String, tool: String, stage: OracleRound.Stage = .running, critique: String? = nil,
+                askedArguments: String? = nil, unansweredReason: String? = nil,
+                result: String? = nil, askedAt: Date, askedEvidence: String? = nil, round: Int? = nil) {
+        self.id = id; self.tool = tool; self.stage = stage; self.critique = critique
+        self.askedArguments = askedArguments
+        self.unansweredReason = unansweredReason; self.result = result
         self.askedAt = askedAt; self.askedEvidence = askedEvidence; self.round = round
     }
-
-    /// Whether a finish_task's yes is a merge's (`askedMerge`).
-    public var asksMerge: Bool { askedMerge ?? (askedSHA != nil) }
-
-    /// What the record is, read from its tool, kind and round and never saved: a critique the Operator answers or acts
-    /// on, a veto only a yes lets act, or one of a relayed question's Oracle rounds, from 1 (a round saved before rounds
-    /// were numbered is the first).
-    public enum Role: Equatable, Sendable { case critique, veto, relayRound(Int) }
-
-
-
-    /// A relay's round (`role`); nil for any other record.
 }
 
 public struct PausedWorker: Codable, Hashable, Sendable {

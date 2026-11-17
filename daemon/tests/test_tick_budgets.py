@@ -100,8 +100,8 @@ async def workspace_at_rest(make_service, tmp_path, *, claude: int, codex: int, 
         transcript = tmp_path / f"claude-{index}.jsonl"
         write(transcript, launch())
         svc.status.apply_metadata(sid, conversation=f"conversation-{index}", transcript=str(transcript), context=40)
-        svc.status.apply_event(sid, HookEvent("claude", "sessionStart", None, f"conversation-{index}", "/wt"))
-        svc.status.apply_event(sid, HookEvent("claude", "working", None, f"conversation-{index}", "/wt"))
+        svc.status.apply_event(sid, HookEvent("claude", "sessionStart", f"conversation-{index}", "/wt"))
+        svc.status.apply_event(sid, HookEvent("claude", "working", f"conversation-{index}", "/wt"))
     for index in range(codex):
         pid += 1
         _, sid = await svc.iterm.create_window("/wt", f"codex-{index}", {"aiterm_task": f"x{index}"}, Frame(0, 0, 10, 10))
@@ -142,12 +142,12 @@ async def counted_tick(svc, monkeypatch, root):
 
 # claude, codex, shells, records -> registry sorts, file opens, directory listings, process spawns.
 @pytest.mark.parametrize(("shape", "ceiling"), [
-    ((0, 0, 6, 0), (6, 0, 2, 0)),
+    ((0, 0, 6, 0), (4, 0, 2, 0)),
     # Task-index lookups add no registry sort for a Codex context update.
-    ((2, 2, 2, 0), (6, 0, 2, 0)),
-    ((6, 6, 6, 0), (6, 0, 2, 0)),
+    ((2, 2, 2, 0), (4, 0, 2, 0)),
+    ((6, 6, 6, 0), (4, 0, 2, 0)),
     # Valid unchanged records are cached; each finished run still needs its kernel lock checked.
-    ((2, 2, 2, 20), (6, 20, 2, 0)),
+    ((2, 2, 2, 20), (4, 20, 2, 0)),
 ])
 async def test_a_steady_tick_stays_within_its_work_budget(make_service, tmp_path, monkeypatch, shape, ceiling):
     claude, codex, shells, records = shape

@@ -18,7 +18,7 @@ from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import BackgroundJob, Frame
 from aitermd.hook_events import HookEvent
-from tests.conftest import FRAME, call, http, post_hook, task_tab, wait_until
+from tests.conftest import FRAME, call, http, post_hook, task_tab, wait_until, settle
 from tests.fake_iterm import FakeIterm
 
 from tests.builders import (
@@ -71,7 +71,7 @@ async def test_status_and_create_task_window(stack):
 
 async def test_an_operators_command_is_typed_as_the_app_quoted_it(stack):
     """The Operator's command, quoted by the app, is typed as it is: nothing stripped or escaped
-    again. Its first message stays in the run folder's file, read by the shell, never typed."""
+    again. Its first message stays in the Operator's folder's file, read by the shell, never typed."""
     svc, it, files, r, w = stack
     folder = "/Users/me/Library/Application Support/AiTerm/operators/runs/R"
     cmd = ("claude --model 'claude-fable-5-1[1m]' --effort high --append-system-prompt-file"
@@ -138,8 +138,8 @@ async def background_session(make_service, tmp_path):
     await svc.tick()
     path = tmp_path / "parent.jsonl"
     svc.status.apply_metadata(sid, conversation="conversation", transcript=str(path))
-    svc.status.apply_event(sid, HookEvent("claude", "sessionStart", None, "conversation", "/wt"))
-    svc.status.apply_event(sid, HookEvent("claude", "working", None, "conversation", "/wt"))
+    svc.status.apply_event(sid, HookEvent("claude", "sessionStart", "conversation", "/wt"))
+    svc.status.apply_event(sid, HookEvent("claude", "working", "conversation", "/wt"))
     return svc, sid, path
 
 
@@ -181,7 +181,7 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
         elif replacement == "conversation":
             svc.status.apply_metadata(sid, conversation="other")
         elif replacement == "generation":
-            svc.status.apply_event(sid, HookEvent("claude", "sessionStart", None, "conversation", "/wt"))
+            svc.status.apply_event(sid, HookEvent("claude", "sessionStart", "conversation", "/wt"))
         else:
             svc.registry.apply_snapshot([])
         return reading
@@ -433,9 +433,6 @@ async def test_claude_hook_updates_status_via_pid_mapping(stack, tmp_path):
                                                        "tool_name": "Bash"})
     payload = await next_event(r, "session.changed")
     assert payload["sessionId"] == sid and payload["state"] == "needsInput"
-    await svc.hook_router.handle_hook("/hook/claude", {"hook_event_name": "PostModelSwitch", "session_id": "abc", "cwd": "/wt",
-                                                       "from_model": "a", "to_model": "claude-opus-5"})
-    assert (await next_event(r, "session.changed"))["model"] == "claude-opus-5"
     assert (await call(r, w, "sessions.markSeen", {"taskId": "t1"}, id_=4))["result"] == {"changed": 0}
 
 
@@ -774,8 +771,7 @@ async def test_concurrent_ticks_emit_window_closed_once(stack):
 
 
 async def test_user_tab_in_a_terminal_window_is_tagged_and_redirected(stack):
-    # Spec 2.4's redirect was gated on a task tag alone, so Cmd+T in a window
-    # opened by window.createTerminal landed in $HOME instead of the project.
+    # Cmd+T in a terminal window inherits its project's directory and tags.
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTerminal", {"projectId": "p1", "cwd": "/repo", "frame": FRAME}))["result"]["windowId"]
     sid = await it.user_opens_tab(wid, cwd="/Users/me")
@@ -1413,7 +1409,7 @@ async def test_a_child_that_ends_at_its_subagent_stop_ends_its_task_at_the_next_
 
 async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tmp_path):
     """A worker ended its turn while a background subagent and a shell ran (26 Oct 2026, 08:41): its session lists
-    both, the subagent by its description, and when the child's transcript was last written, for as long as the child
+    both, the subagent by its description, for as long as the child
     runs. Its end takes it off the list and lands the turn's done."""
     svc, it, files, r, w = stack
     gate = {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}
@@ -1423,13 +1419,12 @@ async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tm
     _append(child, CHILD_REPORT)
     os.utime(child, (3000, 3000))
     await svc.tick()
-    assert svc.registry.get(sid).to_json()["subagentsWrittenAt"] == 3000
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStop", "agent_id": "a1"})
     _append(child, CHILD_HANDS_BACK, CHILD_HANDED_BACK, CHILD_STOPPED)
     await svc.tick()
     session = svc.registry.get(sid).to_json()
-    assert (session["state"], session["background"], session["subagentsWrittenAt"]) == (
-        "done", [{"kind": "shell", "text": "scripts/test.sh"}], None)
+    assert (session["state"], session["background"]) == (
+        "done", [{"kind": "shell", "text": "scripts/test.sh"}])
 
 
 async def test_a_child_whose_transcript_is_nowhere_ends_at_the_tick_after_its_subagent_stop(stack, tmp_path):
@@ -1461,7 +1456,7 @@ async def test_a_stopped_child_waits_out_a_transcript_read_that_hangs(stack, tmp
         assert svc.registry.get(sid).state == "working"
     finally:
         release.set()
-    await svc.settle_reads()
+    await settle(svc)
     await svc.tick()
     assert svc.registry.get(sid).state == "done"
 
@@ -1574,7 +1569,7 @@ async def test_a_prompt_you_type_into_a_worker_is_yours_until_its_turn_ends(make
         w.close()
 
 
-async def test_a_turn_under_way_reads_its_childrens_transcripts_for_when_they_wrote(stack, tmp_path):
+async def test_a_turn_under_way_keeps_its_child_after_reading_its_transcript(stack, tmp_path):
     svc, it, files, r, w = stack
     sid = await _claude_tab_busy(svc, r, w, 932, "c2")
     await svc.tick()
@@ -1586,7 +1581,6 @@ async def test_a_turn_under_way_reads_its_childrens_transcripts_for_when_they_wr
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStart", "agent_id": "a1"})
     await svc.tick()
-    assert svc.registry.get(sid).to_json()["subagentsWrittenAt"] == 2000
     assert svc.registry.get(sid).state == "working" and svc.status.turn(sid).children
 
 
@@ -1896,7 +1890,7 @@ async def test_the_first_hooks_of_an_agent_launched_after_the_last_poll_are_not_
                                                               "cwd": "/wt", "model": "gpt-5.6"},
                       iterm_session_id=f"w0t0p0:{sid}") == 200
     await wait_until(lambda: svc.registry.get(sid).state == "working")
-    assert svc.registry.get(sid).agent == "codex" and svc.registry.get(sid).model == "gpt-5.6"
+    assert svc.registry.get(sid).agent == "codex"
 
 
 async def _claude_tab_busy(svc, r, w, pid, session, user_tab_of=None):
@@ -2129,7 +2123,7 @@ async def test_an_off_loop_check_that_fails_after_the_tick_gave_up_on_it_is_not_
     with caplog.at_level("WARNING", logger="aitermd.service"):
         assert await svc.run_check("a check", late_failure, "nothing") == "nothing"
         release.set()
-        await svc.settle_reads()
+        await settle(svc)
         await asyncio.sleep(0.01)
     gc.collect()
     await asyncio.sleep(0.01)
@@ -2268,7 +2262,7 @@ async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_i
         assert calls == {"context": 1, "limits": 1}
     finally:
         release.set()
-    await asyncio.wait_for(svc.settle_reads(), 2)
+    await asyncio.wait_for(settle(svc), 2)
 
     await svc.tick()
 
@@ -2421,7 +2415,6 @@ async def test_snapshot_echoes_the_claude_directory_as_the_app_spelled_it(stack,
     assert svc.claude_files.root == tmp_path / "Claude Profile" / "sessions"
 
 
-
 @pytest.mark.parametrize("directory", ["", "relative/path", "~/claude"])
 async def test_snapshot_rejects_nonabsolute_claude_directory(stack, directory):
     svc, _, _, r, w = stack
@@ -2536,5 +2529,5 @@ async def test_tick_bounds_file_reads_and_does_not_overlap_a_stuck_reader(make_s
 
 def test_optional_hook_fields_are_keyword_only():
     with pytest.raises(TypeError):
-        HookEvent("claude", "subagentStart", None, "conversation", "/wt", "child")
-    assert HookEvent("claude", "subagentStart", None, "conversation", "/wt", subagent_id="child").subagent_id == "child"
+        HookEvent("claude", "subagentStart", "conversation", "/wt", "child")
+    assert HookEvent("claude", "subagentStart", "conversation", "/wt", subagent_id="child").subagent_id == "child"

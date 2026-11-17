@@ -56,11 +56,11 @@ The loopback receiver defaults to `127.0.0.1:47821`:
 
 | Route | Input |
 | --- | --- |
-| `/hook/claude` | Session/model/turn/subagent/permission/notification/StopFailure events. |
+| `/hook/claude` | Session/turn/subagent/permission/notification/StopFailure events. |
 | `/hook/codex` | Session/turn/subagent/permission events. |
-| `/hook/pi` | Session, activity, UI prompt and model/reasoning events. |
+| `/hook/pi` | Session, activity and UI prompt events. |
 | `/mcp` | Stateless Codex Stop bridge, still reachable after checkout removal. |
-| `/statusline` | Claude's context, model and usage telemetry. |
+| `/statusline` | Claude's context and usage telemetry. |
 
 Requests require `X-AiTerm-Hook: 1`; missing headers and unknown routes receive a plain 404. Codex/PI
 tab placement uses `X-AiTerm-iTerm-Session`, never a same-named body field. Telemetry is acknowledged
@@ -68,10 +68,11 @@ with `{}` before handling and carries no decision. Harness test IDs are echoed a
 state. Strict decimal Content-Length, a 1 MiB body cap, 100-header/32 KiB head limits and
 `100-continue` support bound the receiver.
 
-Operator MCP has a separate token/ownership-controlled surface. Its 37 schemas are frozen in
-`tests/fixtures/operator-current-tools.json`; Python schema and forwarded-reply tests plus Swift's
-current journey protect it. Update transcript/vendor parsers for actual supported CLI versions,
-without adding a historical broadcast execution path.
+Operator MCP has a separate token/ownership-controlled surface. Its fourteen tools are described by
+`aitermd/signal_tools.json`, which `SignalOperatorContractTests` holds byte for byte against
+`app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals/tools.json`, beside the Python schema
+and forwarded-reply tests. Update transcript/vendor parsers for actual supported CLI versions,
+without adding a separate execution path.
 
 ## Polling
 

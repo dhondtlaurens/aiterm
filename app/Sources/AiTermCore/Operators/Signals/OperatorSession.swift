@@ -40,12 +40,12 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var sourceFailures: [String: String]?
     public var paused = false
     public var startingFresh = false
-    /// A durable close → revoke → idle, rather than close → revoke → open. Kept optional so
-    /// existing saved sessions retain their format until they actually finish a workload.
+    /// A durable close → revoke → idle, rather than close → revoke → open.
+    /// Optional because a session saved before the flag existed has no such key.
     public var finishing: Bool?
     public var handover: OperatorHandover?
     public var questions: [Question] = []
-    public var oracleRounds: [ChallengeRecord] = []
+    public var oracleRounds: [OracleRound] = []
     public var ledger: [LedgerEntry] = []
     public var snags: [OperatorSnag] = []
     public init(id: UUID = UUID(), createdAt: Date) { self.id = id; self.createdAt = createdAt }
@@ -69,6 +69,5 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         }
         let closed = questions.filter { !pending($0) }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
         questions = questions.filter(pending) + closed
-        oracleRounds.removeAll { $0.stage == .acted }
     }
 }

@@ -4,71 +4,22 @@ import Foundation
 /// `aitermd/delivery.py`, and the two must agree (`OperatorTimingTests` pins both the values and
 /// their names in the Python file).
 public enum OperatorTiming {
-    /// Wake lines within this of each other are merged into one.
-    public static let wakeCoalesce: TimeInterval = 3
-    /// App only: a wake line held this long because the Operator's input may hold unsent text is the sidebar's Notice
-    /// (`OperatorWakeNotice`). The daemon reads it from your keys, and when they leave it unknown, from the input on screen.
-    public static let unsentWakeNotice: TimeInterval = 60
-    /// Sessions and branches are reconciled this often, and on every reconnect (spec §7.3).
+    /// Sessions and branches are reconciled this often, and on every reconnect.
     public static let reconcileInterval: TimeInterval = 60
-    /// App only: minimum gap between reconcile and event reads, except when a prompt leaves needs-input.
-    public static let promptProbeInterval: TimeInterval = 10
-    /// App only: let a delivered command draw its dialog before the second screen read.
-    public static let promptAfterMessageDelay: TimeInterval = 1.5
-    /// A working task with no hook, transcript or screen change for this long is possibly stalled.
-    public static let stallAfter: TimeInterval = 20 * 60
-    /// An Oracle that takes longer is abandoned, and the act proceeds unchallenged (§4.4).
-    public static let challengeTimeout: TimeInterval = 180
-    /// The Oracle's answer on a shell command takes longer than this and the command runs, unchallenged (spec §A.3).
+    /// An Oracle that takes longer is abandoned and its round stays unanswered.
+    public static let oracleTimeout: TimeInterval = 180
+    /// The Oracle's answer on a shell command takes longer than this and the command runs unchecked.
     public static let gateTimeout: TimeInterval = 200
     /// How long the daemon waits for the app's reply to a forwarded tool call.
     public static let operatorRequestTimeout: TimeInterval = 30
-    /// App only: seconds after an Operator's tool call reached the app within which `finish_task` answers, its publication
-    /// done or not, well inside `operatorRequestTimeout`: past it, the call answers `running` and the publication goes on.
-    public static let finishReplyBudget: TimeInterval = 24
-    /// App only: seconds the fetch of a merge end's default branch from origin may take, before `finish_task` decides
-    /// whether its accepted commit is merged there already or that its merge is new.
-    public static let landedFetchTimeout: TimeInterval = 8
     /// App only: seconds `jira_search` waits for Jira before it answers that Jira didn't, inside `operatorRequestTimeout`. The
     /// app's Jira client ends each request by then too (`JiraClient.resourceDeadline`).
     public static let jiraSearchBudget: TimeInterval = 20
-    /// A launch attempt older than this with no tagged session may be launched again (spec §11).
-    public static let launchAdoptAfter: TimeInterval = 60
-    /// App only: how often `finish_task` asks the host whether a `merge` task's MR is mergeable.
-    public static let mergePoll: TimeInterval = 30
-    /// App only: how long it waits for that before blocking the task and asking you.
-    public static let mergeWait: TimeInterval = 60 * 60
-    /// App only: how long after the plan is done AiTerm waits for the Operator's summary before giving up on it.
-    public static let summaryWait: TimeInterval = 300
-    /// App only: relaunches of a failed task before AiTerm blocks it (spec §4.1's fixed caps).
-    public static let retries = 2
-    /// App only: working minutes without a new commit on the task branch before AiTerm blocks it.
-    public static let runtimeMinutes = 90
-    /// App only: total working hours since starting or the Operator last resumed the task before AiTerm blocks it.
-    public static let totalRuntimeHours = 4
-    /// App only: minutes a worker whose session says working may go with no growth in its transcript before AiTerm reads it
-    /// `working?` and lists it as uncertain (spec §H), on a task in any state: the daemon's state may have stuck.
-    public static let liveQuietMinutes = 2
-    /// App only: minutes a tool call a worker started and has no result for yet (`WorkerTranscript.OpenCalls`) counts as its
-    /// worker at work, though its transcript says nothing meanwhile: neither quiet (spec §H) nor possibly stalled. Past that,
-    /// a tool that hung is caught as any silence is.
-    public static let openCallMinutes = 30
     /// App only: seconds after its window was seen, else asked for, that a first worker which has named no conversation yet
     /// still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
     public static let firstWorkerOpening: TimeInterval = 180
-    /// Minutes a task may sit in review with nothing waiting (no open thread, no worker's question or change) before
-    /// `run_status` lists it under `reviewQuiet` and wakes the Operator, who decides against the Done whether it is over (spec §K).
-    public static let reviewQuietMinutes = 5
     /// App only: seconds `run_status` and `read_task` wait for a code host to say what it thinks of a task's request before
     /// they answer without it, and how long that reading is kept per request.
     public static let hostReadTimeout: TimeInterval = 8
     public static let hostReadCache: TimeInterval = 30
-    /// App only: seconds `read_task diff` lets the fetch of a task's base from origin take, well inside
-    /// `operatorRequestTimeout` with the local reads after it; and how long after a fetch of the same base, or a try at
-    /// one, they read origin's copy as it is without fetching again.
-    public static let diffBaseFetchTimeout: TimeInterval = 10
-    public static let diffBaseFetchInterval: TimeInterval = 60
-    /// App only: seconds a broadcast may go with nobody at work and nothing moving before AiTerm wakes its Operator, once per
-    /// such spell (`OperatorWatchdog`). Its wake line says it in words: `nothing has moved for ten minutes`.
-    public static let quietWake: TimeInterval = 10 * 60
 }

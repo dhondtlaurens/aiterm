@@ -103,35 +103,6 @@ import AiTermCore
         #expect(field.currentEditor() != nil)
     }
 
-    /// Typing a known type's prefix into the branch field is picking the type
-    /// (`TaskDraft.setBranch`), there and then: the select takes `fix`, and the field, still being
-    /// typed in, keeps only the name.
-    @Test func typingATypePrefixIntoTheBranchFieldPicksTheTypeAsYouType() throws {
-        let controller = AppController(preferences: .scratch())
-        let project = Project.make(name: "AiTerm", path: "/tmp", provider: .none, addedAt: Date())
-        let draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
-        let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
-        let host = testHost(NewTaskSheet(model: model).seeded(step: 1), size: CGSize(width: Sheet.width, height: Sheet.height))
-        let window = testWindow(hosting: host, styleMask: [])
-        defer { window.orderOut(nil) }
-        host.layoutSubtreeIfNeeded()
-        #expect(model.draft.branchType != .fix)
-
-        let field = try #require(host.descendants(NSTextField.self)
-            .first { $0.placeholderString == "feat/my-task" })
-        #expect(window.makeFirstResponder(field))
-        let editor = try #require(field.currentEditor() as? NSTextView)
-        editor.selectAll(nil)
-        editor.insertText("fix/login", replacementRange: NSRange(location: NSNotFound, length: 0))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
-
-        #expect(model.draft.branchType == .fix)
-        #expect(model.draft.branchName == "login")
-        #expect(field.currentEditor() != nil, "picking the type took the keyboard from the field")
-        #expect(field.currentEditor()?.string == "fix/login")
-    }
-
     /// Going from Agent to Prompt inserts the prompt step into a sheet already on screen; the
     /// caret has to land in the editor without a click, so typing starts the prompt.
     @Test func thePromptStepTakesTheKeyboardWhenItAppears() throws {

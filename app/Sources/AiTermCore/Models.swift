@@ -76,38 +76,6 @@ public struct Project: Codable, Identifiable, Equatable, Sendable {
         self.id = id; self.name = name; self.path = path; self.provider = provider; self.remoteUrl = remoteUrl; self.addedAt = addedAt; self.collapsed = collapsed
         self.jiraProjects = jiraProjects
     }
-
-    // `jiraProject` is where a workspace saved before a project could link several Jira projects
-    // keeps its one. It is read only when `jiraProjects` is absent; new saves write only the list.
-    private enum CodingKeys: String, CodingKey {
-        case id, name, path, provider, remoteUrl, addedAt, collapsed, jiraProjects, jiraProject
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        path = try c.decode(String.self, forKey: .path)
-        provider = try c.decode(Provider.self, forKey: .provider)
-        remoteUrl = try c.decodeIfPresent(String.self, forKey: .remoteUrl)
-        addedAt = try c.decode(Date.self, forKey: .addedAt)
-        collapsed = try c.decode(Bool.self, forKey: .collapsed)
-        jiraProjects = try c.decodeIfPresent([JiraProjectRef].self, forKey: .jiraProjects)
-            ?? c.decodeIfPresent(JiraProjectRef.self, forKey: .jiraProject).map { [$0] }
-            ?? []
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(name, forKey: .name)
-        try c.encode(path, forKey: .path)
-        try c.encode(provider, forKey: .provider)
-        try c.encodeIfPresent(remoteUrl, forKey: .remoteUrl)
-        try c.encode(addedAt, forKey: .addedAt)
-        try c.encode(collapsed, forKey: .collapsed)
-        try c.encode(jiraProjects, forKey: .jiraProjects)
-    }
 }
 
 /// A named rule between projects in the sidebar. A label, not a container: nothing nests under it
@@ -127,11 +95,9 @@ struct PreservedFields: Equatable, Sendable {
     }
     private var values: [String: JSONValue] = [:]
     init() {}
-    /// `retired`: keys an older build wrote and this one dropped on purpose — not a newer build's, so
-    /// they go on the next save instead of being kept.
-    init<K: CodingKey>(_ decoder: Decoder, known: K.Type, retired: Set<String> = []) throws {
+    init<K: CodingKey>(_ decoder: Decoder, known: K.Type) throws {
         let c = try decoder.container(keyedBy: Key.self)
-        for key in c.allKeys where K(stringValue: key.stringValue) == nil && !retired.contains(key.stringValue) {
+        for key in c.allKeys where K(stringValue: key.stringValue) == nil {
             values[key.stringValue] = try c.decode(JSONValue.self, forKey: key)
         }
     }
@@ -290,7 +256,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// `kind` as the file has it, written back as it was: none for a task saved without one, and a
     /// raw value a newer build saved, which this build reads as `.task`.
     private var savedKind: String?
-    /// What an operator adds to the task (spec §5.1); nil for every task you made yourself.
+    /// What an operator adds to the task; nil for every task you made yourself.
     public var signalTask: SignalTask?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
@@ -312,8 +278,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// the whole workspace load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // `lastSelectedAt` was written on every click and never read; a workspace saved with it loses it.
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["lastSelectedAt", "operated"])
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         projectId = try c.decode(UUID.self, forKey: .projectId)
         title = try c.decode(String.self, forKey: .title)
@@ -396,16 +361,6 @@ public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
     public init(id: UUID, projectId: UUID, name: String, windowId: String?, createdAt: Date) { self.id = id; self.projectId = projectId; self.name = name; self.windowId = windowId; self.createdAt = createdAt }
 
     public static let defaultName = "Terminal"
-
-    /// Preserve compatibility with workspaces saved before terminals had names.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        projectId = try c.decode(UUID.self, forKey: .projectId)
-        name = try c.decodeIfPresent(String.self, forKey: .name) ?? Self.defaultName
-        windowId = try c.decodeIfPresent(String.self, forKey: .windowId)
-        createdAt = try c.decode(Date.self, forKey: .createdAt)
-    }
 
     /// "Terminal", then the lowest free "Terminal n" — the prefill for the New Terminal sheet.
     public static func suggestedName(existing: [TerminalItem]) -> String {
@@ -497,17 +452,15 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
+        case items, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
         case signals, signalSeen, operatorSession, operatorOpen
     }
 
-    /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
-    /// their projects become the list, in order. Same mechanism as `TerminalItem.init(from:)`.
+    /// Reads known workspace fields and preserves unrecognized keys for the next save.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["runs", "foldedRuns"])
-        if let stored = try c.decodeIfPresent([SidebarItem].self, forKey: .items) { items = stored }
-        else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
+        items = try c.decodeIfPresent([SidebarItem].self, forKey: .items) ?? []
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
         terminals = try c.decodeIfPresent([TerminalItem].self, forKey: .terminals) ?? []
         archive = try c.decodeIfPresent([ArchivedTask].self, forKey: .archive) ?? []

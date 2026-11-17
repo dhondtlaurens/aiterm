@@ -39,7 +39,7 @@ public struct RemoteURL: Equatable, Sendable {
 }
 
 extension RemoteURL {
-    /// What `Repository.sameLocation` compares two remote URLs by, before case folding: the host and the
+    /// What `WorkerGuard.sameLocation` compares two remote URLs by, before case folding: the host and the
     /// path, whatever the scheme, user, port, a trailing `.git` or slash. It reads a URL as that check
     /// always has, which is not quite the provider's reading above: `://` anywhere starts a host, a
     /// `file:` URL has none, a trailing slash goes before a trailing `.git` and not after (`team/.git`

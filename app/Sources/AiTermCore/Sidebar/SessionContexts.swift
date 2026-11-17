@@ -51,9 +51,8 @@ public struct SessionContexts: Equatable, Sendable {
         byRow[row, default: [:]][provider] = context
     }
 
-    /// The sidebar row a tab is drawn under: its task, the Operator (tagged with its broadcast's id),
-    /// or the terminal whose window it is in. A terminal's tabs carry no task tag, so the window ties
-    /// an agent started in one back to its row — as it does for the row's avatars.
+    /// The sidebar row a tab is drawn under: its task, the Operator's stable row, or its terminal.
+    /// A terminal's tabs carry no task tag, so the window ties an agent back to its row and avatars.
     static func row(for session: SessionInfo, in state: AppState) -> UUID? {
         if session.taskId != nil {
             if session.taskUUID == state.operatorSession?.id { return OperatorRow.id(of: OperatorSession.rowID) }

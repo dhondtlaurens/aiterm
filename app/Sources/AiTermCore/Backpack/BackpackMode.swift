@@ -21,7 +21,7 @@ public final class BackpackMode: Sendable {
 
     /// How long the mode waits after the last working session before it turns itself off: long
     /// enough to bridge one turn ending and a queued one starting, short enough not to keep a
-    /// finished Mac hot in a bag (spec 2026-10-05). An open lid holds it: the person is at the Mac,
+    /// finished Mac hot in a bag. An open lid holds it: the person is at the Mac,
     /// and the wait counts from when they shut it.
     public static let idleGrace: TimeInterval = 120
 
@@ -41,7 +41,7 @@ public final class BackpackMode: Sendable {
         BackpackSetup(sleepRule: ports.lidSleep.isAllowed(), location: ports.location.isAuthorized(), network: settings.network)
     }
 
-    /// The spec's order: setup, battery, join, marker, then `disablesleep 1`. The first failure
+    /// Connection order: setup, battery, join, marker, then `disablesleep 1`. The first failure
     /// leaves the mode off and nothing changed but, at most, the Wi-Fi network. The join comes
     /// without a scan first: a locked iPhone's hotspot is missing from scans but joins with its
     /// password; the scan only decides which failure to report. `onJoined` runs once the Mac is on

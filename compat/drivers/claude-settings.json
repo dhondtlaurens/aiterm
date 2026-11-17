@@ -34,23 +34,6 @@
         "matcher" : ""
       }
     ],
-    "PostModelSwitch" : [
-      {
-        "hooks" : [
-          {
-            "_aiterm" : true,
-            "async" : true,
-            "headers" : {
-              "X-AiTerm-Hook" : "1"
-            },
-            "timeout" : 3,
-            "type" : "http",
-            "url" : "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/claude"
-          }
-        ],
-        "matcher" : ""
-      }
-    ],
     "SessionStart" : [
       {
         "hooks" : [

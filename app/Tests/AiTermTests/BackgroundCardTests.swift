@@ -23,19 +23,18 @@ struct BackgroundCardTests {
         #expect(BackgroundCard.glyph(.monitor) == "eye" && BackgroundCard.glyph(.task) == "eye")
     }
 
-    /// The seeded hover drives the production row/overlay. Before the active-status gate is
-    /// removed, hovering changes no pixel of a working or needs-input row.
-    @Test(arguments: [TaskStatus.background, .working, .needsInput], [false, true])
-    func hoveringTheMarkOpensTheExistingCard(status: TaskStatus, queued: Bool) async throws {
+    /// Hovering known work opens the same card for every active status.
+    @Test(arguments: [TaskStatus.background, .working, .needsInput])
+    func hoveringTheMarkOpensTheExistingCard(status: TaskStatus) async throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
         let task = TaskItem.make(project: UUID(), title: "A task with background work", worktreePath: "/wt", model: "sonnet",
             createdAt: Date(), windowId: "w")
         let row = TaskRow(id: task.id, title: task.title, jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
-                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, queued: queued, background: [tests, ci])
+                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, background: [tests, ci])
         let changed = try await cardSurfaceChange(TaskRowView(row: row, task: task, controller: controller))
-        #expect(queued ? changed == 0 : changed > 1000, "the same card opens except on a queued mark: \(changed) pixels")
+        #expect(changed > 1000, "the same card opens: \(changed) pixels")
     }
 
     @Test(arguments: [TaskStatus.background, .working, .needsInput], [false, true])

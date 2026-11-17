@@ -381,10 +381,8 @@ struct RowTitle: View {
     }
 }
 
-/// One task or review: its agents, title, badges and branch, and, when there is something to say, why
-/// its window could not come back, or, on a task the Operator drives, its status line as the operator
-/// badge. A driven task’s menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
-/// of an ended broadcast is yours, and its menu is any task's.
+/// One task or review: its agents, title, badges, branch and any window or worker status.
+/// A signal's task offers Take Over; a task you own has the usual task menu.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
@@ -411,17 +409,16 @@ struct TaskRowView: View {
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
-                                             awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
-        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued, paused: row.paused)
+                                             awaitsRetry: awaitsRetry, canChangeWorkspace: controller.canChangeWorkspace)
+        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, paused: row.paused)
         // The same work card is inspectable while the agent works or asks for input, including
-        // driven rows. A removal spinner and a queued task still offer no card.
-        let jobs = removing || row.queued ? [] : row.background
+        // driven rows. A removal spinner offers no card.
+        let jobs = removing ? [] : row.background
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
-                    // A queued task's title in secondary ink, as one on its way out: it has not started.
-                    RowTitle(row.title, dimmed: removing || row.queued)
+                    RowTitle(row.title, dimmed: removing)
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
                         HelpText(progress, fixedVerticalSize: false).frame(height: scale(Size.chip))
@@ -449,7 +446,7 @@ struct TaskRowView: View {
                 }
             } mark: {
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
-                // check, a queued or paused one's the pause sign. Known work opens the same card on hover.
+                // check, a paused one's the pause sign. Known work opens the same card on hover.
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
@@ -701,17 +698,15 @@ struct TaskRowAccessibility: Equatable {
     }
 
     /// `awaitsRetry` is a removal that stopped after the worktree went: the row waits on Remove's retry,
-    /// so Archive, which its menu greys, is not offered. `queued` is a task the Operator has not started:
-    /// choosing it opens nothing, and its line's tooltip says when it starts.
+    /// so Archive, which its menu greys, is not offered.
     init(title: String, task: TaskItem?, missing: Bool, failed: Bool, removing: Bool = false, awaitsRetry: Bool = false,
-         queued: Bool = false, canChangeWorkspace: Bool) {
+         canChangeWorkspace: Bool) {
         let branch = task?.branch ?? ""
         label = branch.isEmpty ? title : "\(title), \(branch)"
         let kindName = task?.kindName ?? "Task"
         self.kindName = kindName
         let words: (hint: String, help: String) =
             removing ? ("", "")
-            : queued ? ("It has no window until the Operator starts it.", "")
             : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
             : failed ? canChangeWorkspace ? ("Press Return to try again.", "Couldn’t reopen its window. Click to try again.")
                                           : ("", "Couldn’t reopen its window.")
@@ -723,24 +718,14 @@ struct TaskRowAccessibility: Equatable {
     }
 }
 
-/// The lines under a task row's title that are not its badges: what stands in for the badge line
-/// while the row is being removed, and the caption under it — why a removal stopped, else what the
-/// task is missing — its worktree, or a window that could not be reopened. While a removal runs
-/// neither shows: its window closing first, and its checkout going, are the removal, not news.
-
-/// A task row's trailing mark: its status's `StatusMark` (while the Operator holds the task, the status
-/// `SignalSidebar` gives it: the waiting ring once its worker's turn ended or it waits on someone), or
-/// once the Operator's work on the task is over (its line's look `ended`) the check (1A, 21 Oct 2026), or the pause sign while the Operator has it queued and once its
-/// workers stopped for a pause of yours (`TaskRow.paused`; the Operator's row too, once every task's did). The
-/// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
-/// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a
-/// removal or archiving in progress spins.
+/// A task's status mark, the check after the Operator's work ends, or a pause sign during a
+/// pause. Active work and input keep their own mark; removal and archiving spin.
 enum TaskRowMark: Equatable {
     case status(TaskStatus), ended, pauseSign
 
-    init(status: TaskStatus, line: OperatorLine?, removing: Bool, queued: Bool = false, paused: Bool = false) {
+    init(status: TaskStatus, line: OperatorLine?, removing: Bool, paused: Bool = false) {
         if removing { self = .status(.working) }
-        else if queued || paused { self = .pauseSign }
+        else if paused { self = .pauseSign }
         else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
         else { self = .status(status) }
     }
@@ -922,7 +907,7 @@ struct TaskRowBadges: Equatable {
 }
 
 /// A header's mark, centred in a ``Size/avatar`` square so the name after it lines up with the avatars in
-/// the rows below: a project's provider, or a broadcast's glyph (`IconSource` alone). No tile behind it:
+/// the rows below: a project's provider, or the Operator's glyph (`IconSource` alone). No tile behind it:
 /// the header sits on the sidebar's own ground. A vendor's mark is drawn at ``logoSize`` in its colour, an
 /// SF Symbol at ``glyphSize`` in the surface's secondary ink.
 struct ProviderIcon: View {
@@ -933,7 +918,7 @@ struct ProviderIcon: View {
     init(provider: Provider) { source = Self.source(of: provider) }
     init(_ source: IconSource) { self.source = source }
 
-    /// A project's host as its header marks it, and New Broadcast's pickers with it.
+    /// A project's host as its header marks it, and New Signal's pickers with it.
     static func source(of provider: Provider) -> IconSource {
         switch provider {
         case .gitlab: .gitlabTanuki

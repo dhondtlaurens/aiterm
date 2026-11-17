@@ -9,7 +9,7 @@ struct SignalFreshDigestTests {
         var question = OperatorSession.Question(id: "scope", task: id, text: "Which scope?", openedAt: world.now, resolvedAt: world.now)
         question.answer = "Keep the original scope."; question.workerQuestion = question.text
         world.state.operatorSession?.questions = [question]
-        let round = ChallengeRecord(id: "open", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
+        let round = OracleRound(id: "open", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
         world.state.operatorSession?.oracleRounds = [round]
         let pending = SignalWorkerReply(at: world.now, fingerprint: "old-assistant-record")
         world.state.updateSignalTask(id) { $0.pendingReplies = ["main": pending] }
@@ -21,5 +21,14 @@ struct SignalFreshDigestTests {
         #expect(json["oracleRounds"]?.arrayValue?.count == 1)
         #expect(json["tasks"]?.arrayValue?.first?["pendingReplies"]?["main"] != nil)
         #expect(json["skipped"]?.arrayValue?.count == 1)
+    }
+    @Test func anUnansweredOracleRoundKeepsItsSavedAndStatusWords() throws {
+        let round = OracleRound(id: "no-answer", tool: "answer_worker", stage: .unanswered,
+                                unansweredReason: "The Oracle is off.", askedAt: Date(timeIntervalSince1970: 0))
+        let json = try JSONValue(encoding: round)
+        #expect(json["stage"] == "unchallenged")
+        #expect(json["unchallengedReason"] == "The Oracle is off.")
+        #expect(json["unansweredReason"] == nil)
+        #expect(try json.decode(OracleRound.self) == round)
     }
 }

@@ -231,51 +231,51 @@ TS tests-scripts.
 
 ### Phase 1. Delete what nothing calls (after 0)
 
-- [ ] 1a. **Codex.** The broadcast eval baseline, the two unread `operator-current` folders,
+- [x] 1a. **Codex.** The broadcast eval baseline, the two unread `operator-current` folders,
   `operator-records`, the retired-keys test, `operator-saved-format` and the `retired:` key lists;
   the eval keeps the current contract; `AGENTS.md`, `docs/testing.md`, `daemon/README.md`,
   `scripts/test-routes.tsv` and the provenance notes follow. The suite's `operatorOpen` test moves
   to the saved-format suite.
-- [ ] 1b. **Codex.** The code-host and Jira write surface and everything only it uses: the request
+- [x] 1b. **Codex.** The code-host and Jira write surface and everything only it uses: the request
   writes, thread replies, pipeline retry, user lookup, `JiraWrites`, `JiraAgile`, the confined
   search, the "outcome unknown" and "not sent" failures, `OperatorPorts.publisher`, `FakeMergeHost`,
   the dead thread prompt (HO F1, TS F1). `merge` stays as the one host write.
-- [ ] 1c. **Codex.** The push and publish stack, `LocalMerge`, `BranchDrift`, `BackgroundWork.within`,
+- [x] 1c. **Codex.** The push and publish stack, `LocalMerge`, `BranchDrift`, `BackgroundWork.within`,
   the `CommitId` wrapper (its one rule moves beside the worker guard with `sameLocation`,
   `shortBranch` and `folded`), `pushReason`, `saidAsWritten`, `LoginShellLocator.refresh`, the dead
   error case and the six unnoted `WorkMeter` cases (CG F1 to F3).
-- [ ] 1d. **Codex.** Core Operator leftovers: the dead Oracle prompts, `DiffDigest`, the acceptance
+- [x] 1d. **Codex.** Core Operator leftovers: the dead Oracle prompts, `DiffDigest`, the acceptance
   half of `WorkerTurn`, the `AgentDelivery` struct, `OperatedBranch`, `TaskKeyReference`,
   `StallWatch` (its one live rule moves into the transcript reader), unread `OperatorTiming`
   constants, dead `OperatorModels`, `OperatorLine`, `WorkerTabs` and `ActivityLog` members, the
   never-produced branch item and `baseline` seen state, the dead saved fields (`peopleReview`,
   `ExtraTab` role and launch fields, unused round fields) and `SavedDefaults` (OC F1, F3, F8).
   `operator-signals/state.json` is re-recorded.
-- [ ] 1e. **Codex.** Operator runtime leftovers: dead `OperatorPorts` fields, the transcript
+- [x] 1e. **Codex.** Operator runtime leftovers: dead `OperatorPorts` fields, the transcript
   open-call reader, locator test hooks, `markOutcome`, members only tests call (RT F6).
-- [ ] 1f. **Codex.** App leftovers: `ShelfRow` becomes `ArchiveSearch.Entry` and Shelf becomes
+- [x] 1f. **Codex.** App leftovers: `ShelfRow` becomes `ArchiveSearch.Entry` and Shelf becomes
   Archive in code names; dead controller and coordinator members and empty comment stubs; the
   `queued` row state and its plumbing; the unread project hand-off counts; the test-only attention
   and Dock badge path (its live cases move to the projection's); dead pickers, the command preview,
   the segmented agent picker, the broadcast step config, the disabled prompt editor, subtitles that
   never draw; the branch type and name halves of `TaskDraft` (TL F4, SB F1, F2, SS F4, F7, F8, TS F2).
-- [ ] 1g. **Codex.** Daemon leftovers: slash-command tracking, live model and effort attribution
+- [x] 1g. **Codex.** Daemon leftovers: slash-command tracking, live model and effort attribution
   and the `PostModelSwitch` hook, `subagentsWrittenAt`, `title` on the wire, the `session.prompt`
   and `session.dismissStartup` requests, the prose wake rule and its fixture, `operator_token.py`
   folded, the test-only `settle_reads` seams, the Codex reader's test-only methods and the copied
   reference parser (DM F1, F7, F8, part of F3; WD F5 dead requests). Wire frames and driver
   fixtures are re-recorded.
-- [ ] 1h. **Codex.** Every old-format reader and migration: Keychain per-key items, the support
+- [x] 1h. **Codex.** Every old-format reader and migration: Keychain per-key items, the support
   folder rename, the legacy status-line record, retired hook and push-key cleanup, the pre-0.15
   workspace decoders (single Jira project, flat project list, unnamed terminals), the earlier
   choice-block upgrade, old-helper decoding forms and
   defaults on the wire, the old GitLab URL form, Jira's paging fallbacks (CG F8, TL F7, PL F3,
   OC F15, WD F4 decoding paths only, HO F5 items 1 and 2).
-- [ ] 1i. **Codex.** Find a Fix: its Core folder, session, views, banner and footer wiring, the fix
+- [x] 1i. **Codex.** Find a Fix: its Core folder, session, views, banner and footer wiring, the fix
   fields on issues and creation failures, the Settings switch, tests, README and configuration
   lines. `AgentProcess` and `RegularFile` move to a process folder; the Oracle runner and the
   worker guard keep using them (PL F1).
-- [ ] 1j. **Codex.** One vocabulary. `OperatorCommand` and `SignalOperatorCommand` become one
+- [x] 1j. **Codex.** One vocabulary. `OperatorCommand` and `SignalOperatorCommand` become one
   `OperatorLaunch`; `SignalOperatorTool` becomes `OperatorTool`; the saved round record becomes
   `OracleRound`; the second-opinion runner is named for the Oracle; `runId` and `runFolder` become
   the Operator session's id and folder, on the wire too; `operated` becomes worker. Comments that
@@ -567,3 +567,178 @@ left.
   daemon suite and lint, snapshots). Codex adversarial review of the phase's change: no findings,
   "ready" (static review). `main` had not moved since the branch (`247b305d`); merged to `main`.
   No manual check is owed for phase 0.
+
+### Phase 1
+
+- 1a: the broadcast eval baseline, the two unread `operator-current` folders, `operator-records`,
+  `operator-saved-format`, `operator-current-tools.json` and the `retired:` key lists are gone; the
+  live eval runs the current brief only. Tests deleted: `SignalRetiredKeysTests.anOldWorkspaceLoadsAndItsNextSaveDropsEveryBroadcastKey`
+  and `ModelsTests.aTaskSavedWithLastSelectedAtStillDecodes` (behaviour deleted; unknown-key
+  preservation is now held by `aKeyThisBuildDoesNotKnowOnATaskSurvivesASave` and
+  `aKeyThisBuildDoesNotKnowOnAWorkspaceSurvivesASave`). `theProjectsAreTheDefaultSectionAndAnOpenOperatorIsKept`
+  moved to `SignalSavedFormatTests`. Differences from the brief: `daemon/tests/wire/PROVENANCE.md`
+  also named the deleted fixtures, so its sentence "The separate frozen operator-current tool and
+  workspace fixtures were not regenerated." went (no fixture bytes changed); the eval's
+  `read_task/lastMessage` replies went too, because the current `read_task` has no `what`
+  argument and the stub could only match them under the old contract. `docs/testing.md` still names
+  a nonexistent `OperatorWorkBudgetTests`; left for 9a.
+- 1b: the code-host and Jira write surface went (request writes, thread replies and resolution,
+  pipeline retry, user lookup, `JiraWrites`, `JiraAgile`, `search(jql:in:)`, the uncertain-outcome
+  and not-sent failures, `OperatorPorts.publisher`, `FakeMergeHost`, the thread prompt); both
+  `merge` bodies are byte-identical. Tests deleted with their behaviour, no survivor: `JiraWritesTests`,
+  `JiraAgileTests`, `FakeMergeHostTests` and the write tests the brief lists in `GitHubPublishTests`,
+  `GitLabPublishTests`, `MergeRequestPublisherTests` (renamed `HostRepositoryTests`),
+  `GitHubClientTests` and `HTTPJSONTests`. Thread reads survive in `HostRepositoryTests.gitHubReadsThreadsByTheirNodeId`
+  and `gitLabReadsEachThreadWithItsIdAndLastNote`. Differences: `JiraUser` lived in the deleted
+  `JiraWrites.swift` and moved beside `signalUsers`; `readinessThatCannotBeAskedThrows` had no
+  `retarget` line left. The Done-when grep for `func resolve(_` still matches
+  `WatchedFileCache.resolve`, which the brief itself lists as unrelated (2b deletes the file).
+  `JiraClient.approximateCount` has no source caller and is kept, as the brief says.
+- 1c: the push and publish stack, `LocalMerge`, `CommitId`, `BranchDrift`, `BackgroundWork.within`,
+  `pushReason`, `saidAsWritten`, `LoginShellLocator.refresh`, `WorktreeError.notARepository` and six
+  `WorkMeter` cases went; `isFullCommit`, `sameLocation`, `shortBranch` and `folded` moved unchanged
+  to `WorkerGuard+Names.swift`. Tests deleted with their behaviour: `LocalMergeTests`, the push tests
+  of `PublishPushTests`, three `GitErrorTests.pushReason*`, `LoginShellLocatorTests.aRefreshReplacesTheKnownPathOnlyWhenTheShellAnswers`
+  (`forgettingAsksTheShellAgain` stays), and the `CommitIdTests` merge and review rules. Survivors:
+  `WorkerGuardRulesTests.aDefaultBranchIsRecognisedUnderAnySpelling` (new; for the two default-branch
+  spelling tests), `WorkerGuardRulesTests.twoUrlsAreTheSamePlaceWhenHostAndPathAre` (moved table) and
+  `WorkerGuardNamesTests.aFullCommitIdIsFortyOrSixtyFourAsciiHexDigits` (for `onlyACommitIdIsPushed`).
+  `CommitIdTests` held two tests, not three.
+- 1d: Core Operator leftovers went (`DiffDigest`, `OperatedBranch`, `TaskKeyReference`,
+  `SavedDefaults`, `SignalBranchRef`, the `AgentDelivery` struct, the acceptance half of
+  `WorkerTurn`, dead Oracle prompts, eighteen unread `OperatorTiming` constants, dead `OperatorModels`,
+  `OperatorLine`, `WorkerTabs` and `ActivityLog` members, the branch item and `baseline` seen state,
+  `peopleReview`, `agentPinned`, `role`, the dead Oracle round fields). `gateInstructions` is
+  byte-identical. Fixture re-recorded: `operator-signals/state.json` with `AITERM_RECORD_SIGNAL_STATE=1`,
+  exactly two lines removed (`"kind" : "critique"`, `"agentPinned" : false`), provenance section
+  added; the committed fixture was first loaded through `StateStore` with its task and archived
+  task intact. Tests deleted with their behaviour: `DiffDigestTests`, `OperatedBranchTests`,
+  `TaskKeyReferenceTests`, `SavedDefaultsTests`, `AgentDeliveryTests` (version rules survive in
+  `DeliveryCheckTests`), six dead-prompt `ChallengeLaunchTests` (the parser survives as
+  `theOraclesAnswerIsReadByItsFirstWord`; four gate tests stay), three `WorkerTurnTests`
+  acceptance tests, `ModelChoiceTests.rowsMatchAgentModelAndReasoningInListOrder`,
+  `BranchTypeTests.testATitleSaysTheTypeWhenNoIssueTypeDoes`, `ActivityLogTests.whatOnlyLookedWaitsBehindShowEverything`;
+  `identityContinuesOrdinaryTaskByTicketRequestOrProjectBranch` is now
+  `identityContinuesOrdinaryTaskByTicketOrRequest`. The Done-when symbol grep matches the required
+  provenance line naming `agentPinned`; no code names any of the symbols. Left for 1j: a
+  `WorkerTabs.tabToBring` comment that names `BroadcastRequest`.
+- 1e: Operator runtime leftovers went (`OperatorClock.sleep`, the unread port budgets and
+  `appVersion`, `wakeCoalesce`, `openCallMinutes`, `StallWatch`, the transcript open-call reader,
+  the locator's numbering and test hooks, `markOutcome`, `SecondOpinionRunner.cancelled`,
+  `ThenRunner.isRunning`, `SignalPoller.onRead`); `ItemRouter.apply(signals:read:)` is now a
+  test-only extension in `OperatorFakes.swift`. No test deleted; the `wakeCoalesce` timing row went
+  with its constant. Added `WorkerTranscriptTests.aReplyIsReadAgainOnlyWhenItsFileChanged`; three
+  `SignalPollerTests` moved from `onRead` to `onPass` with the same expectations.
+- 1f: `ShelfRow` became `ArchiveSearch.Entry` and every Shelf name became Archive; dead controller
+  and coordinator members, comment stubs, the `queued` row state, the hand-off counts, `DockBadge`
+  and the model's attention helpers (one `SidebarProjection.needingAttention(skipping:)` remains),
+  dead pickers and segments, the command preview, the broadcast step config, the disabled prompt
+  editor, never-drawn subtitles and `TaskDraft`'s type and name halves went. Tests deleted with
+  survivors: `DockBadgeTests` and three `SidebarModelTests` places (four new `SidebarProjectionTests`
+  attention tests), `SearchPickerStateTests` (behaviour deleted; the keyboard tests live on as
+  `DropdownKeysTests`), `CreationSheetStepsTests.broadcastCreatesOnStepFive` and the preview tests
+  (prompt rules survive in `AgentCommandTests.testComposePrompt`, `DescriptionPromptTests`,
+  `TicketSourcesTests`; quoting and PI cases now assert `build`), the queued mark and card variants,
+  `TaskCreatorTests.testAnEditedNameStillTakesANewType` and `testATypedPrefixMovesIntoTheType`,
+  `NewTaskSheetKeyboardTests.typingATypePrefixIntoTheBranchFieldPicksTheTypeAsYouType`,
+  `BranchTypeTests.testABranchSplitsOnlyOnAKnownType`, and the disabled half of
+  `PromptEditorTests` (now `theEditorAcceptsTypingAndTakesTheKeyboardOnAppear`); added
+  `TaskCreatorTests.aWholeBranchFollowsAutomaticNamingUntilEdited`. Snapshots in
+  `build/refactor-1f`: all 66 named sheet captures RGB-identical to `build/refactor-before`; only
+  `marks.png` differs, one of the two known two-variant captures. Differences: the `SearchPicker`
+  name was also rewritten in `docs/design/design-system.html` and `docs/design/ui-patterns.md`
+  (names of deleted symbols, as the brief's decision says); one `TaskDraft` test passed a bare
+  `bad..name` and now passes `feat/bad..name` with the same expectation. `AgentCommand.resumeWorker`
+  is called only by tests; left, as the brief says.
+- 1g: daemon leftovers went: slash-command tracking, live model and effort attribution and the
+  `PostModelSwitch` hook, `subagentsWrittenAt`, `title` on the wire, `session.prompt` and
+  `session.dismissStartup`, the prose wake rule (a wake line is the grammar or refused with
+  `wakeText`) and `wake-lines.json`, `operator_token.py` (folded into `operator_session.py`), the
+  `settle_reads` seams, the Codex reader's test-only methods and `codex_reference.py`. Fixtures
+  re-recorded: `daemon/tests/wire/` with `AITERM_UPDATE_WIRE_FIXTURES=1` (only the session frames,
+  the snapshot, the manifest and the two deleted request replies changed; provenance paragraph
+  added) and `compat/drivers/claude-settings.json` with `AITERM_RECORD_COMPAT=1` (only the
+  `PostModelSwitch` block left; `launch.json` and `codex-hooks.toml` unchanged; no provenance file
+  exists for `compat/`). Decision: the brief expected no daemon budget number to move, but a steady
+  tick's registry sorts fell from 6 to 4 with the slash step gone; per `docs/testing.md` ("a change
+  lowers a number with the work that earned it") the four sort ceilings in
+  `test_tick_budgets.py` were lowered to 4 in this step, nothing else. Tests deleted with their
+  behaviour: all 39 of `test_slash_commands.py` (its helpers moved to `test_stop_failures.py`, the
+  survivor for stopped-worker transcripts), the attribution tests in `test_hook_events.py`,
+  `test_hook_router.py`, `test_sessions.py`, `test_status.py`, the prose wake tests (survivors:
+  `test_a_wake_line_outside_the_app_grammar_is_refused`, `test_the_app_grammar_wake_line_passes`),
+  the `session.prompt`/`dismissStartup` service tests (prompt recognition survives through test-owned
+  screen helpers; `dismiss_startup` tests stay), `test_claude_transcript_shows_the_slash_command_and_its_output`,
+  three `DaemonTypesTests` and four `DaemonOperatorWireTests` cases. The planner's points held.
+- 1h: every old-format reader and migration went: Keychain per-key items, the support folder
+  rename and its alert, the legacy status-line record, retired hook and push-key cleanup, the
+  pre-0.15 workspace decoders (`Project` and `TerminalItem` now use synthesized coding: today's
+  encoder always wrote every key they require, so a workspace saved by today's build loads; a flat
+  `projects` key rides as a preserved unknown key), the earlier choice-block upgrade, the app's
+  hand-written `SessionInfo` and `BackgroundJob` decoders (`background` is always sent), optional
+  `generation` in the Operator MCP, Jira's paging fallbacks and the old GitLab URL form. Tests
+  deleted with their behaviour: two `KeychainTests` separate-item tests (survivors
+  `everySecretLivesInOneItem`, `theItemIsReadOncePerProcess`, `aRefusedReadIsNeverWrittenOver`),
+  four `AiTermPathsTests` migration tests, `HookConfigTests.anOldJSONRecordIsMigratedAtLaunchWithoutAnInstall`
+  and `testRetiredPreToolUseHookIsRemovedButForeignOnesStay`, `BackpackSettingsTests.anOldNotifiesChoiceIsReadPastAndDroppedOnTheNextSave`,
+  four `ModelsTests` old-input tests, `StateStoreTests.testLegacyFileOnDiskLoadsAndSavesAsItems`,
+  `SignalAgentChoiceTests.blocksSavedByAnEarlierBuildForAChoiceNowWaitForTheOperator`,
+  `JiraClientTests.aPagingFieldOfTheWrongTypeIsReadAsNotSent`. Added
+  `ModelsTests.aProjectsKeyIsPreservedWithoutCreatingItems`; `theLaunchProbeMigratesAnOldStatusLineRecord`
+  became `theLaunchProbeRecordsTheHookPort`. Fixtures unchanged. Hand-built session JSON in tests
+  now carries `active` and `background`.
+- Found while proving 1i: since 1h made `background` required, the debug snapshot fixture
+  (`Snapshots/Fixture.swift`) built sessions without it and decoded them with `try?`, so every
+  sidebar snapshot lost its tabs. The gate did not see it (its snapshot pass covers the signal
+  drawings only). Fixed in its own commit after 1h (`"background":[]` added); every sidebar PNG is
+  again RGB-identical to `build/refactor-before`. Lesson for later steps: compare the full
+  snapshot set, not only the gate.
+- 1i: Find a Fix went (thirty files, 4,403 lines, 203 test declarations: its Core folder, session,
+  views, banner and footer wiring, the fix fields, the Settings switch, compat entries, README and
+  configuration lines). `AgentProcess` and `RegularFile` moved to `AiTermCore/Process/`; the
+  `RegularFile` tests moved to `RegularFileTests` (symlink and absent-file checks added); the
+  task-model test moved to `AgentIntegrationsTests`. Survivors: `AgentProcessTests`,
+  `RegularFileTests`, `ChallengeLaunchTests`, the worker guard's tests, `OperationIssueTests`,
+  `PullDefaultControllerTests`, `UnbornTaskCreationTests`. Fixture re-recorded: `compat/launch.json`
+  with `AITERM_RECORD_COMPAT=1` (only `fixerApply` and `fixerLook` removed); the capture
+  `daemon/tests/fixtures/compat/claude/headless/fixer-look.json` stays, unread. Snapshots in
+  `build/refactor-1i`: 96 of 109 unchanged; `settings-agents.png` loses the Help with problems
+  group (the planned change); the eleven Find a Fix images are gone and three plain banner and
+  footer images replace them (`review-rebase-conflicted.png` equals the old unavailable state);
+  `marks.png` is its known variant. The pull suite is named `PullDefaultControllerTests`, not
+  `PullDefaultTests`. One plain gate run failed in `StatusLineShimTests` with 50 to 90 second
+  timeouts under load (load average about 4.5); the next plain run was green with no change.
+- 1j: one vocabulary. `OperatorCommand` and `SignalOperatorCommand` are one `OperatorLaunch`
+  (`gate.json` bytes identical, `idleCompaction` encoded directly; the private-file writer is
+  `PrivateFile`); `SignalOperatorTool` is `OperatorTool`; `ChallengeRecord` is `OracleRound` (saved
+  keys and raw values unchanged, including `unchallenged`); `ChallengeLaunch` is `OracleLaunch`;
+  `SecondOpinionRunner` is `OracleRunner`; `runId` is `operatorId` on the wire; `operated` is
+  `worker`; comments across the tree stop narrating broadcasts, boards, runs or spec sections.
+  Model-facing strings changed: the push, host and API refusals (they name `message_task` and the
+  signal's merge choice; a new `ShellGateTests` case proves every tool-like word in a refusal is an
+  `OperatorTool`), the gate's Oracle prompt (exactly the brief's lines), the gate's four reasons
+  (`unchecked: ...`), the daemon's "AiTerm ran this command unchecked: {why}", the Oracle runner's
+  failure texts ("The Oracle" for "The second opinion"). Fixture re-recorded:
+  `daemon/tests/wire/event.operator.request.json` only, provenance paragraph added. No test deleted;
+  `ChallengeLaunchTests` is `OracleLaunchTests`, `SecondOpinionRunnerTests` is `OracleRunnerTests`.
+  Differences: `ChallengeKind`, `challengeReplyBudget` and the dead Oracle prompt APIs were already
+  gone (1d). The orchestrator's note to Codex forbade any change under `operator-signals/`, so the
+  orchestrator renamed `SignalOperatorCommand.brief` to `OperatorLaunch.brief` in its PROVENANCE.md
+  itself (one docs line). Left for 9a: `docs/architecture.md` (two lines) and `docs/operators.md`
+  (the upgrade paragraph) still narrate broadcasts, and `docs/keyboard.md` says what there is no
+  board for; the brief leaves docs beyond the renamed lines to phase 9. Allowed sweep hits that stay:
+  the daemon's event broadcasting, Jira's own "board" in sheet copy, the frozen brief's "you do not
+  plan a board of tasks", negative assertions and a worker-message sample in `WorkerTurnTests`.
+  `AgentCommand.resumeWorker` is still called only by tests.
+- Phase close: plain `scripts/test.sh all` green on `e65ecd4d` (daemon suite and lint, 1043 app
+  and 1391 core Swift tests, snapshots). Snapshots captured into `build/refactor-phase1`: against
+  `build/refactor-before`, only `settings-agents.png` (Help with problems gone, planned) and
+  `marks.png` (known variant) differ; the eleven Find a Fix images are gone and three plain banner
+  and footer images are new. Bundle: `scripts/make-app.sh`, then `scripts/test-app-bundle.sh
+  build/AiTerm.app` verified executable, resources, pinned helper dependencies and signature. Codex
+  adversarial review: no findings, "ready on static review" (its base was `origin/main`, so it read
+  phases 0 and 1 together). `main` had not moved beyond phase 0's merge; merged to `main`.
+- Owed to the maintainer for phase 1: `scripts/compat-check.sh` (the Claude driver lost its
+  `PostModelSwitch` hook, `compat/launch.json` lost the fixer entries) and the live Operator eval
+  (`AITERM_LIVE_OPERATOR=1`: the gate's refusals and Oracle prompt and the reasons changed in 1j,
+  the eval runs the current brief only since 1a).

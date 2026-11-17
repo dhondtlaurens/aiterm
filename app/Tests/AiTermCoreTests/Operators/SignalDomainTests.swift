@@ -114,7 +114,7 @@ import Testing
 
     @Test(arguments: [TaskPhase.watching(.approved), .done, .archived])
     func idleStageContinuesInSameTask(_ phase: TaskPhase) throws {
-        let s = signal(), next = signal("Next"), item = ItemRef.branch(remote: "https://git.example/shop/repo", name: "work")
+        let s = signal(), next = signal("Next"), item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         var task = SignalTask(signal: s.id, item: item, startedAt: now); task.phase = phase
         let continued = try SignalTransitions.apply(.matched(SignalStage(signal: next.id, item: item, matchedAt: now)), to: task, at: now)
         #expect(continued.phase == .launching && continued.stage == 2 && continued.signal == next.id)
@@ -169,12 +169,12 @@ import Testing
         #expect(SignalSeen.pruned([seen], liveItems: Set([item.identity!]), now: now) == [seen])
     }
 
-    @Test func identityContinuesOrdinaryTaskByTicketRequestOrProjectBranch() {
+    @Test func identityContinuesOrdinaryTaskByTicketOrRequest() {
         let project = Project.make(remoteUrl: "git@git.example:shop/repo.git")
         var task = TaskItem.make(project: project.id, branch: "work", jira: JiraRef(key: "PAY-1", summary: "Ticket", url: "https://jira.example/browse/PAY-1"))
         task.mr = MergeRequestRef(iid: 7, title: "MR", url: "https://git.example/shop/repo/-/merge_requests/7")
         let s = signal()
-        for item in [ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), .request(remote: "https://git.example/shop/repo", number: 7), .branch(remote: "https://git.example/shop/repo", name: "work")] {
+        for item in [ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), .request(remote: "https://git.example/shop/repo", number: 7)] {
             let match = SignalMatch(signal: s.id, item: item, project: project.id, matchedAt: now)
             let result = MatchDecision.decide(matches: [match], signals: [s], tasks: [task], projects: [project], seen: [], complete: true)
             guard case .continueTask(let id, _) = result.first else { Issue.record("Expected task reuse for \(item)"); continue }

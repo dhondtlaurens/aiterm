@@ -1,4 +1,4 @@
-"""Typing into an agent's session the one way the spike found safe (Operators spec §7.1), and
+"""Pasting text into an agent's session and submitting it when safe, and
 reading off its screen whether a prompt is open that typed text could answer."""
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import functools
 import json
 import os
 import re
-import string
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -18,7 +17,7 @@ from .iterm_port import ItermPort, ItermUnavailable
 from .iterm_port import SessionNotFound
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, support_dir
 from .offload import run_detached
-from .screens import (PromptDetails as PromptDetails, PromptKind as PromptKind, _session_prompt,
+from .screens import (PromptKind as PromptKind, _session_prompt,
                       input_text as input_text, open_prompt as open_prompt,
                       shows_input_box as shows_input_box, shows_update_offer as shows_update_offer)
 from .sessions import SessionRegistry
@@ -30,12 +29,12 @@ if TYPE_CHECKING:  # keystrokes imports this module's TYPING_QUIET
 # Between a bracketed paste and its Enter: sent together, the CLI takes the Enter as part of the
 # paste, and it does not submit.
 SUBMIT_DELAY = 0.4
-# No wake line goes into the operator's session within this of your last key there (§7.4).
+# No wake line goes into the operator's session within this of your last key there.
 TYPING_QUIET = 10.0
 # A message longer than this, in characters, is left in a message file, and the session is sent
 # one fixed line telling it to read it.
 MESSAGE_FILE_THRESHOLD = 2000
-# The longest the Oracle may take on an Operator shell command before it runs, unchallenged.
+# The longest the Oracle may take on an Operator shell command before it runs, unchecked.
 GATE_TIMEOUT = 200.0
 # How long /operator waits for the app to answer a forwarded tool call (operator_mcp).
 OPERATOR_REQUEST_TIMEOUT = 30.0
@@ -88,7 +87,7 @@ def load_policy(path: Path) -> dict[AgentKind, Verdict]:
     that is not a JSON true, an entry that names no version, a file missing or unreadable -- `off`.
     So is a harness with no prompt markers, whatever the file says: `open_prompt` reads none off its
     screen, and that must not pass for a screen with no prompt open. Delivery fails closed: a CLI
-    whose pasted text might act as keys in one of its prompts gets none at all (spec §7.1)."""
+    whose pasted text might act as keys in one of its prompts gets none at all."""
     raw: Any
     try:
         st = path.stat()
@@ -120,10 +119,10 @@ def read_policy() -> dict[AgentKind, Verdict]:
 
 
 # Bracketed paste: what a terminal wraps pasted text in, so the CLI reads it as text, not keys. A
-# prompt that opens while it arrives receives a paste rather than shortcut keys (spec §7.1).
+# prompt that opens while it arrives receives a paste rather than shortcut keys.
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
 SUBMIT = "\r"
-# Esc: what declines Codex's update offer (session.dismissStartup).
+# Esc: the delivery check uses it to decline Codex's update offer.
 ESC = "\x1b"
 # What a paste may not carry: every C0 control but tab and newline -- ESC above all, which could end
 # the paste early and type the rest as keys -- DEL, and the C1 controls, CSI among them.
@@ -138,7 +137,7 @@ def pasteable(text: str) -> str:
 
 def write_message_file(worktree: str, text: str) -> str:
     """Leaves `text` in the worktree's next `.aiterm/messages/<n>.md` and returns the one line that
-    tells the agent to read it (spec §7.1, the message-file fallback): one known string, so the
+    tells the agent to read it: one known string, so the
     delivery check tests exactly what is typed. The folder keeps itself out of git with its own
     `.gitignore`, as `.aiterm/first-prompt.md` is kept out. Numbered on from the highest there, each
     made exclusively, so two tabs of one worktree cannot take the same number. ValueError for a
@@ -212,10 +211,6 @@ def _partial(why: Refusal) -> DeliveryResult:
     return DeliveryResult("partial", why.reason, why.code)
 
 
-# Quotes a word may be wrapped in, besides ASCII punctuation, when a wake line's words are counted.
-_QUOTES = "‘’“”"
-
-
 # The events the app wakes the Operator with (`OperatorWakeEvent`): app-owned names, never host
 # text. The wire manifest carries them, so app and daemon cannot drift apart again.
 WAKE_EVENTS: tuple[str, ...] = (
@@ -225,35 +220,23 @@ WAKE_EVENTS: tuple[str, ...] = (
 
 
 def wake_text_problem(text: str) -> str | None:
-    """Why `text` may not be typed as a wake line, or None when it may. A wake line is fixed and plain
-    (the app's OperatorWaker): no digit and no one-letter word, which a menu opening as it arrives could
-    take for its answer (`1`, `y`, `a`), and short enough to paste, since a wake line never goes
-    through a message file."""
-    # Signal wakes carry only an app-owned event and UUID, never a host title or key. Keep
-    # the older prose form's digit restriction; this narrow grammar is the only exception.
+    """Accept only the app's fixed event and UUID wake grammar."""
     identity = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     if re.fullmatch(r"\[AiTerm\] (?:" + "|".join(WAKE_EVENTS) + ") " + identity + r"; call run_status", text):
         return None
-    if any(ch.isdigit() for ch in text):
-        return "a wake line may not carry a digit"
-    words = (word.strip(string.punctuation + _QUOTES) for word in text.split())
-    if any(len(word) == 1 and word.isalpha() for word in words):
-        return "a wake line may not carry a one-letter word"
-    if len(text) > MESSAGE_FILE_THRESHOLD:
-        return "a wake line is too long to paste"
-    return None
+    return "a wake line is the app's fixed wake line or nothing"
 
 
 class Deliverer:
-    """The delivery adapter (spec §7.1): types into an agent's session the one way the spike found
-    safe. It checks the session can take text -- iTerm2 connected, the session open, its CLI checked
+    """The delivery adapter pastes text into an agent's session and submits it when safe.
+    It checks the session can take text -- iTerm2 connected, the session open, its CLI checked
     paste-safe for the version it runs (`load_policy`, `verdict_covers`, SessionInfo.cli_version), its
     screen read and no prompt open -- pastes the text bracketed, waits SUBMIT_DELAY, checks again, and
     only then presses Enter. Anything that changed in between holds the Enter back: the result is
     `partial`, and the text waits in the input for whoever looks next. An operator's wake line is held
     to every check but the delivery check's pass (`_ready`). Deliveries to one session take turns, so
-    two pastes never interleave with their Enters. Which run and task a session belongs to, and whether
-    that run is active, is the app's to check before it asks."""
+    two pastes never interleave with their Enters. Which Operator session and task a tab belongs to, and whether
+    that Operator session is active, is the app's to check before it asks."""
 
     def __init__(self, iterm: ItermPort, registry: SessionRegistry, policy: Callable[[], Mapping[AgentKind, Verdict]],
                  typing: TypingGuard, *, monotonic: Callable[[], float] = time.monotonic,
@@ -438,7 +421,7 @@ class Deliverer:
             # Without the keystroke monitor nothing shows that you are not typing there: the line is not typed.
             return Refusal("keysUnwatched", "iTerm2 gives AiTerm no keys to watch, so whether you are typing there is unknown")
         if wake and self.typing.is_typing(session_id, self._monotonic()):
-            # Not lost: the operator sees the news at its next run_status (spec §7.4).
+            # Not lost: the operator sees the news at its next run_status.
             return Refusal("typing", "you are typing")
         if wake and self.typing.has_unsent_input(session_id):
             # Pasted after words not yet sent, the wake line's Enter would send them with it.
@@ -491,19 +474,8 @@ class Deliverer:
             return Refusal("pasteOnly", "before Enter, automatic submission is no longer checked safe")
         return None
 
-    async def prompt_details(self, session_id: str) -> PromptDetails:
-        """Classify and quote one screen read, so the operator sees the question and all its options.
-        The full visible screen preserves context that harness-specific menu slicing could lose."""
-        if (session := self.registry.get(session_id)) is None or (screen := await self.iterm.screen_text(session_id)) is None:
-            raise SessionNotFound(session_id)
-        if not screen.strip():
-            raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
-        kind = _session_prompt(session, screen)
-        return {"kind": kind, "text": screen if kind is not None else None}
-
     async def dismiss_startup(self, session_id: str) -> bool:
-        """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one
-        itself (spec §7.1), so a task's agent is not left waiting on it. Sent only while the screen,
+        """The delivery check declines the CLI's update offer with Esc. Sent only while the screen,
         read within the session's turn, shows that offer below any input arrow and the tab is not
         working. It must bear every update marker: any other
         startup dialog -- a folder's trust above all -- is yours to answer, and is left open. True

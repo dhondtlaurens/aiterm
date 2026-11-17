@@ -280,10 +280,7 @@ struct CheckoutMonitorTests {
 }
 
 extension CheckoutMonitorTests {
-    /// Work budget (phase 7): a checkout pass during which a task's title changes, which no scan reads, scans once and
-    /// keeps its answer — 2 scans before phase 7, when the pass compared whole tasks and projects at its end and read
-    /// the disk again for any change to them. A task the pass found removed outside AiTerm is handed to the cleanup as
-    /// the row is now, title and all, as the second scan handed it before. None may raise it.
+    /// A checkout pass scans once when a task title changes, since titles are not an input to the scan.
     @Test func aChangeNoScanReadsDoesNotReadTheCheckoutsAgain() async throws {
         let entered = TestLatch()
         let release = DispatchSemaphore(value: 0)

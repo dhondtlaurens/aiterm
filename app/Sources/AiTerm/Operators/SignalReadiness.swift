@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-/// What New Broadcast's Start waits for: every agent the Operator may plan on — Claude Code and Codex,
+/// What New Signal's Start waits for: every agent the Operator may plan on — Claude Code and Codex,
 /// those installed (`ModelChoice.pair`) — Ready on its Settings card, Messaging included, and iTerm2's
 /// own delivery checks passed. The Operator's own wake line needs no Messaging pass, but its workers'
 /// steers do, so every agent it may plan a task on is waited for. Each piece not ready is one line, in

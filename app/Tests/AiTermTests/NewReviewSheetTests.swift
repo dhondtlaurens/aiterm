@@ -92,9 +92,6 @@ import AiTermCore
     /// With no CLI installed every segment is disabled — none of them would open anything — and
     /// the note sends the user to where the CLIs are installed.
     @Test func anAgentIsSelectableOnlyWhenItsCLIIsInstalled() {
-        #expect(AgentKind.allCases.allSatisfy { !AgentSegmented.isSelectable($0, available: []) })
-        #expect(AgentSegmented.isSelectable(.pi, available: [.pi]))
-        #expect(!AgentSegmented.isSelectable(.claude, available: [.pi]))
         #expect(AgentStep.missingAgentNote(available: Set(AgentKind.allCases)) == nil)
         #expect(AgentStep.missingAgentNote(available: [.claude, .codex])
                 == "PI isn’t installed. Install it in Settings › Agents.")
@@ -233,7 +230,7 @@ import AiTermCore
         #expect(self.field(Self.branchPlaceholder, in: h.host)?.stringValue == "chore-drop-importer")
     }
 
-    /// Spec §3.4's key contract, and the part that is this sheet's alone: it is the only sheet in
+    /// The key contract, and the part that is this sheet's alone: it is the only sheet in
     /// the app with two pickers, so ⎋ has three things it could mean. It closes the merge-request
     /// list first, then the branch list, and only then does it reach the sheet.
     @Test func escapeClosesTheMergeRequestListBeforeTheBranchList() throws {

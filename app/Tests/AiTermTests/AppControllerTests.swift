@@ -700,14 +700,12 @@ import Testing
         }
         controller.focus.browse(.task(task.id))
 
-        var first = SessionInfo.make("a", task: task.id, project: project.id, model: "sonnet", title: "a", cwd: task.worktreePath,
+        var first = SessionInfo.make("a", task: task.id, project: project.id, cwd: task.worktreePath,
             active: true)
         first.contextPercent = 42
-        var second = SessionInfo.make("b", tabIndex: 1, task: task.id, project: project.id, model: "sonnet", title: "b",
-            cwd: task.worktreePath)
+        var second = SessionInfo.make("b", tabIndex: 1, task: task.id, project: project.id, cwd: task.worktreePath)
         second.contextPercent = 18
-        var codex = SessionInfo.make("c", tabIndex: 2, task: task.id, project: project.id, agent: .codex, model: "gpt-5.6", title: "c",
-            cwd: task.worktreePath)
+        var codex = SessionInfo.make("c", tabIndex: 2, task: task.id, project: project.id, agent: .codex, cwd: task.worktreePath)
         codex.contextPercent = 64
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: false,
                                                                sessions: [first, second, codex], usage: .empty)))
@@ -769,7 +767,7 @@ import Testing
         }
         controller.focus.browse(.terminal(terminal.id))
 
-        let shell = SessionInfo.make("t", window: "w2", project: project.id, agent: .shell, title: "zsh", cwd: "/repo", active: true)
+        let shell = SessionInfo.make("t", window: "w2", project: project.id, agent: .shell, cwd: "/repo", active: true)
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: false,
                                                                sessions: [shell], usage: .empty)))
         #expect(controller.live.contextPercents(for: controller.focus.selection).isEmpty)
@@ -1061,8 +1059,7 @@ import Testing
             state.append(project: project)
             state.tasks = [task]
         }
-        var tab = SessionInfo.make(window: "w", task: task.id, agent: .codex, model: "gpt-5.6", state: .working, title: "⠋ repo",
-            cwd: "/repo")
+        var tab = SessionInfo.make(window: "w", task: task.id, agent: .codex, state: .working, cwd: "/repo")
         tab.contextPercent = 12
         controller.live.sessions = [tab]
         func rowsChange(_ change: (inout SessionInfo) -> Void) -> Bool {
@@ -1074,8 +1071,6 @@ import Testing
             return changed.withLock { $0 }
         }
         #expect(!rowsChange { $0.contextPercent = 40 })
-        #expect(!rowsChange { $0.title = "⠙ repo" })
-        #expect(!rowsChange { $0.model = "gpt-5.7"; $0.reasoning = "high" })
         #expect(rowsChange { $0.state = .done })
         #expect(rowsChange { $0.agentCwd = "/repo/.worktrees/a" })
         #expect(rowsChange { $0.active = true })
@@ -1100,15 +1095,13 @@ import Testing
                                        })
         try controller.workspace.load()
         let task = UUID(), project = UUID()
-        var tab = SessionInfo.make(window: "w", task: task, project: project, model: "opus", title: "claude", cwd: dir.path)
+        var tab = SessionInfo.make(window: "w", task: task, project: project, cwd: dir.path)
         controller.helper.handle(.sessionOpened(tab))
         await controller.checkouts.refreshTask?.value
         #expect(scans.count == 1)
 
         tab.contextPercent = 40; controller.helper.handle(.sessionChanged(tab))
         tab.state = .working; controller.helper.handle(.sessionChanged(tab))
-        tab.model = "sonnet"; controller.helper.handle(.sessionChanged(tab))
-        tab.title = "✳ claude"; controller.helper.handle(.sessionChanged(tab))
         tab.active = true; controller.helper.handle(.sessionChanged(tab))
         #expect(controller.checkouts.refreshTask == nil)
         #expect(scans.count == 1)

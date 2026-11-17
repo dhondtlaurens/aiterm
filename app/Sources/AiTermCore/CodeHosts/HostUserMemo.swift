@@ -4,10 +4,10 @@ import Synchronization
 /// A token's user, shared by repository clients until Settings saves. Connection probes bypass
 /// it. Each test can bind its own cache so a parallel scratch Settings save clears only its own.
 enum HostUserMemo {
-    enum Service: Hashable, Sendable { case gitHub, gitLab, jira }
+    enum Service: Hashable, Sendable { case gitHub, gitLab }
 
     private struct Key: Hashable, Sendable {
-        var service: Service, host: String, token: Data, account: Data?
+        var service: Service, host: String, token: Data
     }
 
     final class Cache: Sendable {
@@ -17,9 +17,9 @@ enum HostUserMemo {
         }
         private let state = Mutex(State())
 
-        func read(_ service: Service, host: String, token: String, account: String?,
+        func read(_ service: Service, host: String, token: String,
                   load: @Sendable () async throws -> String) async throws -> String {
-            let key = Key(service: service, host: host, token: Data(token.utf8), account: account.map { Data($0.utf8) })
+            let key = Key(service: service, host: host, token: Data(token.utf8))
             let (known, generation) = state.withLock { ($0.values[key], $0.generations[service, default: 0]) }
             if let known { try Task.checkCancellation(); return known }
             let read = try await load()
@@ -43,9 +43,9 @@ enum HostUserMemo {
     @TaskLocal static var current: Cache?
     private static let shared = Cache()
 
-    static func user(_ service: Service, host: String, token: String, account: String? = nil,
+    static func user(_ service: Service, host: String, token: String,
                      load: @Sendable () async throws -> String) async throws -> String {
-        try await (current ?? shared).read(service, host: host, token: token, account: account, load: load)
+        try await (current ?? shared).read(service, host: host, token: token, load: load)
     }
 
     static func invalidate(_ service: Service) { (current ?? shared).invalidate(service) }

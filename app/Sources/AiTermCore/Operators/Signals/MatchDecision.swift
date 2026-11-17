@@ -32,11 +32,6 @@ public enum MatchDecision: Equatable, Sendable {
                 if let branch = match.branch, branch == candidate.branch,
                    case .mergeRequest(let request) = match.item,
                    projects.contains(where: { $0.id == candidate.projectId && $0.remoteUrl.flatMap(ItemRef.repository) == ItemRef.repository(request.remote) }) { return true }
-                if case .branch(let branch) = match.item {
-                    return candidate.branch == branch.name && projects.contains {
-                        $0.id == candidate.projectId && $0.remoteUrl.flatMap(ItemRef.repository) == ItemRef.repository(branch.remote)
-                    }
-                }
                 return false
             }) {
                 if task.signalTask?.takenOver != true { decisions.append(.continueTask(task.id, stage)) }
@@ -63,9 +58,6 @@ public enum MatchDecision: Equatable, Sendable {
             var path = url.path
             if let split = path.range(of: "/-/merge_requests/") ?? path.range(of: "/pull/") { path = String(path[..<split.lowerBound]) }
             return ItemRef.repository("https://" + host + path) == ItemRef.repository(ref.remote)
-        case .branch(let ref):
-            guard task.branch == ref.name else { return false }
-            return task.signalTask?.watchedRequest.map { ItemRef.repository($0.remote) == ItemRef.repository(ref.remote) } ?? false
         case .unknown: return false
         }
     }

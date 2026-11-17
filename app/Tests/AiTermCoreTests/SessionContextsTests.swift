@@ -9,7 +9,7 @@ import Testing
     let project = Project.make(name: "Repo", path: "/repo")
 
     func tab(_ id: String, window: String, task: TaskItem? = nil, agent: SessionAgent, active: Bool, context: Int?) -> SessionInfo {
-        var session = SessionInfo.make(id, window: window, task: task?.id, project: project.id, agent: agent, title: id, cwd: "/repo",
+        var session = SessionInfo.make(id, window: window, task: task?.id, project: project.id, agent: agent, cwd: "/repo",
             active: active)
         session.contextPercent = context
         return session

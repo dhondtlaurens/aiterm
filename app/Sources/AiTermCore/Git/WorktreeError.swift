@@ -2,7 +2,7 @@ import Foundation
 
 /// Why git work on a project's worktrees or default branch was refused, in words to show.
 public enum WorktreeError: Error, Equatable, LocalizedError {
-    case symlinkRefused(String), notARepository(String)
+    case symlinkRefused(String)
     /// A review's branch that git will not check out a second time, and where it already is.
     case branchCheckedOut(String, at: String)
     /// A review's branch checked out in the project's own folder, at `at`: one that could be
@@ -36,7 +36,6 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .symlinkRefused(let path): return "Refusing to create a worktree through the symlink at \(path)."
-        case .notARepository(let path): return "\(path) is not a Git repository."
         case .branchCheckedOut(let branch, let path):
             return "“\(branch)” is checked out at \(path). Switch that checkout to another branch, then review it."
         case .branchInProjectFolder(let branch, let path, let target, false):

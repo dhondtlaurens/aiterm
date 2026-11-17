@@ -21,9 +21,9 @@ a repository's lane. Jobs that block for seconds run on a `SerialThread`; one su
 `ThreadWork`. `FolderCheck` asks whether a folder exists on a thread of its own. `AgentProcess`
 separately owns long-running cancellable process groups.
 
-Commit ids, remote URLs, real paths and file stamps each have one Core home: `CommitId` (one rule
-for Git publication and guarded merge heads), `RemoteURL` (the provider's reading and the
-push's same-location key, which compares percent-decoded paths), `CanonicalPath` and
+Commit ids, remote URLs, real paths and file stamps each have one Core home: the worker guard's
+commit-id rule, `RemoteURL` (the provider's reading and the worker guard's same-location key,
+which compares percent-decoded paths), `CanonicalPath` and
 `FileStamps.Stamp`. Process and git output take an optional limit and report truncation.
 
 ## Workspace and observation
@@ -37,15 +37,14 @@ switching to Signals, as described in
 [releasing](workflow/release.md).
 
 `AppState` stores projects, tasks, terminals, the archive, signals, seen items and one Operator
-session. `runs`, `foldedRuns` and task `operated` are retired, including in archived tasks; unknown
-non-retired keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
+session. Unknown keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
 and `SidebarProjection` scope observation to drawn facts. Signal headings compare `SignalHeadingValue`;
 menus resolve saved tasks at action time. Journals, reply markers and launch history do not redraw
 rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No leaf `body`
 performs I/O or reads the whole workspace.
 
-`AppController` composes owners. It takes its outside dependencies as `AppPorts` (live or scratch,
-the Fix pipeline among them) and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
+`AppController` composes owners. It takes its outside dependencies as `AppPorts` (live or scratch)
+and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
 does. Owners publish changes through `HookList`, whose hooks return removal tokens; a hook with one
 slot says so in its name. `SheetCoordinator` owns the single sheet slot and cancels stale
 preparation. Creation models share `CreationModel`, `CreationSheet` and model/reasoning controls;
@@ -58,8 +57,8 @@ different.
 
 Git work that changes a repository runs on that repository's lane (`GitLanes`), keyed by its git
 common directory, so a project's folder and its worktrees share one and work on one repository never
-waits for another's. Manual creation, worker checkout, restore, removal, pull, rebase, Fix landing,
-local merge and the merged-branch check run there through `TaskWorkflow` or the lanes directly; a
+waits for another's. Manual creation, worker checkout, restore, removal, pull, rebase,
+and the merged-branch check run there through `TaskWorkflow` or the lanes directly; a
 head or an unsaved-work question runs on the shared pool. `TaskCreator` owns branch/worktree
 creation; worker retry reuses the existing worktree and its original baseline. Scheduling, focus,
 claim validation and uncertainty belong to their callers.
@@ -122,8 +121,7 @@ concurrency cap. [Operator guide](operators.md); [contract protection](testing.m
 `HTTPJSON` and `HostAPI` share JSON transport and credential-safe redirects. GitHub, GitLab and Jira
 retain their actual pagination and error semantics: a picker may show a bounded subset, while
 publication must refuse an incomplete safety read. Each GitHub and GitLab client is bound to one
-repository when it is made (`HostRepository`). `HostFailure.outcomeUnknown` says whether a failed
-write may have reached the host; a failure before sending is not. A token's user is kept per host
+repository when it is made (`HostRepository`). A token's user is kept per host
 and token until Settings saves. Commands use typed arguments and hermetic Git
 configuration in tests.
 
@@ -133,8 +131,6 @@ credential changes are explicit user actions.
 Operator startup also records trust for its own private Operator folder in the resolved Claude
 profile's global JSON. It preserves unrelated state and a backup, uses Claude's config lock and
 an atomic private write, and skips the write when that exact folder is already trusted.
-`FixSession` owns an isolated clone through proposal, apply, landing and cleanup; quit cannot begin
-a new landing after an awaited agent reply.
 
 `BackpackController` owns Backpack Mode permissions, network/lid-sleep transitions and cleanup.
 `MachineMonitor` samples in-process platform readings. `UpdateController` owns release lookup,
@@ -174,9 +170,7 @@ as though it belonged to the current app. [Protocol reference](daemon-protocol.m
 | tickets | Jira Cloud REST, credentials in the Keychain |
 | review threads | GitLab REST (`/merge_requests/:iid/discussions`, a discussion with a resolvable note, resolved when all of them are) on the configured GitLab host and port only, and GitHub GraphQL (`reviewThreads { isResolved }`), with the tokens Settings saved; read-only, 100 a page, at most 10 pages |
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
-| conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process as the model does. Codex's proven thread and process ID are also kept on its iTerm tab; a fresh helper recovers them only for that same Codex process, then reads the CLI version from its rollout before allowing delivery |
-| a worker's live model and effort | Claude's own word on its session: `SessionStart`'s model, `PostModelSwitch`'s `to_model`, the status line's `model.id` and `effort.level`; only from a post placed by evidence and not from inside a subagent (`agent_id`), and never a hook's own `effort`, which is its turn's. `run_status` shows them beside the planned model, for Claude workers only, and in the tooltip of the task's status; they never wake the Operator |
-| what became of a slash command | the Claude tab's transcript, named by its own hooks and status line (`transcript_path`) and read on every tick, off the loop, from where it ended when `message_task` typed the command: its command record, or a `queue-operation` enqueue holding it (`slash_commands.py`, docs/status-model.md) |
+| conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process. Codex's proven thread and process ID are also kept on its iTerm tab; a fresh helper recovers them only for that same Codex process, then reads the CLI version from its rollout before allowing delivery |
 | a worker stopped on an API error | Claude Code's `StopFailure` hook, in place of `Stop`: its `error` (`rate_limit`, `billing_error`, `authentication_failed`...), and for a limit when it resets, read only from the transcript's own record of it (`apiErrorParams.rate_limit_info.resetsAt`) within 30 s of the hook. Cleared on a new prompt, a clean Stop, or parent transcript activity newer than the failure and last hook. While children run, a busy session file alone proves no parent recovery; the stopped marker stays until its parent carries on. A stopped worker's transcript tail is parsed again only once the file changes. the worker status reports the stopped reason; its task blocks with the usage-limit reason |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
@@ -206,5 +200,5 @@ The app is dark-only. Palette and Metrics are the source of visual values; the
 the code and holds proposed visual changes separately. Refactors change no visual values.
 
 [Testing](testing.md) describes the gate, current-format fixtures, real adapter proofs and opt-in
-live checks. Debug snapshot entry occurs before live workspace migration/controller construction,
+live checks. Debug snapshot entry occurs before live workspace setup/controller construction,
 so fixture rendering does not connect to the running app's state or daemon.

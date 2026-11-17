@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A heading in the sidebar's own voice — Projects, System, Usage, a divider's name, a board column's:
+/// A heading in the sidebar's own voice — Projects, System, Usage, a divider's name, a section's:
 /// the section face (`Typography.section`, 11 semibold) in the third ink (`Palette.tertiary`), its
 /// words as given. Sentence case, never uppercased and never tracked (the layered foundation, 13 Nov
 /// 2026): the caller's string is what is drawn, so a divider keeps its name as the person typed it.

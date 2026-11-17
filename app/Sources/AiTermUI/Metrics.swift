@@ -24,8 +24,8 @@ public enum Space {
     public static let snug: CGFloat = 6
     /// Related controls; a row's leading padding.
     public static let base: CGFloat = 8
-    /// The one off-rhythm step at this width: a control's own interior padding (a text field and
-    /// the command block, horizontally), and, at the same width, the gap between a row's avatar and
+    /// The one off-rhythm step at this width: a text field's horizontal interior padding
+    /// and, at the same width, the gap between a row's avatar and
     /// its text (`SidebarView`) and between a footer row's vendor mark and its text
     /// (`SidebarFooter`). Also the sidebar `List`'s own inset, which the sidebar footer — below the
     /// list, not in it — adds back to line up with the rows. Off the 8 pt rhythm on purpose — at 8
@@ -47,7 +47,7 @@ public enum Space {
 public enum Radius {
     /// Badges, the `+n` chip, a menu row's highlight, the provider tile.
     public static let chip: CGFloat = 5
-    /// Fields, buttons, sidebar rows, the command block.
+    /// Fields, buttons and sidebar rows.
     public static let control: CGFloat = 7
     /// Segmented tracks, cards and the boxed groups in Settings.
     public static let group: CGFloat = 10
@@ -86,8 +86,7 @@ public enum Size {
     /// The click target the sidebar's trailing column is built from.
     public static let slot: CGFloat = 20
     /// A row in a menu, a dropdown or the completion popup; the sidebar's Projects header and a
-    /// `DividerRow`; and a sidebar footer row and its System and Usage headings. Also the width a
-    /// picker's list toggle answers to clicks in (`SearchPicker`).
+    /// `DividerRow`; and a sidebar footer row and its System and Usage headings.
     public static let menuRow: CGFloat = 24
     /// A field, a pop-up button (`.controlSize(.large)`), a segmented track, a push button
     /// (`PushButtonStyle`).
@@ -102,8 +101,7 @@ public enum Size {
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18
     /// A mark that leads a line of text and stands no taller than it: the Notice's amber
-    /// exclamation mark beside its `Typography.label` title, and the Operator's mark leading Find a
-    /// Fix (the Operator's greenfield design, 19 Oct 2026).
+    /// exclamation mark beside its `Typography.label` title.
     public static let inlineMark: CGFloat = 12
     /// A vendor mark outside an avatar group: the sidebar footer, the agent picker.
     public static let vendorMark: CGFloat = 16
@@ -236,7 +234,7 @@ public enum Typography {
 
     /// A branch name, a shell job's command, a tool call and its JSON, a check's failure output.
     public static let mono = TypeStyle(size: 11, design: .monospaced)
-    /// The command block, a branch in a picker or its field, a completion's name.
+    /// A branch in a picker or its field, a completion's name.
     public static let monoCode = TypeStyle(size: 12, design: .monospaced)
     /// The first-prompt editor's own size, monospaced — has to match `PromptEditor`'s real
     /// `NSTextView` font exactly, or its placeholder sits where typed text will not.
@@ -265,10 +263,9 @@ public enum Sheet {
     /// Archive; and the most a sheet that fits its content (`NameSheet`, Backpack Mode) grows to.
     public static let height: CGFloat = 560
     /// New Task's and New Review's every step, so the sheet does not jump from one to the next: their
-    /// tallest ordinary step — the prompt, New Task's ticket checkbox, the command and where it opens,
-    /// 380 pt with its margins — under the title row and over the footer's Back and create, 117 pt
-    /// between them, and a few points spare. A notice or a fix proposal in the footer is taller and
-    /// scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
+    /// prompt editor and ticket checkbox fit under the title and above the footer.
+    /// The last step shows the agent fields and destination summary. A notice in the footer is
+    /// taller and scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
     public static let creationHeight: CGFloat = 500
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580

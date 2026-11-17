@@ -2,7 +2,7 @@ import Foundation
 import AiTermCore
 
 extension SignalOperatorToolHandler {
-    func execute(_ tool: SignalOperatorTool, call: ToolCall, task: TaskItem?, key: String?, allowed: @escaping @MainActor () -> Bool) async throws -> JSONValue {
+    func execute(_ tool: OperatorTool, call: ToolCall, task: TaskItem?, key: String?, allowed: @escaping @MainActor () -> Bool) async throws -> JSONValue {
         switch tool {
         case .runStatus:
             return try JSONValue(encoding: digest(task: task?.id))
@@ -149,7 +149,7 @@ extension SignalOperatorToolHandler {
     private func consult(_ call: ToolCall, task: TaskItem?, key: String, allowed: () -> Bool) async throws -> JSONValue {
         guard ports.oracleEnabled() else { return ["status": "ask_you", "reason": "The Oracle is off. Ask in your chat, then record ask_you."] }
         let question = try call.string("question"), context = try call.string("context")
-        let record = ChallengeRecord(id: "consult:" + key, tool: "ask_oracle", askedArguments: try Self.json(call.arguments), askedAt: now())
+        let record = OracleRound(id: "consult:" + key, tool: "ask_oracle", askedArguments: try Self.json(call.arguments), askedAt: now())
         workspace.mutate { $0.operatorSession?.oracleRounds.append(record) }
         guard workspace.flush() else { throw ToolRefusal("The Oracle request couldn’t be saved.") }
         defer { workspace.mutate { $0.operatorSession?.oracleRounds.removeAll { $0.id == record.id } }; workspace.flush() }

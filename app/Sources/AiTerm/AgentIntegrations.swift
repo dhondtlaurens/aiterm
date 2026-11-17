@@ -8,7 +8,7 @@ import AiTermCore
 @MainActor
 @Observable
 final class AgentIntegrations {
-    /// Spec 8: which agent CLIs are actually on the login shell's `PATH`. Probed once at launch,
+    /// which agent CLIs are actually on the login shell's `PATH`. Probed once at launch,
     /// and joined by any CLI Settings installs; until the probe answers, every agent is assumed
     /// present so the sheet is never wrongly blocked. Written only by `probe()` and Settings'
     /// installs, and by tests that need an agent missing; the creation sheets read it live.
@@ -32,16 +32,7 @@ final class AgentIntegrations {
     let claudeConfig: ClaudeConfig
     private(set) var claudeConfigPath: String?
 
-    /// Settings › Agents' “Help with problems”, saved on every write.
-    var helpWithProblems: HelpWithProblems {
-        didSet { if helpWithProblems != oldValue { HelpWithProblems.save(helpWithProblems, defaults: defaults) } }
-    }
-    /// What every Find a Fix is: Claude, the Operator's agent, while the switch is on and Claude Code is
-    /// installed; else Off.
-    var fixer: FixerResolution { helpWithProblems.resolve(installed: availableAgents) }
-
-    /// Settings › Operator's profile as these defaults keep it, read as each caller asks: a broadcast
-    /// freezes it as it starts, and every Fix runs at its model and reasoning. Off the main actor.
+    /// Settings › Operator's profile as these defaults keep it, read off the main actor when asked.
     var operatorProfile: @Sendable () -> OperatorProfile {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let defaults = defaults
@@ -60,22 +51,10 @@ final class AgentIntegrations {
                      skills: { SkillCatalog.discover(agent: $0, projectPath: nil, home: home, claudeConfig: claudeConfig) })
     }
 
-    /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
-    /// handed, since the fixer is always the Operator's own, Claude.
-    var fixModel: @Sendable () -> (model: String, reasoning: String?) {
-        let profile = operatorProfile
-        return { let operating = profile(); return (operating.model, operating.reasoning) }
-    }
-
-    /// The banner's and New Review's Fix for `project`: a clone, the agent at `fixModel`, AiTerm's landing.
-    func fixPipeline(for project: Project, git: any GitRunning, workflow: TaskWorkflow) -> FixPipeline {
-        .live(git: git, workflow: workflow, project: project, model: fixModel, locate: { HarnessCommandRunner.live.locate($0) })
-    }
-
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
     /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
-    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none;
-    /// a Fix runs at the Operator's own (`fixModel`). Read as each run starts, off the main actor.
+    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none.
+    /// Read when each task starts, off the main actor.
     nonisolated static func taskModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
         ModelSettings.load(for: agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent] ?? "", nil)
@@ -106,7 +85,6 @@ final class AgentIntegrations {
          defaults: UserDefaults = .standard, claudeConfig: ClaudeConfig = ClaudeConfig()) {
         self.defaults = defaults
         self.claudeConfig = claudeConfig
-        helpWithProblems = HelpWithProblems.load(defaults: defaults)
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]
@@ -148,30 +126,24 @@ final class AgentIntegrations {
         if let installed { availableAgents = installed }
     }
 
-    /// The status line's launch probe: first the upgrade of an old record of the user's own status
-    /// line, which the shim would otherwise stop showing, and the port the shims post to, which an
-    /// install from before they read it never recorded, then the read.
-    /// Internal, not private, for `theLaunchProbeMigratesAnOldStatusLineRecord`.
-    func probeStatusLine() async { await readStatusLine(migratingFirst: true) }
+    /// Records the port the shims post to, then reads the status line.
+    /// Internal for `theLaunchProbeRecordsTheHookPort`.
+    func probeStatusLine() async { await readStatusLine(recordingPort: true) }
 
     /// Re-reads whether the shim is still Claude Code's status line, after a Claude install, so the
     /// footer stays honest when another tool edits Claude's settings. Internal, not private, for
     /// `theStatusLineProbeReadsTheHarnessHome`.
-    func refreshStatusLineState() async { await readStatusLine(migratingFirst: false) }
+    func refreshStatusLineState() async { await readStatusLine(recordingPort: false) }
 
     /// Off the main actor, both: `settings.json` is the user's file, of any size, and parsing it
     /// must not hold up the app.
-    private func readStatusLine(migratingFirst migrating: Bool) async {
+    private func readStatusLine(recordingPort: Bool) async {
         let shim = claudeShim, home = harnessHome, isInstalled = statusLineIsInstalled, config = claudeConfig
         statusLineReadsStarted += 1
         let read = statusLineReadsStarted
         let (installed, directory) = await BackgroundWork.run {
             let directory = config.directory(home: home)
-            if migrating {
-                Log.harness.attempt("Migrating the saved status line") { try StatusLineOriginal.migrate(home: home) }
-                // The shims are in the bundle and so are as new as the app, but read the port from a
-                // file only a driver's Install writes: until it has, an upgrade's status line posts
-                // to nothing and the footer's usage goes quiet.
+            if recordingPort {
                 Log.harness.attempt("Recording the hook port") { try ShimPort.record(AiTermPaths.hookPort, home: home) }
             }
             // The harness home this was given, never the default: in a test that is a temporary

@@ -10,39 +10,28 @@ PI_BASE = {"session_id": "pi-session", "cwd": "/repo/.worktrees/x",
            "_aiterm_iterm_session_id": "w0t0p0:pi-tab"}
 
 
-@pytest.mark.parametrize("payload,kind,model", [
-    ({**BASE, "hook_event_name": "SessionStart", "source": "startup", "model": "claude-opus-5"}, "sessionStart", "claude-opus-5"),
-    ({**BASE, "hook_event_name": "SessionStart", "source": "clear"}, "sessionStart", None),
+@pytest.mark.parametrize("payload,kind", [
+    ({**BASE, "hook_event_name": "SessionStart", "source": "startup", "model": "claude-opus-5"}, "sessionStart"),
+    ({**BASE, "hook_event_name": "SessionStart", "source": "clear"}, "sessionStart"),
     # A compaction reports SessionStart mid-turn: metadata only, not a new conversation.
-    ({**BASE, "hook_event_name": "SessionStart", "source": "compact", "model": "claude-opus-5"}, None, "claude-opus-5"),
-    ({**BASE, "hook_event_name": "PostModelSwitch", "from_model": "a", "to_model": "claude-fable-5-1"}, None, "claude-fable-5-1"),
-    ({**BASE, "hook_event_name": "UserPromptSubmit", "user_prompt": "hi"}, "working", None),
-    ({**BASE, "hook_event_name": "Stop", "stop_reason": "end_turn"}, "done", None),
-    ({**BASE, "hook_event_name": "PermissionRequest", "tool_name": "Bash"}, "needsInput", None),
-    ({**BASE, "hook_event_name": "Notification", "notification_type": "permission_prompt"}, "needsInput", None),
-    ({**BASE, "hook_event_name": "Notification", "notification_type": "agent_needs_input"}, "needsInput", None),
-    ({**BASE, "hook_event_name": "Notification", "notification_type": "agent_completed"}, "done", None),
+    ({**BASE, "hook_event_name": "SessionStart", "source": "compact", "model": "claude-opus-5"}, None),
+    ({**BASE, "hook_event_name": "UserPromptSubmit", "user_prompt": "hi"}, "working"),
+    ({**BASE, "hook_event_name": "Stop", "stop_reason": "end_turn"}, "done"),
+    ({**BASE, "hook_event_name": "PermissionRequest", "tool_name": "Bash"}, "needsInput"),
+    ({**BASE, "hook_event_name": "Notification", "notification_type": "permission_prompt"}, "needsInput"),
+    ({**BASE, "hook_event_name": "Notification", "notification_type": "agent_needs_input"}, "needsInput"),
+    ({**BASE, "hook_event_name": "Notification", "notification_type": "agent_completed"}, "done"),
 ])
-def test_claude_hook_mapping(payload, kind, model):
+def test_claude_hook_mapping(payload, kind):
     ev = parse_claude_hook(payload)
-    assert ev.agent == "claude" and ev.kind == kind and ev.model == model
+    assert ev.agent == "claude" and ev.kind == kind
     assert ev.session_id == "abc" and ev.cwd == "/repo/.worktrees/x"
 
 
-@pytest.mark.parametrize("name", ["SessionStart", "PostModelSwitch"])
-def test_a_claude_post_from_inside_a_subagent_names_no_model(name):
-    # Claude Code adds `agent_id` to a hook that fires within a subagent: its model is the child's, not the session's.
-    ev = parse_claude_hook({**BASE, "hook_event_name": name, "agent_id": "child-1", "model": "claude-haiku-5-5",
-                            "to_model": "claude-haiku-5-5"})
-    assert ev is not None and ev.model is None
-
-
-def test_a_claude_hook_names_no_reasoning_whatever_effort_it_carries():
-    # A Stop's `effort` is its turn's, which an /effort run mid-turn leaves behind: only the status line says the session's.
-    for name in ("Stop", "SubagentStop", "UserPromptSubmit"):
-        ev = parse_claude_hook({**BASE, "hook_event_name": name, "agent_id": "child-1" if name == "SubagentStop" else None,
-                                "effort": {"level": "high"}})
-        assert ev is not None and ev.reasoning is None, name
+def test_a_claude_post_from_inside_a_subagent_names_no_session_transcript():
+    event = parse_claude_hook({**BASE, "hook_event_name": "PermissionRequest", "agent_id": "child-1"})
+    assert event.transcript is None
+    assert parse_claude_hook({**BASE, "hook_event_name": "SessionStart"}).transcript == BASE["transcript_path"]
 
 
 def test_claude_idle_prompt_and_unknown_events_are_ignored():
@@ -55,7 +44,7 @@ def test_codex_hook_mapping():
     p = {"cwd": "/w", "hook_event_name": "SessionStart", "model": "gpt-5.6", "permission_mode": "default", "session_id": "th1",
          "source": "startup", "transcript_path": None}
     ev = parse_codex_hook(p)
-    assert (ev.agent, ev.kind, ev.model, ev.session_id, ev.cwd) == ("codex", "sessionStart", "gpt-5.6", "th1", "/w")
+    assert (ev.agent, ev.kind, ev.session_id, ev.cwd) == ("codex", "sessionStart", "th1", "/w")
     assert parse_codex_hook({**p, "hook_event_name": "Stop"}).kind == "done"
     assert parse_codex_hook({**p, "hook_event_name": "PermissionRequest"}).kind == "needsInput"
     assert parse_codex_hook({**p, "hook_event_name": "UserPromptSubmit"}).kind == "working"
@@ -68,15 +57,13 @@ def test_codex_hook_mapping():
     ("ui_prompt_start", "promptStart"),
     ("ui_prompt_end", "promptEnd"),
     ("agent_settled", "done"),
-    ("model_select", None),
     ("thinking_level_select", None),
     ("turn_end", None),
 ])
 def test_pi_hook_mapping(name, kind):
     event = parse_pi_hook({**PI_BASE, "hook_event_name": name})
     assert event.agent == "pi" and event.kind == kind
-    assert event.model == "openai-codex/gpt-5.6-sol"
-    assert event.reasoning == "high" and event.context_percent == 43
+    assert event.context_percent == 43
     assert event.iterm_session_id == "w0t0p0:pi-tab"
 
 
@@ -89,7 +76,7 @@ def test_pi_hook_mapping(name, kind):
 ])
 def test_pi_session_start_begins_a_conversation_unless_it_is_a_reload(reason, kind):
     event = parse_pi_hook({**PI_BASE, "hook_event_name": "session_start", "reason": reason})
-    assert event.kind == kind and event.model == "openai-codex/gpt-5.6-sol"
+    assert event.kind == kind
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -105,7 +92,6 @@ def test_pi_hook_rejects_unknown_events_and_sanitizes_string_metadata():
     event = parse_pi_hook({**PI_BASE, "hook_event_name": "session_start",
                            "session_id": 7, "cwd": False, "model": ["bad"], "reasoning": 3})
     assert event.session_id is None and event.cwd is None
-    assert event.model is None and event.reasoning is None
 
 
 @pytest.mark.parametrize("parser,vendor", [(parse_claude_hook, "claude"), (parse_codex_hook, "codex")])
@@ -224,49 +210,25 @@ def test_pi_subagent_event_without_a_child_id_is_ignored(name):
     assert parse_pi_hook({**PI_BASE, "hook_event_name": name, "agent_id": 7}) is None
 
 
-def _usage_and_model(payload, now):
-    tick = parse_claude_statusline(payload, now)
-    return tick.usage, tick.model
+def test_statusline_usage():
+    usage = parse_claude_statusline({"rate_limits": {
+        "five_hour": {"used_percentage": 23.4, "resets_at": 1738425600},
+        "seven_day": {"used_percentage": 61, "resets_at": 1738900000}}}, now=1700000000).usage
+    assert usage.five_hour == UsageWindow(23, 1738425600)
+    assert usage.seven_day == UsageWindow(61, 1738900000)
+    assert usage.spend is None and usage.updated_at == 1700000000
 
 
-def test_statusline_usage_and_model():
-    payload = {"session_id": "abc", "model": {"id": "claude-opus-5", "display_name": "Opus"},
-               "rate_limits": {"five_hour": {"used_percentage": 23.4, "resets_at": 1738425600},
-                               "seven_day": {"used_percentage": 61, "resets_at": 1738900000}}}
-    usage, model = _usage_and_model(payload, now=1700000000)
-    assert model == "claude-opus-5"
-    assert usage.five_hour.used_percent == 23 and usage.five_hour.resets_at == 1738425600
-    assert usage.seven_day.used_percent == 61 and usage.spend is None and usage.updated_at == 1700000000
+@pytest.mark.parametrize("rate_limits", [None, "invalid", {}, {"five_hour": {"used_percentage": "bad"}},
+                                        {"five_hour": {"used_percentage": True}}])
+def test_statusline_without_usable_rate_limits_gives_empty_usage(rate_limits):
+    usage = parse_claude_statusline({"rate_limits": rate_limits}, now=1).usage
+    assert usage.five_hour is None and usage.seven_day is None
 
 
-def test_statusline_without_rate_limits_gives_empty_usage():
-    usage, model = _usage_and_model({"model": {"id": "x"}}, now=5)
-    assert usage.five_hour is None and usage.seven_day is None and model == "x"
-
-
-def test_statusline_tolerates_malformed_fields():
-    # Non-dict rate_limits (should treat as empty dict, no exception)
-    usage, model = _usage_and_model({"rate_limits": "invalid", "model": {"id": "m"}}, now=1)
-    assert usage.five_hour is None and usage.seven_day is None and model == "m"
-
-    # Non-numeric used_percentage (should return None for that window)
-    payload = {"model": {"id": "m"}, "rate_limits": {"five_hour": {"used_percentage": "not_a_number", "resets_at": 100}}}
-    usage, model = _usage_and_model(payload, now=1)
-    assert usage.five_hour is None and model == "m"
-
-    # Non-dict model (should return None for model_id)
-    usage, model = _usage_and_model({"model": "invalid", "rate_limits": {}}, now=1)
-    assert model is None and usage.five_hour is None
-
-    # Boolean used_percentage (must return None, not 1 or 0)
-    payload = {"model": {"id": "m"}, "rate_limits": {"five_hour": {"used_percentage": True}}}
-    usage, model = _usage_and_model(payload, now=1)
-    assert usage.five_hour is None and model == "m"
-
-    # Boolean resets_at (must return None, not 1 or 0)
-    payload = {"model": {"id": "m"}, "rate_limits": {"seven_day": {"used_percentage": 50, "resets_at": True}}}
-    usage, model = _usage_and_model(payload, now=1)
-    assert usage.seven_day is not None and usage.seven_day.resets_at is None and model == "m"
+def test_statusline_rejects_a_boolean_reset_time():
+    usage = parse_claude_statusline({"rate_limits": {"seven_day": {"used_percentage": 50, "resets_at": True}}}, now=1).usage
+    assert usage.seven_day == UsageWindow(50, None)
 
 
 def test_statusline_carries_the_session_it_describes():
@@ -276,10 +238,9 @@ def test_statusline_carries_the_session_it_describes():
 
 @pytest.mark.parametrize("bad", [{"not": "a string"}, ["m"], 7, ""])
 def test_statusline_fields_that_are_not_strings_are_none(bad):
-    # A dict model would be stored and broadcast, and the app's `model: String?` fails to decode it;
-    # a dict session id cannot key a pin.
+    # A dict session id cannot key a pin.
     tick = parse_claude_statusline({"session_id": bad, "cwd": bad, "model": {"id": bad}}, now=1)
-    assert (tick.session_id, tick.cwd, tick.model) == (None, None, None)
+    assert (tick.session_id, tick.cwd) == (None, None)
 
 
 def test_hooks_ignore_non_dict_payloads():
@@ -316,17 +277,6 @@ def test_statusline_context_is_none_when_unusable(cw):
     assert parse_claude_statusline(payload, now=1).context_percent is None
 
 
-@pytest.mark.parametrize("effort,expected", [
-    ({"level": "high"}, "high"), ({"level": "max"}, "max"),
-    # A model that takes no effort has none; a malformed one is none either.
-    (None, None), ({"level": ""}, None), ({"level": 3}, None), ("high", None),
-])
-def test_a_claude_statusline_names_the_sessions_effort(effort, expected):
-    payload = {"session_id": "abc", "model": {"id": "claude-opus-5-5"}, **({"effort": effort} if effort is not None else {})}
-    tick = parse_claude_statusline(payload, now=1)
-    assert tick.model == "claude-opus-5-5" and tick.reasoning == expected
-
-
 @pytest.mark.parametrize("raw,expected", [(-5, 0), (0, 0), (100, 100), (140, 100)])
 def test_statusline_context_is_clamped_to_a_percentage(raw, expected):
     payload = {"context_window": {"used_percentage": raw}}
@@ -346,9 +296,8 @@ def test_statusline_windows_reject_non_finite_numbers(bad):
 def test_claude_and_codex_hooks_sanitize_string_fields(parser):
     event = parser({"hook_event_name": "SessionStart", "session_id": 7, "cwd": False, "model": ["bad"],
                     "_aiterm_iterm_session_id": {"x": 1}})
-    assert event.session_id is None and event.cwd is None and event.model is None
+    assert event.session_id is None and event.cwd is None
     assert event.iterm_session_id is None
-    assert parse_claude_hook({"hook_event_name": "PostModelSwitch", "to_model": 5}).model is None
     assert parser({"hook_event_name": "SubagentStart", "agent_id": ""}) is None
 
 
@@ -366,7 +315,6 @@ def test_a_type_confused_notification_type_is_ignored(bad):
 @pytest.mark.parametrize("parse,payload", [
     (parse_claude_hook, {**BASE, "hook_event_name": "Stop"}),
     (parse_claude_hook, {**BASE, "hook_event_name": "SubagentStart", "agent_id": "c1"}),
-    (parse_claude_hook, {**BASE, "hook_event_name": "PostModelSwitch", "to_model": "m"}),
     (parse_codex_hook, {**BASE, "hook_event_name": "SessionStart"}),
     (parse_codex_hook, {**BASE, "hook_event_name": "Stop"}),
     (parse_pi_hook, {**PI_BASE, "hook_event_name": "agent_start"}),

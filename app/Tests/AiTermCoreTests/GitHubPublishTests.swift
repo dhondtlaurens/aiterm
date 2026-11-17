@@ -64,205 +64,7 @@ import Synchronization
         return items?.first { $0.name == "page" }?.value.flatMap(Int.init) ?? 1
     }
 
-    // MARK: Opening and finding
-
-    /// A node id is global: another repository can have the same pull-request number.
-    @Test(arguments: [("octocat/hello", "octocat/hello"), ("OCTOCAT/HELLO", "octocat/hello"),
-                      ("octocat/hello", "OCTOCAT/HELLO"), ("octocat/hello", "someone/else"),
-                      ("octocat/hello", "octocat/renamed"), ("octocat/hello", "newowner/hello")])
-    func aThreadDetailBelongsToTheBoundRepositoryIgnoringCase(_ remote: String, _ repository: String) async throws {
-        let repositoryID = repository == "someone/else" ? "R_OTHER" : "R_BOUND"
-        let answer = #"{"data":{"repository":{"id":"R_BOUND"},"node":{"id":"TH","path":"a.swift","line":4,"originalLine":3,"pullRequest":{"number":88,"repository":{"id":"\#(repositoryID)","nameWithOwner":"\#(repository)"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
-        let (client, stub) = makeClient(repo: remote) { _ in (200, Data(answer.utf8)) }
-        if repository == "someone/else" {
-            await #expect(throws: GitHubError.refused("thread TH is not on pull request #88")) {
-                _ = try await client.threadDetail(88, thread: "TH")
-            }
-        } else {
-            #expect(try await client.threadDetail(88, thread: "TH") ==
-                ReviewThreadDetail(id: "TH", path: "a.swift", line: 4, notes: [.init(author: "sam", body: "Keep this text.")]))
-        }
-        #expect(stub.requests.count == 1)
-        let sent = try body(stub.lastRequest)
-        let variables = try #require(sent["variables"] as? [String: String])
-        let parts = remote.split(separator: "/").map(String.init)
-        #expect(variables == ["thread": "TH", "owner": parts[0], "name": parts[1]])
-        #expect((sent["query"] as? String)?.contains("repository(owner: $owner, name: $name) { id }") == true)
-        #expect((sent["query"] as? String)?.contains("pullRequest { number repository { id } }") == true)
-    }
-
-    @Test(arguments: ["octocat/hello", "octocat", "owner/name/extra"])
-    func aThreadDetailKeepsReadingWhenTheRepositoryCannotBeResolved(_ remote: String) async throws {
-        let answer = #"{"data":{"repository":null,"node":{"id":"TH","path":"a.swift","line":4,"pullRequest":{"number":88,"repository":{"id":"R_OTHER","nameWithOwner":"someone/else"}},"comments":{"nodes":[{"body":"Keep this text.","author":{"login":"sam"}}]}}}}"#
-        let (client, stub) = makeClient(repo: remote) { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.threadDetail(88, thread: "TH") ==
-            ReviewThreadDetail(id: "TH", path: "a.swift", line: 4, notes: [.init(author: "sam", body: "Keep this text.")]))
-        #expect(stub.requests.count == 1)
-        let sent = try body(stub.lastRequest)
-        let variables = try #require(sent["variables"] as? [String: String])
-        if remote == "octocat/hello" {
-            #expect(variables == ["thread": "TH", "owner": "octocat", "name": "hello"])
-        } else {
-            #expect(variables == ["thread": "TH"])
-            #expect((sent["query"] as? String)?.contains("repository(owner:") == false)
-        }
-    }
-
-    @Test(arguments: ["repository", "node", "", "malformed"])
-    func onlyTheAdditionalRepositoryLookupsErrorCanLeaveTheDetailReadable(_ path: String) async throws {
-        let errorPath = path == "malformed" ? #", "path":false"# : (path.isEmpty ? "" : #", "path":["\#(path)"]"#)
-        let answer = #"{"data":{"repository":null,"node":{"id":"TH","pullRequest":{"number":88,"repository":{"id":"R_OTHER","nameWithOwner":"someone/else"}}}},"errors":[{"type":"NOT_FOUND","message":"Not found"\#(errorPath)}]}"#
-        let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        if path == "repository" {
-            #expect(try await client.threadDetail(88, thread: "TH") == ReviewThreadDetail(id: "TH", path: nil, line: nil, notes: []))
-        } else {
-            await #expect(throws: GitHubError.repoNotFound("octocat/hello")) {
-                _ = try await client.threadDetail(88, thread: "TH")
-            }
-        }
-        #expect(stub.requests.count == 1)
-    }
-
-    /// Snag !62 ("Aikido findings 2026-11"), on GitHub: the title and body are the pull request's, the assignee its issue's.
-    @Test func anOpenPullRequestIsRetitledRedescribedAndReassigned() async throws {
-        let (client, stub) = makeClient { request in
-            if request.url?.path.hasSuffix("/issues/88") == true { return (200, Data(#"{"number":88}"#.utf8)) }
-            return (200, Data(Self.pull(draft: true).utf8))
-        }
-        try await client.updateRequest(88, RequestContent(title: "PLUTO-231: Add gift card", description: "Adds the gift card.", assignee: "nathan"))
-        let writes = stub.requests.filter { $0.httpMethod != "GET" }
-        #expect(writes.map { "\($0.httpMethod ?? "") \($0.url?.absoluteString ?? "")" }
-                == ["PATCH \(Self.api)/pulls/88", "PATCH \(Self.api)/issues/88"])
-        let edit = try body(writes[0])
-        #expect(Set(edit.keys) == ["title", "body"])
-        #expect(edit["title"] as? String == "PLUTO-231: Add gift card")
-        #expect(edit["body"] as? String == "Adds the gift card.")
-        #expect(try body(writes[1])["assignees"] as? [String] == ["nathan"])
-    }
-
-    /// Each write is checked right before it: a pause after the title's leaves the assignee unwritten.
-    @Test func eachWriteOfAnEditIsCheckedRightBeforeIt() async throws {
-        let (client, stub) = makeClient { request in
-            request.url?.path.hasSuffix("/issues/88") == true ? (200, Data(#"{"number":88}"#.utf8)) : (200, Data(Self.pull().utf8))
-        }
-        let checks = Mutex(0)
-        struct Paused: Error {}
-        await #expect(throws: Paused.self) {
-            try await client.updateRequest(88, RequestContent(title: "T", description: nil, assignee: "nathan"), beforeWrite: { _ in if checks.withLock({ $0 += 1; return $0 }) > 1 { throw Paused() } })
-        }
-        #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/pulls/88"])
-    }
-
-    @Test func anAssigneeAloneTouchesOnlyTheIssue() async throws {
-        let (client, stub) = makeClient { request in
-            request.httpMethod == "GET" ? (200, Data(Self.pull().utf8)) : (200, Data(#"{"number":88}"#.utf8))
-        }
-        try await client.updateRequest(88, RequestContent(title: nil, description: nil, assignee: "laurens"))
-        #expect(stub.requests.filter { $0.httpMethod != "GET" }.map { $0.url?.path ?? "" } == ["/repos/octocat/hello/issues/88"])
-    }
-
-    // MARK: - retry_pipeline and resolve_thread (snag G)
-
-    /// The Actions runs of a head, newest first, as `GET /repos/:repo/actions/runs?head_sha=` lists them.
-    static func workflowRuns(_ runs: [(id: Int, workflow: Int, name: String, status: String, conclusion: String?)],
-                             event: (Int) -> String = { _ in "pull_request" }) -> String {
-        let items = runs.map { run in
-            let conclusion = run.conclusion.map { "\"\($0)\"" } ?? "null"
-            return #"{"id":\#(run.id),"workflow_id":\#(run.workflow),"name":"\#(run.name)","event":"\#(event(run.id))","status":"\#(run.status)","conclusion":\#(conclusion)}"#
-        }
-        return #"{"total_count":\#(runs.count),"workflow_runs":[\#(items.joined(separator: ","))]}"#
-    }
-
-    /// The failed jobs of each workflow's latest run on the head are rerun; an older failed run of a workflow that passed
-    /// since, and a green one, are left alone.
-    @Test func theFailedLatestRunOfEachWorkflowIsRerun() async throws {
-        let runs = Self.workflowRuns([(31, 7, "CI", "completed", "timed_out"), (30, 8, "Lint", "completed", "success"),
-                                      (20, 8, "Lint", "completed", "failure")])
-        let (client, stub) = makeClient { request in
-            let path = request.url?.path ?? ""
-            if request.httpMethod == "POST" { return (201, Data()) }
-            if path.hasSuffix("/actions/runs") { return (200, Data(runs.utf8)) }
-            return (200, Data(Self.pull().utf8))
-        }
-        let checked = Mutex(0)
-        let answer = try await client.retryPipeline(88, beforeWrite: { _ in checked.withLock { $0 += 1 } })
-        #expect(answer == .retried("the failed jobs of CI"))
-        let listed = try #require(stub.requests.first { $0.url?.path.hasSuffix("/actions/runs") == true })
-        #expect(listed.url?.query?.contains("head_sha=\(Self.head)") == true)
-        #expect(stub.requests.filter { $0.httpMethod == "POST" }.map { $0.url?.absoluteString } == ["\(Self.api)/actions/runs/31/rerun-failed-jobs"])
-        #expect(checked.withLock { $0 } == 1)
-    }
-
-    /// One workflow run on both `push` and `pull_request` for the same head: a newer green push run doesn't hide the
-    /// failed pull request run.
-    @Test func eachEventsLatestRunIsJudgedApart() async throws {
-        let runs = Self.workflowRuns([(41, 7, "CI", "completed", "success"), (40, 7, "CI", "completed", "failure")],
-                                     event: { $0 == 41 ? "push" : "pull_request" })
-        let (client, stub) = makeClient { request in
-            if request.httpMethod == "POST" { return (201, Data()) }
-            return request.url?.path.hasSuffix("/actions/runs") == true ? (200, Data(runs.utf8)) : (200, Data(Self.pull().utf8))
-        }
-        #expect(try await client.retryPipeline(88) == .retried("the failed jobs of CI"))
-        #expect(stub.requests.filter { $0.httpMethod == "POST" }.map { $0.url?.absoluteString } == ["\(Self.api)/actions/runs/40/rerun-failed-jobs"])
-    }
-
-    @Test func aHeadWithNoFailedRunIsNotRetried() async throws {
-        let runs = Self.workflowRuns([(31, 7, "CI", "in_progress", nil)])
-        let (client, stub) = makeClient { request in
-            request.url?.path.hasSuffix("/actions/runs") == true ? (200, Data(runs.utf8)) : (200, Data(Self.pull().utf8))
-        }
-        let answer = try await client.retryPipeline(88, beforeWrite: { _ in Issue.record("nothing to write") })
-        #expect(answer == .notFailed("no GitHub Actions run of its head failed; another app's check is rerun in that app"))
-        #expect(!stub.requests.contains { $0.httpMethod == "POST" })
-    }
-
-    /// critique_thread's read: the thread by its node id, its file, line and comments; one of another pull request is refused.
-    @Test func aReviewThreadIsReadWholeAndOnlyFromItsOwnPullRequest() async throws {
-        let answer = #"{"data":{"node":{"id":"PRRT_64","path":"app/redirect.ts","line":42,"originalLine":40,"pullRequest":{"number":88,"repository":{"nameWithOwner":"octocat/hello"}},"#
-            + #""comments":{"nodes":[{"body":"Open redirect.","author":{"login":"aikido-bot"}},{"body":"Still open.","author":{"login":"jan"}}]}}}}"#
-        let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        let detail = try await client.threadDetail(88, thread: "PRRT_64")
-        #expect(detail == ReviewThreadDetail(id: "PRRT_64", path: "app/redirect.ts", line: 42, notes: [
-            ReviewThreadDetail.Note(author: "aikido-bot", body: "Open redirect."), ReviewThreadDetail.Note(author: "jan", body: "Still open.")]))
-        #expect((try body(stub.lastRequest)["variables"] as? [String: Any])?["thread"] as? String == "PRRT_64")
-        await #expect(throws: GitHubError.self) { try await client.threadDetail(89, thread: "PRRT_64") }
-    }
-
-    @Test func aReviewThreadIsResolvedByItsNodeId() async throws {
-        let (client, stub) = makeClient { _ in (200, Data(#"{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}"#.utf8)) }
-        try await client.resolve(88, thread: "PRRT_64")
-        let sent = try body(stub.lastRequest)
-        #expect((sent["query"] as? String)?.contains("resolveReviewThread") == true)
-        #expect((sent["variables"] as? [String: Any])?["thread"] as? String == "PRRT_64")
-    }
-
-    @Test func aDraftIsOpenedFromTheTasksBranch() async throws {
-        let (client, stub) = makeClient { _ in (201, Data(Self.pull(draft: true, mergeable: "null", mergeableState: "unknown").utf8)) }
-        let request = try await client.createRequest(from: "feat/pluto-231", into: "main", title: "PLUTO-231 Add gift card", description: "Opened by AiTerm", draft: true)
-        #expect(request.iid == 88)
-        #expect(request.draft)
-        #expect(request.targetBranch == "main")
-        #expect(request.url == "https://github.com/octocat/hello/pull/88")
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "POST")
-        #expect(sent.url?.absoluteString == Self.api + "/pulls")
-        #expect(sent.value(forHTTPHeaderField: "Authorization") == "Bearer ghp_tok")
-        let fields = try body(sent)
-        #expect(fields["head"] as? String == "feat/pluto-231")
-        #expect(fields["base"] as? String == "main")
-        #expect(fields["title"] as? String == "PLUTO-231 Add gift card")
-        #expect(fields["body"] as? String == "Opened by AiTerm")
-        #expect(fields["draft"] as? Bool == true)
-        #expect(Set(fields.keys) == ["head", "base", "title", "body", "draft"], "nothing else is asked of GitHub")
-    }
-
-    @Test func aPullRequestThatIsNotADraftIsOpenedAsOne() async throws {
-        let (client, stub) = makeClient { _ in (201, Data(Self.pull().utf8)) }
-        let request = try await client.createRequest(from: "feat/pluto-231", into: "feat/parent", title: "t", description: "b", draft: false)
-        #expect(!request.draft)
-        #expect(try body(stub.lastRequest)["draft"] as? Bool == false)
-        #expect(try body(stub.lastRequest)["base"] as? String == "feat/parent")
-    }
+    // MARK: Finding requests
 
     @Test func theOpenPullRequestFromABranchIsFoundNotOpenedAgain() async throws {
         let (client, stub) = makeClient { _ in (200, Data(("[" + Self.pull() + "]").utf8)) }
@@ -340,8 +142,8 @@ import Synchronization
         }
     }
 
-    /// What the Operator reads of a pull request (`run_status`): draft, the checks as one word, GitHub's `mergeable_state`, approvals.
-    @Test func gitHubStateReadsDraftChecksMergeabilityAndApprovals() async throws {
+    /// The request state carries its pipeline, approvals and head.
+    @Test func gitHubStateReadsChecksApprovalsAndHead() async throws {
         func state(runs: String, statuses: String = Self.statuses([]), draft: Bool = true, mergeableState: String = "draft") async throws -> MergeRequestState {
             let (client, _) = makeClient { request in
                 let path = request.url?.path ?? ""
@@ -357,8 +159,7 @@ import Synchronization
             return try await client.state(of: request)
         }
         let failing = try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "completed", "failure")]))
-        #expect(failing == MergeRequestState(iid: 88, url: "https://github.com/octocat/hello/pull/88", draft: true, pipeline: "failure",
-                                             mergeable: "draft", approvedBy: ["alice"], head: Self.head))
+        #expect(failing == MergeRequestState(pipeline: "failure", approvedBy: ["alice"], head: Self.head))
         #expect(try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "in_progress", nil)])).pipeline == "pending")
         #expect(try await state(runs: Self.green, draft: false, mergeableState: "clean").pipeline == "success")
         #expect(try await state(runs: Self.green, statuses: Self.statuses([("ci/jenkins", "failure")])).pipeline == "failure")
@@ -464,7 +265,7 @@ import Synchronization
         }
     }
 
-    // MARK: Merging and retargeting
+    // MARK: Merging
 
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
         let answer = #"{"sha":"\#(Self.mergeCommit)","merged":true,"message":"Pull Request successfully merged"}"#
@@ -495,18 +296,6 @@ import Synchronization
         }
         await #expect(throws: GitHubError.badResponse(502)) {
             _ = try await self.makeClient { _ in (502, Data()) }.client.merge(88, at: Self.head)
-        }
-    }
-
-    @Test func aPullRequestIsRetargeted() async throws {
-        let (client, stub) = makeClient { _ in (200, Data(Self.pull().utf8)) }
-        try await client.retarget(88, to: "main")
-        let sent = try #require(stub.lastRequest)
-        #expect(sent.httpMethod == "PATCH")
-        #expect(sent.url?.absoluteString == Self.api + "/pulls/88")
-        #expect(try body(sent) as NSDictionary == ["base": "main"])
-        await #expect(throws: GitHubError.badResponse(422)) {
-            _ = try await self.makeClient { _ in (422, Data()) }.client.retarget(88, to: "gone")
         }
     }
 

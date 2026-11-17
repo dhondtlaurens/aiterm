@@ -4,7 +4,7 @@ import AiTermUI
 
 /// The key contract every dropdown in this app shares, as a pure function so it can be tested
 /// without rendering: arrows wrap, Return accepts, Escape closes the popup *only*, and anything
-/// else is left to the field and the sheet. `SearchPicker` and the prompt's completion popup both
+/// else is left to the field and the sheet. `ChipsPicker` and the prompt's completion popup both
 /// answer their keys through it.
 enum DropdownKeys {
     enum Outcome: Equatable { case moved(Int), accepted(Int), closed, unhandled }
@@ -21,7 +21,7 @@ enum DropdownKeys {
     }
 
     /// `handle` carried out for a picker whose list shows `shown`, open or not: an arrow moves `index`, ↩ picks the row
-    /// (`pick`), ⎋ closes the list and starts the highlight over. Whether the key was the list's. `SearchPicker` and
+    /// (`pick`), ⎋ closes the list and starts the highlight over. Whether the key was the list's. `ChipsPicker` and
     /// `ChipsPicker` answer their keys through it.
     static func perform<Item>(_ selector: Selector, on shown: [Item], index: Binding<Int>, open: Binding<Bool>, listening: Bool,
                               pick: (Item) -> Void) -> Bool {

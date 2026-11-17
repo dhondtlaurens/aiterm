@@ -83,7 +83,7 @@ The Oracle gives read-only second opinions, critiques answers and review threads
 commands and vetoes automatic merges. Its settings are read for each check. Switching it off
 routes worker answers to you and prevents automatic merges. For the Operator's shell gate,
 ordinary reads are allowed, prohibited writes are refused, and other commands are consulted;
-when that consultation is unavailable or off, they run unchallenged and the result records why.
+when that consultation is unavailable or off, they run unchecked and the result records why.
 A missing or revoked Operator token always refuses the gated call.
 
 ## Publishing, done conditions and merging

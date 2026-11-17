@@ -24,7 +24,7 @@ public enum WorkerGuard {
     public static func pushes(_ input: String) throws -> [Push] {
         try input.split(whereSeparator: \.isNewline).map { line in
             let words = line.split(whereSeparator: \.isWhitespace).map(String.init)
-            guard words.count == 4, CommitId.isFull(words[1]), CommitId.isFull(words[3]) else {
+            guard words.count == 4, WorkerGuard.isFullCommit(words[1]), WorkerGuard.isFullCommit(words[3]) else {
                 throw GuardFailure("Git's pre-push ref list could not be read.")
             }
             return Push(localRef: words[0], localSHA: words[1], remoteRef: words[2], remoteSHA: words[3])
@@ -34,12 +34,12 @@ public enum WorkerGuard {
                                  protection: BranchProtection, isAncestor: (String, String) throws -> Bool) rethrows -> String? {
         guard scope.allowsPush else { return "Publishing is not enabled for this worker." }
         guard !scope.branch.isEmpty, !defaultBranch.isEmpty,
-              Repository.folded(Repository.shortBranch(scope.branch)) != Repository.folded(Repository.shortBranch(defaultBranch)) else {
+              WorkerGuard.folded(WorkerGuard.shortBranch(scope.branch)) != WorkerGuard.folded(WorkerGuard.shortBranch(defaultBranch)) else {
             return "Workers never push the default branch."
         }
-        guard Repository.sameLocation(scope.remote, remote) else { return "This push goes to another repository." }
+        guard WorkerGuard.sameLocation(scope.remote, remote) else { return "This push goes to another repository." }
         if case .protected = protection { return "Workers never push a protected branch." }
-        let ref = "refs/heads/" + Repository.shortBranch(scope.branch)
+        let ref = "refs/heads/" + WorkerGuard.shortBranch(scope.branch)
         for push in pushes {
             guard push.remoteRef == ref, push.localRef == ref || push.localRef == "HEAD" else { return "A worker may push only its own task branch." }
             guard push.localSHA.contains(where: { $0 != "0" }), push.localSHA == head else { return "A worker may push only its task branch's current commit, and may not delete a branch." }

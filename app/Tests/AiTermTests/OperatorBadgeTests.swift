@@ -6,7 +6,7 @@ import AiTermUI
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The operator badge draws an `OperatorLine` (spec §7, §13, §14): its words alone, no mark, one
+/// The operator badge draws an `OperatorLine`: its words alone, no mark, one
 /// `Size.chip` line whatever it says, quiet with no box, acting with no box in the surface's ink, needs-you in the
 /// attention chip's pair — a selected row's too, which is neutral — and on the accent the surface's wash and ink. Acting words decode through glyphs once
 /// when they change, then stand still (P3, decision 3): at once under Reduce Motion and in the snapshots.

@@ -14,18 +14,15 @@ NEEDS_INPUT_NOTIFICATIONS = {"permission_prompt", "agent_needs_input", "elicitat
 SIMPLE_EVENTS: dict[str, Transition] = {"UserPromptSubmit": "working", "Stop": "done", "PermissionRequest": "needsInput"}
 
 
-
 @dataclass(frozen=True, slots=True)
 class HookEvent:
     agent: AgentKind
     kind: Transition | None
-    model: str | None
     session_id: str | None
     cwd: str | None
     _: KW_ONLY
     subagent_id: str | None = None
     iterm_session_id: str | None = None
-    reasoning: str | None = None
     context_percent: int | None = None
     context_tokens: int | None = None
     # Where a Claude SubagentStart's child writes its transcript, or a directory or two below (SubagentTranscripts.read):
@@ -41,8 +38,7 @@ class HookEvent:
     # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
     # depends on which event bound it (SessionResolver.bind).
     event_name: str | None = None
-    # Where a Claude session writes its conversation (`transcript_path`), from a post of its own: what shows what
-    # became of a slash command AiTerm typed there (slash_commands).
+    # Where a Claude session writes its conversation (`transcript_path`), from a post of its own.
     transcript: str | None = None
     # The API error that ended a Claude turn in place of its Stop (StopFailure's `error`: `rate_limit`, `billing_error`,
     # `authentication_failed`...); None for every other event.
@@ -165,51 +161,42 @@ def _submitted(name: str, p: dict[str, Any]) -> str | None:
     return nonempty_string(p.get("prompt")) if name == "UserPromptSubmit" else None
 
 
-def _session_field(p: dict[str, Any], key: str) -> str | None:
-    """What a Claude post says of its session under `key`. Claude Code adds `agent_id` to a hook that fires within a
-    subagent, whose model is the child's: such a post says nothing of the session."""
-    return None if nonempty_string(p.get("agent_id")) else nonempty_string(p.get(key))
-
-
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     # Another CLI that runs ~/.claude/settings.json hooks (Grok Build does) sends `hookEventName`,
     # which Claude never does: such a post is not Claude's.
     if not isinstance(p, dict) or "hookEventName" in p:
         return None
     ev = _claude_event(p)
-    return replace(ev, transcript=_session_field(p, "transcript_path")) if ev is not None else None
+    transcript = None if nonempty_string(p.get("agent_id")) else nonempty_string(p.get("transcript_path"))
+    return replace(ev, transcript=transcript) if ev is not None else None
 
 
 def _claude_event(p: dict[str, Any]) -> HookEvent | None:
     name = nonempty_string(p.get("hook_event_name"))
     sid, cwd = nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd"))
-    # A hook's `effort` is not the session's: a Stop's is its turn's, which an /effort run mid-turn leaves behind. The
-    # status line says the session's (parse_claude_statusline).
     if name == "SessionStart":
-        return HookEvent("claude", _session_start(p), _session_field(p, "model"), sid, cwd, event_name=name)
-    if name == "PostModelSwitch":
-        return HookEvent("claude", None, _session_field(p, "to_model"), sid, cwd, event_name=name)
+        return HookEvent("claude", _session_start(p), sid, cwd, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         if (child := _subagent(name, p)) is None:
             return None
         transcript = _claude_subagent_transcript(p, child[1]) if name == "SubagentStart" else None
-        return HookEvent("claude", child[0], None, sid, cwd, subagent_id=child[1], subagent_transcript=transcript, event_name=name,
+        return HookEvent("claude", child[0], sid, cwd, subagent_id=child[1], subagent_transcript=transcript, event_name=name,
                          subagent_label=nonempty_string(p.get("agent_type")))
     if name == "Stop":
         tasks = p.get("background_tasks")
-        return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(tasks),
+        return HookEvent("claude", "done", sid, cwd, running_subagents=_claude_running_subagents(tasks),
                          background_work=_claude_background_work(tasks), display_shells=_claude_display_shells(tasks), event_name=name)
     if name == "StopFailure":
         # Fired in place of Stop when an API error ended the turn; Claude Code names one it cannot tell `unknown`.
-        return HookEvent("claude", "done", None, sid, cwd, event_name=name, stop_error=nonempty_string(p.get("error")) or "unknown")
+        return HookEvent("claude", "done", sid, cwd, event_name=name, stop_error=nonempty_string(p.get("error")) or "unknown")
     if name in SIMPLE_EVENTS:
-        return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd, event_name=name, prompt=_submitted(name, p))
+        return HookEvent("claude", SIMPLE_EVENTS[name], sid, cwd, event_name=name, prompt=_submitted(name, p))
     if name == "Notification":
         nt = nonempty_string(p.get("notification_type"))
         if nt in NEEDS_INPUT_NOTIFICATIONS:
-            return HookEvent("claude", "needsInput", None, sid, cwd, event_name=name)
+            return HookEvent("claude", "needsInput", sid, cwd, event_name=name)
         if nt == "agent_completed":
-            return HookEvent("claude", "done", None, sid, cwd, event_name=name)
+            return HookEvent("claude", "done", sid, cwd, event_name=name)
     return None
 
 
@@ -217,16 +204,16 @@ def parse_codex_hook(p: dict[str, Any]) -> HookEvent | None:
     if not isinstance(p, dict):
         return None
     name = nonempty_string(p.get("hook_event_name"))
-    model, sid, cwd = (nonempty_string(p.get(key)) for key in ("model", "session_id", "cwd"))
+    sid, cwd = (nonempty_string(p.get(key)) for key in ("session_id", "cwd"))
     iterm_session_id = nonempty_string(p.get(ITERM_SESSION_FIELD))
     if name == "SessionStart":
-        return HookEvent("codex", _session_start(p), model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
+        return HookEvent("codex", _session_start(p), sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         child = _subagent(name, p)
-        return HookEvent("codex", child[0], None, sid, cwd, subagent_id=child[1], iterm_session_id=iterm_session_id, event_name=name,
+        return HookEvent("codex", child[0], sid, cwd, subagent_id=child[1], iterm_session_id=iterm_session_id, event_name=name,
                          subagent_label=nonempty_string(p.get("agent_type"))) if child else None
     if name in SIMPLE_EVENTS:
-        return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name,
+        return HookEvent("codex", SIMPLE_EVENTS[name], sid, cwd, iterm_session_id=iterm_session_id, event_name=name,
                          prompt=_submitted(name, p))
     return None
 
@@ -237,7 +224,6 @@ PI_EVENTS: dict[str, Transition | None] = {
     "agent_settled": "done",
     "ui_prompt_start": "promptStart",
     "ui_prompt_end": "promptEnd",
-    "model_select": None,
     "thinking_level_select": None,
     # Refresh context after each tool turn while the agent keeps running.
     "turn_end": None,
@@ -268,12 +254,10 @@ def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
     return HookEvent(
         agent="pi",
         kind=kind,
-        model=nonempty_string(p.get("model")),
         session_id=nonempty_string(p.get("session_id")),
         cwd=nonempty_string(p.get("cwd")),
         subagent_id=child,
         iterm_session_id=nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        reasoning=nonempty_string(p.get("reasoning")),
         context_percent=clamped_percent(p.get("context_percent")),
         event_name=name,
     )
@@ -313,28 +297,15 @@ def _context_tokens(p: dict[str, Any]) -> int | None:
 
 
 class StatusLine(NamedTuple):
-    """What one status-line tick tells the daemon: the session it describes, and facts that land in
-    different places -- account usage in the `UsageStore`, the model, effort and context fill on the
-    resolved session's task. `usage` is None when the payload carries no rate-limit summary. The model
-    and effort are the session's own, as Claude Code holds them now: changed only once an /model or
-    /effort has run, and never a subagent's."""
+    """Account usage and context metadata reported by one session's status line."""
     usage: Usage | None
     session_id: str | None
     cwd: str | None
     iterm_session_id: str | None
-    model: str | None
     context_percent: int | None
-    # `effort.level`, absent for a model that takes no effort.
-    reasoning: str | None = None
     # Where the session writes its conversation (`transcript_path`), as its hooks name it too.
     transcript: str | None = None
     context_tokens: int | None = None
-
-
-def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
-    """`p[key][field]` as a string, as in `model.id`."""
-    value = p.get(key)
-    return nonempty_string(value.get(field)) if isinstance(value, dict) else None
 
 
 def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
@@ -342,7 +313,7 @@ def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
         parse_claude_rate_limits(p.get("rate_limits"), now),
         nonempty_string(p.get("session_id")), nonempty_string(p.get("cwd")),
         nonempty_string(p.get(ITERM_SESSION_FIELD)),
-        _object_field(p, "model", "id"), _context_percent(p), _object_field(p, "effort", "level"),
+        _context_percent(p),
         nonempty_string(p.get("transcript_path")), _context_tokens(p),
     )
 

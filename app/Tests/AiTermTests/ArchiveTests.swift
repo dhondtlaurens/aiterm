@@ -70,9 +70,9 @@ import Testing
     }
 
     /// Archive asks Remove's question about a folder git no longer lists: it may hold files AiTerm
-    /// did not make. Keep, the safe default, keeps the folder and the task, and shelves nothing.
+    /// did not make. Keep, the safe default, keeps the folder and the task, and archives nothing.
     @Test(arguments: ["Keep", "Delete Folder", "↩", "⎋"])
-    func shelvingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed(answer: String) async throws {
+    func archivingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed(answer: String) async throws {
         let prompter = ScriptedPrompter(answering: answer)
         let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }

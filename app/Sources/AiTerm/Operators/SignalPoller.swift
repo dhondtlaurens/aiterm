@@ -27,7 +27,6 @@ final class SignalPoller {
     private var generation = UUID()
     var canPoll: @MainActor () -> Bool = { true }
     var onPass: @MainActor ([SignalObservation]) -> Void = { _ in }
-    var onRead: @MainActor ([UUID], SignalRead) -> Void = { _, _ in }
     var onFailure: @MainActor ([UUID], String) -> Void = { _, _ in }
 
     init(work: OperatorWork, automatic: Bool = true, now: @escaping @MainActor () -> Date = { Date() }) {
@@ -79,7 +78,6 @@ final class SignalPoller {
                 guard read.complete else { throw IncompleteRead("signal matches") }
                 self.progress[key] = Progress(cursor: read.cursor ?? at, lastFull: full ? at : before.lastFull, next: at.addingTimeInterval(60))
                 observations.append(SignalObservation(signals: sharing.map(\.id), read: read))
-                self.onRead(sharing.map(\.id), read)
             } catch {
                 guard !Task.isCancelled, self.generation == generation, self.canPoll() else { return }
                 var next = before; next.next = at.addingTimeInterval(300); self.progress[key] = next

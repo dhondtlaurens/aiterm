@@ -11,7 +11,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         let app = NSApplication.shared
         Appearance.apply()
         #if DEBUG
-        // Select fixture rendering before migration, live preferences, Keychain reads or services.
+        // Select fixture rendering before live preferences, Keychain reads or services.
         if ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_DIR"] != nil {
             let delegate = SnapshotAppDelegate()
             app.delegate = delegate
@@ -20,12 +20,6 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
             return
         }
         #endif
-        do { try AiTermPaths.migrateSupportDirectory() }
-        catch {
-            app.setActivationPolicy(.regular)
-            NSAlert(error: error).runModal()
-            return
-        }
         let delegate = AiTermApp(); app.delegate = delegate
         app.setActivationPolicy(.regular)
         app.run()

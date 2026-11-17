@@ -248,7 +248,7 @@ import Foundation
         #expect(try JSONDecoder().decode(JiraRef.self, from: JSONEncoder().encode(issue)) == issue)
     }
 
-    /// An operated task with a GitLab issue links it from the request's description, not its title.
+    /// An signal's task with a GitLab issue links it from the request's description, not its title.
 
 
     @Test func anIssuesPromptBlockContainsOnlyItsDescription() {

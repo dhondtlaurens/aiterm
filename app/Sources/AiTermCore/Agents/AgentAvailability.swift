@@ -1,6 +1,6 @@
 import Foundation
 
-/// Spec 8: the New Task sheet must not offer an agent whose CLI is not installed — a task created
+/// The New Task sheet must not offer an agent whose CLI is not installed — a task created
 /// for a missing agent opens a window whose first line is "command not found".
 ///
 /// Installed means the `LoginShellLocator` finds it: the same answer Settings' harness cards go

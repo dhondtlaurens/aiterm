@@ -17,8 +17,8 @@ import Testing
         let initial = try git.run(["rev-parse", "main"], in: project.path)
         let manualDraft = draft, plannedWorker = worker
         async let manual = workflow.create(draft: manualDraft, project: project)
-        async let operated = workflow.checkOutWorker(plannedWorker, project: project, start: "main")
-        let (created, started) = try await (manual, operated)
+        async let workerCheckout = workflow.checkOutWorker(plannedWorker, project: project, start: "main")
+        let (created, started) = try await (manual, workerCheckout)
         #expect(created.task.worktreePath != started.made.task.worktreePath)
         #expect(started.baseline == initial)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"],
@@ -165,7 +165,7 @@ import Testing
 
     /// Archive keeps Remove's record: its own archive that git refused halfway, the folder since gone
     /// from git's list, is cleaned up on a retry without asking.
-    @Test func shelvesOwnHalfFinishedArchiveIsCleanedUpOnARetry() async throws {
+    @Test func anArchiveThatStoppedHalfwayIsCleanedUpOnARetry() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
@@ -348,7 +348,7 @@ import Testing
     }
 
     /// The preflight Remove and Archive share, and the uncommitted-work check the teardown asks after it, answer what the
-    /// three reads before phase 7 answered, each with a listing of its own: the head (`head(of:in:)`), whether an
+    /// reference reads answer, each with a listing of its own: the head (`head(of:in:)`), whether an
     /// unlisted folder asks first (that rule, kept here as the reference), and whether the worktree holds unsaved work
     /// (`hasUnsavedWork(task:project:)`). On real repositories, most of them dirty so the last answer means something:
     /// a clean, a dirty, a detached, an unlocked worktree; one whose links are relative; one whose `.git` names another
@@ -459,7 +459,7 @@ import Testing
         }
         // Listed at the preflight, then removed outside AiTerm and its folder made again by something still writing
         // there, before the uncommitted-work check: git status there would answer for the project's own checkout, which
-        // has an untracked file. The rule before phase 7 listed again and skipped status for a folder git no longer lists.
+        // has an untracked file. The reference rule skips status for a folder git no longer lists.
         let vanished = try await make("Vanished")
         let listedThen = try await workflow.preflight(task: vanished, project: project)
         #expect(listedThen.head == .branch(vanished.branch))

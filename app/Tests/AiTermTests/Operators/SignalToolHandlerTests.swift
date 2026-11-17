@@ -167,7 +167,7 @@ import Testing
                 message: message, openTab: { _, _, _, _, _, _ in [:] }, jiraSearch: { _ in [] }, oracle: { _, _, _ in "A second opinion." }))
     }
     private func request(_ h: SignalHarness, tool: String, _ args: JSONValue) -> OperatorRequest {
-        OperatorRequest(requestId: UUID().uuidString, runId: h.workspace.state.operatorSession!.id.uuidString,
+        OperatorRequest(requestId: UUID().uuidString, operatorId: h.workspace.state.operatorSession!.id.uuidString,
                         tool: tool, arguments: args, generation: h.workspace.state.operatorSession!.generation)
     }
     private func arguments(_ id: UUID, key: String? = nil, extra: [String: JSONValue] = [:]) -> JSONValue {

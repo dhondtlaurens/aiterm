@@ -14,7 +14,7 @@ public enum AgentChoiceNeed: Equatable, Sendable {
     /// Rows the Operator can start, in the person's list order. A saved main conversation keeps its
     /// agent: only that agent's rows are choosable, unless the signal permits none of them.
     public static func decide(permitted: [AgentChoice], projects: [UUID]?, conversationAgent: AgentKind?) -> Self {
-        var rows = permitted.filter { AgentCommand.operatedAgents.contains($0.agent) && !$0.model.isEmpty }
+        var rows = permitted.filter { AgentCommand.workerAgents.contains($0.agent) && !$0.model.isEmpty }
         if let agent = conversationAgent, rows.contains(where: { $0.agent == agent }) { rows = rows.filter { $0.agent == agent } }
         guard let only = rows.first else { return .unavailable }
         let candidates = (projects?.count ?? 0) > 1 ? projects : nil

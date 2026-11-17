@@ -48,7 +48,7 @@ import AiTermCore
             || (task.signalTask?.phase == .working && tabs.contains { $0.session?.stoppedOn != nil })
             || (task.signalTask?.phase == .working && tabs.contains { tab in
                 tab.status?.turnEnded == true && replies[id]?[tab.reference.name].map {
-                    WorkerTurn.ending(lastMessage: $0.text, commitsAhead: nil) == .asks
+                    WorkerTurn.endsWithQuestion($0.text)
                 } == true
             })
     }
@@ -59,7 +59,7 @@ import AiTermCore
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard !inFlight.contains(id), workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
-              let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.ending(lastMessage: reply.text, commitsAhead: nil) == .asks else { return nil }
+              let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.endsWithQuestion(reply.text) else { return nil }
         return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text, conversation: worker.conversation, fingerprint: reply.fingerprint)
     }
     /// A saved intent may already have opened its worker before a reply was lost. Its private
@@ -321,7 +321,7 @@ import AiTermCore
         let remote = workspace.state.project(id: task.projectId)?.remoteUrl
         return try await BackgroundWork.run {
             let command = try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
-                worktreePath: task.worktreePath, git: git, operated: !record.takenOver, promptFile: "signal-" + UUID().uuidString + ".md",
+                worktreePath: task.worktreePath, git: git, worker: !record.takenOver, promptFile: "signal-" + UUID().uuidString + ".md",
                 publishing: true, resuming: conversation)
             return try WorkerGuardLaunch.command(command, task: task, remote: remote, home: home,
                 executable: executable, git: git, slot: slot, publishes: task.kind != .review)

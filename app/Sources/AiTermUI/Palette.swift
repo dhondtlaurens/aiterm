@@ -53,10 +53,10 @@ public enum Palette {
     public static let sidebarFooter = hex(0x131416)
     /// The sheet: its whole ground, its footer included, a step lighter than the window it hangs on.
     public static let surface = hex(0x1E1F23)
-    /// Cards and groups on a sheet: `groupChrome`'s default fill — a Settings card, a board card, a
+    /// Cards and groups on a sheet: `groupChrome`'s default fill — a Settings card, a sheet card, a
     /// question waiting on you.
     public static let surfaceRaised = hex(0x26272C)
-    /// The fill of anything that hangs over content: a dropdown, a `SearchPicker`'s results, the
+    /// The fill of anything that hangs over content: a dropdown, a `ChipsPicker`'s results, the
     /// completion popup, the background-work card and the toast (`menuChrome`). Lighter than a card,
     /// so a popup over a card still stands off it.
     public static let menu = hex(0x2A2C31)
@@ -226,7 +226,7 @@ public enum Palette {
     /// materially distort a dark base colour. sRGB is also the space the wash actually paints in on
     /// screen, so blending its components directly is the faithful composite, not an approximation.
     public static let rowHoverSolid: Color = composited(rowHover, over: sidebar)
-    /// `rowHover` over `surface`: a hovered row on a sheet, the broadcast's tasks.
+    /// `rowHover` over `surface`: a hovered row on a sheet, tasks.
     public static let rowHoverOnSheetSolid: Color = composited(rowHover, over: surface)
     /// The Operator's row at rest, behind it in `RowPill`'s pill, which selection replaces (decided 21 Oct
     /// 2026, wash A): a neutral wash of its own, fainter than the hover's, so it says the row is different

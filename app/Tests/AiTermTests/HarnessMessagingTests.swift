@@ -127,7 +127,7 @@ import AiTermCore
         let command = created["agentCommand"] as? String
         #expect(command == DeliveryCheck.command(agent: .codex, file: .missing, python: runtime.python, daemonDir: runtime.daemonDir))
         #expect(command?.hasSuffix("--agents codex --write && exit") == true, "iTerm2's own checks too: none passed yet")
-        #expect(created["background"] == nil, "in front")
+        #expect(created["background"] as? Bool == false, "in front")
         #expect((created["taskId"] as? String)?.hasPrefix("delivery-check-codex-") == true, "a tag no row takes")
         #expect(daemon.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened"])
         #expect(activated == 1)

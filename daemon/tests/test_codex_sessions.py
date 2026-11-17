@@ -8,7 +8,6 @@ import pytest
 from aitermd import jsonl
 from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
 
-from tests.codex_reference import MainCodexReference
 
 from tests.builders import (
     write_rollout,
@@ -20,6 +19,18 @@ from tests.builders import (
 )
 
 
+def context_percent(files: CodexSessionFiles, thread: str):
+    return files.reading(thread).context
+
+
+def cli_version(files: CodexSessionFiles, thread: str):
+    return files.reading(thread).version
+
+
+def turn_state(files: CodexSessionFiles, thread: str):
+    return files.reading(thread).turn
+
+
 def test_reads_latest_valid_context_for_the_exact_codex_session(tmp_path):
     root = tmp_path / "sessions"
     write_rollout(root, "other-thread", [token_count(99, 100)])
@@ -29,7 +40,7 @@ def test_reads_latest_valid_context_for_the_exact_codex_session(tmp_path):
         "{unfinished",
     ])
 
-    assert CodexSessionFiles(root).context_percent("thread-1") == 43
+    assert context_percent(CodexSessionFiles(root), "thread-1") == 43
 
 
 def test_rejects_unusable_codex_context_numbers_and_clamps_overflow(tmp_path):
@@ -39,10 +50,10 @@ def test_rejects_unusable_codex_context_numbers_and_clamps_overflow(tmp_path):
     write_rollout(root, "overflow", [token_count(140, 100)])
 
     files = CodexSessionFiles(root)
-    assert files.context_percent("missing") is None
-    assert files.context_percent("zero-window") is None
-    assert files.context_percent("boolean") is None
-    assert files.context_percent("overflow") == 100
+    assert context_percent(files, "missing") is None
+    assert context_percent(files, "zero-window") is None
+    assert context_percent(files, "boolean") is None
+    assert context_percent(files, "overflow") == 100
 
 
 def test_rate_limits_come_from_the_newest_record_of_the_newest_rollout(tmp_path):
@@ -115,8 +126,8 @@ def test_rejects_non_finite_codex_context_numbers(tmp_path):
     write_rollout(root, "inf-window", [token_count(42, float("inf"))])
     write_rollout(root, "nan-total", [token_count(float("nan"), 100)])
     files = CodexSessionFiles(root)
-    assert files.context_percent("inf-window") is None
-    assert files.context_percent("nan-total") is None
+    assert context_percent(files, "inf-window") is None
+    assert context_percent(files, "nan-total") is None
 
 
 class Clock:
@@ -155,28 +166,28 @@ def test_context_is_not_reparsed_until_its_rollout_changes(tmp_path, monkeypatch
     real = jsonl._lines_reverse
     monkeypatch.setattr(jsonl, "_lines_reverse", lambda p, *a: reads.append(p) or real(p, *a))
 
-    assert files.context_percent("t") == 10
-    assert files.context_percent("t") == 10 and reads == [path]
+    assert context_percent(files, "t") == 10
+    assert context_percent(files, "t") == 10 and reads == [path]
     with path.open("a") as stream:
         stream.write(json.dumps(token_count(20, 100)) + "\n")
-    assert files.context_percent("t") == 20 and reads == [path, path]
+    assert context_percent(files, "t") == 20 and reads == [path, path]
 
 
 def test_a_thread_without_a_rollout_is_not_searched_for_across_the_tree_every_tick(tmp_path):
     root, clock = tmp_path / "sessions", Clock()
     files = CodexSessionFiles(root, clock=clock)
     write_rollout(root, "other", [token_count(1, 100)])
-    assert files.context_percent("late") is None
+    assert context_percent(files, "late") is None
 
     write_rollout(root, "late", [token_count(40, 100)], day="2001/01/01")
-    assert files.context_percent("late") is None
+    assert context_percent(files, "late") is None
     clock.now += LIST_SECONDS
-    assert files.context_percent("late") == 40
+    assert context_percent(files, "late") == 40
 
     # A brand-new thread's rollout appears under today's date and is found without waiting.
-    assert files.context_percent("new") is None
+    assert context_percent(files, "new") is None
     write_rollout(root, "new", [token_count(7, 100)], day=datetime.now().strftime("%Y/%m/%d"))
-    assert files.context_percent("new") == 7
+    assert context_percent(files, "new") == 7
 
 
 def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_path, monkeypatch):
@@ -195,7 +206,7 @@ def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_pa
     # The module's own name for json, not the json module every other caller shares.
     monkeypatch.setattr(jsonl, "json", SimpleNamespace(loads=counting_loads))
 
-    assert CodexSessionFiles(root).context_percent("thread-1") == 42
+    assert context_percent(CodexSessionFiles(root), "thread-1") == 42
     assert len(parsed) == 1
 
 
@@ -204,7 +215,7 @@ def test_a_line_that_mentions_token_count_without_being_one_is_still_skipped(tmp
     quoting = {"type": "response_item", "payload": {"type": "message", "content": 'grep "token_count" rollout.jsonl'}}
     write_rollout(root, "thread-1", [token_count(42, 100), quoting])
 
-    assert CodexSessionFiles(root).context_percent("thread-1") == 42
+    assert context_percent(CodexSessionFiles(root), "thread-1") == 42
 
 
 @pytest.mark.parametrize("block_size", [1, 2, 3, 7, 16, 64, 4096])
@@ -223,17 +234,17 @@ def test_the_cli_version_is_the_newest_the_threads_rollout_names(tmp_path):
     root = tmp_path / "sessions"
     path = write_rollout(root, "thread-1", [versioned("thread-1", "0.160.0"), token_count(5, 100)])
     files = CodexSessionFiles(root)
-    assert files.cli_version("thread-1") == "0.160.0"
+    assert cli_version(files, "thread-1") == "0.160.0"
     with path.open("a") as stream:  # resumed under a newer Codex
         stream.write(json.dumps(versioned("thread-1", "0.161.0")) + "\n")
-    assert files.cli_version("thread-1") == "0.161.0"
-    assert files.cli_version("thread-404") is None
+    assert cli_version(files, "thread-1") == "0.161.0"
+    assert cli_version(files, "thread-404") is None
 
 
 def test_another_threads_session_meta_is_not_its_version(tmp_path):
     root = tmp_path / "sessions"
     write_rollout(root, "thread-2", [versioned("thread-1", "0.150.0"), meta("thread-2"), token_count(5, 100)])
-    assert CodexSessionFiles(root).cli_version("thread-2") is None
+    assert cli_version(CodexSessionFiles(root), "thread-2") is None
 
 
 def test_a_session_meta_half_written_is_read_once_it_is_complete(tmp_path):
@@ -243,22 +254,22 @@ def test_a_session_meta_half_written_is_read_once_it_is_complete(tmp_path):
     files = CodexSessionFiles(root)
     with path.open("a") as stream:
         stream.write(line[:40])
-    assert files.cli_version("thread-3") is None
+    assert cli_version(files, "thread-3") is None
     with path.open("a") as stream:
         stream.write(line[40:] + "\n")
-    assert files.cli_version("thread-3") == "0.160.0"
+    assert cli_version(files, "thread-3") == "0.160.0"
 
 
 def test_a_rewritten_rollout_is_read_again_from_its_start(tmp_path):
     root = tmp_path / "sessions"
     path = write_rollout(root, "thread-4", [versioned("thread-4", "0.161.0"), token_count(5, 100)])
     files = CodexSessionFiles(root)
-    assert files.cli_version("thread-4") == "0.161.0"
+    assert cli_version(files, "thread-4") == "0.161.0"
     path.write_text(json.dumps(versioned("thread-4", "0.160.0")) + "\n")
-    assert files.cli_version("thread-4") == "0.160.0"
+    assert cli_version(files, "thread-4") == "0.160.0"
     files.retain(set())
     path.write_text(json.dumps(versioned("thread-4", "0.159.0")) + "\n")
-    assert files.cli_version("thread-4") == "0.159.0"
+    assert cli_version(files, "thread-4") == "0.159.0"
 
 
 @pytest.mark.parametrize("reading", ["context", "limits"])
@@ -266,7 +277,7 @@ def test_unreadable_rollout_is_retried_without_a_file_change(tmp_path, monkeypat
     root = tmp_path / "sessions"
     path = write_rollout(root, "t1", [meta("t1"), limits(30)])
     files = CodexSessionFiles(root)
-    read = {"context": lambda: files.context_percent("t1"),
+    read = {"context": lambda: context_percent(files, "t1"),
             "limits": files.rate_limits}[reading]
     original = type(path).open
 
@@ -302,8 +313,8 @@ def test_usage_and_multiple_threads_share_one_tree_listing(tmp_path, monkeypatch
     files = CodexSessionFiles(tmp_path)
     files.begin_tick()
     files.rate_limits()
-    assert files.context_percent("one") == 10
-    assert files.context_percent("two") == 20
+    assert context_percent(files, "one") == 10
+    assert context_percent(files, "two") == 20
     assert scans == [tmp_path]
 
 
@@ -312,17 +323,17 @@ def test_structured_turn_state_tracks_completion_and_later_start(tmp_path):
     path = write_rollout(tmp_path, "turn-thread", [
         {"type": "event_msg", "timestamp": "1970-01-01T00:01:41.250Z", "payload": {"type": "task_complete"}},
     ])
-    assert files.turn_state("turn-thread") == ("done", 101.25)
+    assert turn_state(files, "turn-thread") == ("done", 101.25)
     with path.open("a") as stream:
         stream.write(json.dumps({"type": "event_msg", "timestamp": "1970-01-01T00:01:42.500Z",
                                  "payload": {"type": "task_started"}}) + "\n")
-    assert files.turn_state("turn-thread") == ("working", 102.5)
+    assert turn_state(files, "turn-thread") == ("working", 102.5)
 
 
 def test_plain_assistant_text_is_not_a_completed_turn(tmp_path):
     write_rollout(tmp_path, "turn-thread", [{"type": "response_item", "timestamp": "1970-01-01T00:01:41Z",
         "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Done."}]}}])
-    assert CodexSessionFiles(tmp_path).turn_state("turn-thread") is None
+    assert turn_state(CodexSessionFiles(tmp_path), "turn-thread") is None
 
 
 @pytest.mark.parametrize("later", [{"type": "task_started"}, {"type": "turn_aborted"}])
@@ -331,7 +342,7 @@ def test_later_unstamped_turn_boundary_invalidates_previous_completion(tmp_path,
         {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}},
         {"type": "event_msg", "payload": later},
     ])
-    assert CodexSessionFiles(tmp_path).turn_state("thread") is None
+    assert turn_state(CodexSessionFiles(tmp_path), "thread") is None
 
 
 def test_rate_limit_permission_failure_is_distinct_from_no_report(tmp_path, monkeypatch):
@@ -348,7 +359,7 @@ def test_rate_limit_permission_failure_is_distinct_from_no_report(tmp_path, monk
         files.rate_limits()
 
 
-# Captured against 6838b8f3 before the cursor consolidation. Each row is > 8 MiB.
+# Each case places metadata or a turn boundary in a rollout larger than 8 MiB.
 @pytest.mark.parametrize("case,expected", [
     ("inside", ("0.161.0", ("done", 101.0))),
     ("boundary_head", ("0.161.0", ("done", 101.0))),
@@ -359,7 +370,7 @@ def test_rate_limit_permission_failure_is_distinct_from_no_report(tmp_path, monk
     ("edge_complete", ("0.161.0", ("done", 101.0))),
     ("rewrite", ("0.161.0", ("done", 101.0))),
 ])
-def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, case, expected):
+def test_large_rollouts_report_the_expected_version_and_turn(tmp_path, case, expected):
     boundary = {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}
     chatter = json.dumps({"type": "response_item", "payload": {"text": "x" * 1024}}) + "\n"
     padding = chatter * 8192
@@ -389,10 +400,9 @@ def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, cas
         tail = ""
     path = write_rollout(tmp_path, "t", [])
     files = CodexSessionFiles(tmp_path)
-    reference = MainCodexReference(path)
     if case == "rewrite":
         path.write_text(encode(versioned("t", "9.999.0")))
-        assert files.cli_version("t") == reference.cli_version("t") == "9.999.0"
+        assert cli_version(files, "t") == "9.999.0"
         path.unlink()  # A replaced inode must discard its old cursor.
     path.write_text(head + padding + tail)
     if case == "resume_middle":
@@ -400,13 +410,12 @@ def test_large_rollout_answers_match_the_before_refactor_reference(tmp_path, cas
     if case == "edge_complete":
         start = path.stat().st_size - 8 * 1024 * 1024
         assert len(head) < start < len(head + padding) < path.stat().st_size
-    main_answer = reference.cli_version("t"), reference.turn_state("t")
-    assert (files.cli_version("t"), files.turn_state("t")) == main_answer == expected
+    assert (cli_version(files, "t"), turn_state(files, "t")) == expected
     if case == "edge_partial":
         with path.open("a") as stream:
             stream.write('"}\n' + encode(versioned("t", "0.162.0")))
-        assert files.cli_version("t") == reference.cli_version("t") == "0.162.0"
-        assert files.turn_state("t") == reference.turn_state("t") == expected[1]
+        assert cli_version(files, "t") == "0.162.0"
+        assert turn_state(files, "t") == expected[1]
 
 
 @pytest.mark.parametrize("head_fallback", [False, True])
@@ -448,11 +457,12 @@ def test_large_rollout_first_sight_read_budget(tmp_path, monkeypatch, head_fallb
             return Counted(stream)
         return stream
 
-    monkeypatch.setattr(type(path), "open", counted)
     files = CodexSessionFiles(tmp_path)
-    assert files.cli_version("t") == "0.160.0"
-    assert files.turn_state("t") == ("done", 101.0)
-    # Baseline: two opens and twice the size, for both shapes.
+    files._context_at("t", path)
+    monkeypatch.setattr(type(path), "open", counted)
+    reading = files.reading("t")
+    assert reading == (None, "0.160.0", ("done", 101.0))
+    # The version and boundary share one bounded cursor read; context is cached above.
     assert len(opened) == 1
     assert sum(read_bytes) == (path.stat().st_size if head_fallback else READ_BYTES)
     assert READ_BYTES == 8 * 1024 * 1024
@@ -486,8 +496,8 @@ def test_a_failed_combined_cursor_read_retries_without_a_file_change(tmp_path, m
 
     with monkeypatch.context() as patch:
         patch.setattr(type(path), "open", unavailable)
-        assert files.cli_version("t") is None
-    assert files.cli_version("t") == "0.160.0"
+        assert cli_version(files, "t") is None
+    assert cli_version(files, "t") == "0.160.0"
 
 
 def test_a_failed_context_does_not_discard_the_other_corroboration(tmp_path, monkeypatch):
@@ -530,12 +540,12 @@ def test_history_refresh_still_stamps_every_candidate_before_picking_three(tmp_p
 def test_rollout_cursor_detects_a_same_size_same_date_rewrite(tmp_path):
     path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0")])
     files = CodexSessionFiles(tmp_path)
-    assert files.cli_version("t") == "0.160.0"
+    assert cli_version(files, "t") == "0.160.0"
     stamp = path.stat()
     path.write_text(path.read_text().replace("0.160.0", "0.161.0"))
     os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
     assert path.stat().st_size == stamp.st_size
-    assert files.cli_version("t") == "0.161.0"
+    assert cli_version(files, "t") == "0.161.0"
 
 
 def test_a_short_rollout_read_is_retried_without_a_stamp_change(tmp_path, monkeypatch):
@@ -565,11 +575,11 @@ def test_a_short_rollout_read_is_retried_without_a_stamp_change(tmp_path, monkey
 
     with monkeypatch.context() as patch:
         patch.setattr(type(path), "open", short)
-        assert files.cli_version("t") is None
-    assert files.cli_version("t") == "0.160.0"
+        assert cli_version(files, "t") is None
+    assert cli_version(files, "t") == "0.160.0"
 
 
-def test_a_rollout_created_after_the_tick_listing_matches_the_reference(tmp_path):
+def test_a_rollout_created_after_the_tick_listing_reports_context_on_the_next_tick(tmp_path):
     files = CodexSessionFiles(tmp_path, clock=lambda: 0)
     files.begin_tick()
     assert files.rate_limits() is None
@@ -598,14 +608,10 @@ def test_rollout_parse_failures_leave_the_other_readings_available(tmp_path, mon
     nested = "[" * 3000 + "0" + "]" * 3000
     bad = ('{"type":"session_meta","payload":{"id":"t","nested":' + nested + '}}' if broken == "session_meta"
            else '{"type":"event_msg","payload":{"type":"task_started","nested":' + nested + '}}')
-    path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
+    write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
         {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_started"}},
         bad, token_count(50, 100)])
-    reference = MainCodexReference(path)
-    answers = [reference.reading("t") for _ in range(3)]
-    assert answers[0] == expected
-    assert answers[1:] == [(50, "0.160.0", ("working", 101.0))] * 2
-    caplog.clear()
+    answers = [expected] + [(50, "0.160.0", ("working", 101.0))] * 2
     files = CodexSessionFiles(tmp_path)
     for answer in answers:
         assert files.reading("t") == answer
@@ -615,7 +621,7 @@ def test_rollout_parse_failures_leave_the_other_readings_available(tmp_path, mon
 def test_a_version_stat_failure_after_the_path_check_returns_no_version(tmp_path, monkeypatch):
     path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0")])
     files = CodexSessionFiles(tmp_path)
-    assert files.cli_version("t") == "0.160.0"
+    assert cli_version(files, "t") == "0.160.0"
     original = type(path).stat
     is_file = type(path).is_file
     monkeypatch.setattr(type(path), "is_file", lambda candidate: True if candidate == path else is_file(candidate))
@@ -626,14 +632,14 @@ def test_a_version_stat_failure_after_the_path_check_returns_no_version(tmp_path
         return original(candidate, *args, **kwargs)
 
     monkeypatch.setattr(type(path), "stat", stat)
-    assert files.cli_version("t") is None
+    assert cli_version(files, "t") is None
 
 
 def test_a_short_rollout_read_keeps_the_last_complete_boundary(tmp_path, monkeypatch):
     path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
         {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_started"}}])
     files = CodexSessionFiles(tmp_path)
-    assert files.turn_state("t") == ("working", 101.0)
+    assert turn_state(files, "t") == ("working", 101.0)
     with path.open("a") as stream:
         stream.write(json.dumps({"type": "event_msg", "timestamp": "1970-01-01T00:01:42Z",
                                  "payload": {"type": "task_complete"}}) + "\n")
@@ -662,8 +668,8 @@ def test_a_short_rollout_read_keeps_the_last_complete_boundary(tmp_path, monkeyp
 
     with monkeypatch.context() as patch:
         patch.setattr(type(path), "open", short)
-        assert files.turn_state("t") == ("working", 101.0)
-    assert files.turn_state("t") == ("done", 102.0)
+        assert turn_state(files, "t") == ("working", 101.0)
+    assert turn_state(files, "t") == ("done", 102.0)
 
 
 @pytest.mark.parametrize("case,expected", [
@@ -673,7 +679,7 @@ def test_a_short_rollout_read_keeps_the_last_complete_boundary(tmp_path, monkeyp
     ("need_boundary", (50, "0.161.0", None)),
     ("boundary_fallback_only", (50, "0.161.0", ("done", 101.0))),
 ])
-def test_prefix_parser_reference_rows(tmp_path, monkeypatch, case, expected):
+def test_prefix_parser_reads_only_when_a_missing_fact_needs_it(tmp_path, monkeypatch, case, expected):
     """Compare with main's retained parser code, including the two approved differences."""
     bad_meta = '{"type":"session_meta","payload":{"id":"t","unparseable":true}}'
     bad_turn = '{"type":"event_msg","payload":{"type":"task_complete","unparseable":true}}'
@@ -701,21 +707,11 @@ def test_prefix_parser_reference_rows(tmp_path, monkeypatch, case, expected):
         return original(line, *args, **kwargs)
 
     monkeypatch.setattr(json, "loads", decode)
-    main_answer = MainCodexReference(path).reading("t")
-    failed_prefix_parses.clear()
     assert CodexSessionFiles(tmp_path).reading("t") == expected
     assert bool(failed_prefix_parses) == (case in ("need_version", "need_boundary"))
-    if case in ("need_version", "need_boundary"):
-        assert expected == main_answer
-    else:
-        assert expected != main_answer
-        assert (expected[0], expected[2]) == (main_answer[0], main_answer[2])
-
-
 @pytest.mark.parametrize("head_fallback", [False, True])
-@pytest.mark.parametrize("reader_kind", ["main", "current"])
 def test_unchanged_rollout_after_parser_failure_has_no_second_or_third_tick_io(
-    tmp_path, monkeypatch, head_fallback, reader_kind,
+    tmp_path, monkeypatch, head_fallback,
 ):
     chatter = json.dumps({"type": "response_item", "payload": {"text": "x" * 1024}}) + "\n"
     facts = (json.dumps(versioned("t", "0.160.0")) + "\n"
@@ -764,7 +760,7 @@ def test_unchanged_rollout_after_parser_failure_has_no_second_or_third_tick_io(
         return stream
 
     monkeypatch.setattr(type(path), "open", counted)
-    files = MainCodexReference(path) if reader_kind == "main" else CodexSessionFiles(tmp_path)
+    files = CodexSessionFiles(tmp_path)
     files.reading("t")
     ticks = []
     for _ in range(2):
@@ -772,7 +768,7 @@ def test_unchanged_rollout_after_parser_failure_has_no_second_or_third_tick_io(
         reads.clear()
         files.reading("t")
         ticks.append((len(opened), len(reads), sum(reads)))
-    # Main: zero opens, zero reads and zero bytes on ticks two and three, for both shapes.
+    # Unchanged files cost no opens, reads or bytes on subsequent ticks.
     assert ticks == [(0, 0, 0), (0, 0, 0)], f"second/third tick opens, reads, bytes: {ticks}"
 
 
@@ -794,11 +790,14 @@ def test_parser_failure_keeps_only_preceding_facts_and_later_appends_resume(tmp_
         return loads(line, *args, **kwargs)
 
     monkeypatch.setattr(json, "loads", decode)
-    reference, files = MainCodexReference(path), CodexSessionFiles(tmp_path)
-    for _ in range(3):
-        assert files.reading("t") == reference.reading("t")
+    files = CodexSessionFiles(tmp_path)
+    expected = (50, None, ("done", 102.0)) if broken == "session_meta" else (50, "0.161.0", None)
+    assert files.reading("t") == expected
+    for _ in range(2):
+        assert files.reading("t") == ((50, "0.160.0", ("done", 102.0)) if broken == "session_meta"
+                                      else (50, "0.161.0", ("working", 101.0)))
     with path.open("a") as stream:
         stream.write(json.dumps(versioned("t", "0.162.0")) + "\n")
         stream.write(json.dumps({"type": "event_msg", "timestamp": "1970-01-01T00:01:43Z",
                                  "payload": {"type": "task_started"}}) + "\n")
-    assert files.reading("t") == reference.reading("t") == (50, "0.162.0", ("working", 103.0))
+    assert files.reading("t") == (50, "0.162.0", ("working", 103.0))

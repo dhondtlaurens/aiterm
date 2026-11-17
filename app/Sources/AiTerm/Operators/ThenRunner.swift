@@ -15,7 +15,6 @@ import AiTermCore
     private let now: () -> Date
     private let ports: Ports
     private var running: Set<UUID> = []
-    func isRunning(_ id: UUID) -> Bool { running.contains(id) }
     init(workspace: WorkspaceStore, journal: SignalJournal, stages: StageRunner, now: @escaping () -> Date, ports: Ports) {
         self.workspace = workspace; self.journal = journal; self.stages = stages; self.now = now; self.ports = ports
     }

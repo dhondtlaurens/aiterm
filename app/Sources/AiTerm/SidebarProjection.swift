@@ -45,6 +45,13 @@ struct SectionFold: Equatable {
     var hasProjects: Bool { !sections.isEmpty }
     /// Every row waiting on you, the Operator's section first: what the Dock badge counts and Focus View steps through.
     var projectsNeedingAttention: [RowID] { operatorNeedingAttention + projectSectionsNeedingAttention }
+    /// The attention rows with tasks on their way out passed over.
+    func needingAttention(skipping: Set<UUID>) -> [RowID] {
+        projectsNeedingAttention.filter { row in
+            if case .task(let id) = row { return !skipping.contains(id) }
+            return true
+        }
+    }
     /// The rows under OPERATOR waiting on you: its own row, then its signals' tasks.
     var operatorNeedingAttention: [RowID] {
         (signalOperator.shown && signalOperator.status == .needsInput ? [.operation(OperatorSession.rowID)] : [])

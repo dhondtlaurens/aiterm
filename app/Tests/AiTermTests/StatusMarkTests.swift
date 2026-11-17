@@ -111,7 +111,7 @@ struct StatusMarkTests {
         #expect(warmest > 0.3, "the drifted branch is not amber on a selected row")
     }
 
-    /// The track is whole. It used to leave out the slice the arc rests on, from three o'clock to
+    /// The whole track remains visible around the arc, from three o'clock to
     /// about five past four, which showed as a gap once the arc turned away from it.
     @Test func theWorkingTrackIsWhole() throws {
         let bitmap = try drawn(.working)

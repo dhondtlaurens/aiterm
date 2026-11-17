@@ -39,7 +39,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -602,15 +601,6 @@ async def close(session: Session) -> None:
         await session.live.bridge.close_window(session.window)
 
 
-async def slash_command(session: Session, command: str) -> None:
-    """Types a slash command that only reports, and closes whatever it opened."""
-    await session.type(command)
-    await asyncio.sleep(4)
-    if open_prompt(session.agent, await session.look()) is not None:
-        await session.live.bridge.send_text(session.sid, ESC)
-    await asyncio.sleep(1)
-
-
 def read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
@@ -652,7 +642,7 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
     values = {"model": model, "reasoning": reasoning}
     launch = fill(launches()["claude"]["task"], values)
     command = " ".join(["env"] + [f"{key}={shlex.quote(value)}" for key, value in env.items()] + [shlex.quote(word) for word in launch])
-    turns = ["plain", "shellCommand", "subagent", "backgroundShell", "slashCommand", "approval"]
+    turns = ["plain", "shellCommand", "subagent", "backgroundShell", "approval"]
     session = await open_session(live, listener, "claude", work, command, claude_sessions=config / "sessions")
     try:
         say("claude: a plain turn")
@@ -672,11 +662,6 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
             await asyncio.sleep(1)
             await session.look()
         await asyncio.sleep(2)
-        # One AiTerm types itself. A session launched with --model keeps it, so nothing switches: its
-        # output reports nothing of the account, where /context lists the account's connectors.
-        say("claude: a slash command")
-        await slash_command(session, "/model sonnet")
-        await session.look()
     finally:
         await close(session)
     # The task launch names no permission mode, and Claude's default (auto) lets a classifier approve:
@@ -716,7 +701,7 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
 
 
 def claude_headless(env: Mapping[str, str], work: Path, scratch: Path) -> dict[str, str]:
-    """The app's headless Claude runs: the Oracle's challenge, the fixer's look with its schema, and
+    """The app's headless Claude runs: the Oracle's challenge and
     the flags --help leaves out, each proved by its marker in the answer."""
     model, reasoning = MODELS["claude"]
     templates = launches()["claude"]
@@ -725,10 +710,6 @@ def claude_headless(env: Mapping[str, str], work: Path, scratch: Path) -> dict[s
     say("claude: headless runs")
     challenge = run(fill(templates["challenge"], base | {"prompt": "Reply with only the word OK."}), env=env, cwd=work)
     files["headless/challenge.json"] = challenge.stdout
-    look = run(fill(templates["fixerLook"], base | {"session": str(uuid.uuid4()),
-               "prompt": "This is a test of your answer's format only; nothing needs fixing. Answer with outcome none "
-                         "and a one-sentence summary saying so."}), env=env, cwd=work)
-    files["headless/fixer-look.json"] = look.stdout
     probes: dict[str, Any] = {}
     for flag, marker in HIDDEN_FLAG_PROBES["claude"].items():
         extra = scratch / f"probe{flag.replace('-', '_')}.md"

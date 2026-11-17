@@ -30,10 +30,9 @@ public struct TaskWorkflow: Sendable {
         case other(reason: String)
     }
 
-    /// The lane of `project`'s repository. Internal, not private, for the workflow jobs that live in the
-    /// folder of the feature they serve (`TaskWorkflow+FixLanding`).
+    /// The lane of `project`'s repository, shared by its creation, removal, pull and rebase work.
     static func lane(of project: Project) -> DispatchQueue { GitLanes.shared.lane(for: project.path) }
-    /// Only a removal that reached git, Remove's or Shelve's, may clean up an unlisted folder on retry.
+    /// Only a removal that reached git, Remove's or Archive's, may clean up an unlisted folder on retry.
     /// Kept in memory, so after a relaunch an own leftover asks again; and written before `git
     /// worktree remove` runs, so a removal git refused outright counts as reached too. Both err
     /// towards asking.

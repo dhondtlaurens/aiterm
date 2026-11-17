@@ -43,7 +43,6 @@ extension AppController {
             // The row's name only: a tab is titled with its branch (`sessions.setTitles`), and
             // the window's profile name is set once, when it opens.
             case .terminal: return "Renames the row in the sidebar; its iTerm2 tabs keep their branch titles."
-            // The row and the board only; the Operator's window was titled when it opened.
             }
         }
     }
@@ -65,10 +64,6 @@ extension AppController {
         case backpack(BackpackSheetModel)
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
         case archive(ArchiveSheetModel)
-        /// New Broadcast…: its projects, prompt, review and done, started on Settings › Operator's profile.
-        /// The broadcast's sheet, Board · Activity · Summary: read live from the workspace and its run
-        /// folder, so it carries only the run's id.
-        /// An ended broadcast's sheet, opened from the Shelf: read-only (`BroadcastBoardHost`, shelved).
         var id: String {
             switch self {
             case .signal(let model): return "signal-\(model.id)"

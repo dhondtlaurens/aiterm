@@ -180,30 +180,17 @@ final class ProjectActions {
 
     /// "Pull main": the project's default branch brought to origin's, fast-forward only. Git's
     /// own state, not the workspace's, so a locked workspace does not stop it.
-    ///
-    /// `after` is the fix that landed for the banner's last refusal, and the agent that made it:
-    /// whatever the pull then does, the person is told where the branch as it was is kept — in its
-    /// toast, after its new failure, or in a toast of its own when it cannot start.
     @discardableResult
-    func pullDefault(project: Project, after fix: (landing: FixLanding, agent: FixerAgent?)? = nil) -> Task<Void, Never>? {
-        let pull = changeDefaultBranch(of: project, { [workflow] in
-            let toast = try await workflow.pullDefaultBranch(of: project).toast
-            guard let fix else { return toast }
-            return "\(toast) \(fix.landing.keptSentence(by: fix.agent))"
-        }, failure: { error in
-            var issue = OperationIssue.pullRefused(error, in: project.id, projectPath: project.path)
-            if let fix { issue.reason = [issue.reason, fix.landing.keptSentence].compactMap { $0 }.joined(separator: " ") }
-            return issue
-        })
-        if pull == nil, let fix { notices.showToast(fix.landing.keptSentence) }
-        return pull
+    func pullDefault(project: Project) -> Task<Void, Never>? {
+        changeDefaultBranch(of: project, { [workflow] in try await workflow.pullDefaultBranch(of: project).toast },
+                            failure: { .pullRefused($0, in: project.id) })
     }
 
     /// The banner's Rebase, after "Pull main" found the branches diverged. Held like a pull, so
     /// the menu's Pull main waits for it.
     func rebaseDefault(project: Project) -> Task<Void, Never>? {
         let rebase = changeDefaultBranch(of: project, { [workflow] in try await workflow.rebaseDefaultBranch(of: project).toast },
-                                         failure: { .rebaseRefused($0, in: project.id, projectPath: project.path) })
+                                         failure: { .rebaseRefused($0, in: project.id) })
         if rebase != nil { notices.clearIssue() }
         return rebase
     }
@@ -235,20 +222,14 @@ final class ProjectActions {
         workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
     }
 
-    /// Whether the project has a task, review or terminal row — anything to fold. The live broadcast's
-    /// tasks are drawn under it, not here, so a project with only those has none.
+    /// Whether the project has a task, review or terminal row, anything to fold.
     func hasRows(_ project: Project) -> Bool {
         return state.tasks.contains(where: { $0.projectId == project.id && ($0.signalTask == nil || $0.signalTask?.takenOver == true) })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
-    /// Folds or opens the live broadcast's group, kept with the workspace as a project's fold is
-    /// (`AppState.foldedRuns`).
-
-
-    /// Stores `layout`'s collapsed states — Focus View's or List View's, a broadcast's group's by its
-    /// id among them — in one change to the workspace, which saves only if one changed. Whether it was
-    /// stored: not in a locked workspace.
+    /// Stores Focus View's or List View's collapsed project states in one workspace change.
+    /// Saves only if a state changed; a locked workspace refuses the change.
     @discardableResult
     func setCollapsed(_ layout: [UUID: Bool]) -> Bool {
         guard canChangeWorkspace else { return false }
@@ -271,7 +252,7 @@ final class ProjectActions {
     }
 
     // -- removing a project -----------------------------------------------------------------
-    /// Plan self-review (spec 4.6): removing a project only forgets it. Worktrees created for its
+    /// Plan self-review: removing a project only forgets it. Worktrees created for its
     /// tasks stay on disk — the alert says so, and how many tasks go — and no git command runs.
     func confirmRemove(project: Project) async {
         guard canChangeWorkspace else { return }
@@ -289,11 +270,8 @@ final class ProjectActions {
         workspace.mutate { $0.removeProject(id: project.id) }
     }
 
-    /// The Remove Project alert's detail: what goes from AiTerm — its tasks, and the archived rows it
-    /// forgets — and what stays on disk. Archive never changes git, so forgetting an archived row
-    /// loses nothing but AiTerm's memory of it. `operatorWorktrees` are the worktrees the live broadcast
-    /// holds in it, which its tasks count and its header's tooltip names: said so, since its rows are drawn
-    /// under the broadcast and not under the project.
+    /// The Remove Project alert says which tasks and Archive rows AiTerm forgets and what stays on disk.
+    /// Archive never changes git, so forgetting an archived row loses only AiTerm's memory of it.
     static func removalDetail(tasks: Int, archived: [ArchivedTask], operatorWorktrees: Int = 0) -> String {
         let forgets: String
         switch archived.count {

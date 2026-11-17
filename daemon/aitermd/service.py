@@ -29,7 +29,6 @@ from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError, RpcServer
 from .models import CODEX_THREAD_TAG, HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
-from .slash_commands import SlashCommands
 from .status import StatusEngine
 from .stop_failures import StopTranscripts
 from .test_activity import TestActivityReader
@@ -75,20 +74,18 @@ class Service:
         self.windows = WindowManager(iterm, self.registry, self.tick, typed_in=lambda sid: self.typing.typed_in(sid))
         self.supervisor.on_connected = self.windows.forget_titles
         self.supervisor.on_launched_connected = self.windows.capture_startup_window
-        # The delivery adapter (Operators spec §7.1), and when you last typed in each session, which
-        # holds back an operator's wake line (§7.4). The policy is read on every delivery, so the
+        # The delivery adapter, and when you last typed in each session, which
+        # holds back an operator's wake line. The policy is read on every delivery, so the
         # delivery check that writes it needs no restart.
         self._monotonic = monotonic
         self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         self.hook_router.typed_by_you = self._typed_by_you
-        # What became of each slash command delivered to a Claude tab, read on every tick from its transcript.
-        self.slash_commands = SlashCommands(self.registry, clock)
-        self.readers = CorroboratingReaders(self.registry, self.status, self.resolver, iterm, clock, self.slash_commands)
-        # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
+        self.readers = CorroboratingReaders(self.registry, self.status, self.resolver, iterm, clock)
+        # The operator's MCP server, on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
-        # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
-        # (spec §11); None keeps tokens in memory only.
+        # `operator_folder` is where the app keeps the Operator's token file, which a restarted daemon loads;
+        # None keeps tokens in memory only.
         self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorSessionTokens(operator_folder))
         self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
@@ -161,8 +158,6 @@ class Service:
         r("sessions.markSeen", self._h_mark_seen)
         r("session.deliver", self._h_deliver)
         r("session.closeIdle", self._h_close_idle)
-        r("session.prompt", self._h_prompt)
-        r("session.dismissStartup", self._h_dismiss_startup)
         r("session.setOwnership", self._h_set_ownership)
         r("delivery.policy", self._h_delivery_policy)
         r("operator.register", self.operators.register)
@@ -221,27 +216,13 @@ class Service:
     async def _h_deliver(self, p: Any) -> dict[str, Any]:
         session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)
         wake, worktree = bool(optional_param(p, "wake", bool)), optional_param(p, "worktree", str)
-        # A slash command is stamped before it is typed: what Claude Code records of it comes after.
-        command = None if wake else self.slash_commands.stamp(session_id, text)
         result = await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)
-        if command is not None and result.result == "delivered":
-            await self.publisher.session_changed(self.slash_commands.delivered(session_id, command))
         return result.to_json()
 
     async def _h_close_idle(self, p: Any) -> dict[str, Any]:
         result = await self.deliverer.close_idle(param(p, "sessionId", str), param(p, "ownership", int),
                                                  param(p, "conversation", str))
         return result.to_json()
-
-    async def _h_prompt(self, p: Any) -> dict[str, Any]:
-        session_id = param(p, "sessionId", str)
-        require_iterm(self.iterm)
-        return dict(await guard(self.deliverer.prompt_details(session_id)))
-
-    async def _h_dismiss_startup(self, p: Any) -> dict[str, Any]:
-        session_id = param(p, "sessionId", str)
-        require_iterm(self.iterm)
-        return {"dismissed": await guard(self.deliverer.dismiss_startup(session_id))}
 
     async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
         self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))
@@ -367,7 +348,6 @@ class Service:
             ("reading the Codex rollouts", lambda: self.observe_codex(threads)),
             ("releasing dead subagents", lambda: self.observe(self.readers.subagents(self.subagent_transcripts))),
             ("reading Claude background shells", lambda: self.observe_background(sessions)),
-            ("reading what became of the slash commands", lambda: self.observe(self.readers.slash())),
             ("reading stopped workers' recovery and usage resets", lambda: self.observe(self.readers.stops(self.stop_transcripts))),
             ("reading worktree test activity", lambda: self.observe(self.readers.tests(self.test_activity, sessions))),
         )
@@ -403,18 +383,6 @@ class Service:
 
     async def observe_codex(self, threads: dict[str, str]) -> list[str]:
         return await self.observe(self.readers.codex(self.codex_files, threads))
-
-    async def settle_reads(self) -> None:
-        """Wait for this service's outstanding reads, then release their completed handles.
-
-        Tests release their own latches before calling this; it never inspects the test queue.
-        """
-        checks = dict(self._checks)
-        if checks:
-            await asyncio.gather(*(asyncio.shield(check) for check in checks.values()), return_exceptions=True)
-        for name, check in checks.items():
-            if self._checks.get(name) is check and check.done():
-                del self._checks[name]
 
     async def run_check(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within

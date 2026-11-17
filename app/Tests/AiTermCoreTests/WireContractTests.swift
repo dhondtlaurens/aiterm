@@ -70,7 +70,7 @@ import Testing
         case (.usageChanged, .usageChanged(let usage)): try Self.expectSame(usage, payload)
         case (.operatorRequest, .operatorRequest(let request)):
             #expect(request.requestId == payload["requestId"] as? String)
-            #expect(request.runId == payload["runId"] as? String)
+            #expect(request.operatorId == payload["operatorId"] as? String)
             #expect(request.tool == payload["tool"] as? String)
         case (_, let event): Issue.record("\(name.rawValue) read as \(event)")
         }
@@ -98,8 +98,6 @@ import Testing
                 // A code this app knows: one it did not would read as `.unknown`.
                 #expect(try delivery.code?.rawValue == field("code") as? String)
                 #expect(delivery.code != .unknown)
-            case .sessionPrompt: #expect(try read(DaemonClient.PromptResult.self).kind?.rawValue == field("kind") as? String)
-            case .sessionDismissStartup: #expect(try read(DaemonClient.DismissResult.self).dismissed == field("dismissed") as? Bool)
             case .deliveryPolicy:
                 let agents = try #require(field("agents") as? [String: [String: Any]])
                 let verdicts = try read(DaemonClient.DeliveryPolicyResult.self).agents

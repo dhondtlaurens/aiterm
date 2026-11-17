@@ -70,7 +70,7 @@ import AiTermUI
             var session = OperatorSession(createdAt: Date()); session.window = "operator-window"; state.operatorSession = session
         }
         controller.helper.setDaemonClient(RecordingDaemon())
-        controller.openNote(.operatorWindow)
+        controller.signalController.ports.notifications.onOpen?(.operatorWindow)
         #expect(controller.focus.selection == .operation(OperatorSession.rowID))
     }
     @Test func headingsHoldTheSameTaskRowsAndTakeoverReturnsTheTaskToItsProject() throws {

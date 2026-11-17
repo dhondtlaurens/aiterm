@@ -38,7 +38,6 @@ enum SettingsSnapshots {
                 return settings(jira: nil, iterm: .waitingForIterm, environment: apiOff, tab: .integrations)
                     .seeded(itermEnvironment: apiOff)
             },
-            // “Help with problems” is drawn with the Operator's images (`OperatorSnapshots`).
         ]
     }
 

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A row of underline tabs: Settings' panes and the broadcast board's Board · Activity · Summary.
+/// A row of underline tabs: Settings' panes.
 /// It sits at the foot of a sheet's header, so its selected tab's underline lies on the header's rule.
 ///
 /// Each tab is its label in `Typography.bodyEmphasis`, `Space.base` over its underline, the tabs
@@ -24,7 +24,7 @@ public struct TabBar<Value: Hashable, Label: View>: View {
     @ViewBuilder var label: (Value) -> Label
     @FocusState private var focused: Bool
     /// The focus is the keyboard's: ⇥ brought it, or ← → have used it since. A sheet hands its first
-    /// focusable control the focus as it opens — the bar, in Settings and on the board — and a ring
+    /// focusable control the focus as it opens — the bar in Settings — and a ring
     /// there would greet every opening; a click focuses it too. Neither is the keyboard's.
     @State private var keyboardFocus = false
 

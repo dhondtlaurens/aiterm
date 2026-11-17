@@ -106,7 +106,7 @@ final class WindowReconciler {
         }
         // The workspace able to change again: an owed row waited on it.
         workspace.onChangeable { [weak self] in self?.pass() }
-        // A workspace change that makes a row owed a window — worktrees imported, a row back from the Shelf, a backup
+        // A workspace change that makes a row owed a window — worktrees imported, a row back from the Archive, a backup
         // restored — passes once the change is done.
         workspace.onChange { [weak self] in self?.workspaceChanged() }
         // A bound on what has no trigger of its own: each poll asks the window plan, in memory, whether a pass would do

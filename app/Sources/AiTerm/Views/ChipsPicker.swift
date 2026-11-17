@@ -2,21 +2,6 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// A project in New Broadcast's project list: its host's mark and its name, inked for the ground its
-/// row declares, as `PickerResultRow` is.
-struct ProjectResultRow: View {
-    let project: Project
-    @Environment(\.surface) private var surface
-
-    var body: some View {
-        HStack(spacing: Space.base) {
-            Icon(ProviderIcon.source(of: project.provider), size: Size.pickerRowLogo, tint: PickerResultRow.logoTint(on: surface))
-            Text(project.name).font(Typography.caption).foregroundStyle(surface.ink).lineLimit(1)
-            Spacer(minLength: Space.snug)
-        }
-    }
-}
-
 /// One pick in a `ChipsPicker`: the service's mark, its name in `Typography.caption`, and the ✕ that
 /// removes it, on the badge wash at `Radius.chip`, `lineHeight` tall (the design's lane chip).
 struct PickChip: View {
@@ -42,8 +27,8 @@ struct PickChip: View {
 }
 
 /// A field of several picks: each a `PickChip`, then a search field after them that adds one more,
-/// its results hanging under the field in a `DropdownList` as `SearchPicker`'s do, keyed as its are
-/// (`DropdownKeys.perform`). The field wraps onto more lines as the chips fill it (`ChipFlow`). A click on it, or
+/// its results hanging under the field in a `DropdownList`, with keyboard navigation through
+/// `DropdownKeys.perform`. The field wraps onto more lines as the chips fill it (`ChipFlow`). A click on it, or
 /// typing, opens the list — not focus alone, which a sheet's first field gets as the sheet appears, so the list
 /// never covers the fields under it before the person asks for it. A pick joins the chips and the field stays
 /// for the next one. The caller
@@ -68,7 +53,7 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     @State private var index: Int = 0
     @State private var focused: Bool = false
 
-    /// At most six rows, as `SearchPicker` shows.
+    /// At most six result rows.
     static var visibleLimit: Int { 6 }
 
     init(placeholder: String, picks: [Item], open: Binding<Bool>, matches: @escaping (String) -> [Item],
@@ -185,5 +170,55 @@ struct ChipFlow: Layout {
             subview.place(at: CGPoint(x: bounds.minX + placement.origin.x, y: bounds.minY + placement.origin.y),
                           proposal: ProposedViewSize(placement.size))
         }
+    }
+}
+
+/// A result row of the ticket, merge request and Jira project pickers: the service's mark, a key
+/// in a column of `keyWidth` so the titles after it start on one line, the title, and a trailing
+/// `detail` — a ticket's or merge request's lane. Inked for the ground its row declares: on the
+/// accent everything turns white; off it — a highlighted dropdown row included, which is neutral —
+/// the mark and the key keep the service's colours.
+struct PickerResultRow: View {
+    let mark: IconSource
+    let key: String
+    let keyWidth: CGFloat
+    let title: String
+    /// `nil` draws no detail column at all; an empty string keeps the column, and its spacing, empty.
+    let detail: String?
+    @Environment(\.surface) private var surface
+
+    var body: some View {
+        HStack(spacing: Space.base) {
+            Icon(mark, size: Size.pickerRowLogo, tint: Self.logoTint(on: surface))
+            Text(key).font(Typography.caption.tabular).foregroundStyle(Self.keyInk(on: surface))
+                .frame(width: keyWidth, alignment: .leading)
+            Text(title).font(Typography.caption).foregroundStyle(surface.ink).lineLimit(1)
+            Spacer(minLength: Space.snug)
+            if let detail { HelpText(detail, fixedVerticalSize: false) }
+        }
+    }
+
+    /// The mark's tint: white on the accent, else `nil`, its brand colour.
+    static func logoTint(on surface: Surface) -> Color? { surface.isOnAccent ? surface.ink : nil }
+    /// The key: white on the accent, else the link colour.
+    static func keyInk(on surface: Surface) -> Color { surface.isOnAccent ? surface.ink : Palette.link }
+}
+
+/// The ticket field used by New Task and New Review. Their surrounding help and the
+/// effects of picking or clearing remain the caller's.
+struct TicketPickerField: View {
+    let placeholder: String
+    @Binding var query: String
+    @Binding var open: Bool
+    let items: [JiraTicket]
+    let selection: JiraTicket?
+    let onPick: (JiraTicket) -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        ChipsPicker(placeholder: placeholder, picks: selection.map { [$0] } ?? [], open: $open,
+                    matches: { _ in items }, mark: { .brand($0.brand) }, label: { $0.key + " · " + $0.summary },
+                    row: { PickerResultRow(mark: .brand($0.brand), key: $0.key, keyWidth: Size.pickerTicketKey, title: $0.summary, detail: $0.status) },
+                    onPick: onPick, onRemove: { _ in onClear() }, query: $query, selectionLimit: 1)
     }
 }

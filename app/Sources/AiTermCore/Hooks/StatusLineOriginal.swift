@@ -19,34 +19,19 @@ public enum StatusLineOriginal {
     /// failure between the two can never leave the agent on the shim with no record of the user's
     /// own status line. A foreign command is saved; with none, the record is forgotten, or a repair
     /// would bring back a status line the user removed; behind our own shim it stays as it is, which
-    /// is how a moved bundle is repaired. `legacy` is an older record of the same command that a
-    /// removed status line must not leave to be migrated again.
+    /// is how a moved bundle is repaired.
     static func record(_ before: Before, home: URL) throws {
         let command = AiTermPaths.statusLineOriginalURL(home: home)
-        let legacy = AiTermPaths.legacyStatusLineOriginalURL(home: home)
         switch before {
         case .foreign(let original):
             try FileManager.default.createDirectory(at: command.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(original.utf8).write(to: command, options: .atomic)
         case .missing:
-            for url in [command, legacy] where FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+            if FileManager.default.fileExists(atPath: command.path) {
+                try FileManager.default.removeItem(at: command)
             }
         case .ours:
             break
         }
-    }
-
-    /// Launch's half of the status-line upgrade: an install from before the shim read plain text
-    /// kept only the JSON record of the user's own Claude status line, which the shim no longer
-    /// parses, and nothing else reports that install as out of date. Writing its command out here
-    /// keeps that status line showing without waiting for Settings' Install or Repair.
-    public static func migrate(home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
-        let command = AiTermPaths.statusLineOriginalURL(home: home)
-        guard !FileManager.default.fileExists(atPath: command.path),
-              let data = try? Data(contentsOf: AiTermPaths.legacyStatusLineOriginalURL(home: home)),
-              let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let original = saved["command"] as? String, !original.isEmpty else { return }
-        try record(.foreign(original), home: home)
     }
 }

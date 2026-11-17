@@ -121,7 +121,7 @@ async def test_a_tool_call_is_forwarded_to_the_app_and_its_answer_returned():
     request = await answer_with(app, route, result={"open": True}, error=None)
     status, text = await calling
     assert app.events[0][0] == "operator.request"
-    assert request == {"requestId": request["requestId"], "runId": ID, "generation": 1, "tool": "ask_you",
+    assert request == {"requestId": request["requestId"], "operatorId": ID, "generation": 1, "tool": "ask_you",
                        "arguments": {"key": "q1", "question": "Which project?"}}
     reply = json.loads(text)
     assert status == 200 and reply["id"] == 7
@@ -142,8 +142,8 @@ async def test_the_token_names_the_run_whatever_the_arguments_say():
     route = route_for(app)
     route.session_tokens.register(SECOND, 1, OTHER)
     calling = asyncio.create_task(route.serve(
-        "POST", {"authorization": f"Bearer {OTHER}"}, call("run_status", {"runId": ID, "generation": 1})))
-    assert (await answer_with(app, route, result={}))["runId"] == SECOND
+        "POST", {"authorization": f"Bearer {OTHER}"}, call("run_status", {"operatorId": ID, "generation": 1})))
+    assert (await answer_with(app, route, result={}))["operatorId"] == SECOND
     await calling
 
 
@@ -194,10 +194,10 @@ async def test_a_call_to_no_such_tool_is_a_json_rpc_error(params):
 
 
 @pytest.mark.parametrize("handler,params", [
-    ("register", {"runId": "run-3", "token": "short"}),
-    ("register", {"runId": "run-3", "token": "xy" * 32}),  # 64 characters, not hex
-    ("register", {"runId": "run-3", "token": TOKEN}),  # run-1's
-    ("register", {"runId": "run-3"}),
+    ("register", {"operatorId": "operator-3", "token": "short"}),
+    ("register", {"operatorId": "operator-3", "token": "xy" * 32}),  # 64 characters, not hex
+    ("register", {"operatorId": "operator-3", "token": TOKEN}),  # another session's
+    ("register", {"operatorId": "operator-3"}),
     ("revoke", {}),
     ("reply", {"result": {}}),
     ("reply", {"requestId": "op-1", "result": "not an object or array"}),
@@ -211,9 +211,9 @@ async def test_the_rpc_handlers_refuse_malformed_params(handler, params):
 
 async def test_register_opens_and_revoke_closes_the_route():
     route = OperatorRoute(App().broadcast, lambda: 1)
-    assert await route.register({"runId": ID, "generation": 1, "token": TOKEN}) == {}
+    assert await route.register({"operatorId": ID, "generation": 1, "token": TOKEN}) == {}
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 200
-    assert await route.revoke({"runId": ID, "generation": 1}) == {}
+    assert await route.revoke({"operatorId": ID, "generation": 1}) == {}
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 401
 
 
@@ -232,7 +232,8 @@ async def test_restart_drops_old_reply_while_new_call_waits(monkeypatch):
 
     for _ in range(2):
         routes.append(OperatorRoute(broadcast, lambda: 1))
-        assert await routes[-1].ask_app("run", "run_status", {}) == {"fresh": True}
+        routes[-1].session_tokens.register(ID, 1, TOKEN)
+        assert await routes[-1].ask_app(ID, "run_status", {}, generation=1) == {"fresh": True}
     assert ids[0] != ids[1]
 
 

@@ -12,12 +12,15 @@ import Testing
             var state = AppState.empty; state.operatorSession = session
             let digest = OperatorDigest(state: state, at: session.createdAt, oracleOn: true)
             let profile = OperatorProfile(model: "sonnet", reasoning: "high", instructions: "Use the repository's own checks.")
-            let first = try SignalOperatorCommand.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
-            let same = try SignalOperatorCommand.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
-            #expect(first.folder == SignalOperatorCommand.folder(home: home))
+            let first = try OperatorLaunch.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
+            let same = try OperatorLaunch.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
+            #expect(first.folder == OperatorLaunch.folder(home: home))
             #expect(first.token == same.token)
             #expect(first.folder.lastPathComponent == "operator")
-            let gate = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: first.folder.appendingPathComponent("gate.json")))
+            let gateBytes = try Data(contentsOf: first.folder.appendingPathComponent("gate.json"))
+            let expectedGate = #"{"env":{"BASH_MAX_OUTPUT_LENGTH":"16000"},"hooks":{"PreToolUse":[{"hooks":[{"headers":{"Authorization":"Bearer \#(first.token)","X-AiTerm-Hook":"1"},"timeout":240,"type":"http","url":"http://127.0.0.1:\#(AiTermPaths.hookPort)/operator/gate"}],"matcher":"Bash"}]},"idleCompaction":false}"#
+            #expect(gateBytes == Data(expectedGate.utf8))
+            let gate = try JSONDecoder().decode(JSONValue.self, from: gateBytes)
             #expect(gate["idleCompaction"] == false)
             #expect(gate["hooks"]?["PreToolUse"]?.arrayValue?.count == 1)
             let brief = try String(contentsOf: first.folder.appendingPathComponent("brief.md"), encoding: .utf8)
@@ -27,17 +30,17 @@ import Testing
                 #expect(mode == 0o600)
             }
             session.generation += 1
-            let fresh = try SignalOperatorCommand.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
+            let fresh = try OperatorLaunch.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
             #expect(fresh.folder == first.folder && fresh.token != first.token)
-            #expect(try SignalOperatorCommand.authority(in: first.folder)?.generation == 2)
+            #expect(try OperatorLaunch.authority(in: first.folder)?.generation == 2)
         }
     }
 
     @Test func theCurrentContextTokensDecodeWithoutBreakingOlderSessions() throws {
-        let bytes = Data(#"{"sessionId":"s","windowId":"w","tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator","contextTokens":39239}"#.utf8)
+        let bytes = Data(#"{"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator","contextTokens":39239}"#.utf8)
         let session = try JSONDecoder().decode(SessionInfo.self, from: bytes)
         #expect(session.contextTokens == 39239)
-        let old = Data(#"{"sessionId":"s","windowId":"w","tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator"}"#.utf8)
+        let old = Data(#"{"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator"}"#.utf8)
         #expect(try JSONDecoder().decode(SessionInfo.self, from: old).contextTokens == nil)
     }
 }

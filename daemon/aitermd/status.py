@@ -31,14 +31,13 @@ class _Child:
     """A running subagent. `transcript` is where a Claude child writes (None for the other
     harnesses), `started_at` the wall clock at its latest SubagentStart. `stamp` is its transcript's
     (mtime, size) as last seen, and `quiet_since` when that stamp was first seen, on the monotonic clock;
-    `written_at` is that mtime, on the wall clock. `stopped_at` is when the latest SubagentStop since
+    `stopped_at` is when the latest SubagentStop since
     that start came, on the monotonic clock, None while none has: the transcript says whether it ended the run."""
     transcript: str | None
     started_at: float
     stamp: tuple[int, int] | None = None
     quiet_since: float = 0.0
     stopped_at: float | None = None
-    written_at: float | None = None
     label: str = "Subagent"
     conversation: str | None = None
 
@@ -199,23 +198,17 @@ class StatusEngine:
                     changed = self.reg.set_background(session_id, ()) or changed
         return [session_id] if self.reg.set_state(session_id, target, preserve_stop=child_file) or changed else []
 
-    def apply_metadata(self, session_id: str, *, model: str | None = None, reasoning: str | None = None,
-                       context: int | None = None, cwd: str | None = None,
+    def apply_metadata(self, session_id: str, *, context: int | None = None, cwd: str | None = None,
                        context_tokens: int | None = None, clear_context_tokens: bool = False,
-                       conversation: str | None = None, transcript: str | None = None,
-                       clear_reasoning: bool = False) -> list[str]:
+                       conversation: str | None = None, transcript: str | None = None) -> list[str]:
         """What an agent reports beside its state: each value present replaces the session's, and
-        an absent one leaves it be, unless clear_reasoning explicitly clears an absent effort.
+        an absent one leaves it be, unless clear_context_tokens explicitly clears the token count.
         Returns the sessions that changed; the transcript is not sent."""
         s = self.reg.get(session_id)
         if s is None:
             return []
         self.reg.set_transcript(session_id, transcript)
         changed: list[str] = []
-        if model and self.reg.set_model(session_id, model):
-            changed.append(session_id)
-        if (reasoning or clear_reasoning) and self.reg.set_reasoning(session_id, reasoning):
-            changed.append(session_id)
         if self.reg.set_agent_cwd(session_id, cwd):
             changed.append(session_id)
         if self.reg.set_conversation(session_id, conversation):
@@ -355,9 +348,7 @@ class StatusEngine:
             return False
         children = turn.children if (turn := self._turns.get(session_id)) is not None else {}
         work = tuple(job for job in s.background if job.agent_id is None or job.agent_id in children)
-        written_at = max((c.written_at for c in children.values() if c.written_at is not None), default=None)
         shown = self.reg.set_background(session_id, work)
-        shown = self.reg.set_subagents_written_at(session_id, written_at) or shown
         descriptions = {job.agent_id: job.text for job in work if job.agent_id is not None}
         for child_id, child in children.items():
             if child_id in descriptions:
@@ -418,7 +409,7 @@ class StatusEngine:
                     changed += self._subagent_ended(sid, child_id) if stood else []
                     continue
                 if tail.stamp != child.stamp:
-                    child.stamp, child.quiet_since, child.written_at = tail.stamp, now, tail.written_at
+                    child.stamp, child.quiet_since = tail.stamp, now
                 # A verdict from before a resume speaks for the run that ended, not this one. Told by the time the
                 # record gives: Claude can write it to the file after the resume's SubagentStart.
                 ended = tail.ended_at is not None and tail.ended_at > child.started_at
@@ -494,7 +485,6 @@ class StatusEngine:
         self._trust_prompts.discard(session_id)
         cleared = self.reg.set_background(session_id, ())
         cleared = self.reg.set_stopped_on(session_id, None) or cleared
-        cleared = self.reg.set_subagents_written_at(session_id, None) or cleared
         return [session_id] if self.reg.set_state(session_id, "idle") or cleared or displayed else []
 
     def mark_seen(self, task_id: str) -> list[str]:
