@@ -927,3 +927,9 @@ left.
   row is chosen again. Added `OpeningRowControllerTests.aRowWhoseWindowWentWithACrashedITerm2StartsItAndOpensOnceItConnects`;
   four tests that raised windows without ever sending a snapshot now send one first. Left: a peek
   (arrow keys) at a stale window while unsynced fails quietly.
+- Phase close: review round 2 (with the triage): no findings, "ready". Plain `scripts/test.sh all`
+  green on `12e69c93` (after the fix; also green on `ff00e600` before it). Snapshots in
+  `build/refactor-phase3` against `build/refactor-phase2`: only `sidebar-banners.png` (3d, planned)
+  and `marks.png` (known variant) differ. No bundle check is due after phase 3. `main` had only the
+  refactor's own merges; merged to `main`. No manual check is owed for phase 3 by the plan; the smoke
+  run after phase 9 covers the closed view.
