@@ -56,44 +56,42 @@ import Synchronization
         #expect(try await none.existingRequest(from: "feat/x") == nil)
     }
 
-    @Test func readinessIsGitLabsOwnVerdictWithItsPipeline() async throws {
-        let cases: [(state: String, pipeline: String?, detailed: String, expected: MergeReadiness)] = [
-            ("opened", "running", "ci_still_running", .waiting("its pipeline is running")),
-            ("opened", "pending", "mergeable", .waiting("its pipeline is running")),
-            ("opened", "failed", "ci_must_pass", .blocked("its pipeline failed")),
-            ("opened", "canceled", "mergeable", .blocked("its pipeline was canceled")),
-            ("opened", "success", "mergeable", .ready(head: Self.head)),
-            ("opened", nil, "mergeable", .ready(head: Self.head)),
-            ("opened", "success", "not_approved", .waiting("it needs an approval")),
-            ("opened", "success", "checking", .waiting("GitLab is checking it")),
-            ("opened", "success", "conflict", .blocked("it has conflicts")),
-            ("opened", "success", "need_rebase", .blocked("it needs a rebase")),
-            ("opened", "success", "discussions_not_resolved", .blocked("it has unresolved threads")),
-            ("opened", "success", "jira_association_missing", .blocked("GitLab says jira association missing")),
-            ("merged", "success", "not_open", .merged(commit: Self.mergeCommit, head: Self.head, target: "main")),
-            ("closed", nil, "not_open", .blocked("the merge request is closed")),
-        ]
-        for item in cases {
-            let answer = Self.status(state: item.state, detailed: item.detailed, pipeline: item.pipeline)
-            let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-            #expect(try await client.readiness(of: 12) == item.expected,
-                    "\(item.state) \(item.pipeline ?? "no pipeline") \(item.detailed)")
-            #expect(stub.lastRequest?.url?.absoluteString == Self.base + "/12")
-        }
-    }
-
-    /// The request state carries its pipeline, approvals and head.
-    @Test func gitLabStateReadsPipelineApprovalsAndHead() async throws {
+    /// One status read carries the request, its head, its approvals and its pipeline, from one fetch of the merge
+    /// request and its approvals.
+    @Test func aStatusReadsTheMergeRequestAndItsApprovals() async throws {
         let json = Self.status(detailed: "ci_must_pass", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
         let (client, stub) = makeClient { request in
             if request.url?.path.hasSuffix("/approvals") == true { return (200, Data(#"{"approved_by":[{"user":{"username":"alice"}}]}"#.utf8)) }
             return (200, Data(json.utf8))
         }
-        let request = MergeRequest(iid: 12, title: "PLUTO-231", sourceBranch: "feat/pluto-231-add-gift-card", targetBranch: "main", author: nil,
-                                   state: "opened", draft: false, url: "https://git.example.net/web/acme-web/-/merge_requests/12")
-        let state = try await client.state(of: request)
-        #expect(state == MergeRequestState(pipeline: "failed", approvedBy: ["alice"], head: Self.head))
+        let status = try await client.status(of: 12)
+        #expect(status.request.iid == 12 && status.request.sourceBranch == "feat/pluto-231-add-gift-card" && status.request.draft)
+        #expect(status.head == Self.head && status.approvedBy == ["alice"] && status.pipeline == "failed")
+        #expect(status.readiness == .blocked("its pipeline failed"))
         #expect(stub.requests.count == 2 && stub.requests.contains { $0.url?.path.hasSuffix("/12/approvals") == true })
+    }
+
+    /// Every fact comes from one fetch of the merge request: a push that lands after it changes nothing in this status.
+    @Test func everyFactOfAStatusComesFromOneFetchOfTheMergeRequest() async throws {
+        let moved = "b".padding(toLength: 40, withPad: "b", startingAt: 0)
+        let fetches = Mutex(0)
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/approvals") == true { return (200, Data(#"{"approved_by":[]}"#.utf8)) }
+            let first = fetches.withLock { $0 += 1; return $0 == 1 }
+            let answer = Self.status(detailed: "mergeable", pipeline: "success")
+            return (200, Data((first ? answer : answer.replacingOccurrences(of: Self.head, with: moved)).utf8))
+        }
+        let status = try await client.status(of: 12)
+        #expect(status.head == Self.head && status.readiness == .ready(head: Self.head))
+        #expect(stub.requests.filter { $0.url?.absoluteString == Self.base + "/12" }.count == 1)
+    }
+
+    @Test func aStatusThatCannotBeReadThrows() async throws {
+        await #expect(throws: GitLabError.badResponse(502), "a status is never partial: approvals that fail fail it") {
+            _ = try await self.makeClient { request in
+                request.url?.path.hasSuffix("/approvals") == true ? (502, Data()) : (200, Data(Self.status(detailed: "mergeable", pipeline: nil).utf8))
+            }.client.status(of: 12)
+        }
     }
 
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
@@ -220,39 +218,6 @@ import Synchronization
         let answer = #"{"iid":12,"state":"merged","sha":"\#(Self.head)","merge_commit_sha":null,"squash_commit_sha":null}"#
         let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
         #expect(try await client.merge(12, at: Self.head) == .merged(commit: Self.head, head: Self.head))
-    }
-
-    @Test func aDraftIsNeverReady() async throws {
-        let draft = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
-        let (client, _) = makeClient { _ in (200, Data(draft.utf8)) }
-        #expect(try await client.readiness(of: 12) == .blocked("it is a draft"))
-    }
-
-    /// Many CIs skip the pipeline of a draft: skipped is no failure while it is one, so the draft is all that stops it and
-    /// it is marked ready. Not a draft, a skipped pipeline still blocks; a draft with conflicts says so.
-    @Test func aDraftsSkippedPipelineLeavesTheDraftAsItsOnlyBlocker() async throws {
-        func readiness(_ json: String) async throws -> MergeReadiness {
-            let (client, _) = makeClient { _ in (200, Data(json.utf8)) }
-            return try await client.readiness(of: 12)
-        }
-        let draft = { (json: String) in json.replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#) }
-        #expect(try await readiness(draft(Self.status(detailed: "draft_status", pipeline: "skipped"))) == .blocked("it is a draft"))
-        #expect(try await readiness(Self.status(detailed: "mergeable", pipeline: "skipped")) == .blocked("the pipeline was skipped"))
-        let conflicted = draft(Self.status(detailed: "draft_status", pipeline: "skipped"))
-            .replacingOccurrences(of: #""has_conflicts":false"#, with: #""has_conflicts":true"#)
-        #expect(try await readiness(conflicted) == .blocked("it has conflicts"))
-    }
-
-    /// A draft's pipeline is read first: what else stops it is said before the draft.
-    @Test func aDraftsPipelineIsSaidBeforeTheDraft() async throws {
-        let draft = Self.status(detailed: "draft_status", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
-        let (client, _) = makeClient { _ in (200, Data(draft.utf8)) }
-        #expect(try await client.readiness(of: 12) == .blocked("its pipeline failed"))
-    }
-
-    @Test func anUnknownPipelineStatusIsNotGreen() async throws {
-        let (client, _) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "on_hold").utf8)) }
-        #expect(try await client.readiness(of: 12) == .waiting("its pipeline is on hold"))
     }
 
     @Test func aRequestThatCannotBeReadIsNotAnAbsentOne() async throws {
@@ -424,7 +389,7 @@ import Synchronization
         await #expect(throws: ProtectionUnknown.self) { _ = try await self.protection("feat/x", client) }
     }
 
-    // MARK: Open requests and pipelines
+    // MARK: Open requests
 
     @Test func theOpenRequestCarriesItsTargetForTheCallerToCheck() async throws {
         let toRelease = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""target_branch":"main""#, with: #""target_branch":"release/1.0""#)
@@ -432,17 +397,5 @@ import Synchronization
         let (client, _) = makeClient { _ in (200, Data("[\(toRelease),\(toMain)]".utf8)) }
         let found = try #require(try await client.existingRequest(from: "feat/pluto-231-add-gift-card"))
         #expect(found.iid == 12 && found.targetBranch == "release/1.0" && found.sourceBranch == "feat/pluto-231-add-gift-card")
-    }
-
-    @Test func aPipelineThatDidNotRunIsNotGreen() async throws {
-        let cases: [(pipeline: String, expected: MergeReadiness)] = [
-            ("manual", .blocked("the pipeline waits for a manual job")),
-            ("skipped", .blocked("the pipeline was skipped")),
-        ]
-        for item in cases {
-            let answer = Self.status(detailed: "mergeable", pipeline: item.pipeline)
-            let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
-            #expect(try await client.readiness(of: 12) == item.expected, "\(item.pipeline)")
-        }
     }
 }

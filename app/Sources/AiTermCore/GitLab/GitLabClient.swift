@@ -209,33 +209,27 @@ public struct GitLabClient: HostRepository {
         return read.items.first(where: matches)?.mergeRequest
     }
 
-    /// Whether GitLab would merge it now: its pipeline first — a merge end waits for green whatever
-    /// the project requires — then whether it is a draft, then GitLab's `detailed_merge_status`.
-    public func readiness(of iid: Int) async throws -> MergeReadiness {
-        try await get(MergeStatusPayload.self, path: boundPath + "/merge_requests/\(iid)",
-                      notFound: .projectNotFound(project)).readiness
-    }
-
-    /// Its pipeline, approvals and head, read together.
-    public func state(of request: MergeRequest) async throws -> MergeRequestState {
-        let iid = request.iid
-        async let status = get(MergeStatusPayload.self, path: boundPath + "/merge_requests/\(iid)", notFound: .projectNotFound(project))
+    /// One GET of the merge request, read both as the request and as what decides its merge
+    /// (`MergeReadiness.gitLab`), with its approvals read beside it. The pipeline is GitLab's head pipeline status.
+    public func status(of iid: Int) async throws -> RequestStatus {
+        async let read = get(MergeRequestAnswer.self, path: boundPath + "/merge_requests/\(iid)", notFound: .projectNotFound(project))
         async let approved = approvals(of: iid)
-        let (read, by) = try await (status, approved)
-        return MergeRequestState(pipeline: read.headPipeline?.status, approvedBy: by, head: read.sha)
+        let (answer, by) = try await (read, approved)
+        return RequestStatus(request: answer.request.mergeRequest, head: answer.facts.sha, readiness: .gitLab(answer.facts),
+                             approvedBy: by, pipeline: answer.facts.headPipeline?.status)
     }
 
     /// Merges it at `sha`, the accepted commit: GitLab refuses (409) when the branch's head is any
     /// other. Only `sha` is sent — never auto-merge on a pipeline, squash or deleting the source
     /// branch. A refusal is `.blocked`, with GitLab's status; only a failure to ask throws. GitLab may
-    /// answer before the merge has run (the request still open): that is `.waiting`, and `mergeReadiness`
+    /// answer before the merge has run (the request still open): that is `.waiting`, and the next `status(of:)`
     /// says when it has.
     public func merge(_ iid: Int, at sha: String) async throws -> MergeReadiness {
         struct Merge: Encodable { var sha: String }
         do {
-            let answer = try await send(MergeStatusPayload.self, method: "PUT", path: boundPath + "/merge_requests/\(iid)/merge",
+            let answer = try await send(GitLabMergeFacts.self, method: "PUT", path: boundPath + "/merge_requests/\(iid)/merge",
                                         body: Merge(sha: sha), notFound: .projectNotFound(project))
-            switch answer.readiness {
+            switch MergeReadiness.gitLab(answer) {
             case .merged(let commit, let head, let target): return .merged(commit: commit.isEmpty ? sha : commit, head: head.isEmpty ? sha : head, target: target)
             case .ready, .waiting: return .waiting("GitLab has not finished merging it")
             case .blocked(let why): return .blocked(why)
@@ -459,42 +453,10 @@ private struct DiscussionPayload: Decodable {
     }
 }
 
-/// The fields of a merge request that say whether it can merge now.
-private struct MergeStatusPayload: Decodable {
-    struct Pipeline: Decodable { var status: String? }
-    var state: String?, detailedMergeStatus: String?, sha: String?, draft: Bool?, hasConflicts: Bool?
-    var targetBranch: String?
-    var mergeCommitSha: String?, squashCommitSha: String?, headPipeline: Pipeline?
-
-    var readiness: MergeReadiness {
-        if state == "merged" { return .merged(commit: mergeCommitSha ?? squashCommitSha ?? sha ?? "", head: sha ?? "", target: targetBranch) }
-        guard state == "opened" else { return .blocked("the merge request is \(state ?? "not open")") }
-        switch headPipeline?.status ?? "" {
-        case "failed": return .blocked("its pipeline failed")
-        case "canceled": return .blocked("its pipeline was canceled")
-        case "created", "waiting_for_resource", "preparing", "waiting_for_callback", "pending", "running", "scheduled", "canceling":
-            return .waiting("its pipeline is running")
-        // A pipeline that stopped at a manual job or never ran has not passed, whatever the project requires.
-        case "manual": return .blocked("the pipeline waits for a manual job")
-        // Many CIs skip the pipeline while it is a draft: no failure then, so the draft is all that stops it.
-        case "skipped" where draft == true: break
-        case "skipped": return .blocked("the pipeline was skipped")
-        case "", "success": break   // green, or no pipeline at all
-        case let other: return .waiting("its pipeline is \(other.replacingOccurrences(of: "_", with: " "))")
-        }
-        // A draft is said once its pipeline has: what else stops it comes first.
-        if draft == true { return hasConflicts == true ? .blocked("it has conflicts") : .blocked(MergeReadiness.draftReason) }
-        guard let status = detailedMergeStatus else { return .waiting("GitLab is checking it") }
-        switch status {
-        case "mergeable": return sha.map { .ready(head: $0) } ?? .waiting("GitLab is checking it")
-        case "checking", "unchecked", "preparing", "approvals_syncing", "ci_still_running": return .waiting("GitLab is checking it")
-        case "ci_must_pass": return .waiting("its pipeline must pass")
-        case "not_approved": return .waiting("it needs an approval")
-        case "conflict": return .blocked("it has conflicts")
-        case "need_rebase": return .blocked("it needs a rebase")
-        case "draft_status": return .blocked(MergeReadiness.draftReason)
-        case "discussions_not_resolved": return .blocked("it has unresolved threads")
-        default: return .blocked("GitLab says " + status.replacingOccurrences(of: "_", with: " "))
-        }
+/// One answer for a merge request, decoded twice: as the request and as what decides its merge.
+private struct MergeRequestAnswer: Decodable {
+    var request: MergeRequestPayload, facts: GitLabMergeFacts
+    init(from decoder: any Decoder) throws {
+        request = try MergeRequestPayload(from: decoder); facts = try GitLabMergeFacts(from: decoder)
     }
 }

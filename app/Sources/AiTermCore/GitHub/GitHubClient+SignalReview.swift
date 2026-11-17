@@ -1,13 +1,6 @@
 import Foundation
 
 extension GitHubClient {
-    public func reviewers(of number: Int) async throws -> [String] {
-        struct Team: Decodable { var slug: String }
-        struct Reviewers: Decodable { var users: [ReviewActivityLogin]; var teams: [Team] }
-        let value = try await Self.api(config, session: session, notFound: .repoNotFound(repo))
-            .get(Reviewers.self, path: Self.repositoryPath(repo) + "/pulls/\(number)/requested_reviewers")
-        return value.users.compactMap(\.login) + value.teams.map { "team:" + $0.slug }
-    }
     public func myReviewPostedAt(of number: Int) async throws -> Date? {
         let path = Self.repositoryPath(repo)
         async let readReviews: [SubmittedReview] = reviewActivityPages(path + "/pulls/\(number)/reviews")

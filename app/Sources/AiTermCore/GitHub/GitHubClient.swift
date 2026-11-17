@@ -159,87 +159,25 @@ public struct GitHubClient: HostRepository {
         return try await request(number: own.number)
     }
 
-    /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
-    /// alone, so a caller debounces a ready answer): merged or closed first, then every check run and
-    /// commit status on its head (`checkSummary`), then a draft — a merge end waits for green whatever branch protection
-    /// requires, and a pending check is not green yet — then `mergeable` and `mergeable_state`. Only `clean` and
-    /// `has_hooks` with `mergeable` true is ready.
-    public func readiness(of number: Int) async throws -> MergeReadiness {
-        let pull = try await get(PullStatusPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
-        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha, target: pull.base?.ref) }
-        guard pull.state == "open" else { return .blocked("the pull request is closed") }
-        let commit = boundPath + "/commits/\(pull.head.sha)"
-        async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs")
-        async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status")
-        guard let runs = try await readRuns, let statuses = try await readStatuses else {
-            return .waiting("GitHub has not listed all its checks")
-        }
-        switch Self.checkSummary(runs: runs, statuses: statuses) {
-        case .failed(let why): return .blocked(why)
-        case .running: return .waiting("its checks are running")
-        case .green: break
-        }
-        // A draft is said once its checks and its conflicts have: what else stops it comes first.
-        if pull.draft == true { return pull.mergeable == false ? .blocked("it has conflicts") : .blocked(MergeReadiness.draftReason) }
-        switch pull.mergeableState ?? "unknown" {
-        case "clean", "has_hooks": return pull.mergeable == true ? .ready(head: pull.head.sha) : .waiting("GitHub is checking it")
-        case "dirty": return .blocked("it has conflicts")
-        case "behind": return .blocked("it is behind its base branch")
-        case "blocked": return .waiting("it needs a review or a required check")
-        case "draft": return .blocked(MergeReadiness.draftReason)
-        // GitHub says a check does not pass that every list read here shows green: not ready until it agrees.
-        case "unstable": return .waiting("GitHub says its checks are not all passing")
-        default: return .waiting("GitHub is checking it")
-        }
-    }
-
-    /// Its head, approvals and checks as one word, nil when absent or not read to the end.
-    public func state(of request: MergeRequest) async throws -> MergeRequestState {
-        let number = request.iid
-        async let read = get(PullStatusPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
+    /// One GET of the pull and, beside it, its approvals. While the pull is open, its check runs and commit statuses
+    /// are read at the head that same answer names; a list that cannot be read whole leaves the checks unlisted
+    /// (waiting, no pipeline word) and is no error. A merged or closed pull's checks are not read: nothing uses them.
+    public func status(of number: Int) async throws -> RequestStatus {
+        async let read = get(PullPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
         async let approved = approvals(of: number)
         let (pull, by) = try await (read, approved)
-        let commit = boundPath + "/commits/\(pull.head.sha)"
-        var pipeline: String?
-        async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs")
-        async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status")
-        if let runs = try await readRuns, let statuses = try await readStatuses, !runs.isEmpty || !statuses.isEmpty {
-            switch Self.checkSummary(runs: runs, statuses: statuses) {
-            case .failed: pipeline = "failure"
-            case .running: pipeline = "pending"
-            case .green: pipeline = "success"
-            }
+        guard let state = pull.state, let head = pull.head.sha else { throw GitHubError.decoding }
+        var checks = GitHubPullFacts.Checks.notListedWhole
+        if pull.merged != true, state == "open" {
+            let commit = boundPath + "/commits/\(head)"
+            async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs")
+            async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status")
+            if let runs = try await readRuns, let statuses = try await readStatuses { checks = .listed(runs: runs, statuses: statuses) }
         }
-        return MergeRequestState(pipeline: pipeline, approvedBy: by, head: pull.head.sha)
-    }
-
-    /// A head's checks as merging reads them, one table for `readiness` and `state` alike: GitHub's own,
-    /// where neutral and skipped pass as branch protection counts them. Stale, which only GitHub sets on a run that took too
-    /// long, never finishes, so it has failed. A failed check is said before one still running, and a conclusion AiTerm does
-    /// not know, or none on a completed run, is not green.
-    private enum CheckSummary { case failed(String), running, green }
-
-    private static func checkSummary(runs: [CheckRunsPayload.Run], statuses: [CombinedStatusPayload.Status]) -> CheckSummary {
-        var running = false
-        for run in runs {
-            guard run.status == "completed" else { running = true; continue }
-            switch run.conclusion ?? "" {
-            case "success", "neutral", "skipped": continue
-            case "failure", "timed_out", "startup_failure": return .failed("its check \(run.name) failed")
-            case "cancelled": return .failed("its check \(run.name) was cancelled")
-            case "action_required": return .failed("its check \(run.name) needs someone to act")
-            case "stale": return .failed("its check \(run.name) went stale")
-            default: running = true
-            }
-        }
-        for status in statuses {
-            switch status.state {
-            case "success": continue
-            case "failure", "error": return .failed("its status \(status.context) failed")
-            default: running = true
-            }
-        }
-        return running ? .running : .green
+        let facts = GitHubPullFacts(state: state, merged: pull.merged == true, draft: pull.draft == true, mergeable: pull.mergeable,
+                                    mergeableState: pull.mergeableState, head: head, mergeCommit: pull.mergeCommitSha,
+                                    baseRef: pull.base.ref, checks: checks)
+        return RequestStatus(request: pull.mergeRequest, head: head, readiness: .gitHub(facts), approvedBy: by, pipeline: checks.pipeline)
     }
 
     /// Every item of a paged list that reports its own `total`, a page of 100 at a time. HTTPJSON shows no
@@ -260,7 +198,7 @@ public struct GitHubClient: HostRepository {
     /// Merges it at `sha`, the accepted commit: GitHub refuses (409) when the head is any other. Only
     /// `sha` is sent, so the merge is GitHub's own default, a merge commit — never a squash or a rebase,
     /// never auto-merge, never the branch deleted. A refusal is `.blocked`; only a failure to ask throws.
-    /// An answer that does not say it merged is `.waiting`: `mergeReadiness` says when it has.
+    /// An answer that does not say it merged is `.waiting`: the next `status(of:)` says when it has.
     public func merge(_ number: Int, at sha: String) async throws -> MergeReadiness {
         struct Merge: Encodable { var sha: String }
         struct Merged: Decodable { var sha: String?, merged: Bool? }
@@ -500,7 +438,7 @@ public struct GitHubClient: HostRepository {
     }
 }
 
-/// The fields of a pull request the picker shows.
+/// The fields of a pull request the picker shows, and what `status(of:)` reads beside them.
 private struct PullPayload: Decodable {
     struct User: Decodable { var login: String? }
     struct Repo: Decodable { var fullName: String? }
@@ -513,6 +451,10 @@ private struct PullPayload: Decodable {
     var body: String?
     /// Who is still asked to review it: GitHub drops a reviewer from the list once they reviewed.
     var requestedReviewers: [User]?
+    struct Team: Decodable { var slug: String? }
+    var requestedTeams: [Team]?
+    /// What says whether it can merge now, read by `status(of:)` from the same answer.
+    var mergeable: Bool?, mergeableState: String?, mergeCommitSha: String?
 
     /// A head in another repository — or in none, once its fork was deleted — is a fork's.
     var mergeRequest: MergeRequest {
@@ -522,7 +464,8 @@ private struct PullPayload: Decodable {
                             author: user?.login, state: merged == true ? "merged" : (state ?? "open"),
                             draft: draft ?? false, url: htmlUrl,
                             forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil, description: body,
-                            reviewers: requestedReviewers?.compactMap(\.login))
+                            reviewers: requestedReviewers?.compactMap(\.login),
+                            reviewerTeams: requestedTeams?.compactMap(\.slug) ?? [])
     }
 }
 
@@ -572,28 +515,17 @@ private protocol PagedList: Decodable {
     var total: Int { get }
 }
 
-/// The fields of a pull request that say whether it can merge now.
-private struct PullStatusPayload: Decodable {
-    struct Base: Decodable { var ref: String }
-    var base: Base?
-    struct Head: Decodable { var sha: String }
-    var state: String, draft: Bool?, merged: Bool?, mergeable: Bool?, mergeableState: String?, mergeCommitSha: String?
-    var head: Head
-}
-
 /// A commit's check runs (GitHub Actions and other apps).
 private struct CheckRunsPayload: PagedList {
-    struct Run: Decodable { var name: String, status: String, conclusion: String? }
-    var totalCount: Int, checkRuns: [Run]
-    var items: [Run] { checkRuns }
+    var totalCount: Int, checkRuns: [GitHubPullFacts.CheckRun]
+    var items: [GitHubPullFacts.CheckRun] { checkRuns }
     var total: Int { totalCount }
 }
 
 /// A commit's statuses (the older API some CI still reports through).
 private struct CombinedStatusPayload: PagedList {
-    struct Status: Decodable { var context: String, state: String }
-    var totalCount: Int, statuses: [Status]
-    var items: [Status] { statuses }
+    var totalCount: Int, statuses: [GitHubPullFacts.CommitStatus]
+    var items: [GitHubPullFacts.CommitStatus] { statuses }
     var total: Int { totalCount }
 }
 

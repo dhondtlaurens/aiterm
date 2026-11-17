@@ -31,7 +31,7 @@ import Testing
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
         let git = RecordingGitRunner(), io = SignalHostIO(workspace: h.workspace, git: git, connections: { links }); io.remote = { _, _ in "git@git.example:shop/web.git" }
         #expect(try await io.read(try #require(h.workspace.state.task(id: id))).facts.hasReviewer)
-        #expect(stub.requests.count == 2 && git.calls.isEmpty)
+        #expect(stub.requests.count == 1 && git.calls.isEmpty, "The request says who is asked: no call of its own")
     }
     /// The line's reviewers come from the request answer the done check reads anyway: no call of their own.
     @Test(arguments: [false, true]) func anApprovalWatchReadsTheReviewersFromTheRequestItAlreadyFetches(github: Bool) async throws {
@@ -92,6 +92,82 @@ import Testing
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), gitHub: GitHubConfig(token: "fake"), session: stub.session)
         let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.remote = { _, _ in remote }
         #expect(try await io.read(try #require(h.workspace.state.task(id: id))).facts.merged)
+    }
+    /// A merge watch with a known number reads the merge request once, its approvals and its discussions, and nothing
+    /// else: the request, its head, readiness, pipeline and reviewers all come from that one fetch.
+    @Test func aGitLabMergeWatchReadsTheMergeRequestOnce() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let id = world.workingTask(signal: signal)
+        world.state.tasks[0].branch = "work"; world.state.tasks[0].mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            let path = request.url!.path
+            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[{"user":{"username":"jan"}}]}"#.utf8)) }
+            if path.hasSuffix("discussions") { return (200, Data("[]".utf8)) }
+            return (200, Data(#"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","sha":"head","head_pipeline":{"status":"success"},"detailed_merge_status":"mergeable","reviewers":[{"username":"reviewer"}]}"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.remote = { _, _ in "git@git.example:shop/web.git" }
+        let snapshot = try await io.read(try #require(h.workspace.state.task(id: id)))
+        #expect(snapshot.head == "head" && snapshot.hostReady && snapshot.greenChecks && snapshot.approvals)
+        #expect(snapshot.facts.hasReviewer && snapshot.facts.approved && snapshot.facts.threadsResolved && snapshot.facts.reviewers == ["reviewer"])
+        let paths = stub.requests.map { $0.url!.path }
+        #expect(paths.filter { $0.hasSuffix("/merge_requests/7") }.count == 1)
+        #expect(paths.filter { $0.hasSuffix("/merge_requests/7/approvals") }.count == 1)
+        #expect(paths.allSatisfy { $0.hasSuffix("/merge_requests/7") || $0.hasSuffix("/approvals") || $0.hasSuffix("/discussions") }, "\(paths)")
+    }
+    /// On GitHub the same watch reads the pull once and never asks for its requested reviewers: a team asked to review
+    /// is on the pull itself.
+    @Test func aGitHubMergeWatchReadsThePullOnce() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let id = world.workingTask(signal: signal)
+        world.state.updateProject(id: world.project.id) { $0.remoteUrl = "git@github.com:shop/web.git" }
+        world.state.tasks[0].branch = "work"; world.state.tasks[0].mr = .init(iid: 7, title: "Work", url: "https://github.com/shop/web/pull/7")
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            let path = request.url!.path
+            let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value
+            if path.hasSuffix("/reviews") { return (200, Data((page == "1" ? #"[{"user":{"login":"jan"},"state":"APPROVED"}]"# : "[]").utf8)) }
+            if path.hasSuffix("/check-runs") { return (200, Data(#"{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"success"}]}"#.utf8)) }
+            if path.hasSuffix("/status") { return (200, Data(#"{"total_count":0,"statuses":[]}"#.utf8)) }
+            if path == "/graphql" { return (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}"#.utf8)) }
+            return (200, Data(#"{"number":7,"title":"Work","state":"open","html_url":"https://github.com/shop/web/pull/7","head":{"ref":"work","sha":"head","label":"shop:work","repo":{"full_name":"shop/web"}},"base":{"ref":"main","repo":{"full_name":"shop/web"}},"requested_reviewers":[],"requested_teams":[{"slug":"ios"}],"mergeable":true,"mergeable_state":"clean"}"#.utf8))
+        }
+        let links = SignalConnections(gitHub: GitHubConfig(token: "fake"), session: stub.session)
+        let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.remote = { _, _ in "git@github.com:shop/web.git" }
+        let snapshot = try await io.read(try #require(h.workspace.state.task(id: id)))
+        #expect(snapshot.head == "head" && snapshot.hostReady && snapshot.greenChecks && snapshot.approvals)
+        #expect(snapshot.facts.hasReviewer && snapshot.facts.reviewers == [], "a team is asked, and the line names no team")
+        let paths = stub.requests.map { $0.url!.path }
+        #expect(paths.filter { $0 == "/repos/shop/web/pulls/7" }.count == 1)
+        #expect(!paths.contains { $0.contains("requested_reviewers") })
+        #expect(paths.count == 6, "the pull, two pages of reviews, the check runs, the statuses and the threads: \(paths)")
+    }
+    /// A merged branch is deleted only at the head its status says was merged: the merge proof comes from one status
+    /// read of the request.
+    @Test func aMergedBranchLearnsItsMergedHeadFromTheStatus() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .merged)
+        world.state.signals[0].finish.deletesMergedBranch = true
+        world.workingTask(signal: signal)
+        world.state.tasks[0].branch = "work"; world.state.tasks[0].mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+        let task = world.state.tasks[0]; world.state.tasks.removeAll()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let stub = StubSession { request in
+            let path = request.url!.path
+            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[]}"#.utf8)) }
+            if path.hasSuffix("/merge_requests/7") {
+                return (200, Data(#"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"merged","sha":"merged-head","merge_commit_sha":"merge"}"#.utf8))
+            }
+            return (200, Data(#"{"default_branch":"main"}"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let git = RecordingGitRunner(), io = SignalHostIO(workspace: h.workspace, git: git, connections: { links })
+        io.remote = { _, _ in "git@git.example:shop/web.git" }
+        await io.deleteMergedBranch(of: task)
+        #expect(git.calls.contains { $0.args == ["rev-parse", "--verify", "refs/heads/work"] }, "the branch is checked against the merged head")
+        #expect(stub.requests.filter { $0.url!.path.hasSuffix("/merge_requests/7") }.count == 1)
     }
     @Test func repeatedStatusDetailsReuseTheHostReadButAChangedAuthorityDoesNot() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)

@@ -104,107 +104,70 @@ import Synchronization
         }
     }
 
-    // MARK: Readiness
+    // MARK: Status
 
-    @Test func readinessReadsThePullRequestItsCheckRunsAndItsStatuses() async throws {
-        let cases: [(pull: String, runs: String, status: String, expected: MergeReadiness)] = [
-            (Self.pull(), Self.green, Self.statuses([]), .ready(head: Self.head)),
-            (Self.pull(), Self.green, Self.statuses([("ci/jenkins", "success")]), .ready(head: Self.head)),
-            (Self.pull(mergeable: "null", mergeableState: "unknown"), Self.green, Self.statuses([]), .waiting("GitHub is checking it")),
-            (Self.pull(mergeable: "false"), Self.green, Self.statuses([]), .waiting("GitHub is checking it")),
-            (Self.pull(mergeableState: "unstable"), Self.runs([("test", "in_progress", nil)]), Self.statuses([]), .waiting("its checks are running")),
-            (Self.pull(mergeableState: "unstable"), Self.runs([("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed")),
-            (Self.pull(mergeableState: "unstable"), Self.green, Self.statuses([("ci/jenkins", "failure")]), .blocked("its status ci/jenkins failed")),
-            (Self.pull(mergeableState: "unstable"), Self.green, Self.statuses([("ci/jenkins", "pending")]), .waiting("its checks are running")),
-            (Self.pull(mergeableState: "unstable"), Self.green, Self.statuses([("ci/jenkins", "success")]), .waiting("GitHub says its checks are not all passing")),
-            (Self.pull(mergeable: "false", mergeableState: "dirty"), Self.green, Self.statuses([]), .blocked("it has conflicts")),
-            (Self.pull(mergeableState: "behind"), Self.green, Self.statuses([]), .blocked("it is behind its base branch")),
-            (Self.pull(mergeableState: "blocked"), Self.green, Self.statuses([]), .waiting("it needs a review or a required check")),
-            (Self.pull(mergeableState: "something_new"), Self.green, Self.statuses([]), .waiting("GitHub is checking it")),
-            (Self.pull(draft: true, mergeableState: "draft"), Self.green, Self.statuses([]), .blocked("it is a draft")),
-            // A draft's checks are read first: what else stops it is said before the draft, which is marked ready only
-            // when nothing else does.
-            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed")),
-            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "in_progress", nil)]), Self.statuses([]), .waiting("its checks are running")),
-            // Many CIs skip their checks on a draft: skipped passes, as GitHub counts it, so the draft is all that stops it
-            // and it is marked ready; its checks then run. A conflict a draft already shows still stops it.
-            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "skipped")]), Self.statuses([]), .blocked("it is a draft")),
-            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "skipped"), ("lint", "completed", "failure")]), Self.statuses([]),
-             .blocked("its check lint failed")),
-            (Self.pull(draft: true, mergeable: "false", mergeableState: "draft"), Self.green, Self.statuses([]), .blocked("it has conflicts")),
-            (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit, head: Self.head, target: "main")),
-            (Self.pull(state: "closed"), Self.green, Self.statuses([]), .blocked("the pull request is closed")),
-        ]
-        for item in cases {
-            let (client, stub) = makeClient(host(pull: item.pull, checkRuns: item.runs, status: item.status))
-            #expect(try await client.readiness(of: 88) == item.expected, "\(item.expected)")
-            #expect(stub.requests.first?.url?.absoluteString == Self.api + "/pulls/88")
-        }
+    /// A host for a status read: the pull's reviews answer none, everything else goes to `handler`.
+    private func statusClient(_ handler: @escaping StubURLProtocol.Handler) -> (client: GitHubClient, stub: StubSession) {
+        makeClient { request in request.url?.path.hasSuffix("/reviews") == true ? (200, Data("[]".utf8)) : handler(request) }
     }
 
-    /// The request state carries its pipeline, approvals and head.
-    @Test func gitHubStateReadsChecksApprovalsAndHead() async throws {
-        func state(runs: String, statuses: String = Self.statuses([]), draft: Bool = true, mergeableState: String = "draft") async throws -> MergeRequestState {
-            let (client, _) = makeClient { request in
-                let path = request.url?.path ?? ""
-                if path.hasSuffix("/check-runs") { return (200, Data(runs.utf8)) }
-                if path.hasSuffix("/status") { return (200, Data(statuses.utf8)) }
-                if path.hasSuffix("/reviews") {
-                    return (200, Data((Self.page(request) == 1 ? #"[{"user":{"login":"alice"},"state":"APPROVED"}]"# : "[]").utf8))
-                }
-                return (200, Data(Self.pull(draft: draft, mergeableState: mergeableState).utf8))
+    /// One status read carries the request, its head, its approvals and its pipeline word, each from its own endpoint.
+    @Test func aStatusReadsThePullItsApprovalsAndItsChecks() async throws {
+        let (client, stub) = makeClient { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/check-runs") { return (200, Data(Self.runs([("test", "completed", "success"), ("lint", "in_progress", nil)]).utf8)) }
+            if path.hasSuffix("/status") { return (200, Data(Self.statuses([]).utf8)) }
+            if path.hasSuffix("/reviews") {
+                return (200, Data((Self.page(request) == 1 ? #"[{"user":{"login":"alice"},"state":"APPROVED"}]"# : "[]").utf8))
             }
-            let request = MergeRequest(iid: 88, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: nil,
-                                       state: "open", draft: false, url: "https://github.com/octocat/hello/pull/88")
-            return try await client.state(of: request)
+            return (200, Data(Self.pull().utf8))
         }
-        let failing = try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "completed", "failure")]))
-        #expect(failing == MergeRequestState(pipeline: "failure", approvedBy: ["alice"], head: Self.head))
-        #expect(try await state(runs: Self.runs([("test", "completed", "success"), ("lint", "in_progress", nil)])).pipeline == "pending")
-        #expect(try await state(runs: Self.green, draft: false, mergeableState: "clean").pipeline == "success")
-        #expect(try await state(runs: Self.green, statuses: Self.statuses([("ci/jenkins", "failure")])).pipeline == "failure")
-        #expect(try await state(runs: Self.runs([])).pipeline == nil, "no checks at all is no pipeline")
+        let status = try await client.status(of: 88)
+        #expect(status.request.iid == 88 && status.request.sourceBranch == "feat/pluto-231" && status.request.state == "open")
+        #expect(status.head == Self.head)
+        #expect(status.approvedBy == ["alice"])
+        #expect(status.pipeline == "pending")
+        #expect(status.readiness == .waiting("its checks are running"))
+        #expect(stub.requests.filter { $0.url?.path == "/repos/octocat/hello/pulls/88" }.count == 1)
     }
 
-    /// Both readings of a head's checks come from one table, GitHub's own (neutral and skipped pass, as branch protection
-    /// counts them), so the merge and `run_status` never disagree: a failed check blocks and is `failure`, one still
-    /// running or with a conclusion AiTerm does not know waits and is `pending`, and only green reaches `mergeable_state`
-    /// and is `success`. A failed check is said before a running one.
-    @Test func theMergeAndRunStatusReadEveryCheckTheSameWay() async throws {
-        let running = MergeReadiness.waiting("its checks are running")
-        var cases: [(runs: String, statuses: String, readiness: MergeReadiness, pipeline: String)] = [
-            ("neutral", MergeReadiness.ready(head: Self.head), "success"), ("skipped", .ready(head: Self.head), "success"),
-            ("stale", .blocked("its check lint went stale"), "failure"), ("action_required", .blocked("its check lint needs someone to act"), "failure"),
-            ("cancelled", .blocked("its check lint was cancelled"), "failure"), ("timed_out", .blocked("its check lint failed"), "failure"),
-            ("startup_failure", .blocked("its check lint failed"), "failure"), ("failure", .blocked("its check lint failed"), "failure"),
-            ("a_new_conclusion", running, "pending"),
-        ].map { (Self.runs([("test", "completed", "success"), ("lint", "completed", $0.0)]), Self.statuses([]), $0.1, $0.2) }
-        cases += [
-            (Self.runs([("lint", "completed", nil)]), Self.statuses([]), running, "pending"),
-            (Self.runs([("lint", "in_progress", nil), ("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed"), "failure"),
-        ]
-        cases += ["queued", "in_progress", "pending", "waiting", "requested"].map {
-            (Self.runs([("test", "completed", "success"), ("lint", $0, nil)]), Self.statuses([]), running, "pending")
+    /// Every fact comes from one fetch of the pull: a push that lands after it changes nothing in this status, and the
+    /// checks are the ones of the head that fetch named.
+    @Test func everyFactOfAStatusComesFromOneFetchOfThePull() async throws {
+        let moved = "b".padding(toLength: 40, withPad: "b", startingAt: 0)
+        let fetches = Mutex(0)
+        let checks = host(pull: "")
+        let (client, stub) = statusClient { request in
+            guard request.url?.path.hasSuffix("/pulls/88") == true else { return checks(request) }
+            let first = fetches.withLock { $0 += 1; return $0 == 1 }
+            return (200, Data((first ? Self.pull() : Self.pull().replacingOccurrences(of: Self.head, with: moved)).utf8))
         }
-        cases += [("success", MergeReadiness.ready(head: Self.head), "success"), ("pending", running, "pending"), ("a_new_state", running, "pending"),
-                  ("failure", .blocked("its status ci/jenkins failed"), "failure"), ("error", .blocked("its status ci/jenkins failed"), "failure")]
-            .map { (Self.green, Self.statuses([("ci/jenkins", $0.0)]), $0.1, $0.2) }
-        let request = MergeRequest(iid: 88, title: "PLUTO-231", sourceBranch: "feat/pluto-231", targetBranch: "main", author: nil,
-                                   state: "open", draft: false, url: "https://github.com/octocat/hello/pull/88")
-        for item in cases {
-            let answers = host(pull: Self.pull(), checkRuns: item.runs, status: item.statuses)
-            let (client, _) = makeClient { request in
-                request.url?.path.hasSuffix("/reviews") == true ? (200, Data("[]".utf8)) : answers(request)
+        let status = try await client.status(of: 88)
+        #expect(status.head == Self.head)
+        #expect(status.readiness == .ready(head: Self.head))
+        let lists = stub.requests.compactMap(\.url?.path).filter { $0.hasSuffix("/check-runs") || $0.hasSuffix("/status") }
+        #expect(lists.sorted() == ["/repos/octocat/hello/commits/\(Self.head)/check-runs", "/repos/octocat/hello/commits/\(Self.head)/status"])
+        #expect(stub.requests.filter { $0.url?.path == "/repos/octocat/hello/pulls/88" }.count == 1)
+    }
+
+    /// A merged or closed pull's checks decide nothing, so they are not read; its approvals still are, for a signal
+    /// done once it is approved.
+    @Test func aMergedPullsStatusReadsItsApprovalsButNoChecks() async throws {
+        let (client, stub) = makeClient { request in
+            if request.url?.path.hasSuffix("/reviews") == true {
+                return (200, Data((Self.page(request) == 1 ? #"[{"user":{"login":"alice"},"state":"APPROVED"}]"# : "[]").utf8))
             }
-            #expect(try await client.readiness(of: 88) == item.readiness, "\(item.runs) \(item.statuses)")
-            let state = try await client.state(of: request)
-            #expect(state.pipeline == item.pipeline, "\(item.runs) \(item.statuses)")
+            return (200, Data(Self.pull(state: "closed", merged: true).utf8))
         }
+        let status = try await client.status(of: 88)
+        #expect(status.readiness == .merged(commit: Self.mergeCommit, head: Self.head, target: "main"))
+        #expect(status.request.state == "merged" && status.approvedBy == ["alice"] && status.pipeline == nil)
+        #expect(!stub.requests.contains { $0.url?.path.contains("/commits/") == true })
     }
 
     @Test func aFailingCheckOnALaterPageIsStillSeen() async throws {
         let first = (1...100).map { (name: "job-\($0)", status: "completed", conclusion: Optional("success")) }
-        let (client, stub) = makeClient { request in
+        let (client, stub) = statusClient { request in
             let path = request.url?.path ?? ""
             if path.hasSuffix("/check-runs") {
                 return (200, Data((Self.page(request) == 1 ? Self.runs(first, total: 101)
@@ -213,13 +176,13 @@ import Synchronization
             if path.hasSuffix("/status") { return (200, Data(Self.statuses([]).utf8)) }
             return (200, Data(Self.pull().utf8))
         }
-        #expect(try await client.readiness(of: 88) == .blocked("its check deploy failed"))
+        #expect(try await client.status(of: 88).readiness == .blocked("its check deploy failed"))
         #expect(stub.requests.filter { $0.url?.path.hasSuffix("/check-runs") == true }.count == 2)
     }
 
     @Test func statusesAreReadToTheEndToo() async throws {
         let all = (1...100).map { (context: "ci/\($0)", state: "success") }
-        let (client, _) = makeClient { request in
+        let (client, _) = statusClient { request in
             let path = request.url?.path ?? ""
             if path.hasSuffix("/check-runs") { return (200, Data(Self.green.utf8)) }
             if path.hasSuffix("/status") {
@@ -229,39 +192,45 @@ import Synchronization
             }
             return (200, Data(Self.pull().utf8))
         }
-        #expect(try await client.readiness(of: 88) == .blocked("its status ci/last failed"))
+        #expect(try await client.status(of: 88).readiness == .blocked("its status ci/last failed"))
     }
 
-    /// A list that never reaches its total, or ends short of it, is not green: it waits.
+    /// A list that never reaches its total, or ends short of it, is not read whole: it waits, with no pipeline word.
     @Test func checksThatCannotBeReadWholeNeverReadReady() async throws {
-        let endless = makeClient { request in
+        let endless = statusClient { request in
             let path = request.url?.path ?? ""
             if path.hasSuffix("/check-runs") { return (200, Data(Self.runs([("test", "completed", "success")], total: 100_000).utf8)) }
             if path.hasSuffix("/status") { return (200, Data(Self.statuses([]).utf8)) }
             return (200, Data(Self.pull().utf8))
         }
-        #expect(try await endless.client.readiness(of: 88) == .waiting("GitHub has not listed all its checks"))
+        let unread = try await endless.client.status(of: 88)
+        #expect(unread.readiness == .waiting("GitHub has not listed all its checks") && unread.pipeline == nil)
         #expect(endless.stub.requests.filter { $0.url?.path.hasSuffix("/check-runs") == true }.count == GitHubClient.listedPages,
                 "it gives up after the pages it reads")
         #expect(endless.stub.requests.filter { $0.url?.path.hasSuffix("/status") == true }.count == 1)
-        let short = makeClient(host(pull: Self.pull(), checkRuns: Self.runs([], total: 3)))
-        #expect(try await short.client.readiness(of: 88) == .waiting("GitHub has not listed all its checks"))
+        let short = statusClient(host(pull: Self.pull(), checkRuns: Self.runs([], total: 3)))
+        #expect(try await short.client.status(of: 88).readiness == .waiting("GitHub has not listed all its checks"))
     }
 
     @Test func readinessThatCannotBeAskedThrows() async throws {
         for status in [401, 403, 404, 500] {
             await #expect(throws: GitHubError.self) {
-                _ = try await self.makeClient { _ in (status, Data()) }.client.readiness(of: 88)
+                _ = try await self.makeClient { _ in (status, Data()) }.client.status(of: 88)
             }
         }
         await #expect(throws: GitHubError.decoding) {
-            _ = try await self.makeClient(self.host(pull: Self.pull(), checkRuns: #"{"check_runs":[]}"#)).client
-                .readiness(of: 88)
+            _ = try await self.statusClient(self.host(pull: Self.pull(), checkRuns: #"{"check_runs":[]}"#)).client.status(of: 88)
         }
         await #expect(throws: GitHubError.forbidden) {
-            _ = try await self.makeClient { request in
+            _ = try await self.statusClient { request in
                 request.url?.path.hasSuffix("/status") == true ? (403, Data()) : (200, Data((request.url?.path.hasSuffix("/check-runs") == true ? Self.green : Self.pull()).utf8))
-            }.client.readiness(of: 88)
+            }.client.status(of: 88)
+        }
+        let answers = host(pull: Self.pull())
+        await #expect(throws: GitHubError.badResponse(502), "a status is never partial: approvals that fail fail it") {
+            _ = try await self.makeClient { request in
+                request.url?.path.hasSuffix("/reviews") == true ? (502, Data()) : answers(request)
+            }.client.status(of: 88)
         }
     }
 

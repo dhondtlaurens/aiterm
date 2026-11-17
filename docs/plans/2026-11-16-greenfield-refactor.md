@@ -420,7 +420,7 @@ TS tests-scripts.
 - [x] 7b. **Codex.** One strict review-threads reader per host, which the badge counts; one Jira
   search with one mapping and shared date formatters; one "is this URL on the configured GitLab"
   rule that compares host and port (HO F4, F6, F7).
-- [ ] 7c. **Opus.** A request's state is read once per watch read and merge readiness is a pure
+- [x] 7c. **Opus.** A request's state is read once per watch read and merge readiness is a pure
   rule per host with table tests; the repeated fetches of the same request go (HO F3). The merge
   floor still rests on one consistent read.
 
@@ -1318,3 +1318,30 @@ left.
   (its cases moved to `GitLabHostRuleTests.webAddressesCompareHostAndPort`).
   `reviewThreadsReadEveryPageUntilAShortOne` became `...UntilAnEmptyOne`. Added `GitLabHostRuleTests`,
   `HostDateTests`, the Jira field-list parity test and the malformed-entry completeness test.
+- 7c: one `status(of:)` per request on each host (`RequestStatus`: the request, its head, readiness, approvals and the
+  pipeline word, all from one fetch; GitHub's check lists are asked at that fetch's head). Merge readiness is
+  `MergeReadiness.gitHub(_:)` and `.gitLab(_:)`, pure rules over `GitHubPullFacts` and `GitLabMergeFacts`, with every
+  reason word for word. `readiness(of:)`, `state(of:)`, `reviewers(of:)` (with its `/requested_reviewers` request) and
+  `MergeRequestState` went; "someone is asked to review" is `MergeRequest.hasReviewer` (users or GitHub teams). The
+  merge floor is unchanged. Differences from the brief: `MergeRequestPublisherTests` does not exist and the
+  `RequestWatch` tests are `SignalWatchTests`; `HostRepositoryTests` also called `readiness(of:)` and was adjusted;
+  `deleteMergedBranch` had no coverage, so `SignalHostIOTests.aMergedBranchLearnsItsMergedHeadFromTheStatus` was
+  added; checks of a pull that is not open are `.notListedWhole` (never read by the rule then). Behaviour note: a
+  merge watch whose known request number the host no longer has now fails its read (status throws not found), where
+  it used to read an empty snapshot; a deleted request is an admin-only case on GitLab and impossible on GitHub, and a
+  failed read leaves the stage as it is.
+  Tests deleted, each with its survivor:
+  - `GitHubPublishTests.readinessReadsThePullRequestItsCheckRunsAndItsStatuses` → the same rows in
+    `GitHubReadinessTests` (as facts).
+  - `GitHubPublishTests.theMergeAndRunStatusReadEveryCheckTheSameWay` →
+    `GitHubReadinessTests.theMergeAndThePipelineWordReadEveryCheckTheSameWay`.
+  - `GitHubPublishTests.gitHubStateReadsChecksApprovalsAndHead` → `GitHubReadinessTests.thePipelineWordIsFailurePendingSuccessOrNone`
+    and `GitHubPublishTests.aStatusReadsThePullItsApprovalsAndItsChecks`.
+  - `GitLabPublishTests.gitLabStateReadsPipelineApprovalsAndHead` → `GitLabPublishTests.aStatusReadsTheMergeRequestAndItsApprovals`.
+  - `SignalReviewActivityTests.reviewersIncludeGitHubTeamsAndGitLabPeople` →
+    `aRequestSaysWhetherAPersonOrATeamIsAskedToReview`.
+  Six GitLab readiness tests moved word for word into `GitLabReadinessTests`
+  (`readinessIsGitLabsOwnVerdictWithItsPipeline` renamed `readinessFollowsItsPipelineThenGitLabsMergeStatus`). Added:
+  one-fetch consistency tests on both hosts (head A then B: everything names A, one GET of the request), a merged
+  pull reads approvals but no checks, a failed status read throws, and request-count tests for a merge watch on both
+  hosts.

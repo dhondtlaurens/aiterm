@@ -124,7 +124,9 @@ concurrency cap. [Operator guide](operators.md); [contract protection](testing.m
 retain their actual pagination and error semantics: a picker may show a bounded subset, while
 publication must refuse an incomplete safety read. Each GitHub and GitLab client is bound to one
 repository when it is made (`HostRepository`); `CodeHosts.repository` makes it from the project's
-remote and saved connections. A token's user is kept per host
+remote and saved connections. A request's state is read once per watch read (`RequestStatus`: one
+fetch of the request, its approvals, and the checks of the head that fetch names), and merge
+readiness is a pure rule per host (`MergeReadiness.gitHub`, `MergeReadiness.gitLab`). A token's user is kept per host
 and token until Settings saves. Commands use typed arguments and hermetic Git
 configuration in tests.
 

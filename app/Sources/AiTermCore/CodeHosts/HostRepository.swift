@@ -22,14 +22,13 @@ public protocol HostRepository: Sendable {
     func request(forBranch branch: String) async throws -> MergeRequest?
     /// The open request from `source`, if there is one.
     func existingRequest(from source: String) async throws -> MergeRequest?
-    func readiness(of number: Int) async throws -> MergeReadiness
-    /// Its pipeline, approvals and head as the host reports them now.
-    func state(of request: MergeRequest) async throws -> MergeRequestState
+    /// One fetch of the request with this number and what is decided from it: its head, merge readiness, approvals
+    /// and pipeline. Throws when the request or its approvals cannot be read; never answers in part.
+    func status(of number: Int) async throws -> RequestStatus
     /// Its review threads, oldest first: a plain comment or a system note is none.
     func threads(of number: Int) async throws -> [ReviewThread]
     /// The usernames that approved it as it stands.
     func approvals(of number: Int) async throws -> [String]
-    func reviewers(of number: Int) async throws -> [String]
     func myReviewPostedAt(of number: Int) async throws -> Date?
 
     // Effect: merge at the accepted commit, the only host write.

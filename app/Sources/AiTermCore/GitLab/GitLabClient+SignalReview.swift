@@ -1,13 +1,6 @@
 import Foundation
 
 extension GitLabClient {
-    public func reviewers(of number: Int) async throws -> [String] {
-        struct User: Decodable { var username: String? }
-        struct Reviewers: Decodable { var reviewers: [User] }
-        let value = try await Self.api(config, session: session, notFound: .projectNotFound(project))
-            .get(Reviewers.self, path: Self.projectPath(project) + "/merge_requests/\(number)")
-        return value.reviewers.compactMap(\.username)
-    }
     public func myReviewPostedAt(of number: Int) async throws -> Date? {
         struct User: Decodable { var username: String? }
         struct Note: Decodable { var author: User?; var body: String; var system: Bool; var createdAt: String }
