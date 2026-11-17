@@ -99,19 +99,22 @@ import AiTermCore
             guard effects.claim(task.id) else { return }
             defer { effects.release(task.id) }
             let generation = workspace.state.operatorSession?.generation
+            // The merge goes on only while the stage is still in the phase it started from: a block stops it.
+            let phase = workspace.state.task(id: task.id)?.signalTask?.phase
+            let merging = { [self] in allowed(claim) && workspace.state.task(id: task.id)?.signalTask?.phase == phase }
             let agreed: Snapshot? = try await activity.acting(task: task.id, act: "consulting the Oracle") { [snapshot] in
-                guard try await ports.oracleMerge(task, snapshot), allowed(claim),
+                guard try await ports.oracleMerge(task, snapshot), merging(),
                       workspace.state.operatorSession?.generation == generation else { return nil }
                 let verified = try await ports.read(task)
-                guard allowed(claim), verified.canMerge, verified.head == snapshot.head, verified.reference == snapshot.reference else { return nil }
+                guard merging(), verified.canMerge, verified.head == snapshot.head, verified.reference == snapshot.reference else { return nil }
                 return verified
             }
             guard let verified = agreed else { return }
             let merged: Snapshot? = try await activity.acting(task: task.id, act: "merging it") {
                 try await ports.merge(task, verified)
-                guard allowed(claim) else { return nil }
+                guard merging() else { return nil }
                 let confirmed = try await ports.read(task)
-                guard allowed(claim), confirmed.reference == verified.reference else { return nil }
+                guard merging(), confirmed.reference == verified.reference else { return nil }
                 return confirmed
             }
             guard let merged else { return }

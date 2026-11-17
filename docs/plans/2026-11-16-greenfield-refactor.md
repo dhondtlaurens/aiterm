@@ -1170,3 +1170,14 @@ left.
   built in Core (`OperatorLine+Task.swift`). Saved bytes and every snapshot unchanged. Tests deleted:
   `ActivityLogTests.aMalformedLineIsSkipped`, `aTornLastLineWaits`, `aMissingFileIsEmpty` (the product no
   longer reads the activity log; survivors in the new `JSONLinesTests`, `SignalJournalRecoveryTests`).
+- Phase close: plain `scripts/test.sh all` green on `572d5035`. Snapshots in `build/refactor-phase5`
+  identical to `build/refactor-phase4`. Review round 1 (Codex, `main..HEAD`): one Important finding,
+  confirmed: while the automatic merge's Oracle veto held a working task, a `finish_stage` with outcome
+  blocked or failed still went through (the block transition ignores the held flag) and the merge then
+  proceeded on the blocked stage. Fixed by the 5e implementer: `StageRunner.finish` refuses any result
+  while another effect holds the task, and the merge's checks after the veto require the phase it
+  started from. Added `SignalWatchTests.aStageResultIsRefusedWhileTheMergeHoldsItsTaskAndTheMergeGoesAhead`
+  and `aStageBlockedWhileTheVetoIsOutStopsTheMerge` (each fails without its fix). Noticed and left: a
+  `SignalTransitionError` reaches the Operator as Foundation's generic "The operation couldn’t be
+  completed." (no description of its own; older than this phase; giving it words changes Operator-visible
+  text, so it is left for the maintainer).

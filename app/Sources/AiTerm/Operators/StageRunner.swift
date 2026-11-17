@@ -133,10 +133,12 @@ import AiTermCore
         changed(id, "The Operator chose its agent.")
         await run(id)
     }
+    /// Records a stage result. Any result, a block included, is refused while another Operator effect holds the task.
     func finish(_ id: UUID, action: SignalAction, judged: Bool = false) async throws {
         guard !isStopped, let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask else {
             throw ActionUnavailable("The task is no longer the Operator’s.")
         }
+        guard !effects.holds(id) else { throw SignalTransitionError.workerIsWorking }
         var next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: atWork(id))
         if judged, next.stage == record.stage { next.operatorJudged = true }
         workspace.mutate { state in
