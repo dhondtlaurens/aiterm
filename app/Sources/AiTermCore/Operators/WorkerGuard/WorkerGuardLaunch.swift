@@ -13,6 +13,17 @@ public enum WorkerGuardLaunch {
         scope.stage = task.signalTask?.stage
         return try prepare(scope: scope, home: home, slot: slot, executable: executable).wrap(command, agent: task.agent)
     }
+    /// A signal task's agent in its worktree, given `prompt` (empty for none) and resuming `conversation` when there is
+    /// one, wrapped in its branch guard on `slot`: the guarded command line its tab runs. A driven task's agent runs as
+    /// a worker; a review's may not push. Blocking: it writes the guard's files.
+    public static func workerCommand(task: TaskItem, prompt: String, resuming conversation: String?, slot: String,
+                                     remote: String?, home: URL, executable: URL, git: any GitRunning) throws -> String {
+        let command = try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
+            worktreePath: task.worktreePath, git: git, worker: task.signalTask?.takenOver != true,
+            promptFile: "signal-" + UUID().uuidString + ".md", publishing: true, resuming: conversation)
+        return try Self.command(command, task: task, remote: remote, home: home, executable: executable, git: git,
+                                slot: slot, publishes: task.kind != .review)
+    }
     public struct Prepared: Sendable {
         public var folder: URL
         public var settings: URL

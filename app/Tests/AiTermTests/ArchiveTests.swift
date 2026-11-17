@@ -289,7 +289,7 @@ import Testing
         try await fixture.controller.teardown.archive(task, consent: .ask)
         try fixture.git.run(["branch", "-D", "feat/work"], in: fixture.repo.path)
 
-        await fixture.controller.archiver.restore(task.id)
+        await fixture.controller.restoreFromArchive(task.id)
 
         #expect(prompter.asked.last?.message == "“Work” can’t be restored")
         #expect(prompter.asked.last?.detail.contains("no longer exists here or on origin") == true)
@@ -308,16 +308,43 @@ import Testing
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
         try await controller.teardown.archive(task, consent: .ask)
-        let restoring = Task { await controller.archiver.restore(task.id) }
+        let restoring = Task { try await controller.launcher.restore(task.id) }
         await git.reached.wait()
         // The project cannot be removed while its archived row is restoring.
         await controller.projects.confirmRemove(project: fixture.project)
         #expect(prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(controller.state.project(id: fixture.project.id) != nil)
         git.open()
-        await restoring.value
+        _ = try await restoring.value
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.focus.selection == nil, "the restore alone chooses nothing")
+    }
+
+    /// The restore the Operator shares with a person's: the row back and saved, its `.worktreeinclude`
+    /// shortfall said on it, and nothing a person's click adds: no choosing, no toast, no project opened.
+    @Test func theLaunchersRestoreBringsTheRowBackSavedNeitherChosenNorToastedItsProjectFoldUntouched() async throws {
+        let fixture = try await RaceFixture()
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: "alive")
+        try await controller.teardown.archive(task, consent: .ask)
+        controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = true } }
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+
+        let restored = try await controller.launcher.restore(task.id)
+
+        #expect(restored?.id == task.id)
+        #expect(restored?.windowId == nil)
+        #expect(controller.state.archive.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+        let saved = try StateStore(url: fixture.root.appendingPathComponent("state.json")).load()
+        #expect(saved.tasks.map(\.id) == [task.id], "saved before it returns")
+        #expect(controller.focus.selection == nil)
+        #expect(controller.toastState.toast?.message != "Task restored.")
+        #expect(controller.state.project(id: fixture.project.id)?.collapsed == true, "its project fold untouched")
+        #expect(server.requests("window.createTask").isEmpty)
     }
 
     /// Git's removal of the worktree has no seam to hold, so the row is put where an archive leaves it
@@ -348,9 +375,9 @@ import Testing
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
         try await fixture.controller.teardown.archive(task, consent: .ask)
-        let first = Task { await fixture.controller.archiver.restore(task.id) }
+        let first = Task { await fixture.controller.restoreFromArchive(task.id) }
         await git.reached.wait()
-        await fixture.controller.archiver.restore(task.id)
+        await fixture.controller.restoreFromArchive(task.id)
         git.open()
         await first.value
         #expect(fixture.controller.state.tasks.count == 1)

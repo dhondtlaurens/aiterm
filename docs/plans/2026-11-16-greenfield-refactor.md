@@ -347,7 +347,7 @@ TS tests-scripts.
   consent as a policy (ask the person, or refuse while still allowed) and one per-row state that
   the row, the Dock badge and the checkout monitor read. The automatic variants and the remover's
   six dictionaries go; a task on its way out is filtered once, in the projection (TL F2, F9).
-- [ ] 4d. **Opus.** One restore (git, then the row back from the archive, then focus when a person
+- [x] 4d. **Opus.** One restore (git, then the row back from the archive, then focus when a person
   asked), one "worker checkout for an item" and one window opener whose commands depend on
   ownership. The Operator's stage launch and a person's click call the same operations
   (TL F3, RT F4).
@@ -977,3 +977,18 @@ left.
   (instead of a "Closing" state that would flicker each pass); Archive's intermediate "The stage
   changed before archiving." refusal went, the later check still catches it; `removeArchived` does not
   throw. Noticed and left: Focus View's fold layout can still count a leaving task.
+- 4d: one restore (`TaskLauncher.restore`: git, then the row back from the archive; `AppController.restoreFromArchive`
+  adds the alert, project, toast and the choose a person asked for), one worker checkout for an item
+  (`TaskLauncher.checkOutWorker`, the request path with its fork refusal or the default-branch path,
+  with the late save before a refusal) and one window opener (`TaskLauncher.open`, whose commands
+  depend on ownership: a driven task resumes its first worker under its guard). The Operator's stage
+  launch and a person's click call the same operations through new `restore` and `checkout` ports;
+  `TaskArchiver` and `SignalWorkerIO`'s prepare, request checkout, restore and reopen went. No test
+  deleted; added `TaskWorkflowTests.aRequestCheckoutIsItsSourceBranchInAReviewWorktreeBasedOnItsTarget`,
+  `ArchiveControllerTests.theLaunchersRestoreBringsTheRowBackSavedNeitherChosenNorToastedItsProjectFoldUntouched`,
+  `SignalWorkerIOTests.aRequestStageChecksOutItsSourceBranchAndRefusesAFork`. Review round by the
+  orchestrator: `StageRunner`'s second save of the checkout after `prepare` went (callers save
+  nothing); the test `prepare` stubs save what they change, as the real port does. Differences: the
+  taken-over opener already holds the task's token, so the checkout takes only the project's
+  (`taskHeld`); a driven task without a checkout that is not launching opens nothing on a click instead
+  of saying it has no conversation.

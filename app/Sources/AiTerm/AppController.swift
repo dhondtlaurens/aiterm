@@ -91,8 +91,6 @@ final class AppController {
     let work: WorkInFlight
     /// Takes tasks down: Archive, Remove, removing an archived row, and the closing of one whose worktree went.
     let teardown: TaskTeardown
-    /// Restores archived tasks and reviews.
-    let archiver: TaskArchiver
     /// The operations: their runs, their operators' tabs and tokens, and the services under them.
     let signalController: SignalOperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
@@ -129,10 +127,12 @@ final class AppController {
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent },
                                        defaults: preferences.defaults, claudeConfig: claudeConfig)
+        // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
+        let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
+                                                    agents: agents, preferences: preferences.defaults)
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
-                                    tiling: tiling, workflow: workflow, git: git, daemon: daemon)
-        let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
-                                    checkouts: checkouts)
+                                    tiling: tiling, workflow: workflow, git: git, home: operatorPorts.home,
+                                    workerGuardExecutable: operatorPorts.workerGuardExecutable, daemon: daemon)
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -141,7 +141,6 @@ final class AppController {
         self.tiling = tiling
         self.checkouts = checkouts
         self.teardown = teardown
-        self.archiver = archiver
         self.focus = focus
         self.agents = agents
         self.launcher = launcher
@@ -162,9 +161,6 @@ final class AppController {
         helper.onEvent { [weak focus] event in
             if case .windowActivated(let window) = event { focus?.windowActivated(window) }
         }
-        // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
-        let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
-                                                    agents: agents, preferences: preferences.defaults)
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
         // Run check's window opens through the helper, tiled as a task's, and its closing reads the file again.
         let messaging = MessagingChecks(policyURL: AiTermPaths.deliveryPolicyURL(home: harnessHome),
@@ -178,6 +174,12 @@ final class AppController {
         signalController.readConnections = { SignalConnections(jira: jiraSettings(), gitLab: gitLabSettings(), gitHub: gitHubSettings()) }
         signalController.archive = { [teardown] task, allowed in try await teardown.archive(task, consent: .refuse(stillAllowed: allowed)) }
         signalController.remove = { [teardown] task, allowed in try await teardown.remove(task, consent: .refuse(stillAllowed: allowed)) }
+        signalController.restore = { [launcher] id in
+            guard let restored = try await launcher.restore(id) else { throw ActionUnavailable("The task is busy.") }
+            return restored
+        }
+        signalController.checkout = { [launcher] task, allowed in try await launcher.checkOutWorker(task, stillAllowed: allowed).task }
+        launcher.connections = { [weak signalController] in await signalController?.connections() ?? SignalConnections() }
         // After the operators, whose openers it calls; its event hook right after the live sessions' own.
         windows = RowWindows(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                              launcher: launcher, terminals: terminals, signalController: signalController, notices: notices,
@@ -373,12 +375,21 @@ final class AppController {
             remove: { [weak self] id in Task { await self?.removeFromArchive(id) } }))
     }
 
-    /// Restores an archived task or review, then chooses its row as a click does, which opens its
-    /// window with its conversations resumed. Returns once that window has opened or the choosing
-    /// gave up, or at once when nothing started.
+    /// A person's restore of an archived task or review (`TaskLauncher.restore`): git's refusal is said
+    /// in an alert and the row stays archived; a row back has its project opened, is toasted, and is
+    /// chosen as a click chooses it, which opens its window with its conversations resumed. Returns
+    /// once that window has opened or the choosing gave up, or at once when nothing started.
     func restoreFromArchive(_ id: UUID) async {
-        await archiver.restore(id)
-        guard state.task(id: id) != nil else { return }
+        guard let archived = state.archived(id: id)?.task else { return }
+        let restored: TaskItem?
+        do { restored = try await launcher.restore(id) }
+        catch {
+            await prompter.ask(AlertPrompt(message: "“\(archived.title)” can’t be restored", detail: OperationIssue.reason(of: error)))
+            return
+        }
+        guard let restored else { return }
+        workspace.mutate { $0.updateProject(id: restored.projectId) { $0.collapsed = false } }
+        if workspace.persistenceError == nil { notices.showToast("\(restored.kindName) restored.", symbol: "tray.and.arrow.up") }
         await choose(.task(id))?.value
     }
 

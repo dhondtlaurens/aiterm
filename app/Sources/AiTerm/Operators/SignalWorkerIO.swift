@@ -19,7 +19,6 @@ import AiTermCore
     var onTurn: (UUID) -> Void = { _ in }
     /// Journals a fallback row's launch-time agent switch for `run_status` and the person.
     var recordSwitch: @MainActor (UUID, AgentChoice) async throws -> Void = { _, _ in }
-    var connections: @MainActor () async -> SignalConnections = { SignalConnections() }
     init(workspace: WorkspaceStore, live: LiveSessions, work: WorkInFlight, ports: OperatorPorts,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame) {
         self.workspace = workspace; self.live = live; self.work = work; self.ports = ports; self.daemon = daemon; self.frame = frame
@@ -161,75 +160,17 @@ import AiTermCore
         }
         replies = replies.filter { ids.contains($0.key) }
     }
+    /// Whether the Operator may still act on `task` as it read it: running, the workspace changeable, not paused, its
+    /// claim on the task able to act, and the work not cancelled.
+    func allows(_ task: TaskItem) -> Bool {
+        enabled() && workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true
+            && SignalClaim(task)?.canAct(in: workspace.state) == true && !Task.isCancelled
+    }
     private func require(_ task: TaskItem) throws -> SignalClaim {
-        guard enabled(), workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let claim = SignalClaim(task), claim.canAct(in: workspace.state), !Task.isCancelled else {
+        guard allows(task), let claim = SignalClaim(task) else {
             throw ActionUnavailable("The task changed hands or the Operator is paused.")
         }
         return claim
-    }
-    func prepare(_ task: TaskItem, signal: Signal) async throws -> TaskItem {
-        let claim = try require(task)
-        guard let project = workspace.state.project(id: task.projectId), let token = work.begin(.opening, onTask: task.id),
-              let projectToken = work.begin(.openingTaskWindow, onProject: project.id) else { throw ActionUnavailable("This task's project is busy.") }
-        defer { work.end(token); work.end(projectToken) }
-        let result: TaskItem
-        if task.mr != nil {
-            result = try await requestCheckout(task, project: project, check: { _ = try self.require(task) }).task
-        } else {
-            let git = ports.git
-            let start = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
-            _ = try require(task)
-            result = try await TaskWorkflow(git: git).checkOutWorker(task, project: project, start: start,
-                                                                  reserved: workspace.state.reservedWorktreeSlugs(projectId: project.id)).made.task
-        }
-        // A checkout made before Take Over remains a resource of the same task, even when the
-        // late completion has no authority to launch a CLI in it.
-        if (!enabled() || !claim.canAct(in: workspace.state)), let current = workspace.state.task(id: task.id), current.projectId == task.projectId,
-           current.branch == task.branch, !current.hasCheckout {
-            workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = result.worktreePath; $0.baseBranch = result.baseBranch } }
-            workspace.flush()
-        }
-        _ = try require(task); return result
-    }
-    /// The manual opener holds the task's work token. It needs the same request/fork validation
-    /// and source-branch checkout as a worker, without granting the Operator authority again.
-    func prepareTakenOverRequest(_ task: TaskItem) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
-        func check() throws {
-            guard workspace.canChangeWorkspace, !Task.isCancelled, let current = workspace.state.task(id: task.id),
-                  current.signalTask?.takenOver == true, current.signalTask?.ownership == task.signalTask?.ownership,
-                  current.projectId == task.projectId, current.branch == task.branch, current.worktreePath == task.worktreePath else {
-                throw ActionUnavailable("This task changed before its checkout opened.")
-            }
-        }
-        try check()
-        guard let project = workspace.state.project(id: task.projectId), task.mr != nil else { throw ActionUnavailable("This task has no request to check out.") }
-        return try await requestCheckout(task, project: project, check: check)
-    }
-    private func requestCheckout(_ task: TaskItem, project: Project, check: @MainActor () throws -> Void) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
-        let links = await connections(); try check()
-        let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
-        guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
-            throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
-        }
-        try check()
-        let git = ports.git, reserved = workspace.state.reservedWorktreeSlugs(projectId: project.id)
-        return try await BackgroundWork.run(on: GitLanes.shared.lane(for: project.path)) {
-            if task.signalTask?.takenOver == true {
-                let repository = Repository(project.path, git: git)
-                let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: request.sourceBranch), in: project.path,
-                    reserved: reserved, registered: try repository.registeredWorktreeFolders())
-                var value = task
-                value.worktreePath = try repository.addReviewWorktree(slug: slug, branch: request.sourceBranch)
-                value.baseBranch = request.targetBranch
-                return (value, WorktreeInclude.copy(from: repository, into: value.worktreePath))
-            }
-            var draft = ReviewDraft(mr: nil, agent: task.agent, model: task.model, reasoning: task.reasoning)
-            draft.apply(mr: request); draft.setTitle(task.title)
-            let made = try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: git)
-            var value = task; value.worktreePath = made.task.worktreePath; value.baseBranch = made.task.baseBranch
-            return (value, made.worktreeInclude)
-        }
     }
     /// Take Over revokes the Operator's authority, while resumed agents keep their branch guard.
     /// Each conversation gets its own launch script, including multiple tabs running the same CLI.
@@ -246,13 +187,6 @@ import AiTermCore
                     executable: executable, git: git, slot: slot, publishes: task.kind != .review)
             }
         }
-    }
-    func restore(_ task: TaskItem) async throws -> TaskItem {
-        _ = try require(task)
-        guard let project = workspace.state.project(id: task.projectId), let token = work.begin(.restoring, onTask: task.id) else { throw ActionUnavailable("The task is busy.") }
-        defer { work.end(token) }
-        let value = try await TaskWorkflow(git: ports.git).restore(task, project: project).task
-        _ = try require(task); return value
     }
     func launch(_ initial: TaskItem, prompt: String) async throws -> String {
         _ = try require(initial)
@@ -315,11 +249,8 @@ import AiTermCore
         let git = ports.git, home = ports.home, executable = ports.workerGuardExecutable
         let remote = workspace.state.project(id: task.projectId)?.remoteUrl
         return try await BackgroundWork.run {
-            let command = try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
-                worktreePath: task.worktreePath, git: git, worker: !record.takenOver, promptFile: "signal-" + UUID().uuidString + ".md",
-                publishing: true, resuming: conversation)
-            return try WorkerGuardLaunch.command(command, task: task, remote: remote, home: home,
-                executable: executable, git: git, slot: slot, publishes: task.kind != .review)
+            try WorkerGuardLaunch.workerCommand(task: task, prompt: prompt, resuming: conversation, slot: slot, remote: remote,
+                                                home: home, executable: executable, git: git)
         }
     }
     private func checkDelivery(for task: TaskItem, agent: AgentKind) async throws {
@@ -415,26 +346,5 @@ import AiTermCore
         } }
         guard workspace.flush() else { throw ActionUnavailable("The work tab opened but its result could not be saved. Inspect its window.") }
         return ["status": "opened", "session": .string(session), "tab": .string(key)]
-    }
-    /// A person's click resumes the conversation without sending a new work instruction.
-    func reopen(_ task: TaskItem) async throws {
-        func valid() -> Bool {
-            enabled() && workspace.canChangeWorkspace && !Task.isCancelled && workspace.state.task(id: task.id)?.signalTask?.ownership == task.signalTask?.ownership
-                && workspace.state.task(id: task.id)?.worktreePath == task.worktreePath
-        }
-        guard valid() else { throw ActionUnavailable("This task changed.") }
-        guard let daemon = daemon(), task.hasCheckout, let conversation = task.firstWorkerConversation?.id,
-              let token = work.begin(.reopening, onTask: task.id) else { throw ActionUnavailable("Its worker has no saved conversation to reopen.") }
-        defer { work.end(token) }
-        if let existing = task.firstWorker(in: live.sessions) {
-            try await daemon.activate(sessionId: existing.sessionId); return
-        }
-        let command = try await command(for: task, prompt: "", slot: "main", conversation: conversation)
-        guard valid() else { throw ActionUnavailable("This task changed.") }
-        let opening = try await daemon.openWorkerWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title,
-                                                       agentCommand: command, frame: frame())
-        guard valid() else { throw ActionUnavailable("This task changed.") }
-        guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
-        workspace.mutate { $0.updateSignalItem(task.id) { $0.windowId = opening.id } }; workspace.flush()
     }
 }

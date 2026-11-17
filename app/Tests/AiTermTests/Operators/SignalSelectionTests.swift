@@ -42,7 +42,8 @@ import Testing
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: { _ in false }, prepare: { task, _ in
                 #expect(task.projectId == second.id && task.agent == .codex)
-                var task = task; task.worktreePath = "/synthetic/second/.worktrees/work"; return task
+                h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/second/.worktrees/work" } }
+                h.workspace.flush(); return try #require(h.workspace.state.task(id: task.id))
             }, launch: { _, _ in starts += 1; return "worker-window" }, restore: { $0 }))
         await runner.run(id)
         let waiting = try #require(h.workspace.state.task(id: id)?.signalTask)
@@ -65,7 +66,8 @@ import Testing
             workerIsWorking: { _ in false }, prepare: { task, _ in
                 tries += 1
                 if tries == 1 { throw ActionUnavailable("Try again") }
-                var task = task; task.worktreePath = "/synthetic/work"; return task
+                h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/work" } }
+                h.workspace.flush(); return try #require(h.workspace.state.task(id: task.id))
             }, launch: { _, _ in starts += 1; return "worker-window" }, restore: { $0 }))
         await runner.run(id)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)

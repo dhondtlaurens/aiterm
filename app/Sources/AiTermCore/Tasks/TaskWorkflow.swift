@@ -69,6 +69,22 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
+    /// A request's worker checkout on its repository's lane: the request's `source` branch in a worktree named as a
+    /// review's (`Repository.addReviewWorktree`), `target` as its base, and what `.worktreeinclude` selects copied in.
+    public func checkOutRequest(_ task: TaskItem, project: Project, source: String, target: String,
+                                reserved: Set<String> = []) async throws -> TaskCreator.Made {
+        let git = git
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
+            let repository = Repository(project.path, git: git)
+            let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: source), in: project.path, reserved: reserved,
+                                           registered: try repository.registeredWorktreeFolders())
+            var checkedOut = task
+            checkedOut.worktreePath = try repository.addReviewWorktree(slug: slug, branch: source)
+            checkedOut.baseBranch = target
+            return TaskCreator.Made(task: checkedOut, worktreeInclude: WorktreeInclude.copy(from: repository, into: checkedOut.worktreePath))
+        }
+    }
+
     /// The reviewer's command for a review that opens in `task`, which already has the branch
     /// checked out: no checkout is made, so nothing exists that a failure here would have to keep,
     /// and it is thrown rather than turned into a launch warning.

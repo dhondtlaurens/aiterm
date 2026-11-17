@@ -21,7 +21,11 @@ import Testing
         var tabs: [(String, AgentChoice)] = []
         var tabReasons: [String] = []
         lazy var stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { [world] in world.now }, ports: .init(
-            workerIsWorking: { _ in false }, prepare: { task, _ in var task = task; task.worktreePath = "/synthetic/shop/.worktrees/" + task.id.uuidString; return task },
+            workerIsWorking: { _ in false }, prepare: { [h] task, _ in
+                // As the app's checkout does: the worktree saved on the task.
+                h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/shop/.worktrees/" + task.id.uuidString } }
+                h.workspace.flush(); return try #require(h.workspace.state.task(id: task.id))
+            },
             launch: { [unowned self] task, _ in self.launched.append((task.id, task.agent, task.model)); return "window-" + task.id.uuidString },
             restore: { $0 }))
         lazy var choices = AgentChoiceRounds(workspace: h.workspace, now: { [world] in world.now }, ports: .init(

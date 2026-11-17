@@ -51,6 +51,8 @@ import Synchronization
                                                   automatic: false)
         controller.readConnections = { links }
         controller.archive = fixture.controller.signalController.archive
+        controller.checkout = fixture.controller.signalController.checkout
+        controller.restore = fixture.controller.signalController.restore
         fixture.controller.helper.onEvent { [weak controller] in controller?.handle($0) }
         defer {
             controller.stop()

@@ -1,11 +1,11 @@
 import Foundation
 import AiTermCore
 
-/// Tasks and reviews started, and their windows: a task or review created from its sheet, and a
-/// review opened in the task that already has its branch.
+/// Tasks and reviews started, restored and opened: a task or review created from its sheet, a review
+/// opened in the task that already has its branch, an archived row restored, a worker's checkout made,
+/// and a task's window opened with its conversations resumed.
 @MainActor
 final class TaskLauncher {
-    typealias RequestCheckout = @MainActor (TaskItem) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome)
     private let workspace: WorkspaceStore
     private let work: WorkInFlight
     private let notices: Notices
@@ -15,10 +15,16 @@ final class TaskLauncher {
     private let workflow: TaskWorkflow
     private let git: any GitRunning
     private let daemon: @MainActor () -> (any DaemonCommands)?
+    /// Where a driven task's branch guard keeps its files, and the executable its hooks run.
+    private let home: URL
+    private let workerGuardExecutable: URL
     private var takenOverOpenings: [UUID: Task<Void, Never>] = [:]
+    /// The code hosts' connections, which find a request task's request: the Operator's, once it exists.
+    var connections: @MainActor () async -> SignalConnections = { SignalConnections() }
 
     init(workspace: WorkspaceStore, work: WorkInFlight, notices: Notices, checkouts: CheckoutMonitor, focus: RowFocus,
-         tiling: SidebarTiling, workflow: TaskWorkflow, git: any GitRunning, daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
+         tiling: SidebarTiling, workflow: TaskWorkflow, git: any GitRunning, home: URL, workerGuardExecutable: URL,
+         daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -27,6 +33,8 @@ final class TaskLauncher {
         self.tiling = tiling
         self.workflow = workflow
         self.git = git
+        self.home = home
+        self.workerGuardExecutable = workerGuardExecutable
         self.daemon = daemon
     }
 
@@ -186,24 +194,147 @@ final class TaskLauncher {
         return note
     }
 
+    // -- restore ------------------------------------------------------------------------
+    /// Archived row `id`'s worktree back at its own path, then the row back in the sidebar, saved, with
+    /// what its `.worktreeinclude` copy left out said on it. The row back, or nil when nothing started
+    /// (the workspace can't change, the row isn't archived, its project is gone, the row is busy) or
+    /// when the workspace locked while git ran: the row stays archived then, and the next restore adopts
+    /// its worktree. Git's refusal is thrown, the row still archived. Chooses nothing, opens no project
+    /// and says nothing more: that is the person's restore's (`AppController.restoreFromArchive`).
+    func restore(_ id: UUID) async throws -> TaskItem? {
+        guard canChangeWorkspace, let entry = state.archived(id: id), let project = state.project(id: entry.task.projectId),
+              let token = work.begin(.restoring, onTask: id) else { return nil }
+        defer { work.end(token) }
+        let made = try await workflow.restore(entry.task, project: project)
+        // Its project cannot have gone, as removing it waits for this, but the workspace can have locked.
+        guard canChangeWorkspace, state.archived(id: id) != nil, state.project(id: project.id) != nil else { return nil }
+        workspace.mutate { $0.moveFromArchive(id: id) }
+        // The checkout monitor forgot the row when it was archived, as it does a new row's before
+        // its first pass.
+        checkouts.refresh()
+        workspace.flush()
+        Self.report(made.worktreeInclude, of: made.task, to: notices)
+        return state.task(id: id)
+    }
+
+    // -- a worker's checkout ------------------------------------------------------------
+    /// `task`'s worktree for a worker: for a task with a request, the request's source branch (a fork's is
+    /// not in this repository and is refused) with its target as base; otherwise a new branch from git's
+    /// default branch, or what an earlier attempt left (`TaskWorkflow.checkOutWorker`). `stillAllowed` is
+    /// asked after every await. Once git has made the worktree it is the task's, whoever asked: saved on
+    /// the task while it is still on the same project and branch without a checkout, even when
+    /// `stillAllowed` then says no. Only then is that refusal thrown. Callers save nothing.
+    /// `taskHeld` is for a caller that already holds the task's work, as the taken-over opener does.
+    func checkOutWorker(_ task: TaskItem, stillAllowed: @escaping @MainActor () -> Bool,
+                        taskHeld: Bool = false) async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
+        func check() throws {
+            guard stillAllowed() else { throw ActionUnavailable("The task changed while its worktree was made.") }
+        }
+        guard let project = state.project(id: task.projectId) else { throw ActionUnavailable("This task's project is busy.") }
+        let token = taskHeld ? nil : work.begin(.opening, onTask: task.id)
+        guard taskHeld || token != nil else { throw ActionUnavailable("This task's project is busy.") }
+        let projectToken = work.begin(.openingTaskWindow, onProject: project.id)
+        defer {
+            if let token { work.end(token) }
+            if let projectToken { work.end(projectToken) }
+        }
+        let made: TaskCreator.Made
+        if task.mr != nil {
+            let links = await connections()
+            try check()
+            let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl),
+                                                           gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
+            guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
+                throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
+            }
+            try check()
+            made = try await workflow.checkOutRequest(task, project: project, source: request.sourceBranch, target: request.targetBranch,
+                                                      reserved: state.reservedWorktreeSlugs(projectId: project.id))
+        } else {
+            let git = git, path = project.path
+            let start = await BackgroundWork.run { Repository(path, git: git).defaultBranch() }
+            try check()
+            made = try await workflow.checkOutWorker(task, project: project, start: start,
+                                                     reserved: state.reservedWorktreeSlugs(projectId: project.id)).made
+        }
+        guard canChangeWorkspace, let current = state.task(id: task.id), current.projectId == task.projectId,
+              current.branch == task.branch, !current.hasCheckout else {
+            throw ActionUnavailable("The task changed while its worktree was made.")
+        }
+        workspace.mutate { state in
+            guard let index = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
+            state.tasks[index].worktreePath = made.task.worktreePath
+            state.tasks[index].baseBranch = made.task.baseBranch
+        }
+        guard workspace.flush(), let saved = state.task(id: task.id) else {
+            throw ActionUnavailable("The checkout could not be saved. Recover the workspace before opening its window.")
+        }
+        try check()
+        return (saved, made.worktreeInclude)
+    }
+
+    // -- opening a window ---------------------------------------------------------------
+    /// A task's or review's window, manual or driven, opened in its worktree when it has none: the first
+    /// of `openCommands(for:)` in the window's own tab, each other in a tab of its own. A worktree gone
+    /// opens nothing, and the checkout monitor's pass, asked for now, says so on the row. Returns at once
+    /// when the row has a window, is gone or busy, or no helper is there. A tab that does not open is
+    /// said on the row; a window that does not open is thrown.
+    func open(_ id: UUID) async throws {
+        guard let task = state.task(id: id), task.windowId == nil, let daemon = daemon(),
+              let token = work.begin(.reopening, onTask: id) else { return }
+        defer { work.end(token) }
+        // The checkout monitor reads a worktree gone only at its next pass: one gone before then has
+        // nothing to open in, and that pass, asked for now, says so on the row.
+        guard await FolderCheck.exists(task.worktreePath) else {
+            checkouts.refresh()
+            return
+        }
+        guard let current = state.task(id: id), current.windowId == nil else { return }
+        let commands = try await openCommands(for: current)
+        guard let ready = state.task(id: id), ready.windowId == nil else { return }
+        guard let wid = try await openWindow(for: ready, command: commands.first, with: daemon) else { return }
+        notices.dropIssues(about: id)
+        for command in commands.dropFirst() {
+            do { _ = try await daemon.createTab(windowId: wid, cwd: ready.worktreePath, agentCommand: command) }
+            catch {
+                notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", error: error, subject: id))
+                break
+            }
+        }
+    }
+
+    /// What an opened task's window runs, by who owns the task: a task of the person's resumes each
+    /// remembered conversation plainly (`TaskItem.resumeCommands`); a driven task resumes its first
+    /// worker's conversation under its branch guard, with no prompt, on the guard's main slot.
+    private func openCommands(for task: TaskItem) async throws -> [String] {
+        guard task.signalTask != nil else { return task.resumeCommands }
+        guard let conversation = task.firstWorkerConversation?.id else {
+            throw ActionUnavailable("Its worker has no saved conversation to reopen.")
+        }
+        let remote = state.project(id: task.projectId)?.remoteUrl, home = home, executable = workerGuardExecutable, git = git
+        let command = try await BackgroundWork.run {
+            try WorkerGuardLaunch.workerCommand(task: task, prompt: "", resuming: conversation, slot: "main", remote: remote,
+                                                home: home, executable: executable, git: git)
+        }
+        return [command]
+    }
+
     /// A taken-over task opens as the person's task, even when the Operator never made its checkout
     /// or started a conversation. Opening it never sends the Signal's work instruction again.
-    func openTakenOverWindow(_ id: UUID, prepareRequest: @escaping RequestCheckout,
-                            resume: @escaping @MainActor (TaskItem) async throws -> [String]) -> Task<Void, Never> {
+    func openTakenOverWindow(_ id: UUID, resume: @escaping @MainActor (TaskItem) async throws -> [String]) -> Task<Void, Never> {
         if let opening = takenOverOpenings[id] { return opening }
         let opening = Task {
             defer { takenOverOpenings[id] = nil }
-            do { try await openTakenOver(id, prepareRequest: prepareRequest, resume: resume) }
+            do { try await openTakenOver(id, resume: resume) }
             catch { notices.report(OperationIssue(title: "Couldn’t open the task’s window.", error: error, subject: id)) }
         }
         takenOverOpenings[id] = opening
         return opening
     }
 
-    private func openTakenOver(_ id: UUID, prepareRequest: RequestCheckout,
-                              resume: @MainActor (TaskItem) async throws -> [String]) async throws {
+    private func openTakenOver(_ id: UUID, resume: @MainActor (TaskItem) async throws -> [String]) async throws {
         guard var task = state.task(id: id), task.signalTask?.takenOver == true, task.windowId == nil else { return }
-        guard canChangeWorkspace, let project = state.project(id: task.projectId), let daemon = daemon(),
+        guard canChangeWorkspace, state.project(id: task.projectId) != nil, let daemon = daemon(),
               let token = work.begin(.reopening, onTask: id) else { throw ActionUnavailable("This task cannot open now.") }
         defer { work.end(token) }
         func current(_ expected: TaskItem) -> TaskItem? {
@@ -220,29 +351,19 @@ final class TaskLauncher {
         }
         guard snapshot.connected else { throw ActionUnavailable("iTerm2 isn’t connected. Try again once it reconnects.") }
         if !task.hasCheckout {
-            let prepared: TaskItem
-            var includes = WorktreeInclude.Outcome.complete
-            if task.mr != nil {
-                let result = try await prepareRequest(task)
-                prepared = result.task; includes = result.includes
+            // As `current`, but the worktree is the one the checkout saves.
+            let expected = task
+            func unchanged() -> Bool {
+                var saved = expected
+                saved.worktreePath = state.task(id: id)?.worktreePath ?? ""
+                return current(saved) != nil
             }
-            else {
-                let git = git
-                let start = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
-                guard current(task) != nil else { return }
-                let result = try await workflow.checkOutWorker(task, project: project, start: start,
-                    reserved: state.reservedWorktreeSlugs(projectId: project.id))
-                prepared = result.made.task; includes = result.made.worktreeInclude
-            }
-            guard current(task) != nil else { return }
-            workspace.mutate { state in
-                guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { return }
-                state.tasks[index].worktreePath = prepared.worktreePath
-                state.tasks[index].baseBranch = prepared.baseBranch
-            }
-            guard workspace.flush(), let saved = state.task(id: id) else { throw ActionUnavailable("The checkout could not be saved. Recover the workspace before opening its window.") }
-            task = saved
-            Self.report(includes, of: task, to: notices)
+            let result: (task: TaskItem, includes: WorktreeInclude.Outcome)
+            // A task changed while its worktree was made opens nothing; the checkout is saved on it all the same.
+            do { result = try await checkOutWorker(task, stillAllowed: unchanged, taskHeld: true) }
+            catch where !unchanged() { return }
+            task = result.task
+            Self.report(result.includes, of: task, to: notices)
             checkouts.refresh()
         }
         guard await FolderCheck.exists(task.worktreePath) else { throw ActionUnavailable("This task's worktree is missing.") }
@@ -260,7 +381,7 @@ final class TaskLauncher {
     /// window opened — it cannot adopt it, so the window is closed rather than left behind with nothing
     /// to show it. `command` is what the window's first tab runs: the agent at creation, a resumed
     /// conversation when a chosen row opens its window again, or nothing — the first prompt is never
-    /// replayed. `RowWindows.open` opens a chosen task's window through it too.
+    /// replayed. `open(_:)` opens a chosen task's window through it too.
     @discardableResult
     func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)

@@ -22,7 +22,11 @@ import Testing
         var launches = 0
         root.stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: root.native.busy, prepare: { task, _ in task },
-            launch: { _, _ in launches += 1; return "worker" }, restore: { $0 }))
+            launch: { _, _ in launches += 1; return "worker" }, restore: { task in
+                // As the app's restore does: the row back in the sidebar.
+                h.workspace.mutate { $0.moveFromArchive(id: task.id) }
+                return task
+            }))
         root.tabsKnown = true; root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
         _ = root.router.apply(signals: [next], read: SignalRead(items: [world.ticket()], complete: true))
         await root.reconcile(); await ports.work.settled()

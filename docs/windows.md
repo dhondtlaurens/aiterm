@@ -177,6 +177,6 @@ or remove the task.
 | What choosing a row does | `AppController.choose(_:)`, then `RowFocus.select(_:after:)` |
 | Selection, peek and raising | `RowFocus` |
 | The invisible label | iTerm2 user variables `aiterm_task` / `aiterm_terminal`, read by the daemon (`sessions.py`, `windows.py`) |
-| The openers | `TaskLauncher.openWindow`, `TerminalActions.openWindow`, `SignalWorkerIO.reopen`, `TaskLauncher.openTakenOverWindow`, `SignalOperatorController.openChat` through `OperatorSessionKeeper.ensure` |
-| Which conversations resume | `AppState.rememberingConversations`, `TaskItem.resumeCommands` |
+| The openers | `TaskLauncher.open` for a task, manual or driven (through `TaskLauncher.openWindow`), `TaskLauncher.openTakenOverWindow`, `TerminalActions.openWindow`, `SignalOperatorController.openChat` through `OperatorSessionKeeper.ensure` |
+| Which conversations resume | `AppState.rememberingConversations`; `TaskLauncher.openCommands(for:)`: `TaskItem.resumeCommands` for your task, the first worker's under its guard for a driven one |
 | Starting iTerm2 | The daemon only at its own start (`ItermSupervisor`, `connection.py`); the app's `launchIterm` at AiTerm's start, on a row chosen while iTerm2 isn't connected, and from the banner's Open iTerm2 |

@@ -30,6 +30,10 @@ import AiTermCore
     @ObservationIgnored var sourceRegistrations: (@MainActor ([Signal]) async -> [SignalPoller.Registration])?
     @ObservationIgnored var archive: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void = { _, _ in throw ActionUnavailable("Archive is unavailable.") }
     @ObservationIgnored var remove: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void = { _, _ in throw ActionUnavailable("Remove is unavailable.") }
+    /// An archived task's worktree recreated and its row back in the sidebar: the app's restore.
+    @ObservationIgnored var restore: @MainActor (UUID) async throws -> TaskItem = { _ in throw ActionUnavailable("Restore is unavailable.") }
+    /// A task's worker checkout, saved on the task, refused once the second argument says no: the app's.
+    @ObservationIgnored var checkout: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> TaskItem = { _, _ in throw ActionUnavailable("Checkout is unavailable.") }
     @ObservationIgnored private var loop: PollLoop?
     @ObservationIgnored private var configuration = UUID()
     @ObservationIgnored private var lastSignals: [Signal] = []
@@ -55,13 +59,20 @@ import AiTermCore
     @ObservationIgnored lazy var stages = StageRunner(workspace: workspace, journal: journal, now: ports.now,
         ports: .init(workerIsWorking: native.busy, prepare: { [weak self] task, signal in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
-            return try await self.activity.during("preparing " + OperatorActivityTracker.name(task) + "’s worker") { try await self.native.prepare(task, signal: signal) }
+            return try await self.activity.during("preparing " + OperatorActivityTracker.name(task) + "’s worker") {
+                let allowed: @MainActor () -> Bool = { [weak self] in self?.native.allows(task) == true }
+                guard allowed() else { throw ActionUnavailable("The task changed hands or the Operator is paused.") }
+                return try await self.checkout(task, allowed)
+            }
         }, launch: { [weak self] task, prompt in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
             return try await self.activity.during("starting " + OperatorActivityTracker.name(task) + "’s worker") { try await self.native.launch(task, prompt: prompt) }
         }, restore: { [weak self] task in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
-            return try await self.activity.during("restoring " + OperatorActivityTracker.name(task) + "’s checkout") { try await self.native.restore(task) }
+            return try await self.activity.during("restoring " + OperatorActivityTracker.name(task) + "’s checkout") {
+                guard self.native.allows(task) else { throw ActionUnavailable("The task changed hands or the Operator is paused.") }
+                return try await self.restore(task.id)
+            }
         }))
     @ObservationIgnored lazy var then = ThenRunner(workspace: workspace, journal: journal, stages: stages, now: ports.now,
         ports: .init(workerIsWorking: native.busy, archive: { [weak self] task, allowed in
@@ -218,7 +229,6 @@ import AiTermCore
         poller = SignalPoller(work: ports.work, automatic: automatic, now: ports.now)
         poller.canPoll = { [weak self] in self.map { !$0.isStopped && $0.workspace.state.operatorSession?.paused != true } ?? false }
         native.enabled = { [weak self] in self?.isStopped == false }
-        native.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
         native.additionalContext = { [weak self] task in try await self?.host.additionalContext(task) ?? "" }
         host.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
         host.now = ports.now
@@ -749,10 +759,5 @@ import AiTermCore
         await keeper.ensure(allowPaused: true, reopen: true)
         guard workspace.state.operatorSession?.window == nil else { return }
         throw ActionUnavailable(issues.current.first { $0.source == .session }?.text ?? "The Operator’s chat couldn’t open.")
-    }
-    /// A driven task's worker resumed in its window, through the guarded reopen.
-    func reopenWorker(_ id: UUID) async throws {
-        guard let task = workspace.state.task(id: id) else { return }
-        try await native.reopen(task)
     }
 }

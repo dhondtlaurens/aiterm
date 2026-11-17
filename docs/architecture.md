@@ -63,8 +63,9 @@ head or an unsaved-work question runs on the shared pool. `TaskCreator` owns bra
 creation; worker retry reuses the existing worktree and its original baseline. Scheduling, focus,
 claim validation and uncertainty belong to their callers.
 
-`TaskLauncher` starts manual tasks and restores conversations. `SignalWorkerIO` reuses `TaskWorkflow`
-for signal checkout/restore, guarded CLI launch, extra tabs, delivery and conversation recovery.
+`TaskLauncher` starts manual tasks, restores archived rows, makes a worker's checkout and opens a
+task's window with what its owner resumes; the Operator reaches its restore and checkout through
+ports the app sets. `SignalWorkerIO` owns guarded CLI launch, extra tabs, delivery and conversation recovery.
 Launch scope plus task/stage/ownership identifies an interrupted worker; adoption never repeats its
 prompt. Durable reply fingerprints distinguish a newly sent turn from the previous transcript.
 An accepted launch with no worker eventually blocks for inspection. Checkout work uses repository
@@ -78,7 +79,7 @@ removing an archived row and the closing of a task whose worktree went: one prep
 `TaskWorkflow.preflight` listing, the unlisted-folder and unsaved-work decisions) and one run
 (git's removal, asking again about work written while the window closed), each asking the person
 or refusing for the Operator's Then by its `Consent`. A failed removal retains a recoverable task.
-`TaskArchiver` restores. See [windows](windows.md).
+`TaskLauncher.restore` restores. See [windows](windows.md).
 
 ## Operator ownership
 

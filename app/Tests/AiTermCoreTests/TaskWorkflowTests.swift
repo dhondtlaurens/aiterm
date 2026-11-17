@@ -30,6 +30,28 @@ import Testing
         #expect(try git.run(["rev-parse", "HEAD"], in: adopted.made.task.worktreePath) != initial)
     }
 
+    /// A worker for a request works on the request's source branch, in a worktree named as a review's,
+    /// its base the request's target, with what `.worktreeinclude` selects copied in.
+    @Test func aRequestCheckoutIsItsSourceBranchInAReviewWorktreeBasedOnItsTarget() async throws {
+        let (project, _) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
+        try git.run(["branch", "request-source"], in: project.path)
+        try "secret\n".write(toFile: project.path + "/.env", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: project.path + "/.gitignore", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: project.path + "/.worktreeinclude", atomically: true, encoding: .utf8)
+        var worker = TaskItem.make(project: project.id, title: "Worker", branch: "request-source")
+        worker.worktreePath = ""; worker.baseBranch = ""
+
+        let made = try await workflow.checkOutRequest(worker, project: project, source: "request-source", target: "main")
+
+        #expect(made.task.id == worker.id)
+        #expect(made.task.worktreePath.hasSuffix("/.worktrees/review-request-source"))
+        #expect(made.task.baseBranch == "main")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: made.task.worktreePath) == "request-source")
+        #expect(FileManager.default.fileExists(atPath: made.task.worktreePath + "/.env"))
+    }
+
     /// Not agreed to lose its commits, an unmerged branch is kept and the removal says why, in
     /// AiTerm's words for git's "not fully merged"; agreed, it is deleted with them.
     @Test func anUnmergedBranchIsKeptAndSaidSoAgreedItIsDeleted() async throws {
