@@ -4,7 +4,7 @@ import json
 from bisect import insort
 from dataclasses import dataclass, field, fields
 
-from .models import (CODEX_THREAD_TAG, PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, DisplayWork, RawSession,
+from .models import (CODEX_THREAD_TAG, PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession,
                      SessionInfo, State, StoppedOn, classify_agent)
 
 
@@ -143,19 +143,17 @@ class SessionRegistry:
         leaves the last one standing. Not a change to announce: it is not sent."""
         return self._set(session_id, "transcript", transcript, keep_last_if_empty=True)
 
-    def set_background(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:
-        if (session := self.get(session_id)) is None:
-            return False
-        changed = session.background != work
-        session.background = work  # Retain updated native IDs even when the legacy wire values did not change.
-        return changed
+    def set_stop_work(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:
+        """What the last Stop listed that still stands (SessionInfo.stop_work)."""
+        return self._set(session_id, "stop_work", work)
 
-    def set_display_work(self, session_id: str, work: DisplayWork | None) -> bool:
-        if (session := self.get(session_id)) is None:
-            return False
-        changed = session.display_work != work
-        session.display_work = work  # Equal display text can still carry a new provider identity internally.
-        return changed
+    def set_shown_subagents(self, session_id: str, subagents: tuple[BackgroundJob, ...] | None) -> bool:
+        """The counted subagents of the tab's conversation (SessionInfo.shown_subagents); None while unavailable."""
+        return self._set(session_id, "shown_subagents", subagents)
+
+    def set_shown_shells(self, session_id: str, shells: tuple[BackgroundJob, ...] | None) -> bool:
+        """The shells the background-shell reader lists (SessionInfo.shown_shells); None while unavailable."""
+        return self._set(session_id, "shown_shells", shells)
 
     def set_context(self, session_id: str, percent: int | None) -> bool:
         return self._set(session_id, "context_percent", percent)

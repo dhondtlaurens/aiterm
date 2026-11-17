@@ -158,12 +158,12 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
     monkeypatch.setattr(svc.publisher, "broadcast", broadcast)
     write(path, launch())
     await svc.tick()
-    assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).background == ()
-    assert events[-1][1]["displayWork"]["shells"] == [{"kind": "shell", "text": "npm run test", "legacyIndex": None}]
+    assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).stop_work == ()
+    assert events[-1][1]["work"] == [{"kind": "shell", "text": "npm run test", "holdsTurn": False}]
     with path.open("a") as f:
         f.write(json.dumps(completed()) + "\n")
     await svc.tick()
-    assert events[-1][1]["displayWork"]["shells"] == []
+    assert events[-1][1]["work"] == []
     assert svc.registry.get(sid).state == "working"
 
 
@@ -189,7 +189,7 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
     monkeypatch.setattr(svc, "run_check", replace_during_read)
     assert await svc.observe_background(svc.registry.all()) == []
     session = svc.registry.get(sid)
-    assert session is None or session.display_work is None or session.display_work.shells is None
+    assert session is None or session.shown_shells is None
 
 
 async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(make_service):
@@ -1414,16 +1414,16 @@ async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tm
     svc, it, files, r, w = stack
     gate = {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}
     sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 945, gate)
-    assert svc.registry.get(sid).to_json()["background"] == [{"kind": "subagent", "text": "Review the docs"},
-                                                              {"kind": "shell", "text": "scripts/test.sh"}]
+    assert [job.to_json() for job in svc.registry.get(sid).stop_work] == [{"kind": "subagent", "text": "Review the docs"},
+                                                                           {"kind": "shell", "text": "scripts/test.sh"}]
     _append(child, CHILD_REPORT)
     os.utime(child, (3000, 3000))
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStop", "agent_id": "a1"})
     _append(child, CHILD_HANDS_BACK, CHILD_HANDED_BACK, CHILD_STOPPED)
     await svc.tick()
-    session = svc.registry.get(sid).to_json()
-    assert (session["state"], session["background"]) == (
+    session = svc.registry.get(sid)
+    assert (session.state, [job.to_json() for job in session.stop_work]) == (
         "done", [{"kind": "shell", "text": "scripts/test.sh"}])
 
 
@@ -1515,12 +1515,12 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": [
         {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"}]})
     session = svc.registry.get(sid)
-    assert (session.state, session.background) == ("done", (BackgroundJob("shell", "npm run test:run"),))
-    assert session.to_json()["background"] == [{"kind": "shell", "text": "npm run test:run"}]
+    assert (session.state, session.stop_work) == ("done", (BackgroundJob("shell", "npm run test:run", task_id="b1"),))
+    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True}]
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
-    assert svc.registry.get(sid).background == ()
+    assert svc.registry.get(sid).stop_work == ()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})
-    assert (svc.registry.get(sid).state, svc.registry.get(sid).background) == ("done", ())
+    assert (svc.registry.get(sid).state, svc.registry.get(sid).stop_work) == ("done", ())
 
 
 async def test_a_prompt_you_type_into_a_worker_is_yours_until_its_turn_ends(make_service, tmp_path):

@@ -29,3 +29,11 @@ On 17 Nov 2026, greenfield refactor step 1j renamed `runId` to `operatorId` in t
 `operator.request` event and the `operator.register`/`operator.revoke` params. Re-recorded with
 `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py` through the synthetic
 Service and FakeIterm; no other frame changed and no live account was used.
+
+On 17 Nov 2026, 6a of the greenfield refactor replaced `background` and `displayWork` (with
+`legacyIndex`) by one ordered `work` list whose items carry `holdsTurn`; re-captured with the same
+scripted run (`AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py`, the
+synthetic Service and FakeIterm, no live account or iTerm2). Only the session payloads changed, in
+`event.session.opened`, `event.session.changed`, `reply.sessions.list` and
+`reply.workspace.snapshot`; the snapshot's working Claude tab now lists its Stop's subagent with
+`holdsTurn` and leaves out the Stop's shell, which no reader shows while that turn works.

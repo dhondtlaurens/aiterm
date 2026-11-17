@@ -161,7 +161,7 @@ import Testing
         let rows = controller.rows
         let before = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }?.status
         var event = tab()
-        event.displayWork = DisplayWork(subagents: [.init(kind: .subagent, text: "Review")])
+        event.work = [WorkItem(kind: .subagent, text: "Review", holdsTurn: false)]
         #expect(invalidates(readsTheList(rows)) { controller.live.handle(.sessionChanged(event)) })
         let row = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }
         #expect(row?.status == before)

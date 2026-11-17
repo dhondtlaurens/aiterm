@@ -159,8 +159,10 @@ def test_a_claude_stop_lists_the_background_work_still_running():
              {"id": "m1", "type": "monitor", "status": "pending", "description": "CI on !46"},
              {"id": "t1", "type": "MCP task", "status": "running", "description": "Indexing the docs"}]
     event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
-    assert event.background_work == (BackgroundJob("subagent", "Fix it", agent_id="a1"), BackgroundJob("shell", "npm run test:run"),
-                                     BackgroundJob("monitor", "CI on !46"), BackgroundJob("task", "Indexing the docs"))
+    assert event.background_work == (BackgroundJob("subagent", "Fix it", agent_id="a1"),
+                                     BackgroundJob("shell", "npm run test:run", task_id="b1"),
+                                     BackgroundJob("monitor", "CI on !46", task_id="m1"),
+                                     BackgroundJob("task", "Indexing the docs", task_id="t1"))
     assert [job.to_json() for job in event.background_work][0] == {"kind": "subagent", "text": "Fix it"}
     assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": []}).background_work == ()
     # An older Claude Code sends no list: nothing is known.
@@ -179,7 +181,8 @@ def test_a_claude_stop_leaves_out_its_artifact_watches():
              {"id": "m2", "type": "monitor", "status": "running", "description": "live updates for artifact deploys",
               "server": "ci", "tool": "watch"}]
     event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
-    assert event.background_work == (BackgroundJob("monitor", "CI on !46"), BackgroundJob("monitor", "live updates for artifact deploys"))
+    assert event.background_work == (BackgroundJob("monitor", "CI on !46", task_id="m1"),
+                                     BackgroundJob("monitor", "live updates for artifact deploys", task_id="m2"))
     assert event.running_subagents == frozenset()
 
 

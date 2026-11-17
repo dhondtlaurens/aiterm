@@ -26,7 +26,7 @@ import Synchronization
     @Test func aTurnThatEndedWithWorkStillRunningIsInTheBackground() {
         let tests = BackgroundJob(kind: .shell, text: "scripts/test.sh all"), ci = BackgroundJob(kind: .monitor, text: "CI on !45")
         var ended = session("s1", task: "t", agent: .claude, state: .done, tab: 1)
-        ended.background = [tests]
+        ended.work = [WorkItem(kind: .shell, text: tests.text, holdsTurn: true)]
         #expect(SidebarModel.aggregate(tabs: [ended]) == .background)
         var seen = ended
         seen.state = .idle
@@ -37,8 +37,9 @@ import Synchronization
         #expect(SidebarModel.aggregate(tabs: [session("s2", task: "t", agent: .codex, state: .done, tab: 0)]) == .done)
 
         var other = session("s0", task: "t", agent: .claude, state: .done, tab: 0)
-        other.background = [ci]
-        #expect(SidebarModel.backgroundJobs(of: [ended, other]) == [ci, tests], "in tab order")
+        other.work = [WorkItem(kind: .monitor, text: ci.text, holdsTurn: true),
+                      WorkItem(kind: .shell, text: "npm run lint", holdsTurn: false)]
+        #expect(SidebarModel.backgroundJobs(of: [ended, other]) == [ci, tests], "in tab order, only what holds the turn")
         var restarted = ended
         restarted.state = .working
         #expect(SidebarModel.backgroundJobs(of: [restarted]).isEmpty, "a turn under way waits on nothing yet")
@@ -46,31 +47,28 @@ import Synchronization
 
     /// The daemon names each job's kind; one this app does not know reads as a task, described.
     @Test func aBackgroundJobOfAKindNotKnownReadsAsATask() throws {
-        let json = #"[{"kind": "shell", "text": "npm run dev"}, {"kind": "teammate", "text": "Reviewer"}]"#
-        let jobs = try JSONDecoder().decode([BackgroundJob].self, from: Data(json.utf8))
-        #expect(jobs == [BackgroundJob(kind: .shell, text: "npm run dev"), BackgroundJob(kind: .task, text: "Reviewer")])
+        let json = #"[{"kind": "shell", "text": "npm run dev", "holdsTurn": true}, {"kind": "teammate", "text": "Reviewer", "holdsTurn": false}]"#
+        let items = try JSONDecoder().decode([WorkItem].self, from: Data(json.utf8))
+        #expect(items.map(\.job) == [BackgroundJob(kind: .shell, text: "npm run dev"), BackgroundJob(kind: .task, text: "Reviewer")])
     }
 
-    @Test func displaySourcesPreserveStopOrderAndNeverDecideStatus() {
+    /// The card draws the tabs' whole work lists in tab order; an item that holds no turn never makes a row background.
+    @Test func theCardIsEveryTabsWorkAndOnlyWhatHoldsATurnDecidesStatus() {
         let shell = BackgroundJob(kind: .shell, text: "npm test")
         let child = BackgroundJob(kind: .subagent, text: "Review the fix")
         let monitor = BackgroundJob(kind: .monitor, text: "Watch CI")
-        var tab = session("s", task: "t", agent: .claude, state: .working, tab: 0)
-        tab.background = [shell, child, monitor, shell]
-        #expect(SidebarModel.displayJobs(of: [tab]) == [child], "legacy counted children remain valid during a turn")
-        let status = SidebarModel.aggregate(tabs: [tab])
-        tab.displayWork = DisplayWork(subagents: [.init(kind: .subagent, text: child.text, legacyIndex: 1)],
-                                     shells: [.init(kind: .shell, text: shell.text, legacyIndex: 3),
-                                              .init(kind: .shell, text: shell.text, legacyIndex: 0)])
-        #expect(SidebarModel.displayJobs(of: [tab]) == [shell, child, shell])
-        #expect(SidebarModel.aggregate(tabs: [tab]) == status)
-        #expect(SidebarModel.backgroundJobs(of: [tab]).isEmpty)
-        tab.state = .done
-        #expect(SidebarModel.displayJobs(of: [tab]) == tab.background, "same interleaved list as the background spinner")
-        tab.displayWork = DisplayWork(subagents: [], shells: nil)
-        #expect(SidebarModel.displayJobs(of: [tab]) == [shell, monitor, shell], "empty children replace; unavailable shells fall back")
-        tab.displayWork = DisplayWork(subagents: nil, shells: [])
-        #expect(SidebarModel.displayJobs(of: [tab]) == [child, monitor])
+        var first = session("s1", task: "t", agent: .claude, state: .done, tab: 0)
+        first.work = [WorkItem(kind: .shell, text: shell.text, holdsTurn: false)]
+        var second = session("s2", task: "t", agent: .claude, state: .working, tab: 1)
+        second.work = [WorkItem(kind: .subagent, text: child.text, holdsTurn: true),
+                       WorkItem(kind: .monitor, text: monitor.text, holdsTurn: false)]
+        #expect(SidebarModel.displayJobs(of: [second, first]) == [shell, child, monitor])
+        #expect(SidebarModel.aggregate(tabs: [first]) == .done, "a shell no Stop listed wakes nothing")
+        #expect(SidebarModel.backgroundJobs(of: [first]).isEmpty)
+        #expect(SidebarModel.aggregate(tabs: [second, first]) == .working)
+        second.state = .done
+        #expect(SidebarModel.aggregate(tabs: [second, first]) == .background)
+        #expect(SidebarModel.backgroundJobs(of: [second, first]) == [child])
     }
 
     @Test func displayTestsRequireEndedTurnsAndKeepTheirExistingSuffix() {
@@ -78,9 +76,9 @@ import Synchronization
         active.testActivity = TestActivity(runId: "running", suite: "swift", state: .running)
         #expect(SidebarModel.displayJobs(of: [active]).isEmpty, "a runner lock does not prove background execution")
         var ended = session("ended", task: "t", agent: .claude, state: .done, tab: 1)
-        ended.background = [BackgroundJob(kind: .shell, text: "scripts/test.sh")]
+        ended.work = [WorkItem(kind: .shell, text: "scripts/test.sh", holdsTurn: true)]
         ended.testActivity = TestActivity(runId: "queued", suite: "daemon", state: .queued)
-        #expect(SidebarModel.displayJobs(of: [active, ended]) == ended.background
+        #expect(SidebarModel.displayJobs(of: [active, ended]) == ended.work.map(\.job)
                 + [BackgroundJob(kind: .shell, text: ended.testActivity!.detail)])
         active.state = .done
         #expect(SidebarModel.displayJobs(of: [active, ended]) == SidebarModel.backgroundJobs(of: [active, ended]))

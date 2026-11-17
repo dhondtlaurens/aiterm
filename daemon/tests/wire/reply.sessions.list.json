@@ -5,15 +5,10 @@
       "active": true,
       "agent": "pi",
       "agentCwd": "/repo/.worktrees/feat-wire/app",
-      "background": [],
       "contextPercent": 42,
       "contextTokens": null,
       "conversationId": "pi-wire",
       "cwd": "/repo/.worktrees/feat-wire",
-      "displayWork": {
-        "shells": null,
-        "subagents": []
-      },
       "projectId": null,
       "sessionId": "s2",
       "state": "working",
@@ -24,21 +19,17 @@
       "terminalId": null,
       "testActivity": null,
       "windowId": "w1",
+      "work": [],
       "yourPrompt": null
     },
     {
       "active": false,
       "agent": "claude",
       "agentCwd": "/repo/.worktrees/feat-wire",
-      "background": [],
       "contextPercent": null,
       "contextTokens": 39239,
       "conversationId": null,
       "cwd": "/repo/.worktrees/feat-wire",
-      "displayWork": {
-        "shells": null,
-        "subagents": []
-      },
       "projectId": null,
       "sessionId": "s3",
       "state": "done",
@@ -52,18 +43,17 @@
       "terminalId": null,
       "testActivity": null,
       "windowId": "w1",
+      "work": [],
       "yourPrompt": null
     },
     {
       "active": true,
       "agent": "shell",
       "agentCwd": null,
-      "background": [],
       "contextPercent": null,
       "contextTokens": null,
       "conversationId": null,
       "cwd": "/repo",
-      "displayWork": null,
       "projectId": "7D6E5F4A-3B2C-4D1E-8F9A-0B1C2D3E4F5A",
       "sessionId": "s5",
       "state": "idle",
@@ -74,6 +64,7 @@
       "terminalId": null,
       "testActivity": null,
       "windowId": "w4",
+      "work": [],
       "yourPrompt": null
     }
   ]

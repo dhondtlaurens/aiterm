@@ -29,13 +29,10 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// The key of the Operator's extra worker tab this is (`open_tab`): it tells that tab apart from its task's
     /// first worker and from the task's other extra tabs, all tagged with the task. Nil for any other tab.
     public var tabKey: String? = nil
-    /// What its agent left running in the background when its last turn ended, which wakes it again (Claude's
-    /// `background_tasks`): a shell by its command, other work by its description. A turn ended with any is paused,
-    /// not finished. Empty once a new turn starts. A subagent the daemon still
-    /// counts stays on it while it holds the tab at working.
-    public var background: [BackgroundJob] = []
-    /// Display-only source observations. Neither this inventory nor its availability decides readiness.
-    public var displayWork: DisplayWork? = nil
+    /// The work running beside its agent's turn, in the order the daemon gives it: what the last Stop listed first,
+    /// then the subagents and shells read live that it did not list. Only an item that `holdsTurn` wakes the agent
+    /// again; a turn ended with one is paused, not finished.
+    public var work: [WorkItem] = []
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
     /// the agent with or delivered. Nil once that turn ends, for any other prompt.
     public var yourPrompt: String? = nil
@@ -101,27 +98,21 @@ public struct StoppedOn: Codable, Equatable, Sendable {
     public var isLimit: Bool { error == "rate_limit" }
 }
 
-/// Display sources are independent of the legacy ended-turn obligations and each other's availability.
-public struct DisplayWork: Codable, Equatable, Sendable {
-    /// nil is unavailable; an empty array establishes that this source has no jobs.
-    public var subagents: [DisplayWorkItem]?, shells: [DisplayWorkItem]?
-    public init(subagents: [DisplayWorkItem]? = nil, shells: [DisplayWorkItem]? = nil) {
-        self.subagents = subagents; self.shells = shells
-    }
-}
-
-public struct DisplayWorkItem: Codable, Equatable, Sendable {
+/// One line of a tab's work (`SessionInfo.work`): a shell by its command, a monitor, a subagent or any other task by its
+/// description.
+public struct WorkItem: Codable, Equatable, Sendable {
     public var kind: BackgroundJob.Kind, text: String
-    /// Position in this same session payload's legacy background array, resolved by native ID in the daemon.
-    public var legacyIndex: Int?
-    public init(kind: BackgroundJob.Kind, text: String, legacyIndex: Int? = nil) {
-        self.kind = kind; self.text = text; self.legacyIndex = legacyIndex
+    /// Its agent's last Stop listed it: the agent takes the turn up again once it ends. The row's status and the
+    /// Operator read only these; the card draws every item.
+    public var holdsTurn: Bool
+    public init(kind: BackgroundJob.Kind, text: String, holdsTurn: Bool) {
+        self.kind = kind; self.text = text; self.holdsTurn = holdsTurn
     }
     public var job: BackgroundJob { BackgroundJob(kind: kind, text: text) }
 }
 
 /// A shell by its command, a monitor, a subagent or any other task by its description.
-public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
+public struct BackgroundJob: Equatable, Hashable, Sendable {
     /// See `SessionAgent`'s decoding note: a kind this app does not know reads as `.task`.
     public enum Kind: String, Codable, LenientRawDecodable, Sendable {
         case shell, monitor, task, subagent

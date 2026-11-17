@@ -53,7 +53,7 @@ import AiTermCore
     }
     private func isLiveWork(_ session: SessionInfo) -> Bool {
         session.state == .working || session.state == .needsInput
-            || !session.background.isEmpty || session.testActivity?.isActive == true
+            || session.work.contains(where: \.holdsTurn) || session.testActivity?.isActive == true
     }
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,

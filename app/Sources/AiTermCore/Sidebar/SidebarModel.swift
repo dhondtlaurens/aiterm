@@ -261,36 +261,19 @@ public enum SidebarModel {
         return (status == .done || status == .idle) && !backgroundJobs(of: tabs).isEmpty ? .background : status
     }
 
-    /// What a row's tabs that ended their turn left running, in tab order: a tab still at work has started a new
-    /// turn, which waits on nothing yet.
+    /// What a row's tabs that ended their turn left running that wakes them again (`WorkItem.holdsTurn`), in tab order,
+    /// then every tab's active test run: a tab still at work has started a new turn, which waits on nothing yet.
     public static func backgroundJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        let jobs = tabs.filter(\.state.turnEnded).sorted { $0.tabIndex < $1.tabIndex }.flatMap(\.background)
+        let ended = tabs.filter(\.state.turnEnded).sorted { $0.tabIndex < $1.tabIndex }
+        let jobs = ended.flatMap { $0.work.filter(\.holdsTurn).map(\.job) }
         let tests = tabs.compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
 
-    /// Source replacement preserves the legacy Stop's interleaved order. Only unanchored new
-    /// jobs append after it; test summaries remain the final suffix, as in backgroundJobs.
+    /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, then the active test runs of
+    /// the tabs that ended their turn, as in `backgroundJobs`.
     public static func displayJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { tab -> [BackgroundJob] in
-            var result: [BackgroundJob] = []
-            for (index, job) in tab.background.enumerated() {
-                let source: [DisplayWorkItem]?
-                switch job.kind {
-                case .subagent: source = tab.displayWork?.subagents
-                case .shell: source = tab.displayWork?.shells
-                case .monitor, .task: source = nil
-                }
-                if let source {
-                    result += source.filter { $0.legacyIndex == index }.map(\.job)
-                } else if tab.state.turnEnded || job.kind == .subagent {
-                    result.append(job)
-                }
-            }
-            result += (tab.displayWork?.subagents ?? []).filter { $0.legacyIndex == nil }.map(\.job)
-            result += (tab.displayWork?.shells ?? []).filter { $0.legacyIndex == nil }.map(\.job)
-            return result
-        }
+        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { $0.work.map(\.job) }
         let tests = tabs.filter(\.state.turnEnded).compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }

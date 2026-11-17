@@ -37,10 +37,10 @@ import Testing
     }
 
     @Test func theCurrentContextTokensDecodeWithoutBreakingOlderSessions() throws {
-        let bytes = Data(#"{"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator","contextTokens":39239}"#.utf8)
+        let bytes = Data(#"{"sessionId":"s","windowId":"w","active":false,"work":[],"tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator","contextTokens":39239}"#.utf8)
         let session = try JSONDecoder().decode(SessionInfo.self, from: bytes)
         #expect(session.contextTokens == 39239)
-        let old = Data(#"{"sessionId":"s","windowId":"w","active":false,"background":[],"tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator"}"#.utf8)
+        let old = Data(#"{"sessionId":"s","windowId":"w","active":false,"work":[],"tabIndex":0,"agent":"claude","state":"idle","title":"Operator","cwd":"/operator"}"#.utf8)
         #expect(try JSONDecoder().decode(SessionInfo.self, from: old).contextTokens == nil)
     }
 }

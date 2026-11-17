@@ -396,7 +396,7 @@ TS tests-scripts.
 
 ### Phase 6. Daemon and wire (after 2; beside the app track)
 
-- [ ] 6a. **Opus.** One ordered work list per session, each item saying whether it holds the turn;
+- [x] 6a. **Opus.** One ordered work list per session, each item saying whether it holds the turn;
   `background` plus `displayWork` with `legacyIndex`, and the app's merge, go (DM F2, SB F10).
   Wire frames and `docs/daemon-protocol.md` follow.
 - [ ] 6b. **Opus.** The app owns its helper: a stale holder of the socket is ended and a new one
@@ -1194,3 +1194,21 @@ left.
   `tasks[].currentAct`, and two refusal texts of `answer_worker` changed (5c, 5f, 5g). Also for 9c: the
   hosted-only Operator section snapshot poses (they need `AITERM_SNAPSHOT_HOSTED=1`, which opens
   windows) were not captured during this phase.
+
+### Phase 6
+
+- 6a: one ordered work list per session (`work: [WorkItem(kind, text, holdsTurn)]`, built by the
+  daemon's `work_items`), replacing `background`, `displayWork` and `legacyIndex`; the app's merge went
+  and every reader (sidebar card, worker tabs, digest, live work) reads `work` and `holdsTurn`.
+  `BackgroundJob.task_id` now compares. Fixtures re-recorded: `daemon/tests/wire/` with
+  `AITERM_UPDATE_WIRE_FIXTURES=1` (only the four session payload frames changed), provenance paragraph
+  added; `docs/daemon-protocol.md` and `docs/status-model.md` follow. Tests deleted:
+  `test_same_text_refreshes_internal_identity_without_a_spurious_wire_change` (behaviour deleted),
+  `DaemonTypesTests.displayWorkDistinguishesUnavailableAndKnownEmptySources` (replaced by
+  `aSessionReadsItsWorkInOrderWithWhatHoldsTheTurn`), `SidebarModelTests.displaySourcesPreserveStopOrderAndNeverDecideStatus`
+  (replaced by `theCardIsEveryTabsWorkAndOnlyWhatHoldsATurnDecidesStatus`); five display tests rewritten
+  on `work`; added two status tests and `WorkerTabsTests.onlyWorkThatHoldsTheTurnKeepsAWorkerAtWork`.
+  Differences: the brief's grep matches its own prescribed provenance wording; its "all three in the
+  Stop's order" case is not reachable, the test asserts what happens. Behaviour note: a Stop shell the
+  reader still lists now holds the turn mid-turn, so a needsInput tab with such a shell counts as at
+  work (the brief's decisions accept this kind of difference).

@@ -51,13 +51,11 @@ effect in the order it was sent.
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
 | `operator.request` | the Operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
 
-Session payloads also carry optional display-only `displayWork` with independently nullable
-`subagents` and `shells` arrays. Missing/null means a source is unavailable; an empty array means
-known empty. Entries have `kind`, `text` and nullable `legacyIndex`, a position in the same
-payload's legacy `background` array, derived by provider ID in the daemon. This preserves the
-Stop's interleaved order while replacing a known kind without duplicating it. Unavailable kinds
-fall back to eligible legacy evidence. Display changes publish `session.changed` even when the
-turn status stays the same. The field never changes Operator obligations or acceptance.
+Session payloads carry `work`, one ordered list of what runs beside the agent's turn, each item with
+`kind`, `text` and `holdsTurn`. `holdsTurn` marks what the last Stop listed, which wakes the agent
+again; the items after it are subagents and shells read live. The sidebar's card draws the whole
+list, the row's status and the Operator read only the `holdsTurn` items, and a change to the list
+publishes `session.changed` even when the state stays the same.
 
 Session payloads carry nullable `contextTokens`: this conversation's current input context,
 including input, cache creation and cache read tokens, excluding output and lifetime billing totals.

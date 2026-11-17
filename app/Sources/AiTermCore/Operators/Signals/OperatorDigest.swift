@@ -99,7 +99,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
             guard let id = session.taskUUID, ids.contains(id) else { return nil }
             return WorkerLine(task: id, session: session.sessionId, tab: session.tabKey ?? "main", agent: session.agent, state: session.state,
                               conversation: session.conversationId, contextTokens: session.contextTokens, contextPercent: session.contextPercent,
-                              backgroundJobs: session.background.count)
+                              backgroundJobs: session.work.filter(\.holdsTurn).count)
         }
         generatedAt = at; self.oracleOn = oracleOn; signals = state.signals
         projects = state.projects.map { ProjectLine(id: $0.id, name: $0.name, path: $0.path) }

@@ -4,15 +4,10 @@
     "active": true,
     "agent": "pi",
     "agentCwd": "/repo/.worktrees/feat-wire/app",
-    "background": [],
     "contextPercent": 42,
     "contextTokens": null,
     "conversationId": "pi-wire",
     "cwd": "/repo/.worktrees/feat-wire",
-    "displayWork": {
-      "shells": null,
-      "subagents": []
-    },
     "projectId": null,
     "sessionId": "s2",
     "state": "working",
@@ -23,6 +18,7 @@
     "terminalId": null,
     "testActivity": null,
     "windowId": "w1",
+    "work": [],
     "yourPrompt": null
   }
 }

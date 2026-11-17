@@ -169,7 +169,7 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         let box = EventBox(client.events)
         server.push(event: "iterm.connected", payload: ["version": "3.7.2"])
         server.push(event: "window.activated", payload: ["windowId": "w1"])
-        server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "active": false, "background": [], "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "state": "working", "cwd": "/wt"])
+        server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "active": false, "work": [], "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "state": "working", "cwd": "/wt"])
         server.push(event: "usage.changed", payload: ["claude": ["fiveHour": ["usedPercent": 23, "resetsAt": 99], "sevenDay": NSNull(), "spend": NSNull(), "updatedAt": 1], "codex": NSNull()])
 
         guard case .event(let e1) = await nextEvent(box) else { Issue.record("timed out waiting for iterm.connected event"); return }
@@ -216,13 +216,13 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
     /// The branch a row shows is resolved from `effectiveCwd`, never from `cwd`: iTerm2 only ever
     /// reports the shell's directory, which does not follow an agent into a worktree.
     @Test func testSessionInfoPrefersTheAgentsCwd() throws {
-        let moved = #"{"sessionId":"s1","windowId":"w1","background":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"idle","title":"","cwd":"/repo","agentCwd":"/repo/.worktrees/feat","active":true}"#
+        let moved = #"{"sessionId":"s1","windowId":"w1","work":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"idle","title":"","cwd":"/repo","agentCwd":"/repo/.worktrees/feat","active":true}"#
         let a = try JSONDecoder().decode(SessionInfo.self, from: Data(moved.utf8))
         #expect(a.effectiveCwd == "/repo/.worktrees/feat")
         #expect(a.active)
 
         // A plain shell tab has no agent directory and is not active.
-        let plain = #"{"sessionId":"s2","windowId":"w1","active":false,"background":[],"tabIndex":1,"taskId":null,"projectId":null,"agent":"shell","model":null,"state":"idle","title":"","cwd":"/repo"}"#
+        let plain = #"{"sessionId":"s2","windowId":"w1","active":false,"work":[],"tabIndex":1,"taskId":null,"projectId":null,"agent":"shell","model":null,"state":"idle","title":"","cwd":"/repo"}"#
         let b = try JSONDecoder().decode(SessionInfo.self, from: Data(plain.utf8))
         #expect(b.effectiveCwd == "/repo")
         #expect(!b.active)
