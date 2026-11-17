@@ -1,13 +1,9 @@
 import Foundation
 import AiTermCore
 
-/// Archives tasks and reviews, restores them, and removes them from the archive.
-///
-/// Archive puts the worktree away; the branch is never touched. The row is saved into the archive
-/// before git removes the worktree, so a crash in between leaves an archived row whose worktree still
-/// exists — which restore adopts — rather than a task whose checkout the cleanup would forget. Restore
-/// recreates the worktree and puts the row back; choosing it, which opens its window with its
-/// conversations resumed, is `AppController.restoreFromArchive`'s.
+/// Restores archived tasks and reviews: the worktree recreated and the row put back. Choosing it, which opens its
+/// window with its conversations resumed, is `AppController.restoreFromArchive`'s. Archiving and removing an archived
+/// row are `TaskTeardown`'s.
 @MainActor
 final class TaskArchiver {
     private let workspace: WorkspaceStore
@@ -16,148 +12,11 @@ final class TaskArchiver {
     private let notices: Notices
     private let prompter: Prompter
     private let checkouts: CheckoutMonitor
-    private let remover: TaskRemover
-    private let teardown: WorktreeTeardown
-    private let now: @MainActor () -> Date
 
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
-         checkouts: CheckoutMonitor, remover: TaskRemover, teardown: WorktreeTeardown,
-         now: @escaping @MainActor () -> Date) {
+         checkouts: CheckoutMonitor) {
         self.workspace = workspace; self.work = work; self.workflow = workflow; self.notices = notices
-        self.prompter = prompter; self.checkouts = checkouts; self.remover = remover
-        self.teardown = teardown; self.now = now
-    }
-
-    /// Why an archive ended without archiving, apart from the teardown's and git's refusals.
-    private enum Stop: Error {
-        /// Kept at the first question: nothing moved, and the row says nothing.
-        case kept
-        /// Kept at git's late refusal: the row came back, and says so.
-        case keptLate
-        case detached
-    }
-
-    // -- archive ------------------------------------------------------------------------
-    /// Returns once the archive has ended, or at once when nothing started: the workspace locked, the
-    /// task gone or already busy.
-    func archive(task: TaskItem) async {
-        let state = workspace.state
-        guard workspace.canChangeWorkspace, let shown = state.task(id: task.id), let project = state.project(id: shown.projectId),
-              let token = work.begin(.archiving, onTask: task.id) else { return }
-        defer { work.end(token) }
-        remover.clearOutcome(of: task.id)
-        let id = task.id, kind = shown.kindName
-        do { try await archive(shown, in: project) }
-        catch Stop.kept {}
-        catch Stop.keptLate { remover.recordStop(of: id, note: "Not archived") }
-        catch Stop.detached {
-            await prompter.ask(AlertPrompt(
-                message: "“\(shown.title)” can’t be archived",
-                detail: "Its worktree isn’t on a branch, so its commits would be lost. Check out a branch, or remove the \(kind.lowercased())."))
-        }
-        catch TeardownStop.noDaemon {
-            remover.recordStop(of: id, note: "Not archived: iTerm2 isn’t connected")
-            notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).",
-                                          error: ActionUnavailable("iTerm2 isn’t connected, so its window couldn’t close and nothing was deleted."),
-                                          subject: id))
-        }
-        catch TeardownStop.windowStayedOpen(let why) {
-            remover.recordStop(of: id, note: "Not archived: its window did not close")
-            notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).", error: why, subject: id))
-        }
-        catch {
-            remover.recordStop(of: id, note: "Not archived")
-            notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).", error: error, subject: id))
-        }
-    }
-
-    private func archive(_ task: TaskItem, in project: Project) async throws {
-        // A detached worktree is refused before anything is asked or closed. Read again once the
-        // window is closed (below): until then its agent can still move it. Remove's question about a
-        // folder git no longer lists comes next, and Keep keeps it, unarchived.
-        guard let prepared = try await teardown.prepare(task, in: project, verb: .archive, refusing: {
-            if $0.head == .detached { throw Stop.detached }
-        }) else { throw Stop.kept }
-        let task = prepared.task, head = prepared.head
-        try await teardown.closeWindow(of: task)
-        // The branch it is on now — a task's worktree can have moved since it was created, or while
-        // the question was up and its window closing. Detached by now, its commits would go with the
-        // worktree: refused, and the row stays a task without a window until it is chosen.
-        // A folder gone by now is archived as it was before the window closed.
-        let branch: String
-        switch try await workflow.head(of: task, in: project) {
-        case .detached: throw Stop.detached
-        case .branch(let name): branch = name
-        case .missing: branch = if case .branch(let name) = head { name } else { task.branch }
-        }
-        // On disk before the worktree goes (see the type's comment).
-        workspace.mutate { $0.moveToArchive(taskId: task.id, branch: branch, at: now()) }
-        guard workspace.flush() else {
-            // Not on disk, so the worktree stays: deleted now, a crash before a save holds would bring
-            // back a task whose checkout is gone, which the cleanup forgets. The row is a task again,
-            // without a window; the store is failing, so it is not flushed again.
-            workspace.mutate { $0.moveFromArchive(id: task.id) }
-            throw ActionUnavailable("Its place on the archive couldn’t be saved, so nothing was deleted.")
-        }
-        do {
-            // The row is on the archive by now, so a late question goes on with the task it had.
-            let archived: Void? = try await teardown.run(prepared, verb: .archive, current: { $0 }) { task, force in
-                try await workflow.archive(task: task, project: project, force: force, allowUnlisted: prepared.allowUnlisted)
-            }
-            guard archived != nil else { throw Stop.keptLate }
-        } catch {
-            // Back in the sidebar, without a window until it is chosen.
-            workspace.mutate { $0.moveFromArchive(id: task.id) }
-            workspace.flush()
-            throw error
-        }
-        checkouts.forget(task: task.id)
-        checkouts.dropDiff(for: task.id)
-        checkouts.refresh()
-        if workspace.persistenceError == nil { notices.showToast("\(task.kindName) archived.", symbol: "tray.and.arrow.down") }
-    }
-
-    /// Then’s Archive: no questions and no permission to discard changes. The caller’s stage
-    /// predicate is checked again after every preflight await and after the window closes.
-    func archiveAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
-        guard workspace.canChangeWorkspace, workspace.state.task(id: task.id) == task,
-              let project = workspace.state.project(id: task.projectId),
-              let token = work.begin(.archiving, onTask: task.id) else {
-            throw ActionUnavailable("The task changed or is busy.")
-        }
-        defer { work.end(token) }
-        func allowed() -> Bool {
-            guard workspace.canChangeWorkspace, !Task.isCancelled, starting(),
-                  let current = workspace.state.task(id: task.id) else { return false }
-            return current.projectId == task.projectId && current.worktreePath == task.worktreePath && current.branch == task.branch
-        }
-        try remover.requireIdleForAutomaticCleanup(task)
-        let preflight = try await workflow.preflight(task: task, project: project)
-        guard allowed() else { throw ActionUnavailable("The stage changed before archiving.") }
-        guard !preflight.needsRemovalConfirmation else { throw ActionUnavailable("Git no longer lists its folder. Archive it yourself once it is safe.") }
-        if preflight.head == .detached { throw ActionUnavailable("Its worktree is detached, so it was kept.") }
-        if case .branch(let branch) = preflight.head, branch != task.branch { throw ActionUnavailable("Its worktree is no longer on its task branch.") }
-        if try await workflow.hasUnsavedWork(task: task, project: project) { throw ActionUnavailable(AutomaticCleanup.unsavedWork) }
-        guard allowed() else { throw ActionUnavailable("The stage changed while its worktree was checked.") }
-        try remover.requireIdleForAutomaticCleanup(task)
-        do {
-            try await teardown.closeWindow(of: task)
-        } catch TeardownStop.noDaemon { throw ClosingWait.helper }
-        guard allowed() else { throw ActionUnavailable("The stage changed while its window closed.") }
-        let head = try await workflow.head(of: task, in: project)
-        guard allowed(), head == .missing || head == .branch(task.branch) else { throw ActionUnavailable("Its stage or branch changed while its window closed.") }
-        try remover.requireIdleForAutomaticCleanup(task)
-        workspace.mutate { $0.moveToArchive(taskId: task.id, branch: task.branch, at: now()) }
-        guard workspace.flush() else {
-            workspace.mutate { $0.moveFromArchive(id: task.id) }
-            throw ActionUnavailable("Its archived row couldn’t be saved, so its checkout was kept.")
-        }
-        do { try await workflow.archive(task: task, project: project, force: false) }
-        catch {
-            workspace.mutate { $0.moveFromArchive(id: task.id) }; workspace.flush()
-            throw error
-        }
-        checkouts.forget(task: task.id); checkouts.dropDiff(for: task.id); checkouts.refresh()
+        self.prompter = prompter; self.checkouts = checkouts
     }
 
     // -- restore ------------------------------------------------------------------------
@@ -190,39 +49,5 @@ final class TaskArchiver {
         workspace.flush()
         TaskLauncher.report(made.worktreeInclude, of: made.task, to: notices)
         if workspace.persistenceError == nil { notices.showToast("\(entry.task.kindName) restored.", symbol: "tray.and.arrow.up") }
-    }
-
-    // -- remove from the archive --------------------------------------------------------
-    /// Remove's own question about an archived row and, with "Delete local branch" ticked on a branch
-    /// holding commits found nowhere else, Remove's question about losing them; then its record
-    /// forgotten and — when asked for — its branch deleted, a review's released as Remove does. Its old
-    /// worktree path is never touched: something else may live there by now. The row goes whatever
-    /// git did with the branch, and the toast says when it was kept. Returns once the row is forgotten
-    /// or the removal stopped, or at once when nothing started.
-    func confirmRemove(archived id: UUID) async {
-        guard workspace.canChangeWorkspace, work.operation(onTask: id) == nil, let shown = workspace.state.archived(id: id)?.task,
-              workspace.state.project(id: shown.projectId) != nil else { return }
-        let answer = await prompter.ask(.removeTask(shown,
-            detail: "Forgets it and its conversations. Its worktree was deleted when it was archived."
-                + (shown.kind == .review ? " Its local branch goes too, unless it has unpushed commits." : "")))
-        // As in Remove: what the answer finds is decided on the row as it is once the alert is gone.
-        guard answer.confirmed, workspace.canChangeWorkspace, let task = workspace.state.archived(id: id)?.task,
-              let project = workspace.state.project(id: task.projectId),
-              let token = work.begin(.removing, onTask: id) else { return }
-        defer { work.end(token) }
-        guard let branch = await remover.branchDeletion(of: task, in: project, asked: answer.checked) else { return }
-        do {
-            let result = try await workflow.forgetArchived(task: task, project: project, deleteBranch: branch.delete,
-                                                           discardingUnmerged: branch.discardingUnmerged)
-            workspace.mutate { $0.removeArchived(id: id) }
-            workspace.flush()
-            if workspace.persistenceError == nil {
-                notices.showRemoval(of: task, result: result)
-            }
-        } catch {
-            // No subject: a banner's subject names a sidebar row, and an archived one is not a row
-            // there, so a subject would make `Notices` drop the banner as stale.
-            notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error))
-        }
     }
 }

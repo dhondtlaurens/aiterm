@@ -73,11 +73,12 @@ lanes while separate windows can open concurrently.
 `RowWindows` clears a row's window when iTerm2 says it is gone, adopts tagged windows through the
 pure `AppState.windowPlan(sessions:)`, and opens a chosen row's window through the opener for its
 kind. `AppController.choose` decides what choosing a row does, and `RowFocus` raises.
-`TaskRemover`, `TaskArchiver` and `WorktreeTeardown` coordinate saved state, window closure and Git
-safety: Remove and Archive share its prepare (one `TaskWorkflow.preflight` listing, the
-unlisted-folder and unsaved-work questions) and its run (git's removal, asking again about work
-written while the window closed). A failed removal retains a recoverable task. See
-[windows](windows.md).
+`TaskTeardown` coordinates saved state, window closure and Git safety for Archive, Remove,
+removing an archived row and the closing of a task whose worktree went: one prepare (one
+`TaskWorkflow.preflight` listing, the unlisted-folder and unsaved-work decisions) and one run
+(git's removal, asking again about work written while the window closed), each asking the person
+or refusing for the Operator's Then by its `Consent`. A failed removal retains a recoverable task.
+`TaskArchiver` restores. See [windows](windows.md).
 
 ## Operator ownership
 
@@ -93,7 +94,7 @@ enum kinds use inert unknown fallbacks rather than losing the workspace.
 | `StageRunner` | Persist launch intent, prepare/restore the same task, launch one worker, advance or block its stage; a stage with a row or project left to choose waits in `choosing` until a decided choice is applied. |
 | `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
 | `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
-| `ThenRunner`, `TaskArchiver`, `TaskRemover` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
+| `ThenRunner`, `TaskTeardown` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
 | `OperatorSessionKeeper` | Persist workload-driven chat lifetime, close/revoke/idle retirement, generation/token handover and context renewal. Close the old window before revoking its token. |
 | `AgentChoiceRounds`, `OracleRoundLedger` | Bind the Operator's agent-row (and project) proposal for a stage or work tab to its stage/ownership and run up to three Oracle rounds; the outcome never asks the person. The ledger keeps the saved rounds both owners share. |
 | `QuestionRounds`, `SignalJournal` | Bind three-round answer discussions to the full worker question/conversation/stage/ownership; persist quoted answers/instructions and bounded state tails over append-only journals. |

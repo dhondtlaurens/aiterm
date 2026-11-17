@@ -402,7 +402,7 @@ struct TaskRowView: View {
         // redraws that row and not this one.
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
-        let removal = controller.remover.removal(of: row.id), removing = removal?.inProgress == true
+        let removal = controller.teardown.state(of: row.id), removing = removal?.inProgress == true
         let caption = TaskRowCaption(removal: removal, missing: missing)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
@@ -457,8 +457,8 @@ struct TaskRowView: View {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
-                    case .archive: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
-                    case .remove: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
+                    case .archive: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.archive(current, consent: .ask) } } }
+                    case .remove: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.remove(current, consent: .ask) } } }
                     }
                 }
             }
@@ -482,9 +482,9 @@ struct TaskRowView: View {
                 if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
+                Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.archive(current, consent: .ask) } } }
                     .disabled(!controller.canChangeWorkspace || removing)
-                Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
+                Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.remove(current, consent: .ask) } } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
         }

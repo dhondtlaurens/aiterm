@@ -84,7 +84,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: nil)
-        fixture.controller.remover.seedSnapshotRemoval(.removing, of: task.id)
+        fixture.controller.teardown.seedSnapshotState(.removing, of: task.id)
 
         await fixture.controller.choose(.task(task.id))?.value
 

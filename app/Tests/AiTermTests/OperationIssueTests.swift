@@ -43,13 +43,13 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
-        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed"), of: task.id)
+        controller.teardown.seedSnapshotState(.stopped(note: "Not removed"), of: task.id)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
         controller.notices.report("Something else.")
 
         #expect(controller.issue?.title == "Something else.")
-        #expect(controller.remover.removals[task.id] == nil)
+        #expect(controller.teardown.state(of: task.id) == nil)
     }
 
     /// The removal that fails again reports the same task: its new note must not go with its old banner.
@@ -60,12 +60,12 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
         let note = TaskRemoval.stopped(note: "Not removed")
-        controller.remover.seedSnapshotRemoval(note, of: task.id)
+        controller.teardown.seedSnapshotState(note, of: task.id)
 
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Still busy.", subject: task.id))
 
         #expect(controller.issue?.reason == "Still busy.")
-        #expect(controller.remover.removals[task.id] == note)
+        #expect(controller.teardown.state(of: task.id) == note)
     }
 
     /// A report held back replaces nothing, so the row's note stays while it waits: it is still true.
@@ -75,12 +75,12 @@ import Testing
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
         let note = TaskRemoval.stopped(note: "Not removed")
-        controller.remover.seedSnapshotRemoval(note, of: task.id)
+        controller.teardown.seedSnapshotState(note, of: task.id)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
 
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
-        #expect(controller.remover.removals[task.id] == note)
+        #expect(controller.teardown.state(of: task.id) == note)
     }
 
     /// What a click failed with while a question was up is not lost: it takes the banner when the
@@ -90,18 +90,18 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
-        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed"), of: task.id)
+        controller.teardown.seedSnapshotState(.stopped(note: "Not removed"), of: task.id)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
         let failure = OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id)
         controller.notices.report(failure)
 
         controller.notices.dismissIssue()
         #expect(controller.issue == failure)
-        #expect(controller.remover.removals[task.id] != nil, "its note stays while its banner shows")
+        #expect(controller.teardown.state(of: task.id) != nil, "its note stays while its banner shows")
 
         controller.notices.dismissIssue()
         #expect(controller.issue == nil)
-        #expect(controller.remover.removals[task.id] == nil)
+        #expect(controller.teardown.state(of: task.id) == nil)
     }
 
     @Test func theNewestHeldBackReportIsTheOneShown() async throws {
@@ -175,7 +175,7 @@ import Testing
     }
 
     @Test func theIssueGoesWhenABackupWithoutItsRowIsRestored() async throws {
-        let (fixture, _) = try await askingRebase()
+        let (fixture, task) = try await askingRebase()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         var without = fixture.controller.state
         without.tasks = []
@@ -187,7 +187,7 @@ import Testing
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.remover.removals.isEmpty)
+        #expect(fixture.controller.teardown.leaving.isEmpty && fixture.controller.teardown.state(of: task.id) == nil)
     }
 
     /// A task, and the banner asking whether to rebase the project's default branch, about the task

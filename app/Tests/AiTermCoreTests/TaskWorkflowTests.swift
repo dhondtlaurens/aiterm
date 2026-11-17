@@ -413,7 +413,7 @@ import Testing
                   FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
             return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
         }
-        /// What the teardown asks after the preflight about uncommitted work (`WorktreeTeardown.prepare`): the check with
+        /// What the teardown asks after the preflight about uncommitted work (`TaskTeardown`'s prepare): the check with
         /// a listing of its own, right before status. The preflight it follows is passed to show it is not read.
         func teardownAsksUnsavedWork(_ task: TaskItem, after _: TaskWorkflow.Preflight) async throws -> Bool {
             try await workflow.hasUnsavedWork(task: task, project: project)

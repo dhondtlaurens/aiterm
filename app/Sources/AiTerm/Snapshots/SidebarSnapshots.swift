@@ -243,10 +243,10 @@ enum SidebarSnapshots {
     private static func removal(_ file: String, selecting: KeyPath<Fixture, TaskItem>?) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller()
-            controller.remover.seedSnapshotRemoval(.removing, of: fixture.working.id)
-            controller.remover.seedSnapshotRemoval(.removing, of: fixture.piTask.id)
-            controller.remover.seedSnapshotRemoval(.closing, of: fixture.codexTask.id)
-            controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed: its window did not close"), of: fixture.other.id)
+            controller.teardown.seedSnapshotState(.removing, of: fixture.working.id)
+            controller.teardown.seedSnapshotState(.removing, of: fixture.piTask.id)
+            controller.teardown.seedSnapshotState(.closing, of: fixture.codexTask.id)
+            controller.teardown.seedSnapshotState(.stopped(note: "Not removed: its window did not close"), of: fixture.other.id)
             controller.notices.report(OperationIssue(title: "Couldn’t remove the task.",
                                                      error: ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted."),
                                                      subject: fixture.other.id))

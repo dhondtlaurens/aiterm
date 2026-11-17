@@ -89,7 +89,7 @@ import Testing
         controller.workspace.mutate { $0.append(project: other) }
         let task = try await fixture.addTask(windowId: "alive")
 
-        let removal = Task { await controller.remover.confirmRemove(task: task) }
+        let removal = Task { try? await controller.teardown.remove(task, consent: .ask) }
         try await server.received("window.close")
         await controller.projects.confirmRemove(project: other)
         await controller.projects.confirmRemove(project: fixture.project)
@@ -177,7 +177,7 @@ import Testing
         let clicked = try await fixture.addTask(windowId: nil)
         fixture.prompter.whileAsking = { _ in controller.helper.handle(.snapshot(fixture.snapshot(tagging: clicked, in: "alive"))) }
 
-        await controller.remover.confirmRemove(task: clicked)
+        try await controller.teardown.remove(clicked, consent: .ask)
 
         #expect(controller.state.tasks.isEmpty)
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
@@ -198,10 +198,10 @@ import Testing
         fixture.prompter.whileAsking = { _ in
             guard !nested else { return }
             nested = true
-            await controller.remover.confirmRemove(task: task)
+            try? await controller.teardown.remove(task, consent: .ask)
         }
 
-        await controller.remover.confirmRemove(task: task)
+        try await controller.teardown.remove(task, consent: .ask)
 
         #expect(controller.state.tasks.isEmpty)
         #expect(fixture.prompter.asked.count == 2)
@@ -224,7 +224,7 @@ import Testing
             controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
         }
 
-        await controller.remover.confirmRemove(task: task)
+        try await controller.teardown.remove(task, consent: .ask)
 
         #expect(controller.state.tasks.isEmpty)
         #expect(fixture.prompter.asked.map(\.message).last == "The worktree has uncommitted changes")

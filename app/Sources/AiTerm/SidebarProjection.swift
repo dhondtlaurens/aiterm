@@ -28,6 +28,8 @@ struct SectionFold: Equatable {
     @ObservationIgnored private(set) var derivations = 0
     @ObservationIgnored var operatorIssue: () -> String? = { nil }
     @ObservationIgnored var operatorActivity: () -> OperatorActivity? = { nil }
+    /// The tasks on their way out (`TaskTeardown.leaving`): their windows are closing, so none waits on you.
+    @ObservationIgnored var leaving: () -> Set<UUID> = { [] }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
     private struct Inputs: Equatable {
         var skipped: [UUID: [String]]
@@ -37,6 +39,7 @@ struct SectionFold: Equatable {
         var operatorOpen: Bool
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem], sessions: [SessionInfo]
         var branches: [String: String], projectBranches: [UUID: String], diffs: [UUID: DiffStat]
+        var leaving: Set<UUID>
     }
     @ObservationIgnored private var inputs: Inputs?
     init(workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor) {
@@ -44,24 +47,22 @@ struct SectionFold: Equatable {
     }
     var hasProjects: Bool { !sections.isEmpty }
     /// Every row waiting on you, the Operator's section first: what the Dock badge counts and Focus View steps through.
+    /// A task on its way out waits on no one.
     var projectsNeedingAttention: [RowID] { operatorNeedingAttention + projectSectionsNeedingAttention }
-    /// The attention rows with tasks on their way out passed over.
-    func needingAttention(skipping: Set<UUID>) -> [RowID] {
-        projectsNeedingAttention.filter { row in
-            if case .task(let id) = row { return !skipping.contains(id) }
-            return true
-        }
-    }
     /// The rows under OPERATOR waiting on you: its own row, then its signals' tasks.
     var operatorNeedingAttention: [RowID] {
-        (signalOperator.shown && signalOperator.status == .needsInput ? [.operatorChat] : [])
-            + signalSections.flatMap { $0.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) } }
+        let leaving = inputs?.leaving ?? []
+        return (signalOperator.shown && signalOperator.status == .needsInput ? [.operatorChat] : [])
+            + signalSections.flatMap {
+                $0.tasks.filter { $0.status == .needsInput && !leaving.contains($0.id) }.map { RowID.task($0.id) }
+            }
     }
     /// The rows under PROJECTS waiting on you.
     var projectSectionsNeedingAttention: [RowID] {
-        sections.flatMap { section in
+        let leaving = inputs?.leaving ?? []
+        return sections.flatMap { section in
             section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
-                + section.tasks.filter { $0.status.needsAttention }.map { RowID.task($0.id) }
+                + section.tasks.filter { $0.status.needsAttention && !leaving.contains($0.id) }.map { RowID.task($0.id) }
         }
     }
     /// The rows under OPERATOR in the order the arrow keys walk them: its row, then each signal's heading
@@ -102,13 +103,16 @@ struct SectionFold: Equatable {
         let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:], operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity()), signals: state.signals,
             operatorOpen: state.operatorOpen,
             items: state.items, tasks: drawn, terminals: state.terminals, sessions: live.rowSessions,
-            branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask)
+            branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask,
+            leaving: leaving())
         guard next != inputs else { return false }
+        let leavingMoved = next.leaving != inputs?.leaving
         inputs = next; derivations += 1
         let all = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branches,
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
         let sidebar = SignalSidebar(state: state, entries: all)
-        var changed = signalOperator != next.operatorRow || signalSections != sidebar.signals || entries != sidebar.projects
+        var changed = leavingMoved || signalOperator != next.operatorRow || signalSections != sidebar.signals
+            || entries != sidebar.projects
         if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }
         if signalOperator != next.operatorRow { signalOperator = next.operatorRow }
         if signalSections != sidebar.signals { signalSections = sidebar.signals }

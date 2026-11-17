@@ -22,7 +22,7 @@ import Testing
                 && server.requests("window.close").isEmpty && FileManager.default.fileExists(atPath: task.worktreePath)
         }
 
-        await controller.remover.confirmRemove(task: task)
+        try await controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.prompter.asked.map(\.message) == ["Remove task “Work”?", "Delete branch feat/work?"])
         let question = try #require(fixture.prompter.asked.last)
@@ -44,7 +44,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         try fixture.commit(in: task.worktreePath)
 
-        await fixture.controller.remover.confirmRemove(task: task)
+        try await fixture.controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.prompter.asked.count == 2)
         #expect(fixture.controller.state.tasks.isEmpty)
@@ -62,7 +62,7 @@ import Testing
         try fixture.git.run(["merge", "-q", "--ff-only", "feat/work"], in: fixture.repo.path)
         try fixture.git.run(["checkout", "-q", "-b", "feat/elsewhere", "main~1"], in: fixture.repo.path)
 
-        await fixture.controller.remover.confirmRemove(task: task)
+        try await fixture.controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.prompter.asked.count == 1)
         #expect(fixture.controller.state.tasks.isEmpty)
@@ -79,7 +79,7 @@ import Testing
         try fixture.git.run(["remote", "add", "origin", remote], in: fixture.repo.path)
         try fixture.git.run(["push", "-q", "-u", "origin", "feat/work"], in: task.worktreePath)
 
-        await fixture.controller.remover.confirmRemove(task: task)
+        try await fixture.controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.prompter.asked.count == 1)
         #expect(fixture.controller.state.tasks.isEmpty)
@@ -96,7 +96,7 @@ import Testing
         try fixture.git.run(["switch", "-q", "-c", "feat/next"], in: task.worktreePath)
         try fixture.git.run(["checkout", "-q", "feat/work"], in: fixture.repo.path)
 
-        await fixture.controller.remover.confirmRemove(task: task)
+        try await fixture.controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
@@ -114,12 +114,12 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let task = try await fixture.addTask(windowId: "alive")
 
-        await fixture.controller.remover.confirmRemove(task: task)
+        try await fixture.controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
         #expect(try fixture.hasBranch("feat/work"))
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not removed: iTerm2 isn’t connected"))
+        #expect(fixture.controller.teardown.state(of: task.id) == .stopped(note: "Not removed: iTerm2 isn’t connected"))
         #expect(fixture.controller.issue == OperationIssue(
             title: "Couldn’t remove the task.",
             reason: "iTerm2 isn’t connected, so its window couldn’t close and nothing was deleted.", subject: task.id))
@@ -131,7 +131,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let task = try await fixture.addTask(windowId: nil)
 
-        await fixture.controller.remover.confirmRemove(task: task)
+        try await fixture.controller.teardown.remove(task, consent: .ask)
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))

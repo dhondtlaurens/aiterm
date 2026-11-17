@@ -113,7 +113,7 @@ import Testing
 
         for removal: TaskRemoval? in [.removing, .closing, nil] {
             sidebar.counter.reset()
-            sidebar.controller.remover.seedSnapshotRemoval(removal, of: removed)
+            sidebar.controller.teardown.seedSnapshotState(removal, of: removed)
             sidebar.settleRows { sidebar.counter.counts[removed] != nil }
             #expect(Set(sidebar.counter.counts.keys) == [removed], "\(String(describing: removal)): redrawn \(sidebar.counter.counts.count) of \(sidebar.allRows.count) rows")
         }

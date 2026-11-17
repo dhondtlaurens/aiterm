@@ -33,13 +33,15 @@ import Testing
         return controller
     }
 
+    /// The rows waiting on you, `skipping` being on their way out: their teardown under way.
     private func attention(_ state: AppState, sessions: [SessionInfo], skipping: Set<UUID> = []) throws -> [RowID] {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
         controller.workspace.mutate { $0 = state }
         for session in sessions { controller.live.handle(.sessionOpened(session)) }
-        return controller.rows.needingAttention(skipping: skipping)
+        for id in skipping { controller.teardown.seedSnapshotState(.removing, of: id) }
+        return controller.rows.projectsNeedingAttention
     }
 
     private func attentionState(tasks: [TaskItem], terminals: [TerminalItem] = []) -> AppState {
@@ -89,6 +91,30 @@ import Testing
         let sessions = [tab(.done), SessionInfo.make("worker", window: "worker-window", task: driven, state: .needsInput)]
         #expect(try attention(world.state, sessions: sessions) == [.operatorChat, .task(driven), .task(Self.taskId)])
         #expect(try attention(world.state, sessions: sessions, skipping: [driven]) == [.operatorChat, .task(Self.taskId)])
+    }
+
+    /// A task on its way out waits on no one: the Dock badge, Focus View and the folded heading's count all pass over
+    /// it, and count it again once its teardown stopped.
+    @Test func aLeavingTaskIsNotWaitingOnYouNorCountedUnderAFoldedHeading() throws {
+        var world = SignalWorld(); let signal = world.signal(), driven = world.workingTask(signal: signal)
+        world.state.append(project: project); world.state.tasks.append(task)
+        world.state.operatorOpen = true
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.handle(.sessionOpened(tab(.done)))
+        controller.live.handle(.sessionOpened(SessionInfo.make("worker", window: "worker-window", task: driven, state: .needsInput)))
+        try #require(controller.rows.projectsHeading == SectionFold(folds: true, folded: true, attention: 1))
+        try #require(controller.rows.projectsNeedingAttention.contains(.task(Self.taskId)))
+
+        controller.teardown.seedSnapshotState(.removing, of: Self.taskId)
+        #expect(!controller.rows.projectsNeedingAttention.contains(.task(Self.taskId)))
+        #expect(controller.rows.projectsHeading.attention == 0)
+
+        controller.teardown.seedSnapshotState(.stopped(note: "Not removed"), of: Self.taskId)
+        #expect(controller.rows.projectsNeedingAttention.contains(.task(Self.taskId)))
+        #expect(controller.rows.projectsHeading.attention == 1)
     }
 
     /// What the list draws from: a write that changes none of it redraws no row.
@@ -261,7 +287,7 @@ import Testing
         controller.live.handle(.sessionOpened(tab(.done)))
         #expect(written == ["1"])
 
-        await controller.remover.confirmRemove(task: task)
+        try await controller.teardown.remove(task, consent: .ask)
         #expect(controller.state.tasks.isEmpty, "the task is removed")
         #expect(written == ["1", nil])
     }

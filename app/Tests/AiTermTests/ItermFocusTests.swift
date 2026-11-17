@@ -389,7 +389,7 @@ extension ItermFocusControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "work")
         controller.live.sessions = [SessionInfo.stub(window: "work", task: task, state: .done)]
-        controller.remover.seedSnapshotRemoval(.removing, of: task.id)
+        controller.teardown.seedSnapshotState(.removing, of: task.id)
 
         #expect(controller.focus.peek(.task(task.id)) == nil)
         #expect(controller.focus.selectedTaskId == task.id)

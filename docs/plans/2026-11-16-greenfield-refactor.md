@@ -343,7 +343,7 @@ TS tests-scripts.
 - [x] 4b. **Opus.** Remove asks everything before it acts: the unmerged-branch question comes up
   at once, a row with a window and no helper is refused as Archive refuses it, and the
   "worktree removed, waiting for a retry" state with its banner actions goes (TL F1).
-- [ ] 4c. **Opus.** One teardown owner for archive and remove over the shared prepare and run, with
+- [x] 4c. **Opus.** One teardown owner for archive and remove over the shared prepare and run, with
   consent as a policy (ask the person, or refuse while still allowed) and one per-row state that
   the row, the Dock badge and the checkout monitor read. The automatic variants and the remover's
   six dictionaries go; a task on its way out is filtered once, in the projection (TL F2, F9).
@@ -965,3 +965,15 @@ left.
   branch-kept banner) changed, as the step implies. Environment: this capture carries no Display P3
   profile while earlier ones did (the display changed while the maintainer was away), so raw RGB
   differs on 48 files; converted to sRGB, every other file is within 16 per channel.
+- 4c: one teardown owner, `TaskTeardown`, for archive and remove over one prepare and one run, with
+  consent as a policy (`.ask`, or `.refuse(stillAllowed:)` for the Operator's automatic archive and
+  remove) and one per-row state that the row, the Dock badge and the checkout monitor read.
+  `TaskRemover`, `WorktreeTeardown` and `AutomaticCleanup` went (the archiver keeps only restore), and
+  with them the remover's dictionaries and `recordCleanups`; a task on its way out is filtered once,
+  in the projection (`needingAttention(skipping:)` went). No test deleted; added three refusal
+  tests in `SignalAutomaticCleanupTests` and `aLeavingTaskIsNotWaitingOnYouNorCountedUnderAFoldedHeading`.
+  Snapshots in `build/refactor-4c` byte-identical to `build/refactor-4b`. Differences: a missing
+  checkout whose window cannot close for lack of a helper is skipped until the helper is back
+  (instead of a "Closing" state that would flicker each pass); Archive's intermediate "The stage
+  changed before archiving." refusal went, the later check still catches it; `removeArchived` does not
+  throw. Noticed and left: Focus View's fold layout can still count a leaving task.
