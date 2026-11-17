@@ -46,7 +46,9 @@ struct AppTimings {
     var peekDelay: Duration
     var checkoutPollInterval: Duration
     var toastLifetime: Duration
+    var connectionGrace: Duration
 
     /// The app's own.
-    static let live = AppTimings(peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2), toastLifetime: .seconds(10))
+    static let live = AppTimings(peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2), toastLifetime: .seconds(10),
+                                 connectionGrace: .seconds(10))
 }

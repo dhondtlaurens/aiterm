@@ -89,7 +89,15 @@ final class DaemonConnection {
                 func answer(_ requestId: Int?) {
                     guard let requestId, answered.insert(requestId).inserted else { return }
                     let requestCookie = self.requestCookie
-                    Task { _ = try? await connection.provideCookie(requestId: requestId, await requestCookie()) }
+                    Task {
+                        let answer = await requestCookie()
+                        switch answer {
+                        case .notRunning: statuses.report(.itermNotRunning)
+                        case .granted: statuses.report(.waitingForIterm)
+                        case .refused: break
+                        }
+                        _ = try? await connection.provideCookie(requestId: requestId, answer)
+                    }
                 }
                 answer(snapshot.itermCookieRequest)
                 var bootstrapped = false
@@ -103,7 +111,7 @@ final class DaemonConnection {
                     // Earlier buffered events must not overwrite the bootstrap snapshot.
                     guard bootstrapped else { continue }
                     if case .itermCookieRequested(let requestId) = event { answer(requestId); continue }
-                    if case .itermDisconnected = event { statuses.report(.itermReconnecting) }
+                    if case .itermDisconnected = event { statuses.report(.waitingForIterm) }
                     if case .itermAuthFailed(let reason) = event { statuses.report(.refused(reason)) }
                     if case .itermConnected = event {
                         // The iTerm2 that just connected, read afresh. Its reply comes back through

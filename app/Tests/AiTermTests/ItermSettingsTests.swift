@@ -17,7 +17,7 @@ import AiTermCore
     }
 
     @Test func statesThatClearOnTheirOwnStayGreyWithoutSteps() {
-        for connection in [ItermConnection.starting, .helperUnreachable, .waitingForIterm, .itermReconnecting] {
+        for connection in [ItermConnection.starting, .helperUnreachable, .waitingForIterm] {
             #expect(card(connection).status.tone == .idle, "\(connection)")
             #expect(card(connection).steps.isEmpty, "\(connection)")
         }
@@ -40,7 +40,7 @@ import AiTermCore
         #expect(missing.steps.count == 3)
 
         let apiOff = ItermEnvironment(installed: true, pythonAPIEnabled: false)
-        for connection in [ItermConnection.waitingForIterm, .itermReconnecting, .refused("-1743")] {
+        for connection in [ItermConnection.waitingForIterm, .itermNotRunning, .refused("-1743")] {
             #expect(card(connection, apiOff).status == SettingsStatus(.attention, "iTerm2’s Python API is off"), "\(connection)")
             #expect(card(connection, apiOff).steps == [
                 "Open iTerm2 › Settings › General › Magic",
@@ -50,6 +50,14 @@ import AiTermCore
         }
         // A connection is proof enough; a stale preference read does not argue with it.
         #expect(card(.connected(version: "3.7.2"), apiOff).status.tone == .ready)
+    }
+
+    @Test func aStoppedITerm2WithItsAPIOnAsksThePersonToOpenIt() {
+        #expect(card(.itermNotRunning) == ItermCard(status: SettingsStatus(.attention, "iTerm2 isn’t running"), steps: [
+            "Open iTerm2", "AiTerm connects on its own within a few seconds",
+        ]))
+        #expect(card(.itermNotRunning, ItermEnvironment(installed: false, pythonAPIEnabled: true)).status
+                == SettingsStatus(.attention, "iTerm2 is not installed"))
     }
 
     @Test func aRefusalWithTheAPIOnPointsAtAutomation() {

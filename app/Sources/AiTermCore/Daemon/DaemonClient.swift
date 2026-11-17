@@ -227,10 +227,9 @@ public final class DaemonClient: Sendable {
             return true
         }
         Darwin.close(fd)
-        // The stream ending *is* the signal: yielding a synthetic `.itermDisconnected` here blamed
-        // iTerm2 for the daemon itself having died (the banner read "Reconnecting to iTerm2…" for a
-        // helper that was simply gone). `DaemonConnection` already treats an `events` stream that
-        // ends without cancellation as `.helperUnreachable`.
+        // The stream ending signals an unreachable helper, not a lost iTerm2 connection.
+        // `DaemonConnection` treats an `events` stream that ends without cancellation as
+        // `.helperUnreachable`.
         guard stillCurrent else { return }
         disconnect(because: ending)
     }

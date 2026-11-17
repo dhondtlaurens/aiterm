@@ -330,7 +330,7 @@ TS tests-scripts.
 - [x] 3c. **Codex.** The Operator row has one fixed id and a payload-free selection case; the
   derived id goes (WD F8, SB F6, OC F11). Row flags are kept once, not as a set plus a mirror
   (WD F9).
-- [ ] 3d. **Codex.** The iTerm2 banner says what a person can act on: iTerm2 isn't running (with
+- [x] 3d. **Codex.** The iTerm2 banner says what a person can act on: iTerm2 isn't running (with
   Open iTerm2), iTerm2 refused AiTerm, AiTerm's helper isn't working; nothing while starting or
   connected (WD F7).
 - [ ] 3e. **Opus.** `docs/windows.md` rewritten for the closed view; the alert line in
@@ -895,3 +895,17 @@ left.
   once in `RowFlags` (a set with per-row observed cells) instead of a set plus a mirror. No test
   deleted; added `RowFlagsTests`. Snapshots in `build/refactor-3c`: only `marks.png` differs from
   `build/refactor-3b` (known variant). The brief's identity grep also matches `SignalOperatorRow`.
+- 3d: the iTerm2 banner says what a person can act on: "iTerm2 isn’t running." with Open iTerm2,
+  "iTerm2 refused AiTerm." with the Automation steps, "AiTerm isn’t connected to iTerm2." with Open
+  Settings (after a ten-second grace), or "AiTerm’s helper isn’t working." (starting and unreachable
+  after the grace, missing, Python, failing, mismatch at once); nothing while starting or connected.
+  `DaemonBanner` became `ConnectionBanner`; `.itermReconnecting` became `.itermNotRunning` (from the
+  cookie answer). Test deleted: `everyStateButConnectedKeepsItsBanner` (behaviour deleted; survivor
+  `connectionBannersNameActionableProblemsAfterTheirGrace`); added `ConnectionBannerTests`.
+  Snapshots in `build/refactor-3d`: only `sidebar-banners.png` changed (the four new states, the planned
+  change; the brief's Proof said three, its Change four). Fix round 1: the gate failed in
+  `SidebarScrollTests.scrollingContentStaysBelowTheTrafficLights`; with no always-present startup
+  banner the sidebar `List` extended into the titlebar's safe area, so the list is now hosted in a
+  small `NSHostingView` with no safe-area regions (`SidebarListViewport`). Keyboard, redraw-budget and
+  snapshot tests are unchanged and green; the wrapper rebuilds an `AnyView` on each update, which the
+  phase review should weigh.

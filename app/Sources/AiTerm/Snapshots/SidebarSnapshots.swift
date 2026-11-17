@@ -106,9 +106,11 @@ enum SidebarSnapshots {
                     }
                     IssueBanner(issue: OperationIssue.branchKept("feat/migrate-alert", of: UUID(), because: .notMerged(base: "main")),
                                 perform: { _ in }, dismiss: {})
-                    SidebarConnectionBanner(banner: ItermConnection.refused("not allowed").banner!,
-                                            status: ItermConnection.refused("not allowed").status)
-                    SidebarConnectionBanner(banner: .info("Waiting for iTerm2…"), status: "Waiting for iTerm2…")
+                    ForEach(0..<4) { index in
+                        let states: [ItermConnection] = [.itermNotRunning, .refused("not allowed"),
+                                                        .helperFailing("exit 1"), .waitingForIterm]
+                        SidebarConnectionBanner(banner: states[index].banner(waited: true)!, openIterm: {}, openSettings: {})
+                    }
                 }
                 .frame(width: Size.sidebarWidth + 20)
                 .background(Palette.sidebar)

@@ -113,43 +113,45 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Self.titlebarHeight).accessibilityHidden(true)
             SidebarBanners(controller: controller)
-            ScrollViewReader { scroller in
-                List(selection: selection) {
-                    Self.operatorRows(in: rows, controller: controller)
-                    .listRowSeparator(.hidden)
-                    Self.projectRows(in: rows, controller: controller)
-                    .listRowSeparator(.hidden)
+            SidebarListViewport {
+                ScrollViewReader { scroller in
+                    List(selection: selection) {
+                        Self.operatorRows(in: rows, controller: controller)
+                        .listRowSeparator(.hidden)
+                        Self.projectRows(in: rows, controller: controller)
+                        .listRowSeparator(.hidden)
+                    }
+                    .listStyle(.sidebar)
+                    // Selection is drawn by the row so it can stay blue while iTerm2 is key. The table
+                    // still owns keyboard navigation; only its focus-dependent gray highlight is hidden.
+                    .scrollContentBackground(.hidden)
+                    .background(NativeRowHighlight.off)
+                    .background(SectionCrossing { controller.crossSections(down: $0) })
+                    // A plain ↩: ⌘↩ is the sheets' commit key, not the list's.
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.isEmpty else { return .ignored }
+                        controller.activateSelection()
+                        return .handled
+                    }
+                    // On the list, not a menu command: a menu's key equivalent would beat a text field's
+                    // own ⌘⌫ — delete to the line's start — in every sheet and field of the app. ⌫ arrives
+                    // as U+007F: `KeyEquivalent.delete` is U+0008, which a key press never matches.
+                    .onKeyPress("\u{7F}", phases: .down) { press in
+                        guard press.modifiers == .command else { return .ignored }
+                        // The question is asked a turn later, never inside SwiftUI's key handler, where
+                        // an alert run modally came up without its "Delete local branch" checkbox
+                        // (`Prompter`).
+                        Task { await controller.removeSelection() }
+                        return .handled
+                    }
+                    .background(SidebarScrollFollower(focus: controller.focus) { selection in
+                        // A row in the folded section opens it first, folding the other.
+                        controller.reveal(selection)
+                        // The main run loop runs this block on the main thread, where the proxy lives.
+                        nonisolated(unsafe) let proxy = scroller
+                        RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(selection.id) } }
+                    })
                 }
-                .listStyle(.sidebar)
-                // Selection is drawn by the row so it can stay blue while iTerm2 is key. The table
-                // still owns keyboard navigation; only its focus-dependent gray highlight is hidden.
-                .scrollContentBackground(.hidden)
-                .background(NativeRowHighlight.off)
-                .background(SectionCrossing { controller.crossSections(down: $0) })
-                // A plain ↩: ⌘↩ is the sheets' commit key, not the list's.
-                .onKeyPress(.return, phases: .down) { press in
-                    guard press.modifiers.isEmpty else { return .ignored }
-                    controller.activateSelection()
-                    return .handled
-                }
-                // On the list, not a menu command: a menu's key equivalent would beat a text field's
-                // own ⌘⌫ — delete to the line's start — in every sheet and field of the app. ⌫ arrives
-                // as U+007F: `KeyEquivalent.delete` is U+0008, which a key press never matches.
-                .onKeyPress("\u{7F}", phases: .down) { press in
-                    guard press.modifiers == .command else { return .ignored }
-                    // The question is asked a turn later, never inside SwiftUI's key handler, where
-                    // an alert run modally came up without its "Delete local branch" checkbox
-                    // (`Prompter`).
-                    Task { await controller.removeSelection() }
-                    return .handled
-                }
-                .background(SidebarScrollFollower(focus: controller.focus) { selection in
-                    // A row in the folded section opens it first, folding the other.
-                    controller.reveal(selection)
-                    // The main run loop runs this block on the main thread, where the proxy lives.
-                    nonisolated(unsafe) let proxy = scroller
-                    RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(selection.id) } }
-                })
             }
             // List's native scroll-edge extension must not paint a row or its selection into the
             // reserved titlebar band, even while rubber-banding or scrolling a selected row up.
@@ -174,6 +176,24 @@ struct SidebarView: View {
     /// commits through the row's tap.
     private var selection: Binding<UUID?> {
         Binding(get: { controller.focus.selection?.id }, set: { controller.focus.peek(id: $0) })
+    }
+}
+
+/// With no connection banner, the list meets the titlebar's safe-area edge. A native list in the
+/// window's host then extends its scroll view under the controls, even when SwiftUI clips it.
+/// Its own host keeps the viewport inside the space the sidebar gave it; the sidebar owns the band.
+private struct SidebarListViewport<Content: View>: NSViewRepresentable {
+    @ViewBuilder let content: Content
+
+    func makeNSView(context: Context) -> NSHostingView<AnyView> {
+        let host = NSHostingView(rootView: AnyView(content.environment(\.self, context.environment)))
+        host.safeAreaRegions = []
+        host.sizingOptions = []
+        return host
+    }
+
+    func updateNSView(_ host: NSHostingView<AnyView>, context: Context) {
+        host.rootView = AnyView(content.environment(\.self, context.environment))
     }
 }
 
@@ -265,9 +285,7 @@ struct SidebarSheetPresenter: View {
     }
 }
 
-/// What sits above the list: a failed save, a failed operation, the Operator's refused wake line, and the
-/// helper's connection state. The first three, and iTerm2 refusing the connection, are `Notice`s; the grey
-/// line while AiTerm connects is not a request, and stays a line of muted text.
+/// Actionable notices above the list: a failed save, a failed operation or a connection problem.
 struct SidebarBanners: View {
     let controller: AppController
 
@@ -285,34 +303,27 @@ struct SidebarBanners: View {
                         dismiss: { controller.notices.dismissIssue() })
         }
 
-        if let banner = controller.helper.itermConnection.banner {
-            SidebarConnectionBanner(banner: banner, status: controller.helper.itermConnection.status)
+        if let banner = controller.helper.connectionBanner {
+            SidebarConnectionBanner(banner: banner, openIterm: controller.openIterm, openSettings: {
+                controller.sheets.presentSettings(tab: SettingsTab.opening(
+                    iterm: controller.helper.itermConnection, serviceTestFailed: false))
+            })
         }
     }
 }
 
-/// The helper's connection state: grey while it connects, which waits on nothing of yours; a
-/// `Notice` while iTerm2 refuses the connection, which waits on you — the card's status its title,
-/// what to do its description.
+/// An actionable connection problem, with links to start iTerm2 or inspect its Settings card.
 struct SidebarConnectionBanner: View {
-    let banner: DaemonBanner
-    /// `ItermConnection.status`, which the banner's text opens with.
-    let status: String
-
-    /// The refusal's title and description: the status as a sentence, then the rest of the banner's text.
-    static func notice(_ text: String, status: String) -> (title: String, description: String?) {
-        let title = status + "."
-        guard text.hasPrefix(title + " ") else { return (text, nil) }
-        return (title, String(text.dropFirst(title.count + 1)))
-    }
+    let banner: ConnectionBanner
+    let openIterm: () -> Void
+    let openSettings: () -> Void
 
     var body: some View {
-        switch banner.tone {
-        case .warning:
-            let notice = Self.notice(banner.text, status: status)
-            SidebarBanner(trailing: Space.block) { Notice(title: notice.title, description: notice.description) }
-        case .info:
-            SidebarBanner(trailing: Space.block) { HelpText(banner.text, fixedVerticalSize: false).textSelection(.enabled) }
+        SidebarBanner(trailing: Space.block) {
+            Notice(title: banner.title, description: banner.description, help: banner.help) {
+                if banner.opensIterm { Button("Open iTerm2", action: openIterm) }
+                if banner.opensSettings { Button("Open Settings", action: openSettings) }
+            }
         }
     }
 }

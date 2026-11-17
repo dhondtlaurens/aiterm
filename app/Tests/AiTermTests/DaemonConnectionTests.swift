@@ -259,8 +259,8 @@ with c:
         defer { connection.stop() }
         await eventually { states.count >= 3 }
 
-        #expect(states == [.refused("first refusal"), .itermReconnecting, .refused("second refusal")], "got \(states)")
-        #expect(states.first?.banner?.tone == .warning)
+        #expect(states == [.refused("first refusal"), .waitingForIterm, .refused("second refusal")], "got \(states)")
+        #expect(states.first?.banner(waited: false)?.title == "iTerm2 refused AiTerm.")
     }
 
     /// The helper's request reaches the app in the bootstrap snapshot and, later, as an event; a
@@ -293,9 +293,14 @@ with c:
             try? FileManager.default.removeItem(at: log)
         }
         var asked = 0
+        var states: [ItermConnection] = []
         var client: DaemonClient?
-        let connection = DaemonConnection(socketPath: server.path, onClient: { client = $0 }, onStatus: { _ in }, onEvent: { _ in },
-                                          requestCookie: { asked += 1; return .granted(cookie: "c\(asked)", key: "k") })
+        let connection = DaemonConnection(socketPath: server.path, onClient: { client = $0 },
+                                          onStatus: { if states.last != $0 { states.append($0) } }, onEvent: { _ in },
+                                          requestCookie: {
+                                              asked += 1
+                                              return asked == 1 ? .notRunning : .granted(cookie: "c2", key: "k")
+                                          })
         connection.start()
         defer { connection.stop() }
         func answers() -> [String] {
@@ -307,8 +312,9 @@ with c:
         _ = try await client?.snapshot()
         try await Task.sleep(for: .milliseconds(150))
 
-        #expect(answers() == [#"{"cookie": "c1", "key": "k", "requestId": 7}"#, #"{"cookie": "c2", "key": "k", "requestId": 8}"#])
+        #expect(answers() == [#"{"notRunning": true, "requestId": 7}"#, #"{"cookie": "c2", "key": "k", "requestId": 8}"#])
         #expect(asked == 2)
+        #expect(states == [.waitingForIterm, .itermNotRunning, .waitingForIterm], "got \(states)")
     }
 }
 

@@ -60,6 +60,7 @@ extension AppController {
                      openLocationSettings: @escaping @MainActor () -> Void = {},
                      machineSensor: any MachineSensor = InertMachineSensor(), peekDelay: Duration = .zero,
                      checkoutPollInterval: Duration = .seconds(2), toastLifetime: Duration = .seconds(10),
+                     connectionGrace: Duration = .seconds(10),
                      git: any GitRunning = GitRunner.hermetic(),
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
@@ -79,7 +80,8 @@ extension AppController {
                              backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor,
                              git: git, scan: scan, operatorPorts: operatorPorts ?? .scratch())
         self.init(preferences: preferences, ports: ports,
-                  timings: AppTimings(peekDelay: peekDelay, checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime))
+                  timings: AppTimings(peekDelay: peekDelay, checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime,
+                                      connectionGrace: connectionGrace))
     }
 }
 

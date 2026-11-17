@@ -21,7 +21,7 @@ import Testing
         #expect(!controller.workspace.flush())
         controller.start()
         #expect(controller.helper.daemon == nil)
-        #expect(controller.helper.itermConnection.banner == .info("Starting AiTerm’s helper…"))
+        #expect(controller.helper.connectionBanner == nil)
         #expect(try Data(contentsOf: url) == original)
     }
 
@@ -37,13 +37,13 @@ import Testing
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
         #expect(!controller.canChangeWorkspace)
-        controller.helper.itermConnection = .itermReconnecting
+        controller.helper.itermConnection = .waitingForIterm
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
         try FileManager.default.removeItem(at: store.backupURL)
         #expect(controller.workspace.flush())
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
         #expect(controller.persistenceError == nil)
-        #expect(controller.helper.itermConnection == .itermReconnecting)
+        #expect(controller.helper.itermConnection == .waitingForIterm)
     }
 
     @Test func restoreLoadsWorkspaceAndLoadDoesNotReplaceUnsavedEdits() throws {

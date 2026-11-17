@@ -116,7 +116,7 @@ final class AppController {
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython, claudeConfig: claudeConfig, harnessHome: harnessHome,
-                                notices: notices)
+                                notices: notices, connectionGrace: timings.connectionGrace)
         let daemon: @MainActor () -> (any DaemonCommands)? = { helper.daemon }
         let live = LiveSessions(workspace: workspace)
         let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: daemon)
@@ -250,6 +250,9 @@ final class AppController {
     }
 
     // -- lifecycle ------------------------------------------------------------------
+    /// Starts iTerm2 through the same launch port used at startup, without bringing it forward.
+    func openIterm() { launchIterm() }
+
     /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the checkout
     /// monitor, the agent CLI probes, the helper and the sweep of dead fixes' clones, each once.
     func start() {
