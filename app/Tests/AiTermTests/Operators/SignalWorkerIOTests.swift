@@ -233,6 +233,52 @@ import Synchronization
         #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
                 "The finished checkout cannot launch a worker after Take Over.")
     }
+    /// A Take Over that lands while the stage still reads the request, before git runs, leaves that checkout to finish
+    /// for the person: the task gets its worktree on the request's source branch, and the Operator opens no worker.
+    @Test(.blocking) func takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree() async throws {
+        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        let controller = fixture.controller, server = RecordingDaemon()
+        let read = HeldRead()
+        defer { read.release(); controller.shutdown(); fixture.cleanUp() }
+        let repo = fixture.repo.path, setup = fixture.git
+        try await BackgroundWork.run { _ = try setup.run(["branch", "work"], in: repo) }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalItem(id) {
+            $0.projectId = fixture.project.id
+            $0.branch = "work"; $0.worktreePath = ""; $0.baseBranch = ""; $0.windowId = nil
+            $0.mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+            $0.signalTask?.phase = .launching
+        }
+        controller.workspace.mutate { state in
+            state.signals = world.state.signals; state.tasks = world.state.tasks; state.operatorSession = world.state.operatorSession
+        }
+        #expect(controller.workspace.flush())
+        let stub = StubSession { _ in
+            read.hold()
+            return (200, Data(#"[{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","source_project_id":1,"target_project_id":1}]"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        controller.signalController.readConnections = { links }
+        controller.helper.setDaemonClient(server)
+        let root = controller.signalController
+        root.sourceRegistrations = { _ in [] }
+        root.start(); await root.ports.work.settled()
+        let stage = Task { await root.stages.run(id) }
+        try #require(await eventually(describing: "the stage reading the request") { read.reached })
+        await controller.takeOver(id)
+        #expect(controller.state.task(id: id)?.hasCheckout == false, "The stage's checkout is still under way.")
+        read.release(); await stage.value
+        try #require(await eventually(describing: "the checkout saved") { controller.state.task(id: id)?.hasCheckout == true })
+        let task = try #require(controller.state.task(id: id))
+        #expect(task.signalTask == nil && task.takenOver)
+        #expect(task.worktreePath == repo + "/.worktrees/review-work" && task.baseBranch == "main")
+        let path = task.worktreePath
+        let head = try await BackgroundWork.run { try setup.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) }
+        #expect(head.trimmingCharacters(in: .whitespacesAndNewlines) == "work")
+        #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
+                "The finished checkout cannot launch a worker after Take Over.")
+        #expect(controller.issue == nil)
+    }
     /// A stage for a request item checks out the request's source branch through the app's checkout, and refuses a
     /// fork's, whose source branch is not in this repository.
     @Test(.blocking, arguments: [false, true]) func aRequestStageChecksOutItsSourceBranchAndRefusesAFork(fork: Bool) async throws {
@@ -345,6 +391,17 @@ import Synchronization
     }
 }
 
+/// A host read held until released, so a Take Over can land while the stage waits for it.
+private final class HeldRead: Sendable {
+    private let entered = Mutex(false)
+    private let gate = DispatchSemaphore(value: 0)
+    var reached: Bool { entered.withLock { $0 } }
+    func release() { gate.signal() }
+    func hold() {
+        entered.withLock { $0 = true }
+        _ = gate.wait(timeout: .now() + TestDeadline.seconds)
+    }
+}
 private final class CheckoutHeldGit: GitRunning {
     private let entered = Mutex(false)
     private let gate = DispatchSemaphore(value: 0)

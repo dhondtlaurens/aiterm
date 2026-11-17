@@ -1010,3 +1010,16 @@ left.
   left: with `.takeOver` gone every `OperatorIssues.Source` is retried, so its non-retried branch and
   doc are dead (for 5d or 5h). From this step on, the installed app and this branch cannot read each
   other's Operator records: run `scripts/reset-operator-state.sh` with AiTerm quit before switching.
+- Phase close, review round 1 (Codex, `main..HEAD`): (1) Important, confirmed: a Take Over while the
+  stage's request checkout was still reading the request over HTTP left the task with no worktree
+  and no banner (the stage's checkout saw the revoked claim before `git worktree add` and stopped).
+  Fixed by the 4e implementer: the checkout's checks before git also pass when the task was taken
+  over meanwhile (marked, same project and branch), so it finishes for the person; the final check
+  still refuses the Operator, so no worker launches. Added
+  `SignalWorkerIOTests.takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree` (fails
+  without the fix). (2) Minor, listed: choosing an ordinary task with no worktree says nothing; after
+  fix 1 that is only a refused fork request, whose refusal banner was already shown. One plain gate run
+  of the implementer failed once in `ItermFocusControllerTests.aTakenOverRequestOpensItsSourceBranchAndRefusesAFork(fork: false)`
+  (21 seconds, no reason printed; the expectation now carries the banner's reason as its message);
+  the next runs, including the orchestrator's, were green. Left: a fork found during the stage's read
+  after a Take Over gives no banner (two unlikely things at once).

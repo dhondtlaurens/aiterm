@@ -220,13 +220,18 @@ final class TaskLauncher {
     /// `task`'s worktree for a worker: for a task with a request, the request's source branch (a fork's is
     /// not in this repository and is refused) with its target as base; otherwise a new branch from git's
     /// default branch, or what an earlier attempt left (`TaskWorkflow.checkOutWorker`). `stillAllowed` is
-    /// asked after every await. Once git has made the worktree it is the task's, whoever asked: saved on
-    /// the task while it is still on the same project and branch without a checkout, even when
-    /// `stillAllowed` then says no. Only then is that refusal thrown. Callers save nothing.
+    /// asked after every await. The worktree is the task's, whoever asked: one the person took over meanwhile
+    /// (`AppState.takeOver`) has it made all the same, as Take Over leaves this checkout to finish, and once
+    /// git has made it, it is saved on the task while it is still on the same project and branch without a
+    /// checkout, even when `stillAllowed` then says no. Only then is that refusal thrown. Callers save nothing.
     func checkOutWorker(_ task: TaskItem, stillAllowed: @escaping @MainActor () -> Bool) async throws
         -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
         func check() throws {
-            guard stillAllowed() else { throw ActionUnavailable("The task changed while its worktree was made.") }
+            guard stillAllowed() || takenOverMeanwhile() else { throw ActionUnavailable("The task changed while its worktree was made.") }
+        }
+        func takenOverMeanwhile() -> Bool {
+            guard let current = state.task(id: task.id) else { return false }
+            return current.takenOver && current.projectId == task.projectId && current.branch == task.branch
         }
         guard let project = state.project(id: task.projectId) else { throw ActionUnavailable("This task's project is busy.") }
         guard let token = work.begin(.opening, onTask: task.id) else { throw ActionUnavailable("This task's project is busy.") }
@@ -266,7 +271,7 @@ final class TaskLauncher {
         guard workspace.flush(), let saved = state.task(id: task.id) else {
             throw ActionUnavailable("The checkout could not be saved. Recover the workspace before opening its window.")
         }
-        try check()
+        guard stillAllowed() else { throw ActionUnavailable("The task changed while its worktree was made.") }
         return (saved, made.worktreeInclude)
     }
 
@@ -276,8 +281,8 @@ final class TaskLauncher {
     /// there. Each guard scope a worker of the task was launched with is written again with the raised
     /// ownership, so a launch already past its last claim check cannot write one that still grants it; the
     /// scope stays, as a worker still running uses it. A task whose worker never started gets its worktree
-    /// now, as an ordinary task has one, unless the Operator's checkout for it is under way: that one saves
-    /// its folder on the task. Each failure is said on the task.
+    /// now, as an ordinary task has one, unless the Operator's checkout for it is under way: that one carries
+    /// on for the person and saves its folder on the task (`checkOutWorker`). Each failure is said on the task.
     func takeOver(_ id: UUID) async {
         guard canChangeWorkspace, state.task(id: id)?.signalTask != nil else { return }
         var removed: SignalTask?

@@ -98,7 +98,7 @@ import Testing
             #expect(current.takenOver && !current.hasCheckout && current.windowId == nil)
             #expect(server.requests("window.createTask").isEmpty && controller.issue?.subject == task.id)
         } else {
-            #expect(controller.state.task(id: task.id)?.hasCheckout == true)
+            #expect(controller.state.task(id: task.id)?.hasCheckout == true, "\(String(describing: controller.issue))")
             await controller.choose(task: task.id)?.value
             let current = try #require(controller.state.task(id: task.id))
             #expect(current.windowId == "reopened")
