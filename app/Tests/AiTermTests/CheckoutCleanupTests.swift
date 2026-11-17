@@ -354,6 +354,40 @@ import Testing
         #expect(controller.state.tasks.isEmpty)
     }
 
+    /// Another row's tab dragged into the window: closing it would end that row's work, so each pass leaves the row
+    /// as it is, its worktree missing, with nothing closed, cleared or said. Once that tab has left, the next pass
+    /// closes it as ever.
+    @Test func aRemovedTaskWhoseWindowHoldsAnotherRowsTabWaitsForThatTabToLeave() async throws {
+        let fixture = try await TaskFixture(windowOpen: true)
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon()
+        defer { controller.shutdown() }
+        controller.helper.setDaemonClient(server)
+        let windowId = try #require(fixture.task.windowId)
+        let own = SessionInfo.stub("s1", window: windowId, task: fixture.task)
+        controller.live.sessions = [own, .make("other", window: windowId, task: UUID(), agent: .shell, state: .idle)]
+
+        try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
+        for _ in 0..<2 {
+            await controller.checkouts.refresh().value
+            // A close the pass began would be over by now.
+            await eventually(describing: "no closing under way") { controller.work.operation(onTask: fixture.task.id) == nil }
+            #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
+            #expect(controller.checkouts.missingCheckouts.contains(fixture.task.id))
+            #expect(controller.state.tasks == [fixture.task])
+            #expect(server.closedWindowIds.isEmpty)
+            #expect(controller.toastState.toast == nil)
+        }
+
+        controller.live.sessions = [own]
+        await controller.checkouts.refresh().value
+        await eventually(describing: "the closing ended") { controller.work.operation(onTask: fixture.task.id) == nil }
+        #expect(server.closedWindowIds == [windowId])
+        #expect(controller.state.tasks.isEmpty)
+        #expect(controller.toastState.toast?.message == "Task closed because its worktree was removed.")
+    }
+
     /// A close iTerm2 refuses is retried by the next pass, and the row says "Closing…" throughout
     /// rather than flickering back to "Worktree missing" between tries.
     @Test(arguments: ["temporary_failure", .notFound] as [DaemonError.Code])

@@ -142,7 +142,8 @@ Some windows close because AiTerm closed them:
   task with a window says **Not archived: iTerm2 isn’t connected**, and a window shared with other
   work says **Not archived**.
 - **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
-  branch is kept.
+  branch is kept. While the window holds another row's tab, nothing closes: the row stays, saying
+  **Worktree missing**, until that tab has left.
 - **Remove Terminal** closes the terminal's window and removes its row.
 - **The Operator** closes its chat when its workload ends, and before it starts a fresh chat.
 
