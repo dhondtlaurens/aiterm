@@ -95,3 +95,7 @@ No key was added; no brief or tool bytes changed. `brief.md` and `tools.json` we
 ## Take Over makes an ordinary task
 
 Re-recorded in step 4e of the greenfield refactor: Take Over removes a task's signal record and marks the task `takenOver`; `signalTask` no longer has a `takenOver` key.
+
+## The edge history left the task record
+
+5a (greenfield refactor): re-recorded; the unread `edges` history left the saved task record.

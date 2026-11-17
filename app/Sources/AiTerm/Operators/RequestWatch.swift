@@ -43,7 +43,7 @@ import AiTermCore
         self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports
     }
     func pass() async {
-        guard !running, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true else { return }
+        guard !running else { return }
         running = true; defer { running = false }
         var cache: [String: Snapshot] = [:]
         let ids = workspace.state.tasks.compactMap { task -> UUID? in
@@ -53,7 +53,7 @@ import AiTermCore
             return nil
         }
         for id in ids {
-            guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
+            guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
                   let signal = record.configuration ?? workspace.state.signal(id: record.signal), !ports.workerIsWorking(id) else { continue }
             let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.item.identity ?? id.uuidString
             let snapshot: Snapshot
@@ -68,8 +68,7 @@ import AiTermCore
         }
     }
     private func allowed(_ claim: SignalClaim) -> Bool {
-        workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true && !Task.isCancelled
-            && claim.canAct(in: workspace.state) && !ports.workerIsWorking(claim.task)
+        claim.allows(in: workspace) && !ports.workerIsWorking(claim.task)
     }
     private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, signal: Signal) async throws {
         var snapshot = first

@@ -71,21 +71,18 @@ import AiTermCore
                   launch.openedAt == nil, record.phase == .launching || record.phase == .blocked,
                   live.sessions.contains(where: { $0.taskUUID == task.id }) else { continue }
             if let worker = task.firstWorker(in: live.sessions), worker.agent.agentKind == task.agent {
+                guard let adopted = try? SignalTransitions.apply(.adopted, to: record, at: ports.now()) else { continue }
                 workspace.mutate { $0.updateSignalItem(task.id) { value in
                     value.windowId = worker.windowId
-                    value.signalTask?.edges.append(SignalEdge(from: record.phase, to: .working, stage: record.stage, at: ports.now()))
-                    value.signalTask?.phase = .working; value.signalTask?.launch?.openedAt = ports.now()
-                    value.signalTask?.launch?.workerPending = false; value.signalTask?.currentAct = nil; value.signalTask?.blockedReason = nil
+                    value.signalTask = adopted
                     if let conversation = worker.conversationId {
                         let saved = TaskConversation(agent: task.agent, id: conversation)
                         if !value.conversations.contains(saved) { value.conversations.insert(saved, at: 0) }
                     }
                 } }
-            } else if record.phase != .blocked {
-                workspace.mutate { $0.updateSignalTask(task.id) {
-                    $0.phase = .blocked; $0.currentAct = nil
-                    $0.blockedReason = "A terminal is already open from an interrupted launch. Inspect it before resuming this stage."
-                } }
+            } else if let blocked = try? SignalTransitions.apply(
+                .launchFailed("A terminal is already open from an interrupted launch. Inspect it before resuming this stage."), to: record, at: ports.now()) {
+                workspace.mutate { $0.updateSignalTask(task.id) { $0 = blocked } }
                 onBlocked(task.id)
             }
             workspace.flush()
@@ -111,9 +108,11 @@ import AiTermCore
                 return worker?.session?.agent.agentKind == nil || worker?.conversation == nil
             } == true
             if failedOpening {
-                workspace.mutate { $0.updateSignalTask(task.id) {
-                    $0.phase = .blocked; $0.currentAct = nil
-                    $0.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming."
+                workspace.mutate { $0.updateSignalTask(task.id) { record in
+                    if let next = try? SignalTransitions.apply(.block("Its worker did not start after its saved launch. Inspect its window before resuming."),
+                                                               to: record, at: ports.now()) {
+                        record = next; record.currentAct = nil
+                    }
                 } }
                 replies[task.id] = nil; workspace.flush(); onBlocked(task.id); continue
             }
@@ -138,8 +137,9 @@ import AiTermCore
                     if let reply, reply.fingerprint != pending.fingerprint {
                         workspace.mutate { $0.updateSignalTask(task.id) { $0.pendingReplies?[key] = nil } }
                     } else if ports.now().timeIntervalSince(pending.at) >= 180 {
-                        workspace.mutate { $0.updateSignalTask(task.id) {
-                            $0.phase = .blocked; $0.blockedReason = "Its worker has not replied to the saved message. Inspect its window before resuming."
+                        workspace.mutate { $0.updateSignalTask(task.id) { record in
+                            if let next = try? SignalTransitions.apply(.block("Its worker has not replied to the saved message. Inspect its window before resuming."),
+                                                                       to: record, at: ports.now()) { record = next }
                         } }
                     } else { continue }
                 }
@@ -160,11 +160,9 @@ import AiTermCore
         }
         replies = replies.filter { ids.contains($0.key) }
     }
-    /// Whether the Operator may still act on `task` as it read it: running, the workspace changeable, not paused, its
-    /// claim on the task able to act, and the work not cancelled.
+    /// Whether the Operator may still act on `task` as it read it: running, and its claim on the task allowed.
     func allows(_ task: TaskItem) -> Bool {
-        enabled() && workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true
-            && SignalClaim(task)?.canAct(in: workspace.state) == true && !Task.isCancelled
+        enabled() && SignalClaim(task)?.allows(in: workspace) == true
     }
     private func require(_ task: TaskItem) throws -> SignalClaim {
         guard allows(task), let claim = SignalClaim(task) else {

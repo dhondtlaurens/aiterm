@@ -36,7 +36,7 @@ import AiTermCore
     }
     func answer(task id: UUID, key: String, proposal: String, tab: String = "main", challenge: String? = nil,
                 fromQuestion: String? = nil, person: Bool = false) async throws -> JSONValue {
-        guard workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true, !key.isEmpty, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        guard workspace.canChangeWorkspace, !key.isEmpty, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               workspace.state.operatorSession?.startingFresh == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
         let operatorID = workspace.state.operatorSession?.id, operatorGeneration = workspace.state.operatorSession?.generation
         let ledgerKey = "answer_worker:" + key
@@ -50,16 +50,15 @@ import AiTermCore
             if let result { return result }
         }
         guard !running.contains(ledgerKey) else { return ["status": "pending"] }
-        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), task.signalTask?.phase == .working,
+        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), task.signalTask?.phase == .working,
               let question = ports.question(id, tab) else { throw ActionUnavailable("This worker has no current unanswered question.") }
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
                                       "session": .string(question.session), "conversation": question.conversation.map(JSONValue.string) ?? .null,
                                       "tab": .string(question.tab), "fingerprint": .string(question.identity)])
         guard !activeQuestions.contains(binding) else { return ["status": "pending"] }
         func stillAsks() -> Bool {
-            workspace.canChangeWorkspace && !Task.isCancelled && claim.canAct(in: workspace.state)
+            claim.allows(in: workspace)
                 && ports.question(id, tab) == question && workspace.state.operatorSession?.startingFresh == false
-                && workspace.state.operatorSession?.paused != true
                 && workspace.state.operatorSession?.id == operatorID && workspace.state.operatorSession?.generation == operatorGeneration
         }
         running.insert(ledgerKey); activeQuestions.insert(binding)
@@ -130,7 +129,7 @@ import AiTermCore
             try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
             guard stillAsks(), let current = workspace.state.task(id: id) else { clear(roundID); throw ActionUnavailable("The task or question changed.") }
             try await ports.deliver(current, question, proposal)
-            guard claim.canAct(in: workspace.state), !Task.isCancelled, workspace.state.operatorSession?.id == operatorID,
+            guard claim.allows(in: workspace), workspace.state.operatorSession?.id == operatorID,
                   workspace.state.operatorSession?.generation == operatorGeneration else { clear(roundID); throw ActionUnavailable("The task changed while its answer was delivered.") }
             if let fromQuestion {
                 workspace.mutate { state in

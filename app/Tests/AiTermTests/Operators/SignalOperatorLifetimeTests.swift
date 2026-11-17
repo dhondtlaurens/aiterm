@@ -70,7 +70,7 @@ import Testing
         root.stop()
     }
 
-    @Test(arguments: [TaskPhase.done, .archived, .stopped])
+    @Test(arguments: [TaskPhase.done, .archived])
     func completedTasksAndTheirOldQuestionsCannotKeepNeedsYouVisible(phase: TaskPhase) {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         world.state.updateSignalTask(task) { $0.phase = phase; $0.thenApplied = true }

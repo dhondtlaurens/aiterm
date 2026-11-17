@@ -16,14 +16,4 @@ struct SignalRetentionTests {
         #expect(session.ledger.count == 500 && session.ledger.first?.key == "k100")
         #expect(session.questions.count == 1002 && session.waitingOnYou == 1001)
     }
-    @Test func repeatedStagesRetainOnlyTheNewestTransitionTail() throws {
-        var task = SignalTask(signal: UUID(), item: .unknown(.null), startedAt: Date()); task.phase = .working
-        for _ in 0..<250 {
-            task = try SignalTransitions.apply(.block("Wait"), to: task, at: Date())
-            task = try SignalTransitions.apply(.resume, to: task, at: Date())
-            task = try SignalTransitions.apply(.workerStarted, to: task, at: Date())
-        }
-        #expect(task.edges.count == 100)
-        #expect(task.edges.last?.to == .working && task.ownership == 250)
-    }
 }

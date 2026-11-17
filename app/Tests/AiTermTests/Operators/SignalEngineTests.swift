@@ -54,6 +54,24 @@ import Testing
         #expect(launches == 1)
     }
 
+    @Test func aLaunchErrorAfterTheStageWasBlockedLeavesTheFirstReason() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .launching }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now },
+            ports: .init(workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { task, _ in
+                try h.workspace.mutate { state in
+                    try state.updateSignalTask(task.id) { $0 = try SignalTransitions.apply(.block("Its worker stopped first."), to: $0, at: world.now) }
+                }
+                throw ActionUnavailable("The terminal could not open.")
+            }, restore: { $0 }))
+        var changes: [String] = []; runner.changed = { _, line in changes.append(line) }
+        await runner.run(id)
+        let record = try #require(h.workspace.state.task(id: id)?.signalTask)
+        #expect(record.phase == .blocked && record.blockedReason == "Its worker stopped first.")
+        #expect(changes.isEmpty)
+    }
+
     @Test func aCompleteMatchSavesItsStageBeforePreparingAndLaunchingAWorker() async throws {
         var world = SignalWorld()
         let signal = world.signal()

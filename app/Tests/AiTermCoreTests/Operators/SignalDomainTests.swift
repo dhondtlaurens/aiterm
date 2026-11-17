@@ -109,7 +109,6 @@ import Testing
         task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
         task = try SignalTransitions.apply(.finish(.operatorJudges), to: task, at: now)
         #expect(task.phase == .done && task.canRunThen)
-        #expect(task.edges.count == 6)
     }
 
     @Test(arguments: [TaskPhase.watching(.approved), .done, .archived])
@@ -295,17 +294,52 @@ import Testing
         #expect(session.cached(key: "0", at: now.addingTimeInterval(8 * 86400)) == nil)
     }
 
-    @Test func blockResumeAndStopRespectAuthority() throws {
+    @Test func blockAndResumeRespectAuthority() throws {
         let s = signal(), item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         var task = SignalTask(signal: s.id, item: item, startedAt: now)
         task = try SignalTransitions.apply(.block("Launch failed"), to: task, at: now)
         #expect(task.phase == .blocked && task.blockedReason == "Launch failed")
         task = try SignalTransitions.apply(.resume, to: task, at: now)
-        #expect(task.phase == .launching && task.blockedReason == nil)
+        #expect(task.phase == .launching && task.blockedReason == nil && task.ownership == 1)
         task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
-        task = try SignalTransitions.apply(.stop, to: task, at: now)
-        #expect(task.phase == .stopped)
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.resume, to: task, at: now) }
+    }
+
+    @Test func aLaunchFailureBlocksOnlyALaunchingStage() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        var task = SignalTask(signal: signal().id, item: item, startedAt: now); task.currentAct = "starting its worker"
+        let failed = try SignalTransitions.apply(.launchFailed("No terminal."), to: task, at: now)
+        #expect(failed.phase == .blocked && failed.blockedReason == "No terminal." && failed.currentAct == nil && failed.ownership == task.ownership)
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.launchFailed("Later."), to: failed, at: now) }
+        task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.launchFailed("Later."), to: task, at: now) }
+    }
+
+    @Test func aRecoveredWorkerIsAdoptedFromLaunchingOrALostLaunchReply() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), later = now.addingTimeInterval(60)
+        var launching = SignalTask(signal: signal().id, item: item, startedAt: now)
+        launching.launch = LaunchAttempt(number: 1, requestedAt: now, workerPending: true); launching.currentAct = "starting its worker"
+        var lost = launching; lost.phase = .blocked; lost.blockedReason = "Its worker could not start."
+        for record in [launching, lost] {
+            let adopted = try SignalTransitions.apply(.adopted, to: record, at: later)
+            #expect(adopted.phase == .working && adopted.blockedReason == nil && adopted.currentAct == nil)
+            #expect(adopted.launch?.openedAt == later && adopted.launch?.workerPending == false && adopted.ownership == record.ownership)
+        }
+        var opened = lost; opened.launch?.openedAt = now
+        var answered = lost; answered.launch?.workerPending = false
+        var unlaunched = lost; unlaunched.launch = nil
+        for record in [opened, answered, unlaunched] {
+            #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.adopted, to: record, at: later) }
+        }
+        let working = try SignalTransitions.apply(.workerStarted, to: launching, at: now)
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.adopted, to: working, at: later) }
+    }
+
+    @Test func aSavedStoppedPhaseDecodesAsUnknownAndRoundTrips() throws {
+        let saved: JSONValue = ["kind": "stopped"]
+        let phase = try saved.decode(TaskPhase.self)
+        #expect(phase == .unknown(saved))
+        #expect(try JSONValue(encoding: phase) == saved)
     }
 
     @Test(arguments: [DoneWhen.hasReviewer, .approved, .threadsResolved, .merged, .myReviewPosted, .mergedOrClosed])
@@ -329,9 +363,7 @@ import Testing
         let chosen = try SignalTransitions.apply(.chosen, to: task, at: now)
         #expect(chosen.phase == .launching && chosen.ownership == task.ownership + 1)
         #expect(chosen.choosableRows == nil && chosen.candidateProjects == nil)
-        #expect(chosen.edges.suffix(2).map(\.to) == [.choosing, .launching])
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.chosen, to: chosen, at: now) }
-        #expect(try SignalTransitions.apply(.stop, to: task, at: now).phase == .stopped)
     }
     @Test func theChoosingPhaseAndItsSparseFieldsRoundTripAndOldRecordsDecode() throws {
         var task = SignalTask(signal: signal().id, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: now)

@@ -9,7 +9,6 @@ public enum TaskPhase: Codable, Equatable, Sendable {
     case blocked
     case done
     case archived
-    case stopped
     case unknown(JSONValue)
 
     public init(from decoder: Decoder) throws {
@@ -24,7 +23,6 @@ public enum TaskPhase: Codable, Equatable, Sendable {
         case "blocked": self = .blocked
         case "done": self = .done
         case "archived": self = .archived
-        case "stopped": self = .stopped
         default: self = .unknown(raw)
         }
     }
@@ -38,7 +36,6 @@ public enum TaskPhase: Codable, Equatable, Sendable {
         case .blocked: raw = ["kind": "blocked"]
         case .done: raw = ["kind": "done"]
         case .archived: raw = ["kind": "archived"]
-        case .stopped: raw = ["kind": "stopped"]
         case .unknown(let value): raw = value
         }
         try raw.encode(to: encoder)

@@ -87,9 +87,8 @@ import AiTermCore
                             if let request = item.mergeRequest { task.mr = MergeRequestRef(iid: request.iid, title: request.title, url: request.url) }
                             if task.jira == nil { task.jira = item.ticket.map(JiraRef.init) }
                         }
-                        if record.phase == .launching {
-                            if let configuration = startingConfiguration { task.prepareLaunch(configuration: configuration, candidates: nil, at: at) }
-                            else { task.signalTask?.phase = .blocked; task.signalTask?.blockedReason = AgentChoiceNeed.unavailableReason }
+                        if record.phase == .launching, let configuration = startingConfiguration {
+                            task.prepareLaunch(configuration: configuration, candidates: nil, at: at)
                         }
                     }
                     if state.signalItem(id: id)?.signalTask?.phase == .launching { launches.append(id) }

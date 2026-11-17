@@ -16,7 +16,7 @@ struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
     init(state: AppState, entries: [SidebarEntry]) {
-        let held = state.tasks.filter { $0.signalTask.map { $0.phase != .stopped } == true }
+        let held = state.tasks.filter { $0.signalTask != nil }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
             if case .project(let section) = entry { return section.tasks }; return []
@@ -76,7 +76,7 @@ struct SignalSidebar {
                 row.status = .needsInput
             case .done, .archived:
                 row.operatorLine = OperatorLine("done", look: .ended); if !busy { row.status = .idle }
-            case .stopped, .unknown: break
+            case .unknown: break
             }
         }
         return row

@@ -138,7 +138,7 @@ import Testing
         controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ben Aerts"]) } }
         #expect(line() == "waiting on approval · Ben")
     }
-    @Test func journalEdgesAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
+    @Test func journalAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
         let controller = try controller(); defer { controller.shutdown() }
         let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
             agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
@@ -151,7 +151,6 @@ import Testing
             controller.workspace.mutate { $0.updateSignalTask(Self.taskId) {
                 $0.journal.append(.init(at: at, stage: 1, text: .ours("A saved decision.")))
                 $0.pendingReplies = ["main": .init(at: at, fingerprint: "record")]
-                $0.edges.append(.init(from: .launching, to: .working, stage: 1, at: at))
             } }
         })
         #expect(rows.derivations == before)

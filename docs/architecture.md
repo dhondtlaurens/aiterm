@@ -111,7 +111,7 @@ AiTerm guards worker pushes and owns automatic merges. The Oracle is read-only a
 workspace state. Current saved settings/instructions govern each new check; a changed in-flight
 Oracle setting or instruction invalidates its answer.
 
-State tails are bounded: twenty journal entries per task, one hundred edges/snags, fifty closed
+State tails are bounded: twenty journal entries per task, one hundred snags, fifty closed
 questions and five hundred/seven days of idempotency. Unresolved questions and current undelivered
 answers survive. Default status gives one journal entry per task; task-specific status gives the
 full state tail and prompt. Descriptions arrive only as quoted data on demand. There is no task

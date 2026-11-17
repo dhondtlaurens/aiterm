@@ -585,9 +585,6 @@ import AiTermCore
                 let kept = failures.filter { UUID(uuidString: $0.key).map(activeSignals.contains) == true }
                 state.operatorSession?.sourceFailures = kept.isEmpty ? nil : kept
             }
-            for (id, record) in records where record.edges.count > SignalTask.edgeLimit {
-                state.updateSignalTask(id) { $0.edges = Array($0.edges.suffix(SignalTask.edgeLimit)) }
-            }
         }
     }
     func operatorTab() -> SessionInfo? {

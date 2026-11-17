@@ -107,8 +107,7 @@ import AiTermCore
         let git = git
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
         guard local == head, local == snapshot.localHead else { throw ActionUnavailable("Its local head changed before merging.") }
-        guard enabled(), ItemRef.repository(remote) == ItemRef.repository(reference.remote), workspace.canChangeWorkspace,
-              workspace.state.operatorSession?.paused != true, claim.canAct(in: workspace.state), !Task.isCancelled else { throw ActionUnavailable("The task changed before merging.") }
+        guard enabled(), ItemRef.repository(remote) == ItemRef.repository(reference.remote), claim.allows(in: workspace) else { throw ActionUnavailable("The task changed before merging.") }
         _ = try await host.merge(reference.number, at: head)
     }
     private var detailsCache: [UUID: (claim: SignalClaim?, value: JSONValue, at: Date)] = [:]

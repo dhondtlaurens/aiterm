@@ -152,7 +152,7 @@ two-line layout and badges under projects and signals. Reduce Motion uses a plai
 AiTerm keeps task journals, stages, questions, pending replies and source failures locally. The
 Operator reads status rather than relying on chat memory. Choosing, launching, working, watching
 for a done condition and blocked tasks keep the same chat, as do pending stages and outstanding
-closeout. Completed, archived or stopped tasks do not keep it after their remaining work finishes, and
+closeout. Completed or archived tasks do not keep it after their remaining work finishes, and
 tasks you took over are no longer the Operator's. Questions from completed or superseded stages no
 longer ask for attention.
 

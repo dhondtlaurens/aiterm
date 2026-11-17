@@ -359,7 +359,7 @@ TS tests-scripts.
 
 ### Phase 5. Operator (after 4)
 
-- [ ] 5a. **Opus.** Every phase change goes through the stage machine, with actions for the
+- [x] 5a. **Opus.** Every phase change goes through the stage machine, with actions for the
   recovered worker and the failed launch; the unreachable `stopped` phase, the unused `stop` action
   and the unread edge history go. One claim check covers workspace, pause, signal enabled and
   cancellation; the thirteen repeated pause checks go (RT F5, OC F2).
@@ -1051,3 +1051,17 @@ left.
   the refactor's own merges; merged to `main`. No manual check is owed for phase 4 by the plan. From
   this merge on, `main` and the installed app cannot read each other's Operator records: run
   `scripts/reset-operator-state.sh` with AiTerm quit before switching between them.
+
+### Phase 5
+
+- 5a: every phase change goes through `SignalTransitions`, with new actions `launchFailed` and
+  `adopted` for the failed launch and the recovered worker; the unreachable `stopped` phase (a saved
+  one decodes as `.unknown`), the `stop` action and the unread `edges` history went. One claim check,
+  `SignalClaim.allows(in:)`, covers workspace, cancellation, pause, signal enabled, configuration and
+  phase; the repeated pause checks went. Fixture re-recorded: `operator-signals/state.json` with
+  `AITERM_RECORD_SIGNAL_STATE=1` (only the two empty `edges` arrays removed), provenance section added.
+  Test deleted: `SignalRetentionTests.repeatedStagesRetainOnlyTheNewestTransitionTail` (behaviour
+  deleted; its ownership count survives in `blockAndResumeRespectAuthority`). Added
+  `SignalClaimTests`, three `SignalDomainTests` and
+  `SignalEngineTests.aLaunchErrorAfterTheStageWasBlockedLeavesTheFirstReason`. Noticed and left: the
+  doc comment of `LaunchAttempt.workerPending` names a `WorkerStarter.checkLaunches` that no longer exists.

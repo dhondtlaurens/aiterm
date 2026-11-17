@@ -72,9 +72,6 @@
               "ticketDescription" : true
             }
           },
-          "edges" : [
-
-          ],
           "extraTabs" : [
 
           ],
@@ -366,9 +363,6 @@
             "ticketDescription" : true
           }
         },
-        "edges" : [
-
-        ],
         "extraTabs" : [
           {
             "agent" : "codex",

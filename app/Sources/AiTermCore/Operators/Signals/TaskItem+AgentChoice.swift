@@ -13,7 +13,8 @@ public extension TaskItem {
             next.choosableRows = rows; next.candidateProjects = projects
             signalTask = next
         case .unavailable:
-            signalTask?.phase = .blocked; signalTask?.blockedReason = AgentChoiceNeed.unavailableReason
+            guard let next = try? SignalTransitions.apply(.block(AgentChoiceNeed.unavailableReason), to: record, at: at) else { return }
+            signalTask = next
         }
     }
 

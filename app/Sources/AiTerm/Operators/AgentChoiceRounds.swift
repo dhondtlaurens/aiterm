@@ -33,8 +33,7 @@ import AiTermCore
     /// critique returns `challenged` with its `challengeId`; the next proposal names it.
     func decide(task: TaskItem, scope: Scope, rows: [AgentChoice], projects: [UUID]?, proposal: Proposal,
                 challenge: String?, work: String? = nil) async throws -> Outcome {
-        guard workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              workspace.state.operatorSession?.startingFresh == false, let claim = SignalClaim(task), claim.canAct(in: workspace.state) else {
+        guard workspace.state.operatorSession?.startingFresh == false, let claim = SignalClaim(task), claim.allows(in: workspace) else {
             throw ActionUnavailable("The Operator cannot choose right now.")
         }
         func decided(_ how: AgentChoiceRecord.Decided, row: AgentChoice? = nil, reason: String? = nil, round: Int? = nil, note: String? = nil) -> Outcome {
@@ -78,7 +77,7 @@ import AiTermCore
             ledger.clear(roundID); workspace.flush()
             return .reply(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId."])
         } catch { verdict = .unavailable(OperationIssue.reason(of: error)) }
-        guard claim.canAct(in: workspace.state), !Task.isCancelled else {
+        guard claim.allows(in: workspace) else {
             ledger.clear(roundID); workspace.flush(); throw ActionUnavailable("The task changed while the Oracle read the choice.")
         }
         switch verdict {

@@ -88,7 +88,7 @@ extension AppController {
         if rows.operatorHeading.folds {
             let underOperator = switch row {
             case .operatorChat, .signal: true
-            case .task(let id): state.task(id: id)?.signalTask.map { $0.phase != .stopped } == true
+            case .task(let id): state.task(id: id)?.signalTask != nil
             case .project, .terminal: false
             }
             if underOperator != rows.operatorOpen { setOperatorOpen(underOperator) }

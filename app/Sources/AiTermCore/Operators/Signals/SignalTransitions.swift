@@ -45,6 +45,14 @@ public enum SignalTransitions {
         case .block(let reason):
             guard task.phase.isActive else { throw SignalTransitionError.invalidEdge }
             next.phase = .blocked; next.blockedReason = reason
+        case .launchFailed(let reason):
+            guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
+            next.phase = .blocked; next.blockedReason = reason; next.currentAct = nil
+        case .adopted:
+            let lostReply = task.phase == .blocked && task.launch?.workerPending == true && task.launch?.openedAt == nil
+            guard task.phase == .launching || lostReply else { throw SignalTransitionError.invalidEdge }
+            next.phase = .working; next.blockedReason = nil; next.currentAct = nil
+            next.launch?.openedAt = at; next.launch?.workerPending = false
         case .needChoice:
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
             next.phase = .choosing; next.currentAct = nil
@@ -57,12 +65,7 @@ public enum SignalTransitions {
         case .archive:
             guard task.canRunThen else { throw SignalTransitionError.invalidEdge }
             next.phase = .archived
-        case .stop: next.phase = .stopped; next.currentAct = nil
         }
-        if next.phase != task.phase || next.stage != task.stage {
-            next.edges.append(SignalEdge(from: task.phase, to: next.phase, stage: next.stage, at: at))
-        }
-        next.edges = Array(next.edges.suffix(SignalTask.edgeLimit))
         return next
     }
 }
