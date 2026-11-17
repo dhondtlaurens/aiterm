@@ -297,7 +297,7 @@ TS tests-scripts.
   table and removes its own entries by marker; the four-form string parser, the moved-hook
   reconciliation and the config-file model fallback go (PL F4). The refusal tests for unbalanced
   and conflicting files stay.
-- [ ] 2e. **Codex.** Daemon: the Codex rollout reader becomes one cursor (first record for the
+- [x] 2e. **Codex.** Daemon: the Codex rollout reader becomes one cursor (first record for the
   version, tail for the last boundary and token count, an unparsable line skipped); the subagent
   quiet window, the iTerm2 batched-read fallback and the resolver's root-change retry go
   (DM F3, F9, F10). The compat captures stay the proof.
@@ -793,3 +793,14 @@ left.
   `models_cache.json` with the same checks (stamping through a symlink, a file appearing, an in-place
   rewrite). Noticed and left: on the rebuild path a CRLF file still gets an extra `\n` after its
   last line, as before.
+- 2e: the Codex rollout reader is one cursor (line 1 for the version on first sight, the tail for
+  the last boundary and token count, later `session_meta` for the thread followed, an unparsable
+  line skipped and logged once); the subagent quiet window, the iTerm2 per-name fallback and the
+  resolver's root-change retry went. Compat captures and tick budgets unchanged. Four large-rollout
+  cases changed their expectation exactly as the brief's decisions say (a boundary more than 8 MiB
+  back reads as no turn; a `session_meta` outside line 1 and the first-sight tail is not seen).
+  Tests deleted with their behaviour: three short-read and rewrite tests and four parser-isolation
+  tests in `test_codex_sessions.py` (unchanged-file I/O survives in
+  `test_context_is_not_reparsed_until_its_rollout_changes` and the tick budgets), four quiet-window
+  tests in `test_status.py`, two fallback tests in `test_iterm_bridge.py`; a live-test assertion on
+  `_batched_reads` went too. Added the unparsable-line test (written first).

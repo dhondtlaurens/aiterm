@@ -64,28 +64,19 @@ class SessionResolver:
             if session_id:
                 # Even a known file can live on a dead mount. Keep all file I/O off the loop,
                 # under one deadline, and never overlap a scan whose worker is still running.
-                deadline = asyncio.get_running_loop().time() + SCAN_SECONDS
                 pid = None
-                while True:
-                    if self._scan is not None and not self._scan.done():
-                        pid = self.claude_files.known_pid(session_id)
-                        break
-                    root = self.claude_files.root
+                if self._scan is not None and not self._scan.done():
+                    pid = self.claude_files.known_pid(session_id)
+                else:
                     scan = self._scan = run_detached(
                         lambda: self.claude_files.indexed_pid(session_id) or self.claude_files.pid_for_session(session_id))
                     scan.add_done_callback(self._scan_finished)
-                    done, _ = await asyncio.wait({scan}, timeout=max(0, deadline - asyncio.get_running_loop().time()))
-                    if not done:
-                        break
-                    try:
-                        pid = scan.result()
-                    except Exception:  # noqa: BLE001 - the completion callback reports the failure
-                        break  # The completion callback reports failures, including abandoned scans.
-                    if root == self.claude_files.root:
-                        break
-                    pid = None
-                    if asyncio.get_running_loop().time() >= deadline:
-                        break
+                    done, _ = await asyncio.wait({scan}, timeout=SCAN_SECONDS)
+                    if done:
+                        try:
+                            pid = scan.result()
+                        except Exception:  # noqa: BLE001 - the completion callback reports the failure
+                            pass
                 if pid and (s := self.registry.by_job_pid(pid)):
                     return s.session_id
         elif iterm_session_id:

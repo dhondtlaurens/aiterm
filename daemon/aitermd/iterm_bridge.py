@@ -46,11 +46,6 @@ class _SessionGone(iterm2.rpc.RPCException):
     only read failure that means a tab is gone rather than that reading it failed."""
 
 
-# Statuses with which iTerm2 may refuse a read of several names at once, where one name at a time
-# is still allowed.
-_UNBATCHABLE = frozenset(iterm2.api_pb2.VariableResponse.Status.Value(name) for name in ("MULTI_GET_DISALLOWED", "INVALID_NAME"))
-
-
 def _variable_values(response) -> list[Any]:
     """The decoded values of a variable response, the way `Session.async_get_variable` decodes one."""
     status = response.variable_response.status
@@ -307,8 +302,6 @@ class ItermBridge:
         # session prompts one, the service's poll makes one every two seconds, and `_found` makes
         # one when it misses (see `_drop_app_refresh_handlers`).
         self._tree: iterm2.App | None = None
-        # Whether iTerm2 takes a session's variables in one request; off for good after a refusal.
-        self._batched_reads = True
         # The original profile is retained only for a live session. The Interface toggle changes
         # sessions, not a user-owned iTerm2 profile; holding the full pre-change profile is what
         # lets turning it off restore the terminal's own colours.
@@ -700,26 +693,9 @@ class ItermBridge:
                 self._background_restore_profiles.pop(session_id, None)
 
     async def _read_variables(self, session: iterm2.Session) -> list[Any]:
-        """Every one of `VARIABLES` for a session, in one request: `Session.async_get_variable`
-        asks for a single name, and a tick would make six requests per tab. Should iTerm2 refuse
-        several names at once, or answer them with fewer values than names -- which leaves no way
-        to tell which value is whose -- they are read one at a time from then on, as that method
-        does. Raises `_SessionGone` for a session that has closed, RPCException for any other
-        refusal."""
-        if self._batched_reads:
-            response = await iterm2.rpc.async_variable(session.connection, session.session_id, [], list(VARIABLES))
-            answer = response.variable_response
-            if answer.status in _UNBATCHABLE:
-                why = iterm2.api_pb2.VariableResponse.Status.Name(answer.status)
-            elif answer.status == iterm2.api_pb2.VariableResponse.Status.Value("OK") and len(answer.values) != len(VARIABLES):
-                why = f"{len(answer.values)} values for {len(VARIABLES)} names"
-            else:
-                return _variable_values(response)
-            log.info("iTerm2 cannot read variables in one request (%s); reading one name at a time", why)
-            self._batched_reads = False
-        responses = await asyncio.gather(*(iterm2.rpc.async_variable(session.connection, session.session_id, [], [name])
-                                           for name in VARIABLES))
-        return [_variable_values(response)[0] for response in responses]
+        """Read all session variables in one request, raising for a closed session or refusal."""
+        response = await iterm2.rpc.async_variable(session.connection, session.session_id, [], list(VARIABLES))
+        return _variable_values(response)
 
     @staticmethod
     def _placed(app: iterm2.App) -> list[_Placement]:
