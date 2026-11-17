@@ -273,8 +273,8 @@ import Foundation
         #expect(try JSONDecoder().decode(SessionAgent.self, from: Data("\"shell\"".utf8)) == .shell)
     }
 
-    /// A window iTerm2 no longer has leaves its row owed it — a task's and a terminal's alike, for
-    /// `AppState.windowPlan` to settle; a stale report leaves a newer window be.
+    /// A window iTerm2 no longer has leaves its row without one — a task's and a terminal's alike; a
+    /// stale report leaves a newer window be.
     @Test func aClosedWindowLeavesItsRowOwedIt() throws {
         let project = Project.make(name: "Repo", path: "/tmp/repo")
         let task = TaskItem.make(project: project.id, worktreePath: "/tmp/repo/.worktrees/work", model: "sonnet",

@@ -2,9 +2,9 @@ import Foundation
 
 public extension AppState {
     /// The workspace as a snapshot of iTerm2 shows it: every row whose window the snapshot does not
-    /// list is owed it, as `closeWindow` has it. Only a connected snapshot says anything: one taken
-    /// while iTerm2 is out of reach lists no windows, and would make every row owed. Taking a window
-    /// back by its tag is `windowPlan`'s.
+    /// list is left without one, as `closeWindow` has it. Only a connected snapshot says anything: one
+    /// taken while iTerm2 is out of reach lists no windows, and would clear every row's. Taking a
+    /// window by its tag is `windowPlan`'s.
     func reconciled(with snapshot: DaemonSnapshot) -> AppState {
         guard snapshot.connected else { return self }
         var next = self

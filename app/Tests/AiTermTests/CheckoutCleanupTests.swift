@@ -191,10 +191,9 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: fixture.task.worktreePath))
     }
 
-    /// A snapshot landing while the removal closes the window — the helper re-attaching — leaves the
-    /// window let go: the row stays windowless while the removal closes it, and its `window.closed`
-    /// clears nothing.
-    @Test func aSnapshotDuringTheCloseDoesNotReattachTheWindow() async throws {
+    /// A snapshot landing while the removal closes the window — the helper re-attaching — may hand the
+    /// row its closing window for a moment; its `window.closed` clears it again, and the removal ends.
+    @Test func aSnapshotDuringTheCloseDoesNotStopTheRemoval() async throws {
         let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
@@ -206,7 +205,6 @@ import Testing
         try await server.received("window.close")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)], usage: .empty)))
-        #expect(controller.state.tasks.first?.windowId == nil)
         controller.windows.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
 
@@ -217,8 +215,8 @@ import Testing
     }
 
     /// Unsaved work written once the check has passed is only found after the window has gone. Kept
-    /// then, the task is a task again, owed its window — which comes back like any other.
-    @Test func keepingATaskWhoseWindowAlreadyClosedBringsItsWindowBack() async throws {
+    /// then, the task is a task again, without a window until it is chosen.
+    @Test func keepingATaskWhoseWindowAlreadyClosedLeavesItWithoutAWindow() async throws {
         let fixture = try await TaskFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
@@ -235,14 +233,13 @@ import Testing
         server.release()
         await removal?.value
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)))
-        await controller.windows.lastRestore?.value
 
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/late.txt"))
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
         #expect(controller.remover.removals.isEmpty, "nothing half done: no note")
         #expect(controller.issue == nil)
-        #expect(server.requests("window.createTask").count == 1)
-        #expect(controller.state.task(id: fixture.task.id)?.windowId != nil, "the window is back on its row")
+        #expect(server.requests("window.createTask").isEmpty)
+        #expect(controller.state.task(id: fixture.task.id)?.windowId == nil)
     }
 
     /// The cleanup's own close is announced as `window.closed` before the daemon answers it, which now
@@ -467,11 +464,9 @@ import Testing
             cwd: fixture.task.worktreePath + "/deleted-subdirectory")]
         controller.checkouts.refresh()
         await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil || !controller.checkouts.missingCheckouts.isEmpty }
-        // A missing checkout starts a window pass that adopts an existing tab, even without a session event.
-        var retained = fixture.task
-        if scenario != "existing" { retained.windowId = "alive" }
-        #expect(controller.state.tasks == [retained])
-        #expect(try controller.savedWorkspace().tasks == [retained])
+        // A checkout read missing changes no row's window: the tab here came with no session event.
+        #expect(controller.state.tasks == [fixture.task])
+        #expect(try controller.savedWorkspace().tasks == [fixture.task])
     }
 }
 

@@ -617,9 +617,9 @@ import Testing
 
 @MainActor @Suite struct ControllerWindowsTests {
 
-    /// A window found gone leaves its row owed it — a task's and a terminal's alike — and its
+    /// A window found gone leaves its row without one — a task's and a terminal's alike — and its
     /// selection and checkout where they were.
-    @Test func observedClosesLeaveRowsOwedAndPreserveCheckouts() throws {
+    @Test func observedClosesLeaveRowsWithoutAWindowAndPreserveCheckouts() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
@@ -890,7 +890,7 @@ import Testing
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Unreadable env")
         try await controller.launcher.createTask(draft: draft, project: project)   // no daemon
-        #expect(controller.issue?.title == "Task created. Its window opens once AiTerm reconnects; start the agent there manually.")
+        #expect(controller.issue?.title == "Task created. Choose it to open its window once AiTerm reconnects, then start the agent there.")
         #expect(controller.issue?.reason == "Couldn’t copy .env into the new worktree.")
     }
 

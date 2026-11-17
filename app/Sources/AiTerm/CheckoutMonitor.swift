@@ -24,7 +24,6 @@ final class CheckoutMonitor {
         didSet {
             let changed = oldValue.symmetricDifference(missingCheckouts)
             for id in changed { missingRows[id] = missingCheckouts.contains(id) }
-            if !changed.isEmpty { missingHooks(changed) }
         }
     }
     /// `missingCheckouts`, observed row by row.
@@ -67,9 +66,6 @@ final class CheckoutMonitor {
     @ObservationIgnored private let remotesHooks = HookList<[UUID: WorkspaceScan.Remote]>()
     private let onTitles: @MainActor ([SessionTitle]) async -> Void
     @ObservationIgnored private let rowsHooks = HookList<Void>()
-    @ObservationIgnored private let missingHooks = HookList<Set<UUID>>()
-    /// Who hears that a poll's pass has ended.
-    @ObservationIgnored private let polledHooks = HookList<Void>()
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
          workspace: WorkspaceStore, onTitles: @escaping @MainActor ([SessionTitle]) async -> Void) {
@@ -101,16 +97,6 @@ final class CheckoutMonitor {
         rowsHooks.add(hook)
     }
 
-    /// Adds `hook` to what hears which tasks' worktrees were read missing, or back, since the last time.
-    @discardableResult
-    func onMissingChanged(_ hook: @escaping @MainActor (Set<UUID>) -> Void) -> HookList<Set<UUID>>.Token {
-        missingHooks.add(hook)
-    }
-
-    /// Adds `hook` to what hears that a poll's pass has ended, every `pollInterval` while the monitor runs.
-    @discardableResult
-    func onPolled(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token { polledHooks.add(hook) }
-
     private func rowsChanged() {
         rowsHooks()
     }
@@ -124,7 +110,6 @@ final class CheckoutMonitor {
         monitor = PollLoop(interval: interval) { [weak self] in
             guard let pass = self?.startPass(owesTrailing: false) else { return nil }
             await pass.value
-            self?.polledHooks()
             return interval
         }
     }

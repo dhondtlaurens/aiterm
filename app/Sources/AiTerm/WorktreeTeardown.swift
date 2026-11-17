@@ -28,7 +28,6 @@ struct WorktreeTeardown {
     }
 
     let workspace: WorkspaceStore
-    let work: WorkInFlight
     let workflow: TaskWorkflow
     let prompter: Prompter
     let daemon: @MainActor () -> (any DaemonCommands)?
@@ -96,25 +95,21 @@ struct WorktreeTeardown {
     }
 
     /// Closes the window the task has now. The row drops it first, so the window's own
-    /// `window.closed` finds it windowless already and asks nothing, and `operation(true)` tells the
-    /// window plan the window is this work's to settle. A window that will not close is given back,
-    /// and nothing is deleted. A row with no window has nothing to close; one whose window cannot be
+    /// `window.closed` finds it windowless already. A window that will not close is given back, and
+    /// nothing is deleted. A row with no window has nothing to close; one whose window cannot be
     /// reached without a daemon is left open — or, `requiringDaemon`, stops the teardown.
-    func closeWindow(of task: TaskItem, holding token: WorkInFlight.Token, requiringDaemon: Bool,
-                     operation: @escaping (_ windowLetGo: Bool) -> TaskOperation) async throws {
+    func closeWindow(of task: TaskItem, requiringDaemon: Bool) async throws {
         guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }),
               let wid = workspace.state.tasks[i].windowId else { return }
         guard let daemon = daemon() else {
             if requiringDaemon { throw TeardownStop.noDaemon }
             return
         }
-        work.update(token, to: operation(true))
-        // Windowless at once, so the window's own `window.closed` finds it so and asks nothing; a
+        // Windowless at once, so the window's own `window.closed` finds it so; a
         // snapshot no longer drops a row, so this need not be on disk before the window closes.
         workspace.mutate { $0.tasks[i].windowId = nil }
         do { try await daemon.closeWindowIfOpen(wid) }
         catch {
-            work.update(token, to: operation(false))
             if let j = workspace.state.tasks.firstIndex(where: { $0.id == task.id }), workspace.state.tasks[j].windowId == nil {
                 workspace.mutate { $0.tasks[j].windowId = wid }
             }

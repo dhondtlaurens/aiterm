@@ -42,7 +42,8 @@ final class AppController {
 
     /// The helper process, the connection to it and how far it reaches iTerm2.
     let helper: HelperLink
-    /// The rows locked to their iTerm2 windows: a window lost is taken back, asked about or restored.
+    /// The rows' iTerm2 windows: a window gone leaves its row without one, a tagged window is taken,
+    /// and a chosen row's window is opened.
     let windows: WindowReconciler
     /// The tabs, usage and context fills the helper reports.
     let live: LiveSessions
@@ -104,12 +105,12 @@ final class AppController {
         let bundledResourcesURL = ports.bundledResourcesURL, locateAgents = ports.locateAgents, findPython = ports.findPython
         let jiraSettings = ports.jiraSettings, gitLabSettings = ports.gitLabSettings, gitHubSettings = ports.gitHubSettings
         let prompter = ports.prompter, setBadge = ports.setBadge, activateIterm = ports.activateIterm
-        let launchIterm = ports.launchIterm, itermRunning = ports.itermRunning, bringForward = ports.bringForward
+        let launchIterm = ports.launchIterm, itermRunning = ports.itermRunning
         let backpackPorts = ports.backpackPorts, backpackSecrets = ports.backpackSecrets
         let openLocationSettings = ports.openLocationSettings, machineSensor = ports.machineSensor, git = ports.git
         let scan = ports.scan
         let peekDelay = timings.peekDelay, checkoutPollInterval = timings.checkoutPollInterval
-        let toastLifetime = timings.toastLifetime, closedWindowHold = timings.closedWindowHold, now = timings.now
+        let toastLifetime = timings.toastLifetime
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
@@ -120,7 +121,7 @@ final class AppController {
         let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: daemon)
         let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
                                         onTitles: { await helper.sendTitles($0) })
-        let teardown = WorktreeTeardown(workspace: workspace, work: work, workflow: workflow, prompter: prompter, daemon: daemon)
+        let teardown = WorktreeTeardown(workspace: workspace, workflow: workflow, prompter: prompter, daemon: daemon)
         let remover = TaskRemover(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
                                   teardown: teardown, checkouts: checkouts, live: live, daemon: daemon)
         let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
@@ -158,8 +159,8 @@ final class AppController {
         // The live sessions hear each helper event first: every other hook reads the tabs as that event left them.
         helper.onEvent { [weak live] in live?.handle($0) }
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
-                                   remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
-                                   notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
+                                   launcher: launcher, terminals: terminals, notices: notices, daemon: daemon,
+                                   launchIterm: launchIterm)
         // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
         let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
                                                     agents: agents, preferences: preferences.defaults)
@@ -462,7 +463,7 @@ final class AppController {
 
     /// A task row's click or ↩ opens an unresolved question in the Operator's window unless a worker needs attention.
     /// A signal's task brings forward its tab that asks, otherwise its last foreground tab.
-    /// `RowFocus.select` restores a closed window, selects a queued task without opening it, and handles other rows.
+    /// `RowFocus.select` opens a closed window, selects a queued task without opening it, and handles other rows.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
         if let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
@@ -519,7 +520,6 @@ extension AppController {
                              jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                              gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
                              activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
-                             bringForward: { AppController.bringAiTermForward() },
                              backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
                              openLocationSettings: {
                                  NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
@@ -527,18 +527,5 @@ extension AppController {
                              machineSensor: machineSensor, git: git, scan: scan,
                              operatorPorts: nil)
         return AppController(preferences: preferences, ports: ports, timings: .live)
-    }
-
-    /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's
-    /// cooperative activation may refuse an app that asks while another is frontmost, which would leave
-    /// the alert behind iTerm2; if AiTerm is still not active a moment later, its Dock icon bounces
-    /// until the person comes. A bounce stops by itself once AiTerm is active.
-    @MainActor static func bringAiTermForward() {
-        NSApplication.shared.activate()
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !NSApplication.shared.isActive else { return }
-            NSApplication.shared.requestUserAttention(.criticalRequest)
-        }
     }
 }

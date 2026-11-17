@@ -3,8 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// What `AppState.windowPlan` says to do about each row's window: take back a window its tag is in,
-/// restore one it is owed, ask about a task closed alone, drop a terminal closed alone — or nothing.
+/// Which windows `AppState.windowPlan` says rows take by their tag — or none.
 @Suite struct WindowPlanTests {
     let project = UUID()
 
@@ -29,33 +28,21 @@ import Testing
         return state
     }
 
-    /// An operator's task before AiTerm starts it has no worktree: nothing to restore it into, and no
-    /// window the person can have closed.
-    @Test func aTaskWithNoWorktreeYetIsNeitherRestoredNorAskedAbout() {
-        var planned = task(window: nil)
-        planned.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        planned.signalTask?.phase = .launching
-        planned.worktreePath = ""
-        #expect(state(tasks: [planned]).windowPlan(sessions: [], settled: true, due: [planned.id], waiting: [], lettingGo: []).isEmpty)
-    }
-
-    /// A started one takes back the window its tag is in, but a closed one comes back only through the
-    /// operator controller (`reopenWorker`, on your click), with the Operator's worker flags.
+    /// A driven task takes the window its tag is in, as any row does; without one it gets nothing here:
+    /// a closed one opens only on your click, through the operator controller's worker opener.
     @Test func anOperatorsStartedTaskTakesItsTaggedWindowButIsNeverRestoredHere() {
         var working = task(window: nil)
         working.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         working.signalTask?.phase = .working
-        #expect(state(tasks: [working]).windowPlan(sessions: [], settled: true, due: [working.id], waiting: [], lettingGo: []).isEmpty)
-        let adopted = state(tasks: [working]).windowPlan(sessions: [tab("a", window: "w9", task: working)], settled: true, due: [],
-                                                         waiting: [], lettingGo: [])
-        #expect(adopted == [.adopt(.task(working.id), windowId: "w9")])
+        #expect(state(tasks: [working]).windowPlan(sessions: []).isEmpty)
+        let adopted = state(tasks: [working]).windowPlan(sessions: [tab("a", window: "w9", task: working)])
+        #expect(adopted == [WindowAdoption(.task(working.id), windowId: "w9")])
     }
 
     @Test func aRowWithItsWindowNeedsNothing() {
         let open = task(window: "w1"), shell = terminal(window: "w2")
         let plan = state(tasks: [open], terminals: [shell]).windowPlan(
-            sessions: [tab("a", window: "w1", task: open), tab("b", window: "w2", terminal: shell)],
-            settled: true, due: [], waiting: [], lettingGo: [])
+            sessions: [tab("a", window: "w1", task: open), tab("b", window: "w2", terminal: shell)])
         #expect(plan.isEmpty)
     }
 
@@ -66,53 +53,9 @@ import Testing
         let lost = task(window: nil), moved = task(window: "w1"), kept = task(window: "w3"), shell = terminal(window: "old")
         let plan = state(tasks: [lost, moved, kept], terminals: [shell]).windowPlan(
             sessions: [tab("a", window: "w5", task: lost), tab("b", window: "w6", task: lost), tab("c", window: "w2", task: moved),
-                       tab("d", window: "w3", task: kept), tab("e", window: "w9", task: kept), tab("f", window: "w7", terminal: shell)],
-            settled: false, due: [], waiting: [], lettingGo: [])
-        #expect(plan == [.adopt(.task(lost.id), windowId: "w5"), .adopt(.task(moved.id), windowId: "w2"),
-                         .adopt(.terminal(shell.id), windowId: "w7")])
-    }
-
-    @Test func anOwedRowIsRestoredOnlyOnceSettledAndNotWaiting() {
-        let owed = task(window: nil), busy = task(window: nil), shell = terminal(window: nil)
-        let base = state(tasks: [owed, busy], terminals: [shell])
-        #expect(base.windowPlan(sessions: [], settled: false, due: [], waiting: [], lettingGo: []).isEmpty)
-        #expect(base.windowPlan(sessions: [], settled: true, due: [], waiting: [busy.id], lettingGo: [])
-                == [.restore(.task(owed.id)), .restore(.terminal(shell.id))])
-    }
-
-    /// A lone close whose hold is over: a task is asked about, a terminal goes — even if iTerm2 left
-    /// after the hold. One with work on it, or waiting for another reason, is neither.
-    @Test func aDueCloseAsksAboutATaskAndDropsATerminal() {
-        let closed = task(window: nil), busy = task(window: nil), shell = terminal(window: nil)
-        let plan = state(tasks: [closed, busy], terminals: [shell]).windowPlan(
-            sessions: [], settled: false, due: [closed.id, busy.id, shell.id], waiting: [busy.id], lettingGo: [])
-        #expect(plan == [.ask(closed.id), .drop(shell.id)])
-    }
-
-    /// A due task whose tab lives on in another window takes that window instead of being asked.
-    @Test func aDueTaskWhoseTabLivesOnIsAdoptedNotAsked() {
-        let moved = task(window: nil)
-        let plan = state(tasks: [moved]).windowPlan(sessions: [tab("a", window: "other", task: moved)], settled: true,
-                                                    due: [moved.id], waiting: [], lettingGo: [])
-        #expect(plan == [.adopt(.task(moved.id), windowId: "other")])
-    }
-
-    /// Waiting holds a row's restore back, not its adoption: a restore that failed or timed out, whose
-    /// window opened anyway, is taken by its tag.
-    @Test func aRowInWaitingStillAdoptsTheWindowItsTagIsIn() {
-        let owed = task(window: nil), shell = terminal(window: nil)
-        let plan = state(tasks: [owed], terminals: [shell]).windowPlan(
-            sessions: [tab("a", window: "other", task: owed), tab("b", window: "w2", terminal: shell)],
-            settled: true, due: [], waiting: [owed.id, shell.id], lettingGo: [])
-        #expect(plan == [.adopt(.task(owed.id), windowId: "other"), .adopt(.terminal(shell.id), windowId: "w2")])
-    }
-
-    /// A task whose removal has let its window go is the removal's: never handed a window, never restored.
-    @Test func aTaskLettingItsWindowGoIsLeftToItsRemoval() {
-        let leaving = task(window: nil)
-        let plan = state(tasks: [leaving]).windowPlan(sessions: [tab("a", window: "w1", task: leaving)], settled: true,
-                                                      due: [leaving.id], waiting: [], lettingGo: [leaving.id])
-        #expect(plan.isEmpty)
+                       tab("d", window: "w3", task: kept), tab("e", window: "w9", task: kept), tab("f", window: "w7", terminal: shell)])
+        #expect(plan == [WindowAdoption(.task(lost.id), windowId: "w5"), WindowAdoption(.task(moved.id), windowId: "w2"),
+                         WindowAdoption(.terminal(shell.id), windowId: "w7")])
     }
 
     @Test func resumeCommandsSkipAnEmptyIdAndOneThatReadsAsAFlag() {

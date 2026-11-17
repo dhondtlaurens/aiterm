@@ -317,7 +317,7 @@ TS tests-scripts.
 
 ### Phase 3. Windows (after 2)
 
-- [ ] 3a. **Opus.** Closed view. A closed window clears the row's window and nothing else. The
+- [x] 3a. **Opus.** Closed view. A closed window clears the row's window and nothing else. The
   close heuristic, the question and its Archive variant, the hold, eager restore and its triggers,
   and bringing AiTerm forward go. The window plan only adopts tagged windows. Choosing a row
   without a window opens it and reports a failure on the click. Terminals follow the same rule
@@ -847,3 +847,29 @@ left.
   merged to `main`.
 - Owed to the maintainer for phase 2: `scripts/compat-check.sh` (the Codex config editor changed in
   2d). The opt-in `WorkerGuardCodexTests` probe (2g changed the worker guard) was not run either.
+
+### Phase 3
+
+- 3a: closed view. A closed window clears its row's window and nothing else; the close heuristic
+  (`ClosedWindowTriage`), the question and its Archive variant, the hold, eager restore and its
+  triggers, bringing AiTerm forward, the "Couldn't reopen" caption and `letsWindowGo` went.
+  `AppState.windowPlan` returns adoptions only; the reconciler passes only on a snapshot, a closed
+  window or a session event that moved `rowSessions`. Choosing a row without a window opens it (a
+  terminal as a fresh shell) and reports a failed open on the click; a row chosen while iTerm2 is not
+  synced starts iTerm2 and is chosen again (opened and raised) on the next connected snapshot if
+  still selected. Tests deleted with their behaviour as the brief lists (`ClosedWindowTriageTests`,
+  `WindowReconcilerTriggerTests`, ten `ClosedTaskWindowTests`, six `RestoringRowTests`, six
+  `WindowPlanTests` and the single cases it names), survivors as it names
+  (`CheckoutCleanupControllerTests.removingATaskClosesItsWindowBeforeDeletingItsWorktree`,
+  `aCleanupWhoseWindowsCloseArrivesFirstStillForgetsTheTask`). New `ClosedViewControllerTests` (seven
+  cases plus the two moved survivors); `RestoringRowTests` became `OpeningRowTests` with an added
+  pending-open case. Snapshots in `build/refactor-3a` RGB-identical to `build/refactor-phase2`.
+  Review rounds by the orchestrator: (1) the pending open now raises its window (the decision says
+  that first click must not need a second one); the `holding token:` parameter and
+  `WorktreeTeardown.work`, unused after the step, went; (2) two `TaskLauncher.create` messages that
+  promised a window "once AiTerm reconnects" now say to choose the task. Differences: the brief's Tests
+  wanted the not-connected sentence for a choose while iTerm2 is away; its Change and Decisions say
+  nothing is reported, which was followed. `CheckoutCleanupControllerTests.filesystemRefreshRetainsUnconfirmedDeletion`
+  (not named) relied on the deleted missing-changed trigger and now expects the kept task without a
+  window. The second Done-when grep still matches an unrelated `"settled: "` message in
+  `OperatorBadgeTests`. Left for 3b: `RowFocus`'s restore names.

@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// A restored window resumes the conversations its tabs last showed, in their order: the first in the
+/// A chosen row's window, opened again, resumes the conversations its tabs last showed, in their order: the first in the
 /// window's own tab, each other in a tab of its own; the task's agent on the model it was launched with.
 @MainActor @Suite(.blocking) struct ResumingConversationsControllerTests {
     @Test func reopeningResumesEachConversationInItsTabsOrder() async throws {
@@ -18,7 +18,7 @@ import Testing
         }
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.windows.lastRestore?.value
+        await fixture.controller.focus.select(.task(task.id))?.value
 
         let window = try #require(server.requests("window.createTask").first)
         #expect(window.params["agentCommand"] as? String == "codex resume thread-1 --dangerously-bypass-approvals-and-sandbox -m model")
@@ -35,14 +35,14 @@ import Testing
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
-        _ = try await fixture.addTask(windowId: nil)
+        let task = try await fixture.addTask(windowId: nil)
         fixture.controller.workspace.mutate {
             $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2"),
                                          TaskConversation(agent: .pi, id: "p-3")]
         }
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.windows.lastRestore?.value
+        await fixture.controller.focus.select(.task(task.id))?.value
 
         #expect(server.requests("tab.create").map { $0.params["agentCommand"] as? String } == ["claude --resume conv-2", "pi --session p-3"])
         #expect(server.requests("tab.create").map { $0.params["windowId"] as? String } == ["reopened", "reopened"])
@@ -57,7 +57,7 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.windows.lastRestore?.value
+        await fixture.controller.focus.select(.task(task.id))?.value
 
         #expect(server.requests("window.createTask").first?.params["agentCommand"] == nil)
         #expect(server.requests("tab.create").isEmpty)
@@ -78,7 +78,7 @@ import Testing
         }
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.windows.lastRestore?.value
+        await fixture.controller.focus.select(.task(task.id))?.value
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened")
         #expect(server.requests("tab.create").count == 1)

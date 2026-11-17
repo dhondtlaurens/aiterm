@@ -28,9 +28,8 @@ import Testing
         #expect(state.reconciled(with: snapshot([], connected: false)) == state)
     }
 
-    /// Every row whose window the snapshot lacks is owed it — a task's and a terminal's alike; the plan
-    /// (`AppState.windowPlan`) decides what follows.
-    @Test func aRowWhoseWindowIsGoneIsOwedIt() {
+    /// Every row whose window the snapshot lacks is left without one — a task's and a terminal's alike.
+    @Test func aRowWhoseWindowIsGoneIsCleared() {
         let (kept, gone) = (task(window: "w1"), task(window: "w9"))
         let (open, closed) = (terminal(window: "w2"), terminal(window: "w8"))
         var state = AppState.empty

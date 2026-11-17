@@ -11,8 +11,7 @@ import AiTermCore
 /// `backpackPorts` are everything Backpack Mode touches — `sudo pmset`, Wi-Fi, the battery, Location, the lid — and
 /// `backpackSecrets` where it keeps the hotspot's password; `openLocationSettings` is where its Allow… sends the person
 /// once macOS will not ask. `machineSensor` reads the Mac's load for the footer; the battery is `backpackPorts.power`.
-/// `bringForward` brings AiTerm forward for Remove's question about a window the person closed; `launchIterm` starts
-/// iTerm2 when AiTerm starts while `itermRunning` says it is not, and when a row is chosen while it is away.
+/// `launchIterm` starts iTerm2 when AiTerm starts while `itermRunning` says it is not, and when a row is chosen while it is away.
 /// `operatorPorts` are what the Operator reaches: its folder, the agents' home, notifications;
 /// nil is the app's own (`OperatorPorts.live`), from
 /// `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
@@ -31,7 +30,6 @@ struct AppPorts {
     var activateIterm: @MainActor () -> Void
     var launchIterm: @MainActor () -> Void
     var itermRunning: @MainActor () -> Bool
-    var bringForward: @MainActor () -> Void
     var backpackPorts: BackpackPorts
     var backpackSecrets: any SecretStore
     var openLocationSettings: @MainActor () -> Void
@@ -41,18 +39,14 @@ struct AppPorts {
     var operatorPorts: OperatorPorts?
 }
 
-/// How long the controller's owners wait, and against what clock: `peekDelay` is `RowFocus`'s (a test passes none, and
+/// How long the controller's owners wait: `peekDelay` is `RowFocus`'s (a test passes none, and
 /// awaits the peek instead); `checkoutPollInterval` the pause between the checkout monitor's passes; `toastLifetime` how
-/// long a completion toast stays up; `closedWindowHold` and `now` how long, and against what clock, a closed task
-/// window is held before Remove's question (`ClosedWindowTriage`).
+/// long a completion toast stays up.
 struct AppTimings {
     var peekDelay: Duration
     var checkoutPollInterval: Duration
     var toastLifetime: Duration
-    var closedWindowHold: Duration
-    var now: @MainActor () -> ContinuousClock.Instant
 
     /// The app's own.
-    static let live = AppTimings(peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2), toastLifetime: .seconds(10),
-                                 closedWindowHold: ClosedWindowTriage.hold, now: { .now })
+    static let live = AppTimings(peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2), toastLifetime: .seconds(10))
 }

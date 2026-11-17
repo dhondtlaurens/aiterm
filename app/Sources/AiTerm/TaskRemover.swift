@@ -140,44 +140,24 @@ final class TaskRemover: CheckoutRemovals {
     /// checkbox here only keeps the alert from offering something that would be ignored.
     static func offersBranchDeletion(for task: TaskItem) -> Bool { task.kind != .review }
 
-    /// Archive offered beside Remove: the window-close question's third answer.
-    typealias ArchiveInstead = @MainActor (TaskItem) async -> Task<Void, Never>?
-
     /// Each question here is an `await`: a snapshot, a window closing or another Remove can run
     /// while it is up. What happens after an answer is decided on the task as it is then — `task`
     /// is the row's copy, as old as the click. Nil when nothing started: the task was gone or busy,
     /// the question was declined, or another Remove took the task while it was up.
-    ///
-    /// With `archiveInstead` the question is Remove, Archive, Cancel, and Archive hands the row, as
-    /// it is then, to that; without it — the menu's and ⌘⌫'s Remove — there are two buttons.
     @discardableResult
-    func confirmRemove(task: TaskItem, archiveInstead: ArchiveInstead? = nil) async -> Task<Void, Never>? {
+    func confirmRemove(task: TaskItem) async -> Task<Void, Never>? {
         let state = workspace.state
         guard workspace.canChangeWorkspace, work.operation(onTask: task.id) == nil, let shown = state.task(id: task.id),
               state.project(id: shown.projectId) != nil else { return nil }
-        // Archive never deletes a branch, so beside it a review's branch sentence is Remove's alone.
-        let detail = switch (shown.kind == .review, archiveInstead != nil) {
-        case (true, true):
-            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later. "
-                + "Remove also deletes its local branch, unless it has unpushed commits."
-        case (true, false):
-            "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
-        case (false, true):
-            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later."
-        case (false, false):
-            "Deletes its worktree and closes its iTerm2 window."
-        }
-        let answer = await prompter.ask(.removeTask(shown, detail: detail, offersArchive: archiveInstead != nil))
-        // The archive checks the row, its project and the workspace itself, as it does from the menu.
-        if let archiveInstead, answer.button == 1 {
-            guard let current = workspace.state.task(id: task.id) else { return nil }
-            return await archiveInstead(current)
-        }
+        let detail = shown.kind == .review
+            ? "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
+            : "Deletes its worktree and closes its iTerm2 window."
+        let answer = await prompter.ask(.removeTask(shown, detail: detail))
         // Still needed after the await: a Remove started during the alert owns the removal now, and
         // this answer then does nothing; the task or its project can be gone, or the workspace locked.
         guard answer.confirmed, workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id),
               let project = workspace.state.project(id: current.projectId),
-              let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else { return nil }
+              let token = work.begin(.removing, onTask: task.id) else { return nil }
         return remove(current, from: project, deleteBranch: answer.checked, holding: token)
     }
 
@@ -188,7 +168,7 @@ final class TaskRemover: CheckoutRemovals {
                              stillAllowed: @MainActor () -> Bool = { true }) async throws {
         guard workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id), current == task,
               let project = workspace.state.project(id: task.projectId),
-              let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else {
+              let token = work.begin(.removing, onTask: task.id) else {
             throw ActionUnavailable("The task changed or is busy. Remove it yourself once it is safe.")
         }
         defer { end(token, of: task.id) }
@@ -222,8 +202,7 @@ final class TaskRemover: CheckoutRemovals {
         }
         guard starting() else { throw ActionUnavailable("Its finished record couldn’t be saved, so nothing was removed.") }
         do {
-            try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true,
-                                           operation: { .removing(windowLetGo: $0) })
+            try await teardown.closeWindow(of: task, requiringDaemon: true)
         } catch TeardownStop.noDaemon {
             throw ClosingWait.helper
         }
@@ -301,7 +280,7 @@ final class TaskRemover: CheckoutRemovals {
         let state = workspace.state
         guard workspace.canChangeWorkspace, removals[id]?.awaitsRetry == true, let task = state.task(id: id),
               let project = state.project(id: task.projectId),
-              let token = work.begin(.removing(windowLetGo: false), onTask: id) else { return nil }
+              let token = work.begin(.removing, onTask: id) else { return nil }
         return (task, project, token)
     }
 
@@ -316,8 +295,8 @@ final class TaskRemover: CheckoutRemovals {
             do {
                 try await before?()
                 // A canceled confirmation leaves the task as it was.
-                guard let result = try await removeWorktree(task: task, project: project, deleteBranch: deleteBranch,
-                                                            holding: token) else { return }
+                guard let result = try await removeWorktree(task: task, project: project, deleteBranch: deleteBranch)
+                else { return }
                 await finishRemoval(of: task, after: result)
             } catch TeardownStop.windowStayedOpen(let why) {
                 outcomes[task.id] = .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)
@@ -334,12 +313,11 @@ final class TaskRemover: CheckoutRemovals {
     /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Archive
     /// shares (`WorktreeTeardown`). A worktree with uncommitted changes asks first, while the window is still open; nil
     /// means it was kept. Unsaved work written after that check is only found once the window has closed: kept then, the
-    /// task is a task again, and its window, if this removal closed it, is owed and comes back (`WindowReconciler`).
+    /// task is a task again and, if this removal closed its window, stays without one until it is chosen.
     /// Without a daemon the window is left open, and `finishRemoval` asks for it to be closed by hand.
-    private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool,
-                                holding token: WorkInFlight.Token) async throws -> TaskWorkflow.Removed? {
+    private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool) async throws -> TaskWorkflow.Removed? {
         guard let prepared = try await teardown.prepare(task, in: project, verb: .remove) else { return nil }
-        try await teardown.closeWindow(of: prepared.task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
+        try await teardown.closeWindow(of: prepared.task, requiringDaemon: false)
         return try await teardown.run(prepared, verb: .remove, current: { [workspace] in workspace.state.task(id: $0.id) }) { task, force in
             try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force,
                                       allowUnlisted: prepared.allowUnlisted)

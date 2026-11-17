@@ -18,7 +18,7 @@ public extension AppState {
         return entry
     }
 
-    /// Archived row `id` back among the tasks, where its creation date puts it, owed its window.
+    /// Archived row `id` back among the tasks, where its creation date puts it, without a window.
     @discardableResult
     mutating func moveFromArchive(id: UUID) -> TaskItem? {
         guard let i = archive.firstIndex(where: { $0.id == id }) else { return nil }
