@@ -11,9 +11,9 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var current = question, deliveries = 0
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            oracleEnabled: { false }, question: { _, _ in current }, oracle: { _ in .agreed("Yes") },
-            deliver: { _, _, _ in deliveries += 1 }))
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }, on: false)
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in current }, deliver: { _, _, _ in deliveries += 1 }))
         try rounds.askYou(key: "scope", task: task, text: current.text)
         try rounds.resolveQuestion(key: "scope", answer: "Use the payment ID.")
         if newSession { current.session = "replacement-session" } else { current.message += " A different tail beyond the caption." }
@@ -26,20 +26,19 @@ import Testing
     @Test func agreementAnswersOnceAndTheSavedKeySurvivesARestart() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
-        var oracleCalls = 0, deliveries: [String] = []
-        let ports = QuestionRounds.Ports(oracleEnabled: { true }, question: { _, _ in question }, oracle: { input in
-            oracleCalls += 1
-            #expect(input.question.text == question.text && input.proposal == "Use the payment ID.")
-            return .agreed("That key is stable across retries.")
-        }, deliver: { _, _, answer in deliveries.append(answer) })
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: ports)
+        var deliveries: [String] = []
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in .critique("YES. That key is stable across retries.") }
+        let ports = QuestionRounds.Ports(question: { _, _ in question }, deliver: { _, _, answer in deliveries.append(answer) })
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: ports)
         let first = try await rounds.answer(task: task, key: "a1", proposal: "Use the payment ID.")
         #expect(first["status"] == "answered")
+        let quoted = try oracle.quoted(0)
+        #expect(quoted["question"]?.stringValue == question.text && quoted["proposal"] == "Use the payment ID.")
         try h.workspace.load()
-        let restarted = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: ports)
+        let restarted = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: ports)
         let replay = try await restarted.answer(task: task, key: "a1", proposal: "Use the payment ID.")
         #expect(replay == first)
-        #expect(oracleCalls == 1 && deliveries == ["Use the payment ID."])
+        #expect(oracle.prompts.count == 1 && deliveries == ["Use the payment ID."])
         #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
         #expect(try h.file.load().operatorSession?.ledger.count == 1)
     }
@@ -47,10 +46,11 @@ import Testing
     @Test func disagreementStopsAfterThreeRoundsAndOnlyARecordedChatQuestionCounts() async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
-        var calls = 0, deliveries = 0
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            oracleEnabled: { true }, question: { _, _ in question }, oracle: { _ in calls += 1; return .critique("IMPORTANT: that key changes.") },
-            deliver: { _, _, _ in deliveries += 1 }))
+        var deliveries = 0
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in .critique("NO. IMPORTANT: that key changes.") }
+        var calls: Int { oracle.prompts.count }
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in question }, deliver: { _, _, _ in deliveries += 1 }))
         var challenge: String?
         for number in 1...3 {
             let result = try await rounds.answer(task: task, key: "a\(number)", proposal: "Proposal \(number)", challenge: challenge)
@@ -77,12 +77,13 @@ import Testing
     @Test(arguments: [false, true]) func theOracleBeingOffOrCallingItThePersonsDecisionAsksInChat(oracleOn: Bool) async throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
-        var calls = 0, delivered = false
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            oracleEnabled: { oracleOn }, question: { _, _ in question }, oracle: { _ in calls += 1; return .person("This is a product decision.") },
-            deliver: { _, _, _ in delivered = true }))
+        var delivered = false
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }, on: oracleOn) { _ in .critique("PERSON This is a product decision.") }
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
         let result = try await rounds.answer(task: task, key: "q", proposal: "Choose A.")
-        #expect(result["status"] == "ask_you" && !delivered && calls == (oracleOn ? 1 : 0))
+        #expect(result["status"] == "ask_you" && !delivered && oracle.prompts.count == (oracleOn ? 1 : 0))
+        #expect(result["reason"]?.stringValue == (oracleOn ? "PERSON This is a product decision." : "The Oracle is off."))
     }
 
     @Test func parallelKeysCannotAnswerTheSameWorkerQuestionTwice() async throws {
@@ -90,12 +91,13 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let entered = TestLatch(), release = TestLatch()
         var calls = 0, deliveries = 0
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            oracleEnabled: { true }, question: { _, _ in question }, oracle: { _ in
-                calls += 1
-                if calls == 1 { entered.signal(); await release.wait() }
-                return .agreed("Fine.")
-            }, deliver: { _, _, _ in deliveries += 1 }))
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in
+            calls += 1
+            if calls == 1 { entered.signal(); await release.wait() }
+            return .critique("YES. Fine.")
+        }
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in question }, deliver: { _, _, _ in deliveries += 1 }))
         let first = Task { try await rounds.answer(task: task, key: "first", proposal: "Use A.") }
         await entered.wait()
         let second = try await rounds.answer(task: task, key: "second", proposal: "Use B.")
@@ -108,11 +110,12 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var delivered = false
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            oracleEnabled: { true }, question: { _, _ in question }, oracle: { _ in
-                h.workspace.mutate { $0.operatorSession?.generation += 1 }
-                return .agreed("Fine.")
-            }, deliver: { _, _, _ in delivered = true }))
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in
+            h.workspace.mutate { $0.operatorSession?.generation += 1 }
+            return .critique("YES. Fine.")
+        }
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
         await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, key: "old-session", proposal: "Answer.") }
         #expect(!delivered)
     }
@@ -121,12 +124,31 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var delivered = false
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            oracleEnabled: { true }, question: { _, _ in question }, oracle: { _ in
-                h.workspace.mutate { $0.takeOver(task) }
-                return .agreed("Fine.")
-            }, deliver: { _, _, _ in delivered = true }))
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in
+            h.workspace.mutate { $0.takeOver(task) }
+            return .critique("YES. Fine.")
+        }
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
         await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, key: "q", proposal: "Answer.") }
         #expect(!delivered && h.workspace.state.operatorSession?.waitingOnYou == 0)
+    }
+
+    /// A check whose Oracle settings changed while it ran is discarded: the Operator proposes again, and nothing
+    /// goes to the worker or the person.
+    @Test func aWorkerAnswerWhoseSettingsChangedReturnsRetryAndDeliversNothing() async throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var delivered = false
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now })
+        oracle.answer = { [unowned oracle] _ in oracle.settings.instructions = "Ask before any merge."; return .critique("YES. Fine.") }
+        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
+            question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
+        let result = try await rounds.answer(task: task, key: "q", proposal: "Answer.")
+        #expect(result["status"] == "retry")
+        #expect(result["next"] == "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key.")
+        #expect(!delivered && h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
+        oracle.answer = { _ in .critique("YES. Fine.") }
+        #expect(try await rounds.answer(task: task, key: "q2", proposal: "Answer.")["status"] == "answered" && delivered)
     }
 }

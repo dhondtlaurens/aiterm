@@ -102,9 +102,8 @@ import Testing
         var session = OperatorSession(createdAt: world.now)
         session.window = "old-window"; session.conversation = "old-conversation"
         session.questions = [.init(id: "scope", task: id, text: "Which scope?", openedAt: world.now)]
-        var round = OracleRound(id: "waiting-round", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
-        round.stage = .delivered; round.critique = "Check the original scope before answering."
-        session.oracleRounds = [round]
+        session.oracleRounds = [OracleRound(id: "waiting-round", tool: "answer_worker", stage: .delivered,
+                                            critique: "Check the original scope before answering.", askedArguments: "{}", askedAt: world.now)]
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
@@ -155,7 +154,7 @@ import Testing
                 ? ["command": "./deploy", "directory": .string(h.folder.path)]
                 : ["key": "check", "question": "Is this sound?", "context": "Inspect the current head."], generation: 1)
         if shell { #expect(await root.gate.respond(request)["decision"] == "deny") }
-        else { #expect(await root.tools.respond(request).value?["status"] == "ask_you") }
+        else { #expect(await root.tools.respond(request).value?["status"] == "retry") }
         root.stop(); await ports.work.settled()
     }
     @Test func acceptingAWakeDoesNotMakeItsStillIdleSnapshotSafeToRotate() async throws {

@@ -80,8 +80,10 @@ public struct OperatorSnag: Codable, Equatable, Sendable {
 }
 
 public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
+    /// Only finished rounds are saved: an agreed worker answer about to be delivered, a critique waiting for a
+    /// revised proposal, or a binding that went to the person.
     public enum Stage: String, Codable, CaseIterable, Sendable {
-        case running, ready, delivered
+        case ready, delivered
         case unanswered = "unchallenged"
     }
     private enum CodingKeys: String, CodingKey {
@@ -108,7 +110,7 @@ public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
     /// The Operator's proposal or reply to the Oracle, which the next round reads.
     public var reply: String?
 
-    public init(id: String, tool: String, stage: OracleRound.Stage = .running, critique: String? = nil,
+    public init(id: String, tool: String, stage: OracleRound.Stage, critique: String? = nil,
                 askedArguments: String? = nil, unansweredReason: String? = nil,
                 result: String? = nil, askedAt: Date, askedEvidence: String? = nil, round: Int? = nil) {
         self.id = id; self.tool = tool; self.stage = stage; self.critique = critique

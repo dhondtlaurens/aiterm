@@ -10,23 +10,18 @@ import AiTermCore
         var row: AgentChoice, project: UUID?, reason: String
         var text: String { "\(row.label)" + (project.map { " in project \($0.uuidString)" } ?? "") + ". " + reason }
     }
-    struct Input: Sendable {
-        var task: TaskItem, scope: Scope, rows: [AgentChoice], projects: [UUID]?, proposal: Proposal, round: Int, discussion: [String]
-        /// A work tab's own brief; nil for a stage, whose brief is the task's saved prompt.
-        var work: String? = nil
-    }
-    enum Verdict: Equatable, Sendable { case agreed(String), critique(String), unavailable(String) }
     enum Outcome: Equatable { case decided(AgentChoiceRecord), reply(JSONValue) }
     struct Ports {
-        var oracleEnabled: @MainActor () -> Bool
-        var oracle: @MainActor (Input) async throws -> Verdict
+        var weeklyUsage: @MainActor () -> [AgentKind: Int]
+        var installedAgents: @MainActor () -> Set<AgentKind>
     }
     private let workspace: WorkspaceStore
     private let now: () -> Date
+    private let oracle: OracleConsult
     private let ports: Ports
     private var active: Set<String> = []
-    init(workspace: WorkspaceStore, now: @escaping () -> Date, ports: Ports) {
-        self.workspace = workspace; self.now = now; self.ports = ports
+    init(workspace: WorkspaceStore, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports) {
+        self.workspace = workspace; self.now = now; self.oracle = oracle; self.ports = ports
     }
 
     /// Settles one call. The caller validated `proposal` against `rows` and `projects`. A
@@ -42,59 +37,48 @@ import AiTermCore
         }
         // One project and one row: only the project was open, and the Operator decides it alone.
         if rows.count == 1 { return decided(.operatorAlone) }
-        let ledger = OracleRoundLedger(workspace: workspace, now: now, tool: scope.rawValue)
         let binding = try Self.json(["task": .string(task.id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership)])
         guard !active.contains(binding) else { return .reply(["status": "pending"]) }
         var previous: OracleRound?
-        if let open = ledger.open(binding: binding) {
-            switch open.stage {
-            case .delivered:
-                guard challenge == open.id else {
-                    return .reply(["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
-                                   "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")])
-                }
-                previous = open
-            default:
-                // A round a restart interrupted: the Oracle's verdict is lost, so the proposal applies.
-                ledger.clear(open.id); workspace.flush()
-                return decided(.oracleUnavailable, note: "An earlier Oracle round was interrupted.")
+        if let open = oracle.saved(tool: scope.rawValue, key: binding) {
+            guard challenge == open.id else {
+                return .reply(["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
+                               "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")])
             }
+            previous = open
         } else if challenge != nil { throw ActionUnavailable("That Oracle round does not belong to this choice.") }
-        guard ports.oracleEnabled() else {
-            if let previous { ledger.clear(previous.id); workspace.flush() }
+        guard oracle.isOn else {
+            if let previous { oracle.clear(previous.id) }
             return decided(.oracleOff)
         }
         let arguments = try Self.json(["row": try JSONValue(encoding: proposal.row), "project": proposal.project.map { .string($0.uuidString) } ?? .null,
                                        "reason": .string(proposal.reason)])
-        let (roundID, round, discussion) = try ledger.begin(binding: binding, arguments: arguments, proposal: proposal.text, previous: previous)
         active.insert(binding); defer { active.remove(binding) }
         workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" } }
-        guard workspace.flush() else { throw ActionUnavailable("The Oracle round couldn’t be saved.") }
+        guard workspace.flush() else { throw ActionUnavailable("The choice couldn’t be saved.") }
         defer { workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(task.id) { $0.currentAct = nil } } } }
-        let verdict: Verdict
-        do { verdict = try await ports.oracle(Input(task: task, scope: scope, rows: rows, projects: projects, proposal: proposal, round: round, discussion: discussion, work: work)) }
-        catch is SignalOracleSettingsChanged where ports.oracleEnabled() {
-            ledger.clear(roundID); workspace.flush()
-            return .reply(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId."])
-        } catch { verdict = .unavailable(OperationIssue.reason(of: error)) }
-        guard claim.allows(in: workspace) else {
-            ledger.clear(roundID); workspace.flush(); throw ActionUnavailable("The task changed while the Oracle read the choice.")
-        }
-        switch verdict {
-        case .agreed:
-            ledger.clear(roundID); workspace.flush()
+        let line = { (id: UUID) -> OracleLaunch.ProjectLine in self.workspace.state.project(id: id).map { .known($0) } ?? .gone(id) }
+        let check = OracleLaunch.AgentChoiceCheck(forTab: scope == .tab, item: task.signalTask?.current.item.identity ?? "", title: task.title,
+            stagePrompt: task.signalTask?.current.prompt ?? "", work: work, project: line(proposal.project ?? task.projectId),
+            candidateProjects: projects.map { $0.map(line) }, permittedRows: rows, row: proposal.row, reason: proposal.reason,
+            weeklyUsage: ports.weeklyUsage(), installed: ports.installedAgents())
+        let outcome = await oracle.consult(.agentChoice(check), binding: .init(claim: claim, round: .init(key: binding, arguments: arguments, proposal: proposal.text)),
+                                           continuing: previous)
+        guard claim.allows(in: workspace) else { throw ActionUnavailable("The task changed while the Oracle read the choice.") }
+        switch outcome {
+        case .agreed(_, let round):
             return decided(.oracleAgreed, round: round)
-        case .critique(let text):
-            guard round >= OracleRoundLedger.maximumRounds else {
-                ledger.critique(roundID, proposal: proposal.text, text: text, discussion: discussion); workspace.flush()
-                return .reply(["status": "challenged", "challengeId": .string(roundID), "round": .int(round), "critique": .string(text),
-                               "next": "Revise the proposal, pass this challengeId and use a new key."])
-            }
-            ledger.clear(roundID); workspace.flush()
+        case .critique(let text, let round, let challengeID?):
+            return .reply(["status": "challenged", "challengeId": .string(challengeID), "round": .int(round), "critique": .string(text),
+                           "next": "Revise the proposal, pass this challengeId and use a new key."])
+        case .critique(let text, let round, nil):
             return decided(.disagreed, row: rows[0], reason: "The Operator proposed \(proposal.row.label): \(proposal.reason)", round: round, note: text)
-        case .unavailable(let reason):
-            ledger.clear(roundID); workspace.flush()
-            return decided(ports.oracleEnabled() ? .oracleUnavailable : .oracleOff, note: reason)
+        case .unavailable(.off):
+            return decided(.oracleOff)
+        case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+            return decided(.oracleUnavailable, note: reason)
+        case .retry:
+            return .reply(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId."])
         }
     }
     nonisolated static func json(_ value: JSONValue) throws -> String {

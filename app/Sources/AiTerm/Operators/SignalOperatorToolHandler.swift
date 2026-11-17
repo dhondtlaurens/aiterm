@@ -11,7 +11,8 @@ import AiTermCore
         var message: @MainActor (TaskItem, String, String, @escaping @MainActor () -> Bool) async throws -> Void
         var openTab: @MainActor (TaskItem, String, AgentChoice, String, String, @escaping @MainActor () -> Bool) async throws -> JSONValue
         var jiraSearch: @MainActor (String) async throws -> JSONValue
-        var oracle: @MainActor (TaskItem?, String, String) async throws -> String
+        /// An Oracle check, bound to the task's claim when there is a task.
+        var consult: @MainActor (TaskItem?, OracleLaunch.Question) async -> OracleConsult.Outcome
         var actionsAllowed: @MainActor () -> Bool = { true }
         var sessions: @MainActor () -> [SessionInfo] = { [] }
         var instructions: @MainActor () -> String? = { nil }
@@ -48,7 +49,7 @@ import AiTermCore
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let key = tool.requiresKey ? try call.string("key") : nil
         let ledgerKey = key.map { "tool:\(tool.rawValue):" + $0 }
-        let arguments = try Self.json(request.arguments)
+        let arguments = try request.arguments.canonicalJSON()
         if let ledgerKey, let old = workspace.state.operatorSession?.ledger.first(where: { $0.key == ledgerKey && now().timeIntervalSince($0.at) <= 7 * 86400 }) {
             guard old.arguments == arguments else { throw ToolRefusal("This key already names a different call. Use the original arguments to retry.") }
             if running.contains(ledgerKey) { return ["status": "pending"] }
@@ -119,9 +120,5 @@ import AiTermCore
     private func remember(_ result: JSONValue, key: String, arguments: String) throws {
         workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }
         guard workspace.flush() else { throw ToolRefusal("The tool result couldn’t be saved.") }
-    }
-    static func json(_ value: JSONValue) throws -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]; encoder.dateEncodingStrategy = .iso8601
-        return String(decoding: try encoder.encode(value), as: UTF8.self)
     }
 }

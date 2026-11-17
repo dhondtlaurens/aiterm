@@ -80,7 +80,8 @@ agent/model/reasoning, and standing instructions under **Steer the Operator**. S
 reach the current chat and subsequent Oracle checks. You can also steer the Operator in its chat.
 
 The Oracle gives read-only second opinions, critiques answers and review threads, judges shell
-commands and vetoes automatic merges. Its settings are read for each check. Switching it off
+commands and vetoes automatic merges. Its settings are read for each check. A check whose Oracle
+settings or standing instructions changed while it ran is discarded and asked again. Switching it off
 routes worker answers to you and prevents automatic merges. For the Operator's shell gate,
 ordinary reads are allowed, prohibited writes are refused, and other commands are consulted;
 when that consultation is unavailable or off, they run unchecked and the result records why.

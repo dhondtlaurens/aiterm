@@ -78,7 +78,8 @@ import Testing
         var question = OperatorSession.Question(id: "locale", task: task.id, text: "Which locale?", openedAt: at)
         question.stage = 1; question.ownership = 0; question.tab = "main"; question.workerQuestion = "Which locale?"
         session.questions = [question]
-        session.oracleRounds = [OracleRound(id: "round", tool: "answer_worker", askedAt: at, askedEvidence: "question-bound", round: 1)]
+        session.oracleRounds = [OracleRound(id: "round", tool: "answer_worker", stage: .delivered, critique: "Use the order's locale.",
+                                            askedAt: at, askedEvidence: "question-bound", round: 1)]
         session.remember(key: "tool:note:note", result: ["status": "recorded"], at: at, arguments: "{}")
         var state = AppState(); state.append(project: project); state.signals = [first, next]; state.tasks = [task, taken]
         state.archive = [ArchivedTask(task: archived, archivedAt: at)]; state.operatorSession = session

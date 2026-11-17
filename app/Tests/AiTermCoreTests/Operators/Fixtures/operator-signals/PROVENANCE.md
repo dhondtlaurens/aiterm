@@ -103,3 +103,7 @@ Re-recorded in step 4e of the greenfield refactor: Take Over removes a task's si
 ## The current stage is held whole
 
 5b (greenfield refactor): re-recorded; a task's record holds its current stage whole under `current`, with a configuration that is always present.
+
+## Only finished Oracle rounds are saved
+
+5c (greenfield refactor): re-recorded; only finished Oracle rounds are saved, so the sample round is a critique waiting for a revision.

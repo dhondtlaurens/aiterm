@@ -64,6 +64,13 @@ public indirect enum JSONValue: Codable, Equatable, Sendable, ExpressibleByStrin
 }
 
 extension JSONValue {
+    /// The value as one line of JSON with sorted keys, slashes unescaped and ISO 8601 dates: what the Operator's
+    /// tools answer with and what the Oracle's prompts quote.
+    public func canonicalJSON() throws -> String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]; encoder.dateEncodingStrategy = .iso8601
+        return String(decoding: try encoder.encode(self), as: UTF8.self)
+    }
+
     /// The Foundation representation for callers that preserve a JSONSerialization encoder.
     var foundationValue: Any {
         switch self {

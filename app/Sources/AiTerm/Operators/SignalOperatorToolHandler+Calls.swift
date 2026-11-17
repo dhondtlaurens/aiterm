@@ -94,7 +94,7 @@ extension SignalOperatorToolHandler {
                 tab: call.optionalString("tab") ?? "main", challenge: call.optionalString("challengeId"),
                 fromQuestion: call.optionalString("fromQuestion"), person: call.optionalBool("person") ?? false)
         case .askOracle:
-            return try await consult(call, task: task, key: key!, allowed: allowed)
+            return try await consult(call, task: task, allowed: allowed)
         case .chooseAgent:
             return try await chooseAgent(call, task: try requireTask(task), allowed: allowed)
         }
@@ -145,20 +145,19 @@ extension SignalOperatorToolHandler {
             return .object(result)
         }
     }
-    private func consult(_ call: ToolCall, task: TaskItem?, key: String, allowed: () -> Bool) async throws -> JSONValue {
-        guard ports.oracleEnabled() else { return ["status": "ask_you", "reason": "The Oracle is off. Ask in your chat, then record ask_you."] }
+    private func consult(_ call: ToolCall, task: TaskItem?, allowed: () -> Bool) async throws -> JSONValue {
         let question = try call.string("question"), context = try call.string("context")
-        let record = OracleRound(id: "consult:" + key, tool: "ask_oracle", askedArguments: try Self.json(call.arguments), askedAt: now())
-        workspace.mutate { $0.operatorSession?.oracleRounds.append(record) }
-        guard workspace.flush() else { throw ToolRefusal("The Oracle request couldn’t be saved.") }
-        defer { workspace.mutate { $0.operatorSession?.oracleRounds.removeAll { $0.id == record.id } }; workspace.flush() }
-        do {
-            let answer = try await ports.oracle(task, question, context)
-            guard allowed() else { throw ToolRefusal("The task or Operator changed while the Oracle read it.") }
+        let outcome = await ports.consult(task, .secondOpinion(question: question, context: context))
+        guard allowed() else { throw ToolRefusal("The task or Operator changed while the Oracle read it.") }
+        switch outcome {
+        case .agreed(let answer, _), .critique(let answer, _, _), .person(let answer):
             return ["status": "opinion", "answer": .string(answer)]
-        } catch {
-            guard allowed() else { throw ToolRefusal("The task or Operator changed while the Oracle read it.") }
-            return ["status": "ask_you", "reason": .string("The Oracle could not answer: " + OperationIssue.reason(of: error))]
+        case .unavailable(.off):
+            return ["status": "ask_you", "reason": "The Oracle is off. Ask in your chat, then record ask_you."]
+        case .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+            return ["status": "ask_you", "reason": .string("The Oracle could not answer: " + reason)]
+        case .retry:
+            return ["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and ask again with a new key."]
         }
     }
     private func requireTask(_ task: TaskItem?) throws -> TaskItem {

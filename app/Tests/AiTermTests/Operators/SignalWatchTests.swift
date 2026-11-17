@@ -200,6 +200,34 @@ import Testing
         #expect(h.workspace.state.task(id: task)?.signalTask?.thenApplied == true)
     }
 
+    /// The merge veto saves nothing while the Oracle reads it; its agreement alone lets the merge go ahead.
+    @Test func noRoundIsSavedWhileTheMergeVetoIsHeld() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let task = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let runner = stages(h, at: world.now)
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now },
+                              ports: .init(workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
+        let entered = TestLatch(), release = TestLatch()
+        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in entered.signal(); await release.wait(); return .critique("YES") }
+        var merged = false
+        let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
+            workerIsWorking: { _ in false }, read: { _ in ready(merged: merged) },
+            oracleMerge: { task, snapshot in
+                let status = OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true, task: task.id)
+                if case .agreed = await oracle.consult.consult(.mergeVeto(head: snapshot.head, status: status), binding: .init(claim: SignalClaim(task))) { return true }
+                return false
+            }, merge: { _, _ in merged = true }))
+        let pass = Task { await watch.pass() }
+        await entered.wait()
+        #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true && !merged)
+        #expect(oracle.prompts.first.map { $0.contains("Judge this explicitly enabled automatic merge.") && $0.contains("Head: aabbcc.") } == true)
+        release.signal(); await pass.value
+        #expect(merged && h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .done)
+    }
+
     @Test func pendingWorkThatArrivesDuringCleanupPreventsThenAndContinuesTheSameTask() async throws {
         var world = SignalWorld(); let first = world.signal(then: .remove), next = world.signal(age: 1), task = world.workingTask(signal: first)
         let h = try SignalHarness(world); defer { h.cleanUp() }

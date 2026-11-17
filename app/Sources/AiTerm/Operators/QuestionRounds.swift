@@ -13,26 +13,21 @@ import AiTermCore
             fingerprint ?? SHA256.hash(data: Data(message.utf8)).map { String(format: "%02x", $0) }.joined()
         }
     }
-    struct Input: Sendable {
-        var task: TaskItem, question: Question, proposal: String, round: Int, discussion: [String]
-    }
-    enum Verdict: Equatable, Sendable { case agreed(String), critique(String), person(String), unavailable(String) }
     struct Ports {
-        var oracleEnabled: @MainActor () -> Bool
         var question: @MainActor (UUID, String) -> Question?
-        var oracle: @MainActor (Input) async throws -> Verdict
         var deliver: @MainActor (TaskItem, Question, String) async throws -> Void
     }
+    static let tool = "answer_worker"
     private let workspace: WorkspaceStore
     private let journal: SignalJournal
     private let now: () -> Date
+    private let oracle: OracleConsult
     private let ports: Ports
     private var running: Set<String> = []
     private var activeQuestions: Set<String> = []
-    private var rounds: OracleRoundLedger { OracleRoundLedger(workspace: workspace, now: now, tool: "answer_worker") }
     var changed: () -> Void = {}
-    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports) {
-        self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports
+    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports) {
+        self.workspace = workspace; self.journal = journal; self.now = now; self.oracle = oracle; self.ports = ports
     }
     func answer(task id: UUID, key: String, proposal: String, tab: String = "main", challenge: String? = nil,
                 fromQuestion: String? = nil, person: Bool = false) async throws -> JSONValue {
@@ -72,6 +67,10 @@ import AiTermCore
             }
             humanAnswer = true
         }
+        let round = OracleConsult.Binding.Round(key: binding, arguments: arguments, proposal: proposal)
+        func markPerson(_ reason: String, replacing: OracleRound? = nil) {
+            oracle.markPerson(tool: Self.tool, key: binding, arguments: arguments, reason: reason, replacing: replacing)
+        }
         var previous: OracleRound?
         if !humanAnswer {
             if let asked = workspace.state.operatorSession?.questions.first(where: {
@@ -81,12 +80,12 @@ import AiTermCore
                 return try remember(["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
                                      "next": "Wait for the person's answer in your chat."], key: ledgerKey, arguments: arguments)
             }
-            if let open = rounds.open(binding: binding) {
-                if open.stage == .unanswered || (open.round ?? 0) >= OracleRoundLedger.maximumRounds {
+            if let open = oracle.saved(tool: Self.tool, key: binding) {
+                if open.stage == .unanswered {
                     return try remember(askPerson(question, reason: open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds."), key: ledgerKey, arguments: arguments)
                 }
-                if open.stage == .running || open.stage == .ready {
-                    markForPerson(open.id, reason: "The earlier attempt was interrupted; check the worker before answering again.")
+                if open.stage == .ready {
+                    markPerson("The earlier attempt was interrupted; check the worker before answering again.", replacing: open)
                     return try remember(askPerson(question, reason: "The earlier attempt was interrupted; check the worker before answering again."), key: ledgerKey, arguments: arguments)
                 }
                 guard challenge == open.id else {
@@ -95,42 +94,45 @@ import AiTermCore
                 }
                 previous = open
             } else if challenge != nil { throw ActionUnavailable("That Oracle round does not belong to this worker's current question.") }
-            if person || !ports.oracleEnabled() {
+            if person || !oracle.isOn {
                 let reason = person ? "The Operator says this is your decision." : "The Oracle is off."
-                rounds.marker(binding: binding, arguments: arguments, reason: reason)
+                markPerson(reason, replacing: previous)
                 return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
             }
         }
-        if previous == nil, let challenge { rounds.clear(challenge) }
-        let (roundID, round, discussion) = try rounds.begin(binding: binding, arguments: arguments, proposal: proposal, previous: previous)
+        if previous == nil, let challenge { oracle.clear(challenge) }
         workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = humanAnswer ? "answering its worker" : "consulting the Oracle" } }
-        guard workspace.flush() else { throw ActionUnavailable("The Oracle round couldn’t be saved.") }
+        guard workspace.flush() else { throw ActionUnavailable("The question couldn’t be saved.") }
         defer {
             workspace.mutate { state in
                 if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } }
             }
         }
         try await journal.append(.quoted(SignalQuote(source: "worker", text: question.text)), task: id)
-        guard stillAsks() else { clear(roundID); throw ActionUnavailable("The task or its question changed.") }
-        let verdict: Verdict
-        if humanAnswer { verdict = .agreed("The person answered in the Operator's chat.") }
+        guard stillAsks() else { throw ActionUnavailable("The task or its question changed.") }
+        let outcome: OracleConsult.Outcome
+        if humanAnswer { outcome = .agreed("The person answered in the Operator's chat.", round: 0) }
         else {
-            do { verdict = try await ports.oracle(Input(task: task, question: question, proposal: proposal, round: round, discussion: discussion)) }
-            catch { verdict = .unavailable(OperationIssue.reason(of: error)) }
+            outcome = await oracle.consult(.workerAnswer(question: question.text, workerMessage: question.message, proposal: proposal,
+                                                         brief: task.signalTask?.current.prompt ?? ""),
+                                           binding: .init(claim: claim, round: round), continuing: previous)
         }
-        guard stillAsks() else { clear(roundID); throw ActionUnavailable("The task or its question changed while the Oracle read it.") }
-        switch verdict {
-        case .agreed:
+        guard stillAsks() else {
+            if case .critique(_, _, let saved?) = outcome { oracle.clear(saved) }
+            throw ActionUnavailable("The task or its question changed while the Oracle read it.")
+        }
+        switch outcome {
+        case .agreed(_, let number):
             // A crash after this marker may have delivered. A restart asks the person instead of
             // typing the same answer twice into a worker that may already be at work again.
-            rounds.ready(roundID)
+            let readyID = oracle.saveReady(tool: Self.tool, binding: round, round: number)
             workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "answering its worker" } }
             guard workspace.flush() else { throw ActionUnavailable("The answer intent couldn’t be saved.") }
             try await journal.append(.ours("Proposed worker answer: " + proposal), task: id)
-            guard stillAsks(), let current = workspace.state.task(id: id) else { clear(roundID); throw ActionUnavailable("The task or question changed.") }
+            guard stillAsks(), let current = workspace.state.task(id: id) else { oracle.clear(readyID); throw ActionUnavailable("The task or question changed.") }
             try await ports.deliver(current, question, proposal)
             guard claim.allows(in: workspace), workspace.state.operatorSession?.id == operatorID,
-                  workspace.state.operatorSession?.generation == operatorGeneration else { clear(roundID); throw ActionUnavailable("The task changed while its answer was delivered.") }
+                  workspace.state.operatorSession?.generation == operatorGeneration else { oracle.clear(readyID); throw ActionUnavailable("The task changed while its answer was delivered.") }
             if let fromQuestion {
                 workspace.mutate { state in
                     if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
@@ -138,18 +140,22 @@ import AiTermCore
                     }
                 }
             }
-            clear(roundID)
+            oracle.clear(readyID)
             return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
-        case .critique(let text):
-            if round >= OracleRoundLedger.maximumRounds {
-                markForPerson(roundID, reason: "The Operator and Oracle still disagree after three rounds. " + text)
-                return try remember(askPerson(question, reason: "The Operator and Oracle still disagree after three rounds. " + text), key: ledgerKey, arguments: arguments)
-            }
-            rounds.critique(roundID, proposal: proposal, text: text, discussion: discussion)
-            return try remember(["status": "challenged", "challengeId": .string(roundID), "round": .int(round), "critique": .string(text)], key: ledgerKey, arguments: arguments)
-        case .person(let reason), .unavailable(let reason):
-            markForPerson(roundID, reason: reason)
+        case .critique(let text, let number, let challengeID?):
+            return try remember(["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text)], key: ledgerKey, arguments: arguments)
+        case .critique(let text, _, nil):
+            let reason = "The Operator and Oracle still disagree after three rounds. " + text
+            markPerson(reason)
             return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+        case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+            markPerson(reason)
+            return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+        case .unavailable(.off):
+            markPerson("The Oracle is off.")
+            return try remember(askPerson(question, reason: "The Oracle is off."), key: ledgerKey, arguments: arguments)
+        case .retry:
+            return try remember(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key."], key: ledgerKey, arguments: arguments)
         }
     }
     func askYou(key: String, task: UUID? = nil, text: String, tab: String = "main") throws {
@@ -175,7 +181,7 @@ import AiTermCore
             state.operatorSession?.questions.append(question)
             if let binding {
                 state.operatorSession?.oracleRounds.removeAll {
-                    $0.tool == "answer_worker" && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unanswered)
+                    $0.tool == Self.tool && $0.askedEvidence == binding && ($0.stage == .delivered || $0.stage == .unanswered)
                 }
             }
             state.operatorSession?.prune(at: now())
@@ -198,8 +204,6 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
         changed()
     }
-    private func markForPerson(_ id: String, reason: String) { rounds.unanswered(id, reason: reason) }
-    private func clear(_ id: String) { rounds.clear(id) }
     private func remember(_ result: JSONValue, key: String, arguments: String) throws -> JSONValue {
         workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }

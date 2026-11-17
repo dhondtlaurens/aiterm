@@ -30,6 +30,7 @@ import AiTermCore
     struct Ports {
         var workerIsWorking: @MainActor (UUID) -> Bool
         var read: @MainActor (TaskItem) async throws -> Snapshot
+        /// Whether the Oracle agrees to merge the task now; anything else means no merge this pass.
         var oracleMerge: @MainActor (TaskItem, Snapshot) async throws -> Bool
         var merge: @MainActor (TaskItem, Snapshot) async throws -> Void
     }
@@ -92,18 +93,11 @@ import AiTermCore
         } }
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
         if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
-            let roundID = UUID().uuidString, generation = workspace.state.operatorSession?.generation
-            let round = OracleRound(id: roundID, tool: "merge_when_ready",
-                                        askedAt: Date(), askedEvidence: task.id.uuidString)
-            workspace.mutate { state in
-                state.operatorSession?.oracleRounds.removeAll { $0.tool == "merge_when_ready" && $0.askedEvidence == task.id.uuidString }
-                state.operatorSession?.oracleRounds.append(round)
-                state.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" }
-            }
+            let generation = workspace.state.operatorSession?.generation
+            workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" } }
             guard workspace.flush() else { return }
             defer {
                 workspace.mutate { state in
-                    state.operatorSession?.oracleRounds.removeAll { $0.id == roundID }
                     if claim.holds(in: state) { state.updateSignalTask(task.id) { $0.currentAct = nil } }
                 }
             }

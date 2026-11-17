@@ -366,7 +366,7 @@ TS tests-scripts.
 - [x] 5b. **Opus.** A task's record holds its current stage whole with a configuration that is
   always present; the eighteen `configuration ?? signal` fallbacks and the field-by-field stage
   copy go; one "question still pending" rule (OC F7 part b). Saved format re-recorded.
-- [ ] 5c. **Opus.** One Oracle owner: one consult with a kind, a binding and a round limit,
+- [x] 5c. **Opus.** One Oracle owner: one consult with a kind, a binding and a round limit,
   returning agreed, critique, the person's call, unavailable or retry. Worker answers, agent
   choice, the merge veto, `ask_oracle` and the shell gate all go through it; every prompt lives in
   Core beside the invocation; a settings change discards the answer and retries; no in-flight
@@ -1078,3 +1078,21 @@ left.
   them); the drawn copy always carries the configuration. Found, not this step's: the signal sidebar
   snapshot fixtures (`Snapshots/SignalSidebarSnapshots.swift`) use real people's names as reviewers,
   in a public repository; changing them changes drawn pixels, so it is left to the maintainer.
+- 5c: one Oracle owner, `OracleConsult`: one `consult(_:binding:continuing:)` with a kind
+  (`OracleLaunch.Question`), a claim binding and a round limit, returning agreed, critique, the
+  person's call, unavailable or retry. Worker answers, agent choice, the merge veto, `ask_oracle` and
+  the shell gate all go through it; every prompt and parser lives in `OracleLaunch` (byte for byte,
+  proven by new Core prompt tests); a settings or standing-instructions change discards the answer and
+  retries; only finished rounds are saved (`OracleRound.Stage` lost `running`), so a crash leaves no
+  in-flight marker. `OracleRoundLedger` and `SignalOracleSettingsChanged` went; one
+  `JSONValue.canonicalJSON()`. Fixture re-recorded: `operator-signals/state.json` (the sample round
+  is now a delivered critique), provenance line added. Model-facing strings changed: `answer_worker`
+  and `ask_oracle` return `{"status":"retry", ...}` when settings changed mid-check (before: to the
+  person / "could not answer"); the shell gate denies with "The Oracle settings changed. Check this
+  command again." when the Oracle was switched off while it read (before: allowed unchecked); two
+  flush errors now say "The question couldn’t be saved." and "The choice couldn’t be saved." (orchestrator
+  review round). No test deleted; added `OracleConsultTests` (8), prompt and parser tests in
+  `OracleLaunchTests`, and three held-check tests. Differences: the code's names (`unanswered`, "unchecked")
+  were kept over the brief's; a person marker now replaces the round it continues; the round-limit check
+  in `QuestionRounds` went (nothing at the limit is saved). Left for 5f: the merge veto still sets
+  `currentAct`.

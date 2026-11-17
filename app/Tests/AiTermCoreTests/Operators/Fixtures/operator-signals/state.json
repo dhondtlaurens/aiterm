@@ -163,9 +163,10 @@
       {
         "askedAt" : "2026-11-14T12:00:00Z",
         "askedEvidence" : "question-bound",
+        "critique" : "Use the order's locale.",
         "id" : "round",
         "round" : 1,
-        "stage" : "running",
+        "stage" : "delivered",
         "tool" : "answer_worker"
       }
     ],

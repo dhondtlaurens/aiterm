@@ -134,3 +134,28 @@ func guardedWorkerCommand(_ line: String?) throws -> String? {
     let path = String(line.dropFirst(9).dropLast()).replacingOccurrences(of: "'\"'\"'", with: "'")
     return try String(contentsOfFile: path, encoding: .utf8).components(separatedBy: "export GIT_CONFIG_COUNT PATH\n").last?.trimmingCharacters(in: .newlines)
 }
+
+/// A real `OracleConsult` whose runner is scripted: every prompt it is given is recorded, and `answer` returns the
+/// Oracle's text (or `.unanswered`). `settings` is read before and after each run, so a script that changes what it
+/// returns sees its check discarded.
+@MainActor final class ScriptedOracle {
+    var settings = OracleConsult.Settings(oracle: OperatorServiceFixtures.profile(oracle: true).oracle, instructions: "You are careful.", revision: 0)
+    var running = true
+    private(set) var prompts: [String] = []
+    var answer: @MainActor (String) async -> OracleRunner.Verdict
+    private(set) lazy var consult = OracleConsult(workspace: workspace, folder: folder, activity: OperatorActivityTracker(), now: now, ports: .init(
+        settings: { [unowned self] in self.settings },
+        ask: { [unowned self] _, prompt in self.prompts.append(prompt); return await self.answer(prompt) },
+        running: { [unowned self] in self.running }))
+    private let workspace: WorkspaceStore, folder: URL, now: () -> Date
+    init(_ workspace: WorkspaceStore, folder: URL, now: @escaping () -> Date, on: Bool = true,
+         answer: @escaping @MainActor (String) async -> OracleRunner.Verdict = { _ in .critique("YES") }) {
+        self.workspace = workspace; self.folder = folder; self.now = now; self.answer = answer
+        settings.oracle.isOn = on
+    }
+    /// The JSON object the prompt quotes on its last line.
+    func quoted(_ index: Int) throws -> JSONValue {
+        let line = try #require(prompts[index].split(separator: "\n").last)
+        return try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+    }
+}
