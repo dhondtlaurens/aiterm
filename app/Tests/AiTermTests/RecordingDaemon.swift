@@ -13,7 +13,7 @@ import Foundation
 final class RecordingDaemon: DaemonCommands {
     struct Request { let method: String; let params: [String: Any] }
     private(set) var requests: [Request] = []
-    var snapshotValue: DaemonSnapshot?
+    var sessionsValue: [SessionInfo] = []
     var onRequest: (String) -> Void = { _ in }
     /// An individual reply can be held after entry, before its current failure/result is read.
     var beforeReply: (@MainActor (String) async -> Void)?
@@ -25,7 +25,7 @@ final class RecordingDaemon: DaemonCommands {
     /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
     var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
                                                           .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
-    /// What `commandError` the window and worker-opening calls answer, by method (`window.createTask`, `tab.create`): an
+    /// What `commandError` the window and tab creation calls answer, by method (`window.createTask`, `tab.create`): an
     /// agent command the daemon could not type.
     var commandErrors: [String: String] = [:]
     private let holding: String?
@@ -69,26 +69,17 @@ final class RecordingDaemon: DaemonCommands {
 
     private static func frame(_ frame: Frame) -> [String: Any] { ["x": frame.x, "y": frame.y, "w": frame.w, "h": frame.h] }
 
-    func snapshot() async throws -> DaemonSnapshot {
-        try await answer("workspace.snapshot", [:])
-        return snapshotValue ?? DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
+    func sessions() async throws -> [SessionInfo] {
+        try await answer("sessions.list", [:])
+        return sessionsValue
     }
 
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> WorkerOpening {
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> Opening {
         var params: [String: Any] = ["taskId": taskId, "cwd": cwd, "title": title, "frame": Self.frame(frame)]
         params["agentCommand"] = agentCommand
         params["background"] = background
         let id = try await answer("window.createTask", params, id: "reopened")
-        return WorkerOpening(id: id, commandError: commandErrors["window.createTask"])
-    }
-
-    func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
-        try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: true)
-    }
-
-    func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening {
-        let id = try await createTab(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil, background: true)
-        return WorkerOpening(id: id, commandError: commandErrors["tab.create"])
+        return Opening(id: id, commandError: commandErrors["window.createTask"])
     }
 
     func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
@@ -96,12 +87,13 @@ final class RecordingDaemon: DaemonCommands {
                                                    "frame": Self.frame(frame)], id: "terminal-window")
     }
 
-    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String {
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening {
         var params: [String: Any] = ["windowId": windowId, "cwd": cwd]
         params["agentCommand"] = agentCommand
         params["tabKey"] = tabKey
         params["background"] = background
-        return try await answer("tab.create", params, id: "s-review")
+        let id = try await answer("tab.create", params, id: "s-review")
+        return Opening(id: id, commandError: commandErrors["tab.create"])
     }
 
     func activate(windowId: String) async throws { try await answer("window.activate", ["windowId": windowId]) }

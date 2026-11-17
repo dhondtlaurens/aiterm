@@ -1,18 +1,16 @@
 # daemon/aitermd/service.py
 from __future__ import annotations
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from . import protocol
-from .claude_sessions import ClaudeSessionFiles
-from .claude_subagents import SubagentTranscripts
-from .claude_background import BackgroundTranscripts
-from .codex_sessions import CODEX_READ, CodexSessionFiles
+from .agents import claude, codex
+from .agents.claude import BackgroundTranscripts, ClaudeSessionFiles, StopTranscripts, SubagentTranscripts
+from .agents.codex import CODEX_READ, CodexSessionFiles, CodexThreads
 from .connection import ItermSupervisor
 from .corroboration import CorroboratingReaders, ReadPlan, logged as _logged
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
@@ -27,12 +25,11 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError, RpcServer
-from .models import CODEX_THREAD_TAG, HARNESS_BY_AGENT, AgentKind, SessionInfo
+from .models import HARNESS_BY_AGENT, AgentKind, RawSession, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine
-from .stop_failures import StopTranscripts
 from .test_activity import TestActivityReader
-from .usage import UsageReadFailure, UsageStore, parse_codex_rate_limits
+from .usage import UsageReadFailure, UsageStore
 from .windows import WindowManager
 
 log = logging.getLogger(__name__)
@@ -68,8 +65,9 @@ class Service:
         self.status = StatusEngine(self.registry, clock, monotonic)
         self.usage = UsageStore()
         self.resolver = SessionResolver(self.registry, claude_files)
+        self.codex_threads = CodexThreads(self.registry, iterm)
         self.publisher = Publisher(rpc.broadcast, self.registry, self.usage)
-        self.hook_router = HookRouter(self.resolver, self.status, self.usage, clock, self.publisher, tick=self.tick)
+        self.hook_router = HookRouter(self.resolver, self.codex_threads, self.status, self.usage, clock, self.publisher, tick=self.tick)
         self.hooks.on_post = self.hook_router.handle_hook
         self.windows = WindowManager(iterm, self.registry, self.tick, typed_in=lambda sid: self.typing.typed_in(sid))
         self.supervisor.on_connected = self.windows.forget_titles
@@ -81,7 +79,7 @@ class Service:
         self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         self.hook_router.typed_by_you = self._typed_by_you
-        self.readers = CorroboratingReaders(self.registry, self.status, self.resolver, iterm, clock)
+        self.readers = CorroboratingReaders(self.registry, self.status, iterm, clock)
         # The operator's MCP server, on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_folder` is where the app keeps the Operator's token file, which a restarted daemon loads;
@@ -105,7 +103,6 @@ class Service:
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}
-        self._saved_codex_threads: dict[str, tuple[int, str]] = {}
         self._register_handlers()
 
     # -- lifecycle ---------------------------------------------------------
@@ -203,6 +200,10 @@ class Service:
         return {}
 
     async def _h_sessions_list(self, _p: Any) -> list[dict[str, Any]]:
+        try:
+            await self.tick()
+        except Exception:  # answer with the last known registry when iTerm2 cannot be read
+            log.exception("tick failed")
         return [s.to_json() for s in self.registry.all()]
 
     async def _h_mark_seen(self, p: Any) -> dict[str, Any]:
@@ -296,7 +297,8 @@ class Service:
             return
         positions_before = {s.session_id: (s.window_id, s.tab_index) for s in self.registry.all()}
         windows_before = {window for window, _ in positions_before.values()}
-        diff = self.registry.apply_snapshot(await self.iterm.snapshot())
+        raw = await self.iterm.snapshot()
+        diff = self.registry.apply_snapshot(raw)
         # A session.changed from the snapshot diff is deliberately *not* broadcast as it is found:
         # the status pass can change the same session again in this very tick (its state, its
         # model, the agent's cwd), and two events for one tick make a client redraw twice and,
@@ -306,11 +308,11 @@ class Service:
         # diffing nothing, and the app stale for that session until something else moved it.
         changed = list(diff.changed)
         try:
-            await self._after_snapshot(diff, windows_before, positions_before, changed)
+            await self._after_snapshot(raw, diff, windows_before, positions_before, changed)
         finally:
             await self.publisher.session_changed(changed)
 
-    async def _after_snapshot(self, diff: SnapshotDiff, windows_before: set[str],
+    async def _after_snapshot(self, raw: list[RawSession], diff: SnapshotDiff, windows_before: set[str],
                               positions_before: dict[str, tuple[str, int]], changed: list[str]) -> None:
         """Announces what the snapshot opened and closed, then reads the corroborating signals, each
         step guarded so one that raises costs only its own changes. Appends to `changed` as it goes."""
@@ -322,8 +324,9 @@ class Service:
             if positions_before.get(s.session_id, (s.window_id, s.tab_index)) != (s.window_id, s.tab_index):
                 with _logged(f"forgetting the title of moved session {s.session_id}"):
                     self.windows.forget_title(s.session_id)
-        with _logged("validating the bindings after the snapshot"):
-            self.resolver.snapshot_applied()
+        # Before opened sessions are announced, so that each one's first payload names its conversation.
+        with _logged("restoring the Codex threads after the snapshot"):
+            changed += self.codex_threads.restore(raw)
         for sid in diff.replaced:
             with _logged(f"resetting the turn of replaced session {sid}"):
                 self.status.reset_turn(sid)
@@ -340,49 +343,43 @@ class Service:
             self.windows.forget_window(wid)
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
-        threads, screens = self.readers.snapshot(sessions, changed)
-        changed += await self.observe(self.readers.claude(self.claude_files, sessions, screens))
+        self.readers.snapshot(sessions, changed)
+        threads = codex.tab_threads(self.codex_threads, sessions)
+        screens: list[str] = []
+        changed += await self.observe(claude.session_file_plan(self.registry, self.status, self.claude_files, sessions, screens))
         # Fixed order: hooks arriving during a read supersede the request that reader captured.
         observations: tuple[tuple[str, Callable[[], Awaitable[list[str]]]], ...] = (
             ("reading the screens for trust prompts", lambda: self.readers.trust_prompts(screens)),
             ("reading the Codex rollouts", lambda: self.observe_codex(threads)),
-            ("releasing dead subagents", lambda: self.observe(self.readers.subagents(self.subagent_transcripts))),
+            ("releasing dead subagents", lambda: self.observe(claude.subagent_plan(self.status, self.subagent_transcripts))),
             ("reading Claude background shells", lambda: self.observe_background(sessions)),
-            ("reading stopped workers' recovery and usage resets", lambda: self.observe(self.readers.stops(self.stop_transcripts))),
+            ("reading stopped workers' recovery and usage resets",
+             lambda: self.observe(claude.stop_plan(self.registry, self.status, self.stop_transcripts, self.clock))),
             ("reading worktree test activity", lambda: self.observe(self.readers.tests(self.test_activity, sessions))),
         )
         for name, observe in observations:
             with _logged(name):
                 changed += await observe()
-        await self._remember_codex_threads(sessions)
-
-    async def _remember_codex_threads(self, sessions: list[SessionInfo]) -> None:
-        """Keep each hook-proven thread on its iTerm tab so reconnect/restart needs no new hook.
-        The pid must match on recovery; a reused tab cannot inherit the previous worker's rollout."""
-        live = {s.session_id for s in sessions}
-        self._saved_codex_threads = {sid: value for sid, value in self._saved_codex_threads.items() if sid in live}
-        for captured in sessions:
-            if (session := self.registry.get(captured.session_id)) is None:
-                continue
-            sid, pid = session.session_id, session.job_pid
-            if session.agent != "codex" or pid is None or (thread := self.resolver.codex_thread(sid)) is None:
-                continue
-            identity = (pid, thread)
-            if self._saved_codex_threads.get(sid) == identity:
-                continue
-            with _logged(f"remembering the Codex thread of session {sid}"):
-                await self.iterm.set_session_tags(sid, {CODEX_THREAD_TAG: json.dumps({"pid": pid, "thread": thread})})
-                self._saved_codex_threads[sid] = identity
+        await self.codex_threads.remember(sessions)
 
     async def observe(self, plan: ReadPlan[T]) -> list[str]:
         reading = plan.nothing if plan.read is None else await self.run_check(plan.name, plan.read, plan.nothing)
+        if plan.keys is not None:
+            current = {sid for sid, key in plan.keys.items()
+                       if (session := self.registry.get(sid)) is not None and plan.current_key(session) == key}
+            if plan.whole:
+                # Assignment spans the registry: a new sibling can change who owns an activity.
+                if current != plan.keys.keys() or self.registry.session_ids() != current:
+                    return []
+            else:
+                reading = cast(T, {sid: value for sid, value in cast(dict[str, object], reading).items() if sid in current})
         return plan.apply(reading)
 
     async def observe_background(self, sessions: list[SessionInfo]) -> list[str]:
-        return await self.observe(self.readers.background(self.background_transcripts, sessions))
+        return await self.observe(claude.background_plan(self.status, self.background_transcripts, sessions))
 
     async def observe_codex(self, threads: dict[str, str]) -> list[str]:
-        return await self.observe(self.readers.codex(self.codex_files, threads))
+        return await self.observe(codex.rollout_plan(self.registry, self.status, self.codex_threads, self.codex_files, threads))
 
     async def run_check(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within
@@ -417,7 +414,8 @@ class Service:
         """Drops what each part keeps of a closed session, each on its own: one that raises keeps
         only its own state, not the others'."""
         for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.forget_session),
-                             ("bindings", self.resolver.forget), ("delivery state", self.deliverer.forget_session),
+                             ("pins", self.resolver.forget), ("Codex thread", self.codex_threads.forget),
+                             ("delivery state", self.deliverer.forget_session),
                              ("last key", self.typing.forget), ("prompt attribution", self.hook_router.forget_session)):
             with _logged(f"forgetting the {what} of closed session {session_id}"):
                 forget(session_id)
@@ -442,7 +440,7 @@ class Service:
         if found is None:
             return
         limits, written_at = found
-        usage = parse_codex_rate_limits(limits, written_at if written_at is not None else int(self.clock()))
+        usage = codex.parse_codex_rate_limits(limits, written_at if written_at is not None else int(self.clock()))
         if self.usage.set("codex", usage):
             await self.publisher.usage_changed()
 

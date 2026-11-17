@@ -13,8 +13,8 @@ Handler = Callable[[Any], Awaitable[Any]]
 
 class AlreadyRunning(RuntimeError):
     """Another daemon is listening on our socket path. Distinct from every other
-    startup failure because the caller's correct response is to *use* that daemon,
-    not to restart this one."""
+    startup failure because the app's supervisor responds by ending that daemon and
+    starting this one again, not by counting a crash."""
 
 
 class RpcError(Exception):

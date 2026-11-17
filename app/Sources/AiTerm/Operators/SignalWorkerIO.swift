@@ -53,7 +53,7 @@ import AiTermCore
     }
     private func isLiveWork(_ session: SessionInfo) -> Bool {
         session.state == .working || session.state == .needsInput
-            || !session.background.isEmpty || session.testActivity?.isActive == true
+            || session.work.contains(where: \.holdsTurn) || session.testActivity?.isActive == true
     }
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
@@ -192,13 +192,13 @@ import AiTermCore
         _ = try require(task)
         try await markPending(task, tab: "main", conversation: conversation)
         _ = try require(task)
-        let opening: WorkerOpening
+        let opening: Opening
         if let window = task.windowId, live.sessions.contains(where: { $0.windowId == window && $0.sessionId != previous?.sessionId }) {
-            opening = try await daemon.openWorkerTab(windowId: window, cwd: task.worktreePath, agentCommand: command)
+            opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: nil, background: true)
             guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
             return window
         }
-        opening = try await daemon.openWorkerWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title, agentCommand: command, frame: frame())
+        opening = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title, agentCommand: command, frame: frame(), background: true)
         guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
         return opening.id
     }
@@ -296,7 +296,7 @@ import AiTermCore
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
         try await markPending(launched, tab: key, conversation: nil, workRequested: true)
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
-        let session = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: key, background: true)
+        let session = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: key, background: true).id
         _ = try require(task)
         workspace.mutate { $0.updateSignalTask(task.id) { record in
             if let index = record.extraTabs.firstIndex(where: { $0.key == key }) {

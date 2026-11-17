@@ -8,7 +8,7 @@ agreement. The following tables describe the current contract.
 
 | Command | What it does |
 |---|---|
-| `workspace.snapshot` | accepts the app-resolved `claudeConfigDirectory`, applies it before the tick, and echoes it as sent (also on adoption); the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
+| `workspace.snapshot` | accepts the app-resolved `claudeConfigDirectory`, applies it before the tick, and echoes it as sent; the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
 | `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task the Operator starts opens behind your work |
 | `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |
@@ -16,6 +16,7 @@ agreement. The following tables describe the current contract.
 | `window.setFrame` | re-snap beside the sidebar |
 | `window.close` | on remove, and before a worktree is deleted. The window is closed once iTerm2 has answered: a failed tick after it is logged, not answered |
 | `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is. The optional `tabKey` tags that one tab `aiterm_tab` beside its task's tag, never inherited, and the sessions carry it back as `tabKey`: an Operator's extra worker tab (`open_tab`). A request with a `tabKey` already on a tab of its task returns that tab. With `background`, iTerm2 is asked not to select it: its window is not brought forward and keeps the tab you were on |
+| `sessions.list` | the tabs now, after a tick; no event |
 | `sessions.setTitles` | branch titles for AiTerm tabs, re-sent every couple of seconds; the daemon only applies changes |
 | `sessions.markSeen` | clear a done mark when its row is opened |
 | `interface.setMatchItermBackground` | paint AiTerm windows #17181B, the sidebar's ground |
@@ -26,7 +27,7 @@ agreement. The following tables describe the current contract.
 | `operator.register` / `operator.revoke` | require `generation`; one private `operators/operator/token` and `session.json` bind session identity, generation and token hash. Stale revocation cannot revoke a successor. A failed deletion remains owed on retry; there are no per-run tokens |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
 
-`iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
+`iterm.status` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of
 time with `iterm_unavailable` — the tick a command runs before it changes anything included.
 
@@ -51,13 +52,11 @@ effect in the order it was sent.
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
 | `operator.request` | the Operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
 
-Session payloads also carry optional display-only `displayWork` with independently nullable
-`subagents` and `shells` arrays. Missing/null means a source is unavailable; an empty array means
-known empty. Entries have `kind`, `text` and nullable `legacyIndex`, a position in the same
-payload's legacy `background` array, derived by provider ID in the daemon. This preserves the
-Stop's interleaved order while replacing a known kind without duplicating it. Unavailable kinds
-fall back to eligible legacy evidence. Display changes publish `session.changed` even when the
-turn status stays the same. The field never changes Operator obligations or acceptance.
+Session payloads carry `work`, one ordered list of what runs beside the agent's turn, each item with
+`kind`, `text` and `holdsTurn`. `holdsTurn` marks what the last Stop listed, which wakes the agent
+again; the items after it are subagents and shells read live. The sidebar's card draws the whole
+list, the row's status and the Operator read only the `holdsTurn` items, and a change to the list
+publishes `session.changed` even when the state stays the same.
 
 Session payloads carry nullable `contextTokens`: this conversation's current input context,
 including input, cache creation and cache read tokens, excluding output and lifetime billing totals.

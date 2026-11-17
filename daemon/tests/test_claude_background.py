@@ -1,7 +1,7 @@
 import json
 import pytest
 
-from aitermd.claude_background import BackgroundTranscripts
+from aitermd.agents.claude import BackgroundTranscripts
 
 from tests.builders import (
     claude_record as record,
@@ -206,12 +206,12 @@ def test_restore_background_transcript_read_budget(tmp_path, monkeypatch):
     path = tmp_path / "restored.jsonl"
     history = [record("assistant", [{"type": "text", "text": "old output"}], at=90)] * 1000
     write(path, history + launch())
-    from aitermd import claude_background
+    from aitermd.agents import claude
     from types import SimpleNamespace
 
     parsed = []
     original = json.loads
-    monkeypatch.setattr(claude_background, "json", SimpleNamespace(loads=lambda line: parsed.append(line) or original(line)))
+    monkeypatch.setattr(claude, "json", SimpleNamespace(loads=lambda line: parsed.append(line) or original(line)))
     result = read(BackgroundTranscripts(), path)
     assert result.tasks[0].job.task_id == "job1"
     assert len(parsed) == 1002

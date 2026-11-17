@@ -17,8 +17,8 @@ public final class DaemonClient: Sendable {
     /// left `pending` finds nothing to time out, and ids are never reused.
     private struct Pending: Sendable {
         /// Decodes the reply line and resumes the caller. A reply that also stands for an event
-        /// (`snapshot()`'s) hands it to `yield` first, so it takes its place in the stream in
-        /// wire order, before the caller resumes.
+        /// (the workspace snapshot) hands it to `yield` first, so it takes its place in the stream
+        /// in wire order, before the caller resumes.
         let answer: @Sendable (_ line: Data, _ decoder: JSONDecoder, _ yield: (DaemonEvent) -> Void) -> Void
         let fail: @Sendable (Error) -> Void
         let isLivenessCheck: Bool
@@ -301,20 +301,8 @@ public final class DaemonClient: Sendable {
         }
     }
 
-    /// When each event, or a line that is none, was last logged as unreadable. A helper that sends
-    /// a shape this app cannot read sends it every time it sends that event, and each time this
-    /// client reconnects to it, so each one's failure is logged at most once a minute.
-    private static let unreadableLogged = Mutex<[String: ContinuousClock.Instant]>([:])
-
     private static func logUnreadable(_ name: String, _ error: Error) {
-        let now = ContinuousClock.now
-        let due = unreadableLogged.withLock { logged in
-            if let last = logged[name], now - last < .seconds(60) { return false }
-            logged[name] = now
-            return true
-        }
-        guard due else { return }
-        Log.daemon.error("Unreadable \(name, privacy: .public) from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
+        Log.daemon.error("Unreadable \(name, privacy: .public) from the helper, so reconnecting to a fresh snapshot: \(String(describing: error), privacy: .public)")
     }
 
     private func allocateID() -> Int {
@@ -472,10 +460,9 @@ public final class DaemonClient: Sendable {
     // -- typed helpers -----------------------------------------------------------------
     public struct Empty: Decodable, Sendable { public init() {} }
     struct WindowResult: Decodable { var windowId: String }
-    struct SessionResult: Decodable { var sessionId: String }
     /// A window or tab made for an agent command, and why the command could not be typed, when it could not.
-    struct WorkerWindowResult: Decodable { var windowId: String; var commandError: String? }
-    struct WorkerTabResult: Decodable { var sessionId: String; var commandError: String? }
+    struct CreateTaskResult: Decodable { var windowId: String; var commandError: String? }
+    struct CreateTabResult: Decodable { var sessionId: String; var commandError: String? }
     struct ChangedResult: Decodable { var changed: Int }
     struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool }
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
@@ -517,8 +504,6 @@ public final class DaemonClient: Sendable {
     /// The daemon's state, which is also yielded as `.snapshot` in the event stream: the daemon
     /// writes it with no pause after reading its state, so it is a barrier between the events
     /// before it and those after.
-    public func snapshot() async throws -> DaemonSnapshot { try await snapshot(claudeConfigDirectory: nil) }
-
     public func snapshot(claudeConfigDirectory: String?) async throws -> DaemonSnapshot {
         struct Configuration: Encodable { let claudeConfigDirectory: String }
         let params = claudeConfigDirectory.map { Configuration(claudeConfigDirectory: $0) }
@@ -534,31 +519,26 @@ public final class DaemonClient: Sendable {
         }
         return snapshot
     }
+    /// A fresh session list for callers that need the tabs without a snapshot event.
+    public func sessions() async throws -> [SessionInfo] {
+        try await request(.sessionsList, as: [SessionInfo].self)
+    }
     /// `background` opens the window behind the person's work: iTerm2 is not activated and the
     /// window not raised.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame,
-                                 background: Bool) async throws -> WorkerOpening {
+                                 background: Bool) async throws -> Opening {
         let result = try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
-                                                                                    frame: frame, background: background), as: WorkerWindowResult.self)
-        return WorkerOpening(id: result.windowId, commandError: result.commandError)
-    }
-    public func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
-        let result = try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
-                                                                                    frame: frame, background: true), as: WorkerWindowResult.self)
-        return WorkerOpening(id: result.windowId, commandError: result.commandError)
-    }
-    public func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening {
-        let result = try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil,
-                                                                            background: true), as: WorkerTabResult.self)
-        return WorkerOpening(id: result.sessionId, commandError: result.commandError)
+                                                                                    frame: frame, background: background), as: CreateTaskResult.self)
+        return Opening(id: result.windowId, commandError: result.commandError)
     }
     public func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
         try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, terminalId: terminalId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
     /// A tab in an existing window, carrying that window's task or project tag.
     /// `tabKey` identifies an extra worker tab; `background` keeps it behind the person's work.
-    public func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String {
-        try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: tabKey,
-                                                              background: background), as: SessionResult.self).sessionId
+    public func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening {
+        let result = try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: tabKey,
+                                                              background: background), as: CreateTabResult.self)
+        return Opening(id: result.sessionId, commandError: result.commandError)
     }
     public func activate(windowId: String) async throws { _ = try await request(.windowActivate, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
     public func activate(sessionId: String) async throws { _ = try await request(.sessionActivate, params: SessionParams(sessionId: sessionId), as: Empty.self) }

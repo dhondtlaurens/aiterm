@@ -4,12 +4,10 @@
     "active": true,
     "agent": "shell",
     "agentCwd": null,
-    "background": [],
     "contextPercent": null,
     "contextTokens": null,
     "conversationId": null,
     "cwd": "/repo/.worktrees/feat-wire",
-    "displayWork": null,
     "projectId": null,
     "sessionId": "s2",
     "state": "idle",
@@ -20,6 +18,7 @@
     "terminalId": null,
     "testActivity": null,
     "windowId": "w1",
+    "work": [],
     "yourPrompt": null
   }
 }

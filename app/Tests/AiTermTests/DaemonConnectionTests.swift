@@ -59,8 +59,8 @@ with c:
 
     /// The daemon applies the preference only while iTerm2 is connected, so it is sent once, when
     /// iTerm2 connects. Without iTerm2 at the attach, that is its `iterm.connected`, after the app
-    /// attached. A daemon that already has iTerm2 (adopted, or reached again after the app's socket
-    /// dropped) broadcasts no `iterm.connected`: the attach snapshot is the only news.
+    /// attached. A daemon that already has iTerm2 (reached again after the app's socket dropped)
+    /// sends no `iterm.connected`: the attach snapshot is the only news.
     @Test(arguments: [false, true])
     func thePersistedBackgroundPreferenceIsSentOncePerDaemon(connectedAtAttach: Bool) async throws {
         #expect(try await backgroundSends(connectedAtAttach: connectedAtAttach) == 1)
@@ -182,37 +182,15 @@ with c:
         #expect(Array(attempts.prefix(3)) == [0, 0, 0])
     }
 
-    /// After a connection that ended as a mismatch, the next one's snapshot is not
-    /// shown until that connection has held — each retry at a helper that will end the same way
-    /// would otherwise flash "Connected to iTerm2" between two "from another version"s.
-    @Test func aMismatchedHelperIsNotShownConnectedAgainUntilAConnectionHolds() async throws {
-        let (_, states) = try await retries(steadyAfter: .seconds(5))
-        #expect(states == [.connected(version: nil), .helperMismatch], "got \(states)")
-    }
-
-    /// The connection after a mismatch that does hold is shown, once it has held.
-    @Test func aConnectionThatHoldsAfterAMismatchIsShownOnceItHas() async throws {
-        let (_, states) = try await retries(steadyAfter: .milliseconds(200), unreadableConnections: 1) { states in
-            states.count >= 3
-        }
-        #expect(states == [.connected(version: nil), .helperMismatch, .connected(version: nil)], "got \(states)")
-    }
-
-    /// The backoff's first attempts, and every status said, against a helper that answers each
-    /// connection's snapshot and then, on the first `unreadableConnections` of them, sends a
-    /// `session.changed` this app cannot read; by default every one does, and the wait is for
-    /// three attempts.
-    private func retries(steadyAfter: Duration, unreadableConnections: Int = .max,
-                         until done: (_ states: [ItermConnection]) -> Bool = { _ in false })
-        async throws -> (attempts: [Int], states: [ItermConnection]) {
+    /// The backoff's first three attempts, and every status said, against a helper that answers
+    /// each connection's snapshot and then sends a `session.changed` this app cannot read.
+    private func retries(steadyAfter: Duration) async throws -> (attempts: [Int], states: [ItermConnection]) {
         let server = try await PythonSocketServer.start(script: """
 import json,socket,sys
 s=socket.socket(socket.AF_UNIX)
 s.bind(sys.argv[1]);s.listen()
-unreadable=int(sys.argv[2])
-count=0
 while True:
- c,_=s.accept();count+=1
+ c,_=s.accept()
  with c:
   f=c.makefile('rb')
   for line in f:
@@ -220,9 +198,9 @@ while True:
    result={'protocolVersion':1,'connected':True,'sessions':[],'usage':{'claude':None,'codex':None}}
    c.sendall((json.dumps({'id':m['id'],'result':result})+'\\n').encode())
    # session.changed without the session it is about: a shape this app cannot read.
-   if count<=unreadable: c.sendall((json.dumps({'event':'session.changed','payload':{'sessionId':'s1'}})+'\\n').encode())
+   c.sendall((json.dumps({'event':'session.changed','payload':{'sessionId':'s1'}})+'\\n').encode())
   f.close()
-""", arguments: [String(min(unreadableConnections, Int(Int32.max)))])
+""")
         defer { server.stop() }
         var states: [ItermConnection] = []
         let attempts = Attempts()
@@ -231,7 +209,7 @@ while True:
                                           backoff: { attempts.record($0); return 0.01 }, steadyAfter: steadyAfter)
         connection.start()
         defer { connection.stop() }
-        await eventually { attempts.all.count >= 3 || done(states) }
+        await eventually { attempts.all.count >= 3 }
         return (attempts.all, states)
     }
 
@@ -294,8 +272,7 @@ with c:
         }
         var asked = 0
         var states: [ItermConnection] = []
-        var client: DaemonClient?
-        let connection = DaemonConnection(socketPath: server.path, onClient: { client = $0 },
+        let connection = DaemonConnection(socketPath: server.path, onClient: { _ in },
                                           onStatus: { if states.last != $0 { states.append($0) } }, onEvent: { _ in },
                                           requestCookie: {
                                               asked += 1
@@ -309,7 +286,7 @@ with c:
         await eventually { answers().count >= 2 }
         // A later snapshot still showing request 7 is not answered again. Absence: an answer to it
         // would be asked for from the turn that handles the snapshot's event.
-        _ = try await client?.snapshot()
+        await connection.refresh()
         try await Task.sleep(for: .milliseconds(150))
 
         #expect(answers() == [#"{"notRunning": true, "requestId": 7}"#, #"{"cookie": "c2", "key": "k", "requestId": 8}"#])
@@ -357,6 +334,32 @@ for _ in range(2):
 }
 
 extension DaemonConnectionControllerTests {
+    @Test func refreshSendsTheClaudeDirectoryAndDeliversASnapshot() async throws {
+        let server = FakeSocketServer(path: "/tmp/aiterm-test-\(UUID().uuidString.prefix(8)).sock")
+        server.handler = { request in
+            let params = request["params"] as? [String: String]
+            return ["id": request["id"]!, "result": ["protocolVersion": 1, "connected": true,
+                "sessions": [], "usage": ["claude": NSNull(), "codex": NSNull()],
+                "claudeConfigDirectory": params?["claudeConfigDirectory"] ?? ""]]
+        }
+        server.start()
+        var snapshots: [DaemonSnapshot] = []
+        let directory = "/tmp/Claude Profile"
+        let connection = DaemonConnection(socketPath: server.path, claudeConfigDirectory: directory,
+            onClient: { _ in }, onStatus: { _ in }, onEvent: { if case .snapshot(let snapshot) = $0 { snapshots.append(snapshot) } })
+        defer { connection.stop(); server.stop() }
+        connection.start()
+        await eventually { snapshots.count == 1 }
+        await connection.refresh()
+        await eventually { snapshots.count == 2 }
+        #expect(server.received.count == 2)
+        for request in server.received {
+            #expect(request["method"] as? String == "workspace.snapshot")
+            #expect((request["params"] as? [String: String])?["claudeConfigDirectory"] == directory)
+        }
+        #expect(snapshots.last?.claudeConfigDirectory == directory)
+    }
+
     @Test func anOlderHelperCannotSilentlyIgnoreTheClaudeDirectory() async throws {
         let server = try await PythonSocketServer.start(script: """
 import json,socket,sys

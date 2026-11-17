@@ -5,11 +5,21 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aitermd.hook_events import parse_claude_hook
+from aitermd.agents import claude
+from aitermd.agents.claude import StopReading, StopTranscripts, parse_claude_hook
 from aitermd.models import Frame, RawSession, StoppedOn
 from aitermd.sessions import SessionRegistry
 from aitermd.status import StatusEngine
-from aitermd.stop_failures import StopReading, StopTranscripts
+
+
+def claude_file(engine, session_id, file_status, written_at):
+    """A Claude session file written at `written_at` with `file_status`, as the tick maps it."""
+    evidence = claude.file_evidence(file_status, written_at)
+    return [] if evidence is None else engine.apply_evidence(session_id, evidence)
+
+
+def stop_plan(svc):
+    return claude.stop_plan(svc.registry, svc.status, svc.stop_transcripts, svc.clock)
 
 
 def iso(at: float) -> str:
@@ -169,9 +179,9 @@ def test_the_session_file_saying_it_works_again_clears_it(tab):
     # Claude Code carried on by itself once the limit reset: no hook says so, its session file does.
     tab.post(stop_failure())
     tab.clock.now = T0 + 5
-    assert tab.status.apply_claude_file_status("s1", "idle", T0 + 2) == []
+    assert claude_file(tab.status, "s1", "idle", T0 + 2) == []
     assert tab.session.stopped_on is not None, "idle while it waits for the reset"
-    tab.status.apply_claude_file_status("s1", "busy", T0 + 1400)
+    claude_file(tab.status, "s1", "busy", T0 + 1400)
     assert (tab.session.state, tab.session.stopped_on) == ("working", None)
 
 
@@ -180,9 +190,9 @@ def test_a_busy_file_cannot_distinguish_a_stopped_parent_from_its_running_child(
     tab.post(stop_failure("server_error"))
     assert (tab.session.state, tab.session.stopped_on) == ("working", StoppedOn("server_error"))
     # Neither idle nor busy proves parent recovery while a child runs past its StopFailure.
-    tab.status.apply_claude_file_status("s1", "idle", T0 + 1)
+    claude_file(tab.status, "s1", "idle", T0 + 1)
     assert tab.session.stopped_on == StoppedOn("server_error")
-    assert tab.status.apply_claude_file_status("s1", "busy", T0 + 2) == []
+    assert claude_file(tab.status, "s1", "busy", T0 + 2) == []
     assert (tab.session.state, tab.session.stopped_on) == ("working", StoppedOn("server_error"))
 
 
@@ -266,7 +276,7 @@ def test_child_and_tool_activity_cannot_clear_a_parents_failure(tmp_path, latest
     {"type": "user", "timestamp": iso(T0 + 5), "message": {"content": "Carry on with the next task"}},
 ])
 def test_parent_progress_is_read_once_per_file_change_and_a_later_failure_stays(tmp_path, monkeypatch, progress):
-    from aitermd import stop_failures as module
+    from aitermd.agents import claude as module
 
     path = tmp_path / "parent.jsonl"
     write(path, limit_reached(T0), progress)
@@ -365,7 +375,7 @@ async def test_resumed_activity_is_published_after_a_failure_with_a_child_still_
 
 
 async def test_a_reset_not_written_soon_after_the_stop_is_not_looked_for_again(stopped):
-    from aitermd.stop_failures import RESET_READ_SECONDS
+    from aitermd.agents.claude import RESET_READ_SECONDS
 
     svc, sid, transcript, clock = stopped
     await svc.hook_router.handle_hook("/hook/claude", stop_failure(transcript_path=str(transcript)))
@@ -375,16 +385,44 @@ async def test_a_reset_not_written_soon_after_the_stop_is_not_looked_for_again(s
     assert svc.registry.get(sid).stopped_on == StoppedOn("rate_limit")
 
 
+async def test_repeated_stop_failures_change_the_key_and_drop_an_earlier_read(stopped, monkeypatch):
+    svc, sid, transcript, clock = stopped
+    failure = stop_failure("server_error", transcript_path=str(transcript))
+    await svc.hook_router.handle_hook("/hook/claude", failure)
+    plan = stop_plan(svc)
+    before = svc.registry.get(sid).to_json()
+
+    async def stop_again_during_read(name, work, nothing):
+        clock.now = T0 + 3
+        await svc.hook_router.handle_hook("/hook/claude", failure)
+        assert svc.registry.get(sid).stopped_on.at == clock.now
+        assert stop_plan(svc).keys != plan.keys
+        # The timestamp is internal: repeating the error keeps the session's wire value.
+        assert svc.registry.get(sid).to_json() == before
+        # This would prove recovery even after the second hook if the old reading were applied.
+        return {sid: StopReading(progress_at=T0 + 5)}
+
+    monkeypatch.setattr(svc, "run_check", stop_again_during_read)
+    assert await svc.observe(plan) == []
+    assert svc.registry.get(sid).stopped_on == StoppedOn("server_error")
+
+
 @pytest.mark.parametrize("overtaken_by", ["failure", "transcript"])
-async def test_a_recovery_read_overtaken_by_new_evidence_cannot_clear_the_stop(stopped, overtaken_by):
+async def test_a_recovery_read_overtaken_by_new_evidence_cannot_clear_the_stop(stopped, monkeypatch, overtaken_by):
     svc, sid, transcript, clock = stopped
     await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
-    plan = svc.readers.stops(svc.stop_transcripts)
-    if overtaken_by == "failure":
-        # The same error compares equal, but the latest parent hook is still newer than the read.
-        clock.now = T0 + 10
-        await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
-    else:
-        svc.registry.set_transcript(sid, str(transcript.with_name("other.jsonl")))
-    assert plan.apply({str(transcript): StopReading(progress_at=T0 + 5)}) == []
+    plan = stop_plan(svc)
+
+    async def overtaken_during_read(name, work, nothing):
+        if overtaken_by == "failure":
+            # The same error compares equal, but its hook and progress both precede this reading.
+            # Only the captured stop's timestamp distinguishes it from the new stop.
+            clock.now = T0 + 3
+            await svc.hook_router.handle_hook("/hook/claude", stop_failure("server_error", transcript_path=str(transcript)))
+        else:
+            svc.registry.set_transcript(sid, str(transcript.with_name("other.jsonl")))
+        return {sid: StopReading(progress_at=T0 + 5)}
+
+    monkeypatch.setattr(svc, "run_check", overtaken_during_read)
+    assert await svc.observe(plan) == []
     assert svc.registry.get(sid).stopped_on == StoppedOn("server_error")

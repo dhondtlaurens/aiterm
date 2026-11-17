@@ -146,12 +146,9 @@ final class HelperLink {
     private func supervisorChanged(_ st: DaemonSupervisor.State) {
         guard running else { return }
         switch st {
-        // `.adopted` is a daemon a previous (non-gracefully ended) app left behind, still serving
-        // the socket. Nothing distinguishes it from one we started: iTerm2 window ids are iTerm2's
-        // own, so the `windowId`s in `state.json` keep resolving, and the session list is rebuilt
-        // from iTerm2 on the next poll. A child of ours is connected to once it listens, not when it
-        // is spawned: until then there is no socket to reach.
-        case .listening, .adopted:
+        // A child is connected to once it listens, not when it is spawned: until then there is
+        // no socket to reach.
+        case .listening:
             if connection == nil {
                 connection = DaemonConnection(socketPath: socketPath, claudeConfigDirectory: claudeDirectory,
                     onClient: { [weak self] in self?.setDaemonClient($0) },
@@ -171,8 +168,8 @@ final class HelperLink {
     /// on to the `onEvent` hooks.
     func handle(_ event: DaemonEvent) {
         switch event {
-        // A daemon that already has iTerm2 — adopted, or reached again after the socket dropped —
-        // broadcasts no `iterm.connected`; its attach snapshot is the only time to say it.
+        // A daemon that already has iTerm2, reached again after the socket dropped, sends no
+        // `iterm.connected`; its attach snapshot is the only time to say it.
         case .snapshot(let snapshot) where awaitingAttachSnapshot:
             awaitingAttachSnapshot = false
             if snapshot.connected { sendItermBackground() }
@@ -187,7 +184,7 @@ final class HelperLink {
     /// stream like any other, so `itermConnection` is updated there; a helper that cannot answer
     /// is noticed by its connection's own loop. The rest is what the helper cannot see.
     func checkIterm() async -> ItermEnvironment {
-        if let daemon { await Log.daemon.attempt("Checking iTerm2") { try await daemon.snapshot() } }
+        await connection?.refresh()
         return ItermEnvironment.current()
     }
 

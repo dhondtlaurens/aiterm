@@ -1,8 +1,3 @@
-import json
-
-import pytest
-
-from aitermd.models import BackgroundJob, DisplayWork, DisplayWorkItem
 from aitermd.sessions import SessionRegistry
 
 from tests.builders import (
@@ -17,25 +12,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "state": "idle", "cwd": "/home",
         "agentCwd": None, "active": False, "contextPercent": None, "contextTokens": None, "conversationId": None, "terminalId": None,
-        "tabKey": None, "background": [], "yourPrompt": None, "stoppedOn": None, "testActivity": None,
-        "displayWork": None})
-
-
-@pytest.mark.parametrize(("agent", "pid", "tag", "conversation"), [
-    ("codex", 42, json.dumps({"pid": 42, "thread": "worker"}), "worker"),
-    ("codex", 43, json.dumps({"pid": 42, "thread": "worker"}), None),
-    ("claude", 42, json.dumps({"pid": 42, "thread": "worker"}), None),
-    ("codex", None, json.dumps({"pid": 42, "thread": "worker"}), None),
-    ("codex", 42, "not json", None),
-    ("codex", 42, json.dumps({"pid": 42, "thread": ""}), None),
-])
-def test_a_saved_codex_thread_belongs_only_to_its_process(agent, pid, tag, conversation):
-    reg = SessionRegistry()
-    session = raw(cmd=agent, pid=pid, aiterm_codex_thread=tag)
-    reg.apply_snapshot([session])
-    assert reg.get("s1").conversation_id == conversation
-    reg.apply_snapshot([session])
-    assert reg.get("s1").conversation_id == conversation
+        "tabKey": None, "work": [], "yourPrompt": None, "stoppedOn": None, "testActivity": None})
 
 
 def test_untagged_session_in_tagged_window_inherits_task():
@@ -43,19 +20,6 @@ def test_untagged_session_in_tagged_window_inherits_task():
     reg.apply_snapshot([raw(sid="s1", aiterm_task="t1")])
     assert reg.apply_snapshot([raw(sid="s1", aiterm_task="t1"), raw(sid="s2", tab=1)]).opened == ["s2"]
     assert reg.get("s2").task_id == "t1"
-
-
-def test_same_text_refreshes_internal_identity_without_a_spurious_wire_change():
-    reg = SessionRegistry()
-    reg.apply_snapshot([raw(cmd="claude")])
-    old = BackgroundJob("shell", "npm test", task_id="old")
-    new = BackgroundJob("shell", "npm test", task_id="new")
-    reg.set_background("s1", (old,))
-    assert not reg.set_background("s1", (new,))
-    assert reg.get("s1").background[0].task_id == "new"
-    reg.set_display_work("s1", DisplayWork(shells=(DisplayWorkItem(old),)))
-    assert not reg.set_display_work("s1", DisplayWork(shells=(DisplayWorkItem(new),)))
-    assert reg.get("s1").display_work.shells[0].job.task_id == "new"
 
 
 def test_changed_and_closed_events_and_state_preserved():

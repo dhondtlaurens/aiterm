@@ -146,7 +146,7 @@ struct Fixture {
          "agent":"\(agent)","model":\(model.map { "\"\($0)\"" } ?? "null"),
          "reasoning":\(reasoning.map { "\"\($0)\"" } ?? "null"),
          "state":"\(state)","title":"\(agent)","cwd":"\(cwd)","active":\(active),
-         "contextPercent":\(context.map(String.init) ?? "null"),"background":[],
+         "contextPercent":\(context.map(String.init) ?? "null"),"work":[],
          "tabKey":\(tabKey.map { "\"\($0)\"" } ?? "null")}
         """
         return try? JSONDecoder().decode(SessionInfo.self, from: Data(json.utf8))

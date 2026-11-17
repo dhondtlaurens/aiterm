@@ -19,20 +19,16 @@ class Harness:
     """What the daemon knows about one agent CLI. Its name is also its binary's, and a new harness
     is one more row in HARNESSES; the sets below, and the hook server's routes, derive from it."""
     agent: AgentKind
-    # The route its hooks post to (hook_events.HOOK_PARSERS parses each).
+    # The route its hooks post to (agents.HOOK_PARSERS parses each).
     hook_route: str
     # How a hook post is placed on the tab it came from (SessionResolver.resolve_directly): by the tab
     # id it carries in X-AiTerm-iTerm-Session, or -- Claude's, which travel over HTTP from the agent
     # itself -- by the pid the agent's own session file names.
     placement: Literal["header", "pid_file"] = "header"
-    # What the daemon's tick reads beside the hooks, so a missed post cannot strand a row
-    # (Service._corroborate): Claude's own session file, or the spinner in a Codex tab's title --
-    # with the context fill in its rollout. None: the hooks alone.
-    corroboration: Literal["claude_file", "codex_title"] | None = None
     # Whether it reports the account's rate limits, which the usage footer shows: Claude in its
     # status line, Codex in its rollout.
     reports_usage: bool = False
-    # The route its status-line shim posts to, if it has one (hook_events.STATUSLINE_PARSERS).
+    # The route its status-line shim posts to, if it has one (agents.STATUSLINE_PARSERS).
     statusline_route: str | None = None
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
     # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
@@ -61,7 +57,7 @@ CLAUDE_TRUST_PROMPT = ("Yes, I trust this folder", "Do you trust the files in th
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
-    Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file",
+    Harness("claude", "/hook/claude", placement="pid_file",
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
             trust_prompt=CLAUDE_TRUST_PROMPT,
@@ -71,7 +67,7 @@ HARNESSES: tuple[Harness, ...] = (
             input_box=("❯",), numbered_menus=True,
             transcript_view=("Showing detailed transcript · ctrl+o to toggle",)),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", corroboration="codex_title", reports_usage=True,
+    Harness("codex", "/hook/codex", reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
             # 0.163's dialogs end on "enter confirm · esc skip" (its review of untrusted hooks) or
             # "enter select · esc back" (its /model picker).
@@ -175,43 +171,49 @@ class RawSession:
     active: bool = False
 
 
-# Observed native task-notification outcomes: terminal display evidence, never a success verdict.
-CLAUDE_TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "killed", "stopped"})
-
-
 @dataclass(frozen=True, slots=True)
 class BackgroundJob:
-    """One piece of work a Claude turn left running when it ended (a Stop's `background_tasks`): a `shell` by its
-    command, a `monitor`, a `subagent` or any other `task` by its description. The app marks the kinds apart. A
-    subagent's `agent_id` names the child the status engine counts, and is not sent."""
+    """One piece of work running beside a Claude turn: a `shell` by its command, a `monitor`, a `subagent` or any other
+    `task` by its description. A subagent's `agent_id` names the child the status engine counts, any other job's
+    `task_id` Claude Code's id for it; neither is sent."""
     kind: Literal["shell", "monitor", "task", "subagent"]
     text: str
     agent_id: str | None = None
-    # Native provider identity for display-only merging. Never part of the legacy wire contract.
-    task_id: str | None = field(default=None, compare=False)
+    task_id: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {"kind": self.kind, "text": self.text}
 
 
 @dataclass(frozen=True, slots=True)
-class DisplayWorkItem:
-    job: BackgroundJob
-    legacy_index: int | None = None
+class WorkItem:
+    """One line of a session's work list (work_items). `holds_turn`: the last Stop listed it, so the agent takes the
+    turn up again once it ends."""
+    kind: Literal["shell", "monitor", "task", "subagent"]
+    text: str
+    holds_turn: bool
 
     def to_json(self) -> dict[str, Any]:
-        return {**self.job.to_json(), "legacyIndex": self.legacy_index}
+        return {"kind": self.kind, "text": self.text, "holdsTurn": self.holds_turn}
 
 
-@dataclass(frozen=True, slots=True)
-class DisplayWork:
-    """Independent display sources: None is unavailable; an empty tuple is known empty."""
-    subagents: tuple[DisplayWorkItem, ...] | None = None
-    shells: tuple[DisplayWorkItem, ...] | None = None
-
-    def to_json(self) -> dict[str, Any]:
-        return {"subagents": [item.to_json() for item in self.subagents] if self.subagents is not None else None,
-                "shells": [item.to_json() for item in self.shells] if self.shells is not None else None}
+def work_items(session: SessionInfo) -> tuple[WorkItem, ...]:
+    """The session's work, in order: what its last Stop listed and still stands, each holding the turn (a subagent
+    always; a shell once the turn ended, or while the shell reader lists it, by the reader's text; a monitor or task
+    once the turn ended); then the counted subagents and the reader's shells that Stop did not list, holding nothing."""
+    ended = session.state in ("idle", "done")
+    shells = {job.task_id: job for job in session.shown_shells or () if job.task_id is not None}
+    items: list[WorkItem] = []
+    for job in session.stop_work:
+        shown = shells.get(job.task_id) if job.kind == "shell" and job.task_id is not None else None
+        if job.kind == "subagent" or ended or shown is not None:
+            items.append(WorkItem(job.kind, shown.text if shown is not None else job.text, True))
+    listed_agents = {job.agent_id for job in session.stop_work if job.agent_id is not None}
+    listed_tasks = {job.task_id for job in session.stop_work if job.task_id is not None}
+    items += [WorkItem(job.kind, job.text, False) for job in session.shown_subagents or () if job.agent_id not in listed_agents]
+    items += [WorkItem(job.kind, job.text, False) for job in session.shown_shells or ()
+              if job.task_id is None or job.task_id not in listed_tasks]
+    return tuple(items)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,8 +222,8 @@ class StoppedOn:
     StopFailure hook). `error` is Claude Code's name for it: `rate_limit` for a usage or rate limit, which Claude Code
     may carry on from by itself once it resets; `billing_error`, `authentication_failed` and the like for one that
     blocks the session until someone acts. `resets_at`, a limit's reset in epoch seconds, only as the transcript's own
-    record of the limit gives it (stop_failures.StopTranscripts); None while nothing has. `at`, the wall clock when
-    the hook came, is neither sent nor compared."""
+    record of the limit gives it (agents.claude.StopTranscripts); None while nothing has. `at`, the wall clock when
+    the hook came, is excluded from value equality and wire data."""
     error: str
     resets_at: int | None = None
     at: float = field(default=0.0, compare=False)
@@ -286,11 +288,13 @@ class SessionInfo:
     cli_version: str | None = field(default=None, compare=False, metadata={"process": True})
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
-    # What its agent left running in the background when its last turn ended, which wakes it again (a Claude Stop's
-    # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts. A subagent
-    # stays on it while the status engine counts it.
-    background: tuple[BackgroundJob, ...] = field(default=(), metadata={"process": True})
-    display_work: DisplayWork | None = field(default=None, metadata={"process": True})
+    # What its agent's last Stop listed as still running (`background_tasks`), which wakes it again: a turn ended with
+    # this is paused, not finished. Empty once a new turn starts. A subagent stays on it while the status engine counts it.
+    stop_work: tuple[BackgroundJob, ...] = field(default=(), metadata={"process": True})
+    # What runs beside the turn as read live: the counted subagents of the tab's current conversation, and the
+    # shells the background-shell reader lists. None while that source is unavailable. Neither decides the status.
+    shown_subagents: tuple[BackgroundJob, ...] | None = field(default=None, metadata={"process": True})
+    shown_shells: tuple[BackgroundJob, ...] | None = field(default=None, metadata={"process": True})
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = field(default=None, metadata={"process": True})
@@ -311,8 +315,7 @@ class SessionInfo:
             "active": self.active, "contextPercent": self.context_percent,
             "contextTokens": self.context_tokens,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
-            "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
-            "displayWork": self.display_work.to_json() if self.display_work is not None else None,
+            "work": [item.to_json() for item in work_items(self)], "yourPrompt": self.your_prompt,
             "stoppedOn": self.stopped_on.to_json() if self.stopped_on else None,
             "testActivity": self.test_activity.to_json() if self.test_activity else None,
         }

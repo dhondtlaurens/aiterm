@@ -146,15 +146,17 @@ window manager, RPC and Operator MCP. It talks to iTerm2 through `ItermPort` (`i
 `ItermBridge` is the one SDK adapter and patches authentication when it connects. Screen recognition
 is pure (`screens.py`). `ItermSupervisor` owns reconnect/cookie handling. A locked refresh serializes
 snapshots and creation; tick consumers reuse that pass's session view, and task lookups use its
-index. `CorroboratingReaders` captures each corroborating read on the loop, runs it off the loop
-under a deadline and applies it on the loop. `SessionNotFound` marks a session that is truly
+index. Each corroborating read is a `ReadPlan` captured on the loop, run off the loop under a
+deadline and applied on the loop: the agent-neutral steps are in `corroboration.py`, each agent's
+own reads in its module under `agents/`. `SessionNotFound` marks a session that is truly
 absent. Generation/session identity prevents late telemetry
 from attaching to a replacement process.
 
 The app-resolved Claude configuration directory travels in `workspace.snapshot` and is echoed as a
 bootstrap compatibility check. A snapshot is a barrier before later events; overflow, malformed
-frames or an unreadable known event disconnect and bootstrap again. An adopted daemon is not killed
-as though it belonged to the current app. [Protocol reference](daemon-protocol.md) and
+frames or an unreadable known event disconnect and bootstrap again. The app talks only to a helper
+it started: one a crash left holding the socket is ended, and the app starts its own.
+[Protocol reference](daemon-protocol.md) and
 [daemon development](../daemon/README.md).
 
 ## Where the facts come from

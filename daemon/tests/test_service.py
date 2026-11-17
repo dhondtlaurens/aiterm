@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from aitermd import service
-from aitermd.codex_sessions import CodexSessionFiles
+from aitermd.agents.codex import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import BackgroundJob, Frame
@@ -67,6 +67,16 @@ async def test_status_and_create_task_window(stack):
     await svc.tick()
     sessions = (await call(r, w, "sessions.list", id_=2))["result"]
     assert sessions[0]["taskId"] == "t1" and sessions[0]["state"] == "idle"
+
+
+async def test_sessions_list_includes_a_tab_opened_since_the_last_tick(make_service):
+    svc = make_service()
+    it = svc.iterm
+    window = await svc.windows.create_task({"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME})
+    sid = await it.user_opens_tab(window["windowId"])
+    assert all(s.session_id != sid for s in svc.registry.all())
+    sessions = await svc._h_sessions_list(None)
+    assert sid in {s["sessionId"] for s in sessions}
 
 
 async def test_an_operators_command_is_typed_as_the_app_quoted_it(stack):
@@ -158,29 +168,29 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
     monkeypatch.setattr(svc.publisher, "broadcast", broadcast)
     write(path, launch())
     await svc.tick()
-    assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).background == ()
-    assert events[-1][1]["displayWork"]["shells"] == [{"kind": "shell", "text": "npm run test", "legacyIndex": None}]
+    assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).stop_work == ()
+    assert events[-1][1]["work"] == [{"kind": "shell", "text": "npm run test", "holdsTurn": False}]
     with path.open("a") as f:
         f.write(json.dumps(completed()) + "\n")
     await svc.tick()
-    assert events[-1][1]["displayWork"]["shells"] == []
+    assert events[-1][1]["work"] == []
     assert svc.registry.get(sid).state == "working"
 
 
-@pytest.mark.parametrize("replacement", ["process", "conversation", "generation", "closed"])
+@pytest.mark.parametrize("replacement", ["process", "conversation", "sessionStart", "closed"])
 async def test_background_read_cannot_attach_to_replaced_identity(make_service, tmp_path, monkeypatch, replacement):
-    from aitermd.claude_background import ShellReading, ShellTask
+    from aitermd.agents.claude import ShellReading, ShellTask
     svc, sid, path = await background_session(make_service, tmp_path)
 
     async def replace_during_read(name, work, nothing):
-        owner = svc.status.turn(sid)
-        reading = {f"{sid}:{owner.generation}": ShellReading((ShellTask(BackgroundJob("shell", "old", task_id="old"), 101),), frozenset())}
+        reading = {sid: ShellReading((ShellTask(BackgroundJob("shell", "old", task_id="old"), 101),), frozenset())}
         if replacement == "process":
             await svc.iterm.user_runs(sid, "claude", job_pid=401)
             svc.registry.apply_snapshot(await svc.iterm.snapshot())
         elif replacement == "conversation":
             svc.status.apply_metadata(sid, conversation="other")
-        elif replacement == "generation":
+        elif replacement == "sessionStart":
+            monkeypatch.setattr(svc.status, "_clock", lambda: 102)
             svc.status.apply_event(sid, HookEvent("claude", "sessionStart", "conversation", "/wt"))
         else:
             svc.registry.apply_snapshot([])
@@ -189,7 +199,43 @@ async def test_background_read_cannot_attach_to_replaced_identity(make_service, 
     monkeypatch.setattr(svc, "run_check", replace_during_read)
     assert await svc.observe_background(svc.registry.all()) == []
     session = svc.registry.get(sid)
-    assert session is None or session.display_work is None or session.display_work.shells is None
+    assert session is None or session.shown_shells is None
+
+
+@pytest.mark.parametrize("replacement", ["agent", "process", "conversation", "closed"])
+async def test_a_session_read_applies_only_the_sessions_still_current(make_service, monkeypatch, replacement):
+    from aitermd.corroboration import ReadPlan, SessionKey
+    from aitermd.models import RawSession
+
+    svc = make_service()
+    rows = [RawSession(sid, "w", index, "claude", 400 + index, "", "/wt")
+            for index, sid in enumerate(("replaced", "current"))]
+    svc.registry.apply_snapshot(rows)
+    applied = {}
+
+    def apply(readings):
+        applied.update(readings)
+        return list(readings)
+
+    plan = ReadPlan("session read", lambda: {"replaced": "old", "current": "fresh"}, {}, apply,
+                    keys={s.session_id: SessionKey.capture(s) for s in svc.registry.all()})
+
+    async def replace_during_read(name, work, nothing):
+        reading = work()
+        if replacement == "agent":
+            rows[0].command_line = "codex"
+        elif replacement == "process":
+            rows[0].job_pid = 999
+        elif replacement == "conversation":
+            svc.status.apply_metadata("replaced", conversation="new")
+        else:
+            rows.pop(0)
+        svc.registry.apply_snapshot(rows)
+        return reading
+
+    monkeypatch.setattr(svc, "run_check", replace_during_read)
+    assert await svc.observe(plan) == ["current"]
+    assert applied == {"current": "fresh"}
 
 
 async def test_ticks_queued_behind_one_are_served_by_a_single_next_tick(make_service):
@@ -514,7 +560,7 @@ async def test_a_codex_hook_placed_only_by_directory_cannot_supply_a_saved_threa
     await svc.hook_router.handle_hook("/hook/codex", {
         "hook_event_name": "SessionStart", "session_id": "headless-thread", "cwd": "/wt"})
     await svc.tick()
-    assert svc.resolver.codex_thread(sid) is None
+    assert svc.codex_threads.thread(sid) is None
     assert svc.registry.get(sid).conversation_id is None
 
 
@@ -547,7 +593,7 @@ async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack
     await it.user_runs(sid, "codex", job_pid=108, title="Codex")
     await svc.tick()
 
-    assert svc.resolver.codex_thread(sid) is None
+    assert svc.codex_threads.thread(sid) is None
     assert svc.registry.get(sid).context_percent is None
 
 
@@ -571,7 +617,7 @@ async def test_new_codex_hook_before_snapshot_binds_to_the_replacement_process(s
     })
     await svc.tick()
 
-    assert svc.resolver.codex_thread(sid) == "new-thread"
+    assert svc.codex_threads.thread(sid) == "new-thread"
 
 
 async def test_tick_uses_claude_file_status_and_agent_exit(stack):
@@ -1220,7 +1266,8 @@ async def test_a_failing_codex_usage_read_does_not_stop_session_polling(stack):
     assert "infinity" in svc.usage.snapshot()["codex"]["retrievalFailure"]["message"]
 
 
-async def test_snapshot_survives_a_failing_tick(stack, caplog):
+@pytest.mark.parametrize("method", ["workspace.snapshot", "sessions.list"])
+async def test_session_queries_survive_a_failing_tick(stack, caplog, method):
     svc, it, files, r, w = stack
     await svc.windows.create_task({"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME})
 
@@ -1229,8 +1276,9 @@ async def test_snapshot_survives_a_failing_tick(stack, caplog):
 
     it.snapshot = broken_snapshot
     with caplog.at_level("ERROR", logger="aitermd.service"):
-        result = (await call(r, w, "workspace.snapshot"))["result"]
-    assert result["sessions"][0]["taskId"] == "t1"
+        result = (await call(r, w, method))["result"]
+    sessions = result["sessions"] if method == "workspace.snapshot" else result
+    assert sessions[0]["taskId"] == "t1"
     assert any("tick failed" in rec.getMessage() for rec in caplog.records)
 
 
@@ -1304,7 +1352,7 @@ async def test_closed_sessions_leave_nothing_behind(stack):
     await svc.tick()
     assert sid not in svc.windows._self_created and sid not in svc.windows._applied_titles
     assert svc.status.turn(sid) is None
-    assert not svc.resolver._pins and not svc.resolver._codex
+    assert not svc.resolver._pins and not svc.codex_threads._bindings and not svc.codex_threads._written
     assert not svc.codex_files._paths and not svc.codex_files._missed and not svc.codex_files._rollouts
 
 
@@ -1414,16 +1462,16 @@ async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tm
     svc, it, files, r, w = stack
     gate = {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}
     sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 945, gate)
-    assert svc.registry.get(sid).to_json()["background"] == [{"kind": "subagent", "text": "Review the docs"},
-                                                              {"kind": "shell", "text": "scripts/test.sh"}]
+    assert [job.to_json() for job in svc.registry.get(sid).stop_work] == [{"kind": "subagent", "text": "Review the docs"},
+                                                                           {"kind": "shell", "text": "scripts/test.sh"}]
     _append(child, CHILD_REPORT)
     os.utime(child, (3000, 3000))
     await svc.tick()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "SubagentStop", "agent_id": "a1"})
     _append(child, CHILD_HANDS_BACK, CHILD_HANDED_BACK, CHILD_STOPPED)
     await svc.tick()
-    session = svc.registry.get(sid).to_json()
-    assert (session["state"], session["background"]) == (
+    session = svc.registry.get(sid)
+    assert (session.state, [job.to_json() for job in session.stop_work]) == (
         "done", [{"kind": "shell", "text": "scripts/test.sh"}])
 
 
@@ -1515,12 +1563,12 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": [
         {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"}]})
     session = svc.registry.get(sid)
-    assert (session.state, session.background) == ("done", (BackgroundJob("shell", "npm run test:run"),))
-    assert session.to_json()["background"] == [{"kind": "shell", "text": "npm run test:run"}]
+    assert (session.state, session.stop_work) == ("done", (BackgroundJob("shell", "npm run test:run", task_id="b1"),))
+    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True}]
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
-    assert svc.registry.get(sid).background == ()
+    assert svc.registry.get(sid).stop_work == ()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})
-    assert (svc.registry.get(sid).state, svc.registry.get(sid).background) == ("done", ())
+    assert (svc.registry.get(sid).state, svc.registry.get(sid).stop_work) == ("done", ())
 
 
 async def test_a_prompt_you_type_into_a_worker_is_yours_until_its_turn_ends(make_service, tmp_path):
@@ -1945,10 +1993,10 @@ async def test_a_tick_that_raises_after_the_snapshot_still_publishes_what_the_sn
     class Abort(BaseException):
         """Not an Exception, so no step's guard swallows it, as with a cancelled tick."""
 
-    def broken():
+    def broken(_raw):
         raise Abort
 
-    monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
+    monkeypatch.setattr(svc.codex_threads, "restore", broken)
     with pytest.raises(Abort):
         await svc.tick()
     # The registry already holds the new agent, so the next tick would diff nothing: the app must hear of it now.
@@ -2012,7 +2060,10 @@ async def test_a_step_before_the_announcements_failing_does_not_cost_them(stack,
         forgotten.extend(args)
         raise RuntimeError("a store that could not keep up")
 
-    monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
+    def unrestorable(_raw):
+        raise RuntimeError("a store that could not keep up")
+
+    monkeypatch.setattr(svc.codex_threads, "restore", unrestorable)
     monkeypatch.setattr(svc.windows, "forget_title", broken)
     with caplog.at_level("ERROR", logger="aitermd.service"):
         await svc.tick()
@@ -2020,7 +2071,7 @@ async def test_a_step_before_the_announcements_failing_does_not_cost_them(stack,
         pass
     assert sorted(forgotten) == sorted([first, moved]), "the second moved session is forgotten though the first raised"
     logged = [rec.getMessage() for rec in caplog.records if rec.name == "aitermd.service"]
-    assert any("bindings after the snapshot" in m for m in logged)
+    assert any("Codex threads after the snapshot" in m for m in logged)
     assert all(any(f"moved session {sid}" in m for m in logged) for sid in (first, moved))
 
 
@@ -2039,10 +2090,11 @@ async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stac
     assert (await next_event(r, "session.closed"))["sessionId"] == second
 
 
-@pytest.mark.parametrize("part,method", [("windows", "forget_session"), ("status", "reset_turn"), ("resolver", "forget")])
+@pytest.mark.parametrize("part,method", [("windows", "forget_session"), ("status", "reset_turn"), ("resolver", "forget"),
+                                         ("codex_threads", "forget")])
 async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_others_from_it(stack, monkeypatch, caplog, part, method):
     svc, it, files, r, w = stack
-    what = {"windows": "window state", "status": "turn", "resolver": "bindings"}[part]
+    what = {"windows": "window state", "status": "turn", "resolver": "pins", "codex_threads": "Codex thread"}[part]
     wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=301, title="Codex")
     await svc.tick()
@@ -2050,7 +2102,7 @@ async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_othe
         await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": event, "session_id": "thread-z", "cwd": "/wt",
                                                           "agent_id": "child", "_aiterm_iterm_session_id": sid})
     await call(r, w, "sessions.setTitles", {"titles": [{"sessionId": sid, "title": "main"}]}, id_=2)
-    assert svc.status.turn(sid) and svc.resolver._pins and sid in svc.windows._applied_titles
+    assert svc.status.turn(sid) and svc.resolver._pins and svc.codex_threads._bindings and sid in svc.windows._applied_titles
 
     def broken(session_id):
         raise RuntimeError("a store that could not forget")
@@ -2062,6 +2114,7 @@ async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_othe
     assert part == "windows" or sid not in svc.windows._applied_titles
     assert part == "status" or svc.status.turn(sid) is None
     assert part == "resolver" or not svc.resolver._pins
+    assert part == "codex_threads" or not svc.codex_threads._bindings
     assert f"forgetting the {what} of closed session {sid} failed" in [rec.getMessage() for rec in caplog.records]
 
 
@@ -2085,14 +2138,14 @@ async def test_one_sessions_failing_corroboration_does_not_stop_the_others(stack
     first = await _claude_tab_busy(svc, r, w, 952, "c1")
     wid = svc.registry.get(first).window_id
     second = await _claude_tab_busy(svc, r, w, 953, "c2", user_tab_of=wid)
-    real = svc.status.apply_claude_file_status
+    real = svc.status.apply_evidence
 
     def apply(session_id, *args):
         if session_id == first:
             raise OverflowError("cannot convert float infinity to integer")
         return real(session_id, *args)
 
-    monkeypatch.setattr(svc.status, "apply_claude_file_status", apply)
+    monkeypatch.setattr(svc.status, "apply_evidence", apply)
     with caplog.at_level("ERROR", logger="aitermd.service"):
         await svc.tick()
     assert svc.registry.get(second).state == "working"
@@ -2355,11 +2408,13 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
     wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=500, title="Codex")
     await svc.tick()
-    svc.resolver.bind(sid, "codex", "old-thread", "SessionStart")
+    svc.codex_threads.bind(sid, "old-thread", "SessionStart")
 
     async def replaced_during_read(name, work, nothing):
-        svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
-        return {"old-thread": (90, "old-version")}
+        from aitermd.agents.codex import CodexReading
+
+        svc.codex_threads.bind(sid, "new-thread", "SessionStart")
+        return {sid: CodexReading(90, "old-version", None)}
 
     monkeypatch.setattr(svc, "run_check", replaced_during_read)
     assert await svc.observe_codex({sid: "old-thread"}) == []

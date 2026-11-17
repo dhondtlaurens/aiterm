@@ -27,7 +27,7 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     case windowSetFrame = "window.setFrame"
     case windowClose = "window.close"
     case tabCreate = "tab.create"
-    /// Not sent by the app: `aitermd ctl`'s.
+    /// The app's fresh query for the tabs, without a snapshot event.
     case sessionsList = "sessions.list"
     case sessionsSetTitles = "sessions.setTitles"
     case sessionsMarkSeen = "sessions.markSeen"
@@ -92,7 +92,7 @@ extension DaemonError {
         public static let daemonCodes: [Code] = [.badParams, .notFound, .itermUnavailable, .protocol, .internal, .unknownMethod]
 
         // This client's own.
-        /// `DaemonClient.snapshot()`'s guard: a helper whose protocol version this app cannot speak.
+        /// The workspace snapshot's guard: a helper whose protocol version this app cannot speak.
         public static let incompatible: Code = "incompatible"
         /// No reply within the request's timeout; what the request asked for may still happen.
         public static let timeout: Code = "timeout"

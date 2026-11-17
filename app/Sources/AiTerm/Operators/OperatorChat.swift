@@ -43,10 +43,10 @@ import AiTermCore
                 return try await self.open(session, digest: digest)
             }, existingWindow: { [weak self] session in
                 guard let self, let daemon = self.daemon() else { throw ActionUnavailable("The helper is unavailable.") }
-                let snapshot = try await daemon.snapshot()
+                let sessions = try await daemon.sessions()
                 guard self.context.running(), self.workspace.state.operatorSession?.id == session.id,
                       self.workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
-                return snapshot.sessions.first { $0.taskUUID == session.id && $0.agent == .claude }?.windowId
+                return sessions.first { $0.taskUUID == session.id && $0.agent == .claude }?.windowId
             }, sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.context.instructions() }, usage: { [weak self] in self?.live.usage ?? .empty },
             installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }))
         keeper.activity = activity
@@ -124,10 +124,10 @@ import AiTermCore
         }
         guard context.running(), workspace.state.operatorSession?.id == session.id, workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
         try await daemon.registerOperator(operatorId: session.id.uuidString, token: prepared.token, generation: session.generation)
-        let actual = try await daemon.snapshot()
+        let actual = try await daemon.sessions()
         guard context.running(), workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
-        if let existing = actual.sessions.first(where: { $0.taskUUID == session.id && $0.agent == .claude }) { return existing.windowId }
-        let opening = try await daemon.openWorkerWindow(taskId: session.id.uuidString, cwd: prepared.folder.path, title: "Operator", agentCommand: prepared.command, frame: frame())
+        if let existing = actual.first(where: { $0.taskUUID == session.id && $0.agent == .claude }) { return existing.windowId }
+        let opening = try await daemon.createTaskWindow(taskId: session.id.uuidString, cwd: prepared.folder.path, title: "Operator", agentCommand: prepared.command, frame: frame(), background: true)
         guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
         return opening.id
     }
@@ -136,11 +136,11 @@ import AiTermCore
         guard let tab = operatorTab(), tab.windowId == window else {
             // The close may have completed before a lost reply or a restart. Confirm absence;
             // never close another window that happens to have the old number.
-            let snapshot = try await daemon.snapshot()
+            let sessions = try await daemon.sessions()
             guard context.running(), workspace.state.operatorSession?.id == session.id,
                   workspace.state.operatorSession?.generation == session.generation,
                   workspace.state.operatorSession?.window == window, case .closing? = workspace.state.operatorSession?.lifecycle,
-                  !snapshot.sessions.contains(where: { $0.windowId == window }) else { throw ActionUnavailable("The Operator's window is not safely idle.") }
+                  !sessions.contains(where: { $0.windowId == window }) else { throw ActionUnavailable("The Operator's window is not safely idle.") }
             return
         }
         guard live.sessions.filter({ $0.windowId == window }).count == 1, let conversation = tab.conversationId,

@@ -1244,9 +1244,8 @@ async def test_a_snapshot_recovers_the_codex_thread_saved_on_its_process(monkeyp
     tag = json.dumps({"pid": 42, "thread": "worker-thread"})
     bridge, _ = _variables_bridge(monkeypatch, {"w1": [["s1"]]}, session_values={"s1": {
         "commandLine": "codex", "jobPid": 42, "user.aiterm_codex_thread": tag}})
-    registry = SessionRegistry()
-    registry.apply_snapshot(await bridge.snapshot())
-    assert registry.get("s1").conversation_id == "worker-thread"
+    [session] = await bridge.snapshot()
+    assert (session.job_pid, session.user_vars["aiterm_codex_thread"]) == (42, tag)
 
 
 async def test_only_a_session_iterm_no_longer_has_is_left_out(monkeypatch):

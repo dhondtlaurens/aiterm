@@ -11,8 +11,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from aitermd import connection
-from aitermd.claude_sessions import ClaudeSessionFiles
-from aitermd.codex_sessions import CodexSessionFiles
+from aitermd.agents.claude import ClaudeSessionFiles
+from aitermd.agents.codex import CodexSessionFiles
 from aitermd.connection import ItermSupervisor
 from aitermd.hooks_server import HookServer
 from aitermd.rpc_server import RpcServer

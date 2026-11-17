@@ -12,7 +12,8 @@ from datetime import datetime
 
 import pytest
 
-from aitermd import codex_sessions, process_agents
+from aitermd import process_agents
+from aitermd.agents import codex as codex_module
 from aitermd.models import Frame, RawSession
 from aitermd.hook_events import HookEvent
 from aitermd.test_activity import TestActivityReader
@@ -34,7 +35,7 @@ def scan_date(monkeypatch):
         def now(cls, tz=None):
             return cls(2026, 11, 11, 0, 30, tzinfo=tz)
 
-    monkeypatch.setattr(codex_sessions, "datetime", ScanDate)
+    monkeypatch.setattr(codex_module, "datetime", ScanDate)
 
 
 class Audit:

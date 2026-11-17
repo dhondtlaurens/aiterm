@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from aitermd.models import RawSession
 from aitermd.sessions import SessionRegistry
 from aitermd.test_activity import TestActivityReader
@@ -13,6 +15,49 @@ from aitermd.test_activity import TestActivityReader
 
 def apply(reader, registry):
     return reader.apply(registry, reader.read(registry.all()))
+
+
+@pytest.mark.parametrize("change", [None, "opened", "closed", "agent_cwd", "cwd", "agent", "process", "conversation"])
+async def test_activity_read_applies_only_to_the_unchanged_session_set(make_service, tmp_path, monkeypatch, change):
+    svc = make_service(clock=lambda: 20)
+    root = tmp_path / "own"
+    record(svc.test_activity.directory, "1", root, "completed", finished_at=15, exit_code=0)
+    rows = [RawSession(sid, "w", index, "claude", 400 + index, "", str(root))
+            for index, sid in enumerate(("main", "extra"))]
+    svc.registry.apply_snapshot(rows)
+    applied = []
+    apply_reading = svc.test_activity.apply
+
+    def tracked_apply(registry, reading):
+        applied.append(reading)
+        return apply_reading(registry, reading)
+
+    async def change_during_read(name, work, nothing):
+        reading = work()
+        if change == "opened":
+            rows.append(RawSession("new", "w", 2, "claude", 500, "", str(root)))
+        elif change == "closed":
+            rows.pop()
+        elif change == "agent_cwd":
+            svc.status.apply_metadata("extra", cwd=str(tmp_path / "other"))
+        elif change == "cwd":
+            rows[1].cwd = str(tmp_path / "other")
+        elif change == "agent":
+            rows[1].command_line = "codex"
+        elif change == "process":
+            rows[1].job_pid = 999
+        elif change == "conversation":
+            svc.status.apply_metadata("extra", conversation="new")
+        svc.registry.apply_snapshot(rows)
+        return reading
+
+    monkeypatch.setattr(svc.test_activity, "apply", tracked_apply)
+    monkeypatch.setattr(svc, "run_check", change_during_read)
+    changed = await svc.observe(svc.readers.tests(svc.test_activity, svc.registry.all()))
+    assert len(applied) == (1 if change is None else 0)
+    assert changed == (["main"] if change is None else [])
+    activity = svc.registry.get("main").test_activity
+    assert (activity.run_id if activity else None) == ("1" if change is None else None)
 
 
 def record(folder, run_id, root, state="queued", **fields):

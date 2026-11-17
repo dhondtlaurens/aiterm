@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from . import mcp
-from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS
+from .agents import HOOK_PARSERS, STATUSLINE_PARSERS
 from .models import ITERM_SESSION_FIELD
 
 log = logging.getLogger(__name__)

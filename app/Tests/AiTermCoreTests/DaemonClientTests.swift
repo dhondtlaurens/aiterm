@@ -50,8 +50,8 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        let opened = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4))
-        #expect(opened == WorkerOpening(id: "w7"))
+        let opened = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4), background: false)
+        #expect(opened == Opening(id: "w7"))
         let params = server.received.first?["params"] as? [String: Any]
         #expect(params?["taskId"] as? String == "t1")
         #expect((params?["frame"] as? [String: Any])?["w"] as? Double == 3)
@@ -62,8 +62,8 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         server.handler = { req in ["id": req["id"]!, "result": ["windowId": "w8", "commandError": "send failed"]] }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        let opened = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4))
-        #expect(opened == WorkerOpening(id: "w8", commandError: "send failed"))
+        let opened = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4), background: false)
+        #expect(opened == Opening(id: "w8", commandError: "send failed"))
     }
 
     /// A review opened in its task's window: the daemon tags the tab with the window's task, and
@@ -75,8 +75,8 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        let id = try await client.createTab(windowId: "w1", cwd: "/wt", agentCommand: "claude '/code-review'")
-        #expect(id == "s9")
+        let id = try await client.createTab(windowId: "w1", cwd: "/wt", agentCommand: "claude '/code-review'", tabKey: nil, background: false)
+        #expect(id == Opening(id: "s9"))
         let params = server.received.first?["params"] as? [String: Any]
         #expect(params?["windowId"] as? String == "w1")
         #expect(params?["cwd"] as? String == "/wt")
@@ -90,10 +90,39 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         server.handler = { req in ["id": req["id"]!, "result": ["sessionId": "s9"]] }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        #expect(try await client.createTab(windowId: "w1", cwd: "/wt", agentCommand: "claude", tabKey: "review", background: true) == "s9")
+        #expect(try await client.createTab(windowId: "w1", cwd: "/wt", agentCommand: "claude", tabKey: "review", background: true) == Opening(id: "s9"))
         let params = server.received.first?["params"] as? [String: Any]
         #expect(params?["tabKey"] as? String == "review")
         #expect(params?["background"] as? Bool == true)
+    }
+
+    @Test(arguments: [nil, "send failed"] as [String?])
+    func aTabOpeningReadsItsIdAndCommandError(_ commandError: String?) async throws {
+        server.handler = { req in
+            var result: [String: Any] = ["sessionId": "s9"]
+            result["commandError"] = commandError
+            return ["id": req["id"]!, "result": result]
+        }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        let opened = try await client.createTab(windowId: "w1", cwd: "/wt", agentCommand: "claude", tabKey: nil, background: true)
+        #expect(opened == Opening(id: "s9", commandError: commandError))
+    }
+
+    @Test func sessionsReturnsTheTabsWithoutASnapshotEvent() async throws {
+        server.handler = { req in
+            #expect(req["method"] as? String == "sessions.list")
+            return ["id": req["id"]!, "result": [["sessionId": "s9", "windowId": "w1", "agent": "shell", "state": "idle", "cwd": "/wt", "active": false, "tabIndex": 0, "work": []]]]
+        }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        let sessions = try await client.sessions()
+        #expect(sessions.map(\.sessionId) == ["s9"])
+        // Closing the stream drains everything the reply queued, without a timing assertion.
+        client.disconnect()
+        var events: [DaemonEvent] = []
+        for await event in client.events { events.append(event) }
+        #expect(events.isEmpty)
     }
 
     /// One worker tab brought forward among its task's: the daemon selects it and raises its window.
@@ -169,7 +198,7 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         let box = EventBox(client.events)
         server.push(event: "iterm.connected", payload: ["version": "3.7.2"])
         server.push(event: "window.activated", payload: ["windowId": "w1"])
-        server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "active": false, "background": [], "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "state": "working", "cwd": "/wt"])
+        server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "active": false, "work": [], "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "state": "working", "cwd": "/wt"])
         server.push(event: "usage.changed", payload: ["claude": ["fiveHour": ["usedPercent": 23, "resetsAt": 99], "sevenDay": NSNull(), "spend": NSNull(), "updatedAt": 1], "codex": NSNull()])
 
         guard case .event(let e1) = await nextEvent(box) else { Issue.record("timed out waiting for iterm.connected event"); return }
@@ -216,13 +245,13 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
     /// The branch a row shows is resolved from `effectiveCwd`, never from `cwd`: iTerm2 only ever
     /// reports the shell's directory, which does not follow an agent into a worktree.
     @Test func testSessionInfoPrefersTheAgentsCwd() throws {
-        let moved = #"{"sessionId":"s1","windowId":"w1","background":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"idle","title":"","cwd":"/repo","agentCwd":"/repo/.worktrees/feat","active":true}"#
+        let moved = #"{"sessionId":"s1","windowId":"w1","work":[],"tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"idle","title":"","cwd":"/repo","agentCwd":"/repo/.worktrees/feat","active":true}"#
         let a = try JSONDecoder().decode(SessionInfo.self, from: Data(moved.utf8))
         #expect(a.effectiveCwd == "/repo/.worktrees/feat")
         #expect(a.active)
 
         // A plain shell tab has no agent directory and is not active.
-        let plain = #"{"sessionId":"s2","windowId":"w1","active":false,"background":[],"tabIndex":1,"taskId":null,"projectId":null,"agent":"shell","model":null,"state":"idle","title":"","cwd":"/repo"}"#
+        let plain = #"{"sessionId":"s2","windowId":"w1","active":false,"work":[],"tabIndex":1,"taskId":null,"projectId":null,"agent":"shell","model":null,"state":"idle","title":"","cwd":"/repo"}"#
         let b = try JSONDecoder().decode(SessionInfo.self, from: Data(plain.utf8))
         #expect(b.effectiveCwd == "/repo")
         #expect(!b.active)
@@ -418,7 +447,7 @@ time.sleep(5)
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
         server.push(event: "window.closed", payload: ["windowId": "old"])
-        let snapshot = try await client.snapshot()
+        let snapshot = try await client.snapshot(claudeConfigDirectory: nil)
         server.push(event: "window.closed", payload: ["windowId": "new"])
         let box = EventBox(client.events)
         guard case .event(let old) = await nextEvent(box) else { Issue.record("missing old event"); return }

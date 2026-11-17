@@ -396,20 +396,20 @@ TS tests-scripts.
 
 ### Phase 6. Daemon and wire (after 2; beside the app track)
 
-- [ ] 6a. **Opus.** One ordered work list per session, each item saying whether it holds the turn;
+- [x] 6a. **Opus.** One ordered work list per session, each item saying whether it holds the turn;
   `background` plus `displayWork` with `legacyIndex`, and the app's merge, go (DM F2, SB F10).
   Wire frames and `docs/daemon-protocol.md` follow.
-- [ ] 6b. **Opus.** The app owns its helper: a stale holder of the socket is ended and a new one
+- [x] 6b. **Opus.** The app owns its helper: a stale holder of the socket is ended and a new one
   started; adoption, the held status, the mismatch hold and the unreadable-line limiter go; the
   stop in `scripts/run-dev.sh` becomes unnecessary (WD F4).
-- [ ] 6c. **Codex.** One method per daemon command returning its full reply; `workspace.snapshot`
+- [x] 6c. **Codex.** One method per daemon command returning its full reply; `workspace.snapshot`
   is the connection's own; callers that only want the tabs use the side-effect-free listing
   (WD F5).
-- [ ] 6d. **Codex.** Readings carry one session key and are dropped generically when it changed;
+- [x] 6d. **Codex.** Readings carry one session key and are dropped generically when it changed;
   the six hand-written identity checks and `Turn.generation` go (DM F6).
-- [ ] 6e. **Opus.** One owner for Codex thread identity: restored from the tab's tag, bound by
+- [x] 6e. **Opus.** One owner for Codex thread identity: restored from the tab's tag, bound by
   hooks, asked by the readers, written back after the tick (DM F5). The tag's format stays.
-- [ ] 6f. **Opus.** Telemetry grouped by agent (Claude, Codex, PI), each turning its readings into
+- [x] 6f. **Opus.** Telemetry grouped by agent (Claude, Codex, PI), each turning its readings into
   evidence for one status entry point; the engine loses its agent-specific methods (DM F4). The
   Codex title stays a source.
 
@@ -1194,3 +1194,99 @@ left.
   `tasks[].currentAct`, and two refusal texts of `answer_worker` changed (5c, 5f, 5g). Also for 9c: the
   hosted-only Operator section snapshot poses (they need `AITERM_SNAPSHOT_HOSTED=1`, which opens
   windows) were not captured during this phase.
+
+### Phase 6
+
+- 6a: one ordered work list per session (`work: [WorkItem(kind, text, holdsTurn)]`, built by the
+  daemon's `work_items`), replacing `background`, `displayWork` and `legacyIndex`; the app's merge went
+  and every reader (sidebar card, worker tabs, digest, live work) reads `work` and `holdsTurn`.
+  `BackgroundJob.task_id` now compares. Fixtures re-recorded: `daemon/tests/wire/` with
+  `AITERM_UPDATE_WIRE_FIXTURES=1` (only the four session payload frames changed), provenance paragraph
+  added; `docs/daemon-protocol.md` and `docs/status-model.md` follow. Tests deleted:
+  `test_same_text_refreshes_internal_identity_without_a_spurious_wire_change` (behaviour deleted),
+  `DaemonTypesTests.displayWorkDistinguishesUnavailableAndKnownEmptySources` (replaced by
+  `aSessionReadsItsWorkInOrderWithWhatHoldsTheTurn`), `SidebarModelTests.displaySourcesPreserveStopOrderAndNeverDecideStatus`
+  (replaced by `theCardIsEveryTabsWorkAndOnlyWhatHoldsATurnDecidesStatus`); five display tests rewritten
+  on `work`; added two status tests and `WorkerTabsTests.onlyWorkThatHoldsTheTurnKeepsAWorkerAtWork`.
+  Differences: the brief's grep matches its own prescribed provenance wording; its "all three in the
+  Stop's order" case is not reachable, the test asserts what happens. Behaviour note: a Stop shell the
+  reader still lists now holds the turn mid-turn, so a needsInput tab with such a shell counts as at
+  work (the brief's decisions accept this kind of difference).
+- 6b: the app owns its helper: a helper still holding this socket (matched by the exact
+  `aitermd run --socket <path>` command line) is ended (SIGTERM, then SIGKILL after the grace) and the
+  app starts its own at once; a held socket with no such holder is a failed launch through the backoff.
+  Adoption, the held status, the mismatch hold and the unreadable-line limiter went; the stop in
+  `scripts/run-dev.sh` went (not run). Tests deleted with their behaviour: two supervisor adoption tests
+  and two connection mismatch-hold tests; added `testOnlyAHelperOnThisExactSocketIsStale`,
+  `testAStaleHelperHoldingTheSocketIsEndedAndTheChildStartedAgain` (a stand-in process on a scratch
+  socket) and `testAHeldSocketWithNoStaleHelperIsAFailedLaunchRetriedThroughTheBackoff`. Docs and
+  `docs/workflow/verify.md` follow. The brief's grep for "adopted" still matches other concepts
+  (windows, workers, worktrees, remotes, the chat). Left: `SessionAgent`'s lenient-decoding doc cites
+  adoption; the daemon and the app both launch iTerm2 at start.
+- 6c: one method per daemon command returning its full reply (`Opening` with id and command error for
+  windows and tabs; the worker-only openers and creation conveniences went); `workspace.snapshot` is
+  the connection's own (`DaemonConnection.refresh()`, also used by Settings); callers that only want the
+  tabs use `sessions()` (`sessions.list`, which now ticks first and answers the last registry if the tick
+  fails, with no event in the app). Wire frames unchanged. No test deleted
+  (`test_snapshot_survives_a_failing_tick` became `test_session_queries_survive_a_failing_tick` for both
+  queries); added a session-list freshness test and refresh and tab-error tests.
+- 6d decision (orchestrator, mid-step): Codex stopped because a repeated StopFailure with the same
+  error keeps the old timestamp (`StoppedOn.at` is `compare=False` and `SessionRegistry._set` skips
+  equal values), so a session key built from it could not tell two such stops apart, which the
+  hand-written `is not stopped_on` identity check did. Decided within the step's intent (one session key
+  that changes with each new stop): the registry records a new StopFailure's timestamp even when its
+  error is the same, and the key includes it; the wire stays byte-identical if that can be kept, and if a
+  repeated stop then announces a change, that is accepted (a real new event) with the frames re-recorded
+  and a provenance line.
+- 6d: readings carry one `SessionKey` (agent, job pid, conversation, the reader's extras) and are
+  dropped generically in `Service.observe` when it changed (a whole-registry plan also when the
+  session set changed); the six hand-written identity checks and `Turn.generation` went. Per the decision
+  above, the registry records each StopFailure's timestamp while announcing only a changed wire value,
+  so two stops with the same error give two keys and the wire is byte-identical. No test deleted; added
+  the same-error regression, partial acceptance across two sessions and whole-plan cases. Tick budgets
+  unchanged (an extra registry sort was avoided with a session-id lookup).
+- 6e: one owner for Codex thread identity, `CodexThreads`: restored from the tab's tag at each
+  snapshot (validated there), bound by hooks placed by evidence, asked by the readers, written back to
+  the tag after the tick (once per new thread). The resolver only places posts and keeps pins; the
+  registry no longer reads the tag. Tag format and wire unchanged. No test deleted; four Codex thread
+  tests moved to the new `test_codex_threads.py`, plus `test_a_thread_restored_after_a_helper_restart_is_not_written_again`.
+  Behaviour note: at a helper restart, each Codex tab restored from its tag gets one `session.changed`
+  after its `session.opened` (identical payload).
+- 6f: `aitermd/agents/` holds `claude.py`, `codex.py` and `pi.py`, each mapping its readings to
+  `status.Evidence`, which `StatusEngine.apply_evidence` takes as the one tick entry point. The per-source rules sit in
+  `_apply_state`, keyed by source, and the freshness ordering is unchanged. `apply_claude_progress` became
+  `apply_progress`; `Harness.corroboration` and the six old modules went. Wire and compat captures are unchanged, and
+  no assertion changed. Differences from the brief:
+  - Its third Done-when grep cannot be empty as written: `\.corroboration\b` matches the two imports of the
+    `corroboration` module the brief keeps. `corroboration=` and `_corroborate` have no hits.
+  - The Codex thread capture moved out of the snapshot pass into `codex.tab_threads`. The service calls it right
+    after the pass with no await between, so the timing is the same.
+  - The rollout read failure now logs on `aitermd.agents.codex`, still under the `aitermd` handler.
+  - Each plan function takes only what it uses.
+  - The title evidence's time is the readers' clock, read once per snapshot (the same clock).
+  Tests deleted: the `h.corroboration` assertion in `test_models.py` (the field is gone). Which agent gets which tick
+  reading is still proved by `test_service.py` `test_tick_uses_claude_file_status_and_agent_exit`,
+  `test_a_title_only_change_is_not_broadcast_yet_still_drives_a_codex_turn` and
+  `test_tick_recovers_codex_completion_without_stop_or_seen_spinner`. Added: one mapping test each for Claude file
+  status, the Codex title and the rollout boundary, plus the idle Claude-file "done" no-op. The step's bundle check
+  passed (it holds `aitermd/agents/`).
+  Noticed and left: `scripts/make-app.sh` does not clear `daemon/build/lib`, so a bundle built in a tree that once
+  held the deleted modules still carries them, unimported. `docs/status-model.md` names `Service._apply_trust_prompts`
+  (stale before this step; for 9a).
+  Gate: the first plain run failed once in `GitLabClientTests.aCancelledRequestThrowsCancellation` (Swift, untouched
+  here; it took 20.9 s under load, and the implementer's own run passed it); the rerun was green.
+- Phase 6 gate: plain `scripts/test.sh all` green on `71ebf7ee` (daemon 1522 passed, 1 skipped). Snapshots in
+  `build/refactor-phase6`: these captures carry the Display P3 profile again, so they compare with
+  `build/refactor-phase3`, the last capture made with that profile (against phase 5, 47 images differ across the
+  whole frame). Against phase 3 only the changes already recorded in 3d and 4b differ (`sidebar-banners.png`,
+  `sidebar-removal*.png`), plus the known `marks.png` variant: phase 6 changed no snapshot. Bundle check
+  (`scripts/make-app.sh` after clearing `daemon/build`, then `scripts/test-app-bundle.sh build/AiTerm.app`) passed.
+- Review round 1, Important, confirmed: after an app crash the orphaned helper still accepts on the socket while
+  the new child imports, so the 20 ms readiness probe reported `.listening`. The app then connected to the old
+  helper before the child's exit 3 replaced it, which 6b's ownership forbids. Fixed by an Opus implementer:
+  `SocketProbe.listenerPid` reads the listener's pid from the kernel (`LOCAL_PEERPID`), and the supervisor reports
+  `.listening` only for its own child. Added
+  `DaemonSupervisorTests.testAStaleHelperServingTheSocketIsNeverReportedAsTheChildListening`, with a real listener
+  as the orphan (it fails without the fix).
+- Review round 2: no findings, "ready". No check is owed to the maintainer for phase 6 beyond those already
+  listed.

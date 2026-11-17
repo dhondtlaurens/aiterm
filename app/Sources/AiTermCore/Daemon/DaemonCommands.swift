@@ -1,23 +1,18 @@
 import Foundation
 
-/// The requests the app makes of a connected daemon, apart from the connection's own cookie
-/// answers. `DaemonClient` sends them over the socket; the app's tests record them instead.
+/// The requests the app makes of a connected daemon, apart from the connection's snapshots and
+/// cookie answers. `DaemonClient` sends them over the socket; the app's tests record them instead.
 public protocol DaemonCommands: Sendable {
-    func snapshot() async throws -> DaemonSnapshot
+    /// The tabs now, after the daemon ticks; this query yields no snapshot event.
+    func sessions() async throws -> [SessionInfo]
     /// `background` opens it behind the person's work: an operator's worker windows do. Its window id, and why its agent
     /// command could not be typed, when the daemon could not type it: the window is there either way.
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> WorkerOpening
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> Opening
     func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String
     /// A tab in an existing window, carrying that window's task or project tag. `tabKey` tags it as the Operator's
     /// extra worker tab of that key (`open_tab`), and a repeat returns the tab already tagged so; `background` opens
     /// it behind the person's work.
-    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String
-    /// An Operator's worker window, behind your work, as `createTaskWindow` with `background`: its id, and why its agent
-    /// command could not be typed, when the daemon could not type it.
-    func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening
-    /// An Operator's worker as a new tab in its task's window, behind your work, as `createTab` with `background` and no
-    /// tab key: its session id, and why its agent command could not be typed, when the daemon could not type it.
-    func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening
     func activate(windowId: String) async throws
     /// One tab selected in its window, and that window brought forward: a task's worker tab among several, which
     /// `activate(windowId:)` would leave as its window last showed it.
@@ -40,21 +35,9 @@ public protocol DaemonCommands: Sendable {
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws
 }
 
-extension DaemonCommands {
-    /// A task window in front, as every window but an operator's worker's opens.
-    public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> WorkerOpening {
-        try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: false)
-    }
-
-    /// A tab in front, as every tab but an operator's extra worker's opens.
-    public func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {
-        try await createTab(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil, background: false)
-    }
-}
-
-/// A window or tab the daemon opened for an agent command (`createTaskWindow`, `openWorkerWindow`, `openWorkerTab`): its
-/// window or session id, and the reason its agent command could not be typed (the daemon's `commandError`), nil when it was.
-public struct WorkerOpening: Equatable, Sendable {
+/// A window or tab the daemon opened: its window or session id, and why its agent command
+/// could not be typed (the daemon's `commandError`), nil when it was.
+public struct Opening: Equatable, Sendable {
     public var id: String
     public var commandError: String?
     public init(id: String, commandError: String? = nil) { self.id = id; self.commandError = commandError }

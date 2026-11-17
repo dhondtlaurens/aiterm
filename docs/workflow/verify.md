@@ -10,8 +10,8 @@ Never invoke `swift` directly; `scripts/swift.sh` and the other scripts pin it.
 ## Run
 
 - `scripts/make-app.sh` builds `build/AiTerm.app` without launching it.
-- `scripts/run-dev.sh` builds a DEV app, quits the running AiTerm, stops an orphaned helper and
-  opens the new bundle. This is a live switch: development and installed copies share
+- `scripts/run-dev.sh` builds a DEV app, quits the running AiTerm and opens the new bundle (which
+  ends a helper a crash left behind and starts its own). This is a live switch: development and installed copies share
   `state.json`, the daemon socket and the hook port, and two must never run at once. Ask before
   running it: other sessions, possibly this one, live in the AiTerm being replaced. Back to the
   release: quit it and open `/Applications/AiTerm.app`.

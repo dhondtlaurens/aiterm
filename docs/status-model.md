@@ -25,7 +25,7 @@ order — the chips sit still, so a stable reading order beats ranking.
 | Hook event | Signal | Notes |
 |---|---|---|
 | `UserPromptSubmit` | working | Claude Code and Codex. A new turn: it drops any completion the previous turn deferred. |
-| `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below), and the session's `background` lists what still runs: shells, monitors and other tasks, and the counted children by their description, each taken off as it ends. |
+| `Stop` | done | Deferred while a subagent is still alive — the last child finishes the change. A Claude `Stop` also drops each counted child its `background_tasks` no longer lists (below), and the session's `work` marks what still runs as holding the turn (`holdsTurn`): shells, monitors and other tasks, and the counted children by their description, each taken off as it ends. |
 | `StopFailure` | done | Claude only, in place of `Stop` when an API error ended the turn. The session's `stoppedOn` names the error (`rate_limit` for a usage limit, `billing_error`, `authentication_failed`...), and for a limit when it resets, once the tick reads that in the transcript's own record of it within 30 s; it is never guessed. It clears once the session works again: a new prompt, a clean `Stop`, another conversation, its session file saying busy (Claude Code carrying on by itself once the limit reset), another process in the tab. |
 | `PermissionRequest` | needsInput | Claude Code and Codex. |
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
@@ -62,8 +62,9 @@ below do the correcting.
 Hooks are the primary source; two corroborating ones run on the daemon's tick so a missed post
 cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` → working, `waiting`
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
-the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Which
-harness has which is its `corroboration` in the `HARNESSES` table; PI has neither.
+the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Each
+agent's module under `daemon/aitermd/agents/` maps its own readings to the engine's `Evidence`; PI
+has neither.
 
 Claude Code's folder-trust dialog ("Yes, I trust this folder") comes before all of these: Claude
 loads no hooks and writes no session file until the folder is trusted, so the tab's screen is the
@@ -149,27 +150,18 @@ Subagent tracking cannot outlive its conversation: a new `SessionStart` (for PI,
 that begins a conversation), or a different process id in the tab, forgets every child still
 counted. One lost `SubagentStop` would otherwise hold the row at working for good.
 
-The sidebar's existing work card can also open while its ordinary working spinner or input
-mark is shown, including for Operator-driven tasks. Its `displayWork` sources describe what
-can be inspected; they do not change these status or Operator readiness rules. Existing counted
-children are shown with the Stop's description when known, otherwise the hook's agent type or
-“Subagent”. Legacy child descriptions remain usable while a deferred Stop keeps the parent
-working. The existing background card/list and its ordering are reused.
-
-For a Claude process whose SessionStart this daemon observed, a bounded off-loop incremental
-reader follows the native parent transcript. A Bash result must confirm `backgroundTaskId`;
-requesting background execution or a test-run lock alone proves no background job. Native task
-completion notifications and verified TaskStop results update the display without a further
-tool poll. Each source stays unavailable during replay catch-up, partial writes, failed reads
-or unsupported terminal outcomes. A valid Stop snapshot is merged by task ID, with unknown IDs
-falling back to legacy evidence. Process/conversation/generation guards reject late readings.
-Adopted sessions without current-generation start evidence retain the legacy fallback.
-
-Shells and monitors from legacy evidence require an ended tab; counted subagents do not. Test
-summaries retain their existing final suffix for ended tabs, including duplicate evidence of
-a shell listed by Stop. Codex active turns currently expose counted children; detailed Codex
-background terminal inventory and general active-turn monitors remain unsupported. A mixed-tab
-row can also show the ended siblings' existing work while another tab works.
+Each session carries one ordered `work` list (`work_items`). First comes what the last Claude Stop
+listed and still stands, each item marked `holdsTurn`: a subagent always, a shell once the turn has
+ended or while the background-shell reader lists it (with the reader's text), a monitor or task
+once the turn has ended. Then come the counted subagents of the tab's current conversation and the
+reader's shells that the Stop did not list, holding nothing. The sidebar's work card draws the whole
+list, also while the tab works or asks; the row's background status and the Operator read only
+`holdsTurn`. Codex and PI send no Stop list, so their work is their counted children. The reader
+follows the parent transcript of a Claude process whose SessionStart this daemon observed: a Bash
+result must confirm `backgroundTaskId`, native completion notices and verified TaskStop results end
+a shell, and it is unavailable during replay catch-up, partial writes, failed reads, when a Stop
+names a shell it has not seen, and for a changed process, conversation or time its work began. Test runs
+are not in the list; the app appends the active ones of ended tabs to the card.
 
 Within a conversation, a Claude child can also die without a `SubagentStop`. Claude Code's stream
 watchdog kills a background child that has made no progress for 600 s ("Agent stalled"), and sends

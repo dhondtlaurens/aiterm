@@ -1,11 +1,11 @@
 import pytest
 from aitermd import status
-from aitermd.claude_subagents import TranscriptTail
-from aitermd.hook_events import HookEvent, parse_claude_hook
-from aitermd.models import BackgroundJob, RawSession
+from aitermd.agents import claude, codex
+from aitermd.agents.claude import ShellReading, ShellTask, TranscriptTail, parse_claude_hook
+from aitermd.hook_events import HookEvent
+from aitermd.models import BackgroundJob, RawSession, StoppedOn
 from aitermd.sessions import SessionRegistry
-from aitermd.status import StatusEngine
-from aitermd.claude_background import ShellReading, ShellTask
+from aitermd.status import Evidence, StatusEngine
 
 
 class Clock:
@@ -24,6 +24,23 @@ FRESH = 1000.0
 def hook(kind, subagent_id=None, **fields):
     """A hook that reports `kind`: the engine reads only what it says of the turn, not whose it is."""
     return HookEvent("claude", kind, None, None, subagent_id=subagent_id, **fields)
+
+
+def claude_file(engine, session_id, file_status, written_at):
+    """A Claude session file written at `written_at` with `file_status`, as the tick maps it: a status
+    Claude's mapping does not know applies nothing."""
+    evidence = claude.file_evidence(file_status, written_at)
+    return [] if evidence is None else engine.apply_evidence(session_id, evidence)
+
+
+def codex_title(engine, session_id, title):
+    """A Codex tab's title, read by the tick now."""
+    return engine.apply_evidence(session_id, codex.title_evidence(title, engine._clock()))
+
+
+def codex_rollout(engine, session_id, state, at):
+    """A turn boundary a Codex rollout recorded at `at`."""
+    return engine.apply_evidence(session_id, codex.rollout_evidence((state, at)))
 
 
 @pytest.fixture
@@ -53,98 +70,147 @@ def test_hook_signal_transitions(eng, sequence, expected):
     assert reg.get("s1").state == expected
 
 
+def work(reg, session_id="s1"):
+    return reg.get(session_id).to_json()["work"]
+
+
+def item(kind, text, holds_turn):
+    return {"kind": kind, "text": text, "holdsTurn": holds_turn}
+
+
+def stop(*tasks):
+    return parse_claude_hook({"hook_event_name": "Stop", "session_id": "conversation", "background_tasks": list(tasks)})
+
+
 @pytest.mark.parametrize("state", ["working", "needsInput"])
-def test_counted_children_publish_display_work_without_changing_the_turn(eng, state):
+def test_counted_children_are_shown_without_holding_the_turn(eng, state):
     engine, reg = eng
     engine.apply_event("s1", hook(state))
     assert engine.apply_event("s1", hook("subagentStart", "child-1")) == ["s1"]
     assert reg.get("s1").state == state
-    assert reg.get("s1").background == ()
-    assert reg.get("s1").to_json()["displayWork"] == {
-        "subagents": [{"kind": "subagent", "text": "Subagent", "legacyIndex": None}], "shells": None}
+    assert reg.get("s1").stop_work == ()
+    assert work(reg) == [item("subagent", "Subagent", False)]
     assert engine.apply_event("s1", hook("subagentStop", "child-1")) == ["s1"]
     assert reg.get("s1").state == state
-    assert reg.get("s1").to_json()["displayWork"]["subagents"] == []
+    assert work(reg) == []
 
 
-def test_a_new_conversations_display_does_not_republish_old_counted_children(eng):
+def test_a_new_conversation_does_not_show_old_counted_children(eng):
     engine, reg = eng
     engine.apply_metadata("s1", conversation="first")
     engine.apply_event("s1", hook("subagentStart", "old"))
     engine.apply_metadata("s1", conversation="second")
     engine.release_dead_subagents({})
-    assert reg.get("s1").to_json()["displayWork"]["subagents"] == []
+    assert work(reg) == []
     engine.apply_event("s1", hook("subagentStart", "current", subagent_label="explorer"))
-    assert reg.get("s1").to_json()["displayWork"]["subagents"] == [
-        {"kind": "subagent", "text": "explorer", "legacyIndex": None}]
-    assert reg.get("s1").state == "working"  # Display isolation does not rewrite the status engine's decisions.
+    assert work(reg) == [item("subagent", "explorer", False)]
+    assert reg.get("s1").state == "working"  # What is shown does not rewrite the status engine's decisions.
 
 
-def test_display_shells_merge_by_id_without_touching_obligations(eng, clock):
+def test_a_reader_shell_is_shown_and_the_stop_listing_it_holds_the_turn(eng, clock):
     engine, reg = eng
     engine.apply_event("s1", hook("sessionStart"))
     engine.apply_event("s1", hook("working"))
     shell = BackgroundJob("shell", "npm test", task_id="job1")
     reading = ShellReading((ShellTask(shell, 101),), frozenset())
     assert engine.apply_shell_reading("s1", reading) == ["s1"]
-    assert reg.get("s1").background == () and reg.get("s1").state == "working"
+    assert reg.get("s1").stop_work == () and reg.get("s1").state == "working"
+    assert work(reg) == [item("shell", "npm test", False)]
     clock.now = 103
     engine.apply_event("s1", hook("done", background_work=(shell,), display_shells=(shell,)))
-    assert reg.get("s1").to_json()["displayWork"]["shells"] == [
-        {"kind": "shell", "text": "npm test", "legacyIndex": 0}]
-    engine.apply_shell_reading("s1", ShellReading((), frozenset({"job1"})))
-    assert reg.get("s1").to_json()["displayWork"]["shells"] == []
-    assert reg.get("s1").background == (shell,) and reg.get("s1").state == "done"
+    assert work(reg) == [item("shell", "npm test", True)]
     engine.apply_shell_reading("s1", None)
-    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+    assert reg.get("s1").shown_shells is None
+    assert work(reg) == [item("shell", "npm test", True)]
+    assert reg.get("s1").stop_work == (shell,) and reg.get("s1").state == "done"
 
 
-def test_adopted_or_unmatched_shell_inventory_is_unavailable(eng):
+def test_an_unavailable_shell_source_falls_back_to_stop_shells_once_the_turn_ended(eng):
     engine, reg = eng
     engine.apply_event("s1", hook("working"))
     shell = BackgroundJob("shell", "npm test", task_id="job1")
     reading = ShellReading((ShellTask(shell, 101),), frozenset())
     engine.apply_shell_reading("s1", reading)
-    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+    assert reg.get("s1").shown_shells is None and work(reg) == []
     engine.apply_event("s1", hook("sessionStart"))
     unknown = BackgroundJob("shell", "other job", task_id="unknown")
     engine.apply_event("s1", hook("done", background_work=(unknown,), display_shells=(unknown,)))
     engine.apply_shell_reading("s1", reading)
-    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+    assert reg.get("s1").shown_shells is None
+    assert work(reg) == [item("shell", "other job", True)]
 
 
-def test_stop_descriptions_and_native_ids_anchor_the_same_interleaved_list(eng, clock):
+def test_the_stop_order_comes_first_with_the_readers_texts_then_what_it_did_not_list(eng, clock):
     engine, reg = eng
     engine.apply_event("s1", hook("sessionStart"))
     engine.apply_event("s1", hook("subagentStart", "c1", subagent_label="explorer"))
     clock.now = 110
-    stopped = parse_claude_hook({"hook_event_name": "Stop", "session_id": "conversation", "background_tasks": [
+    engine.apply_event("s1", stop(
         {"type": "shell", "id": "a", "command": "npm test", "status": "running"},
         {"type": "subagent", "id": "c1", "description": "Review the fix", "status": "running"},
         {"type": "monitor", "id": "ci", "description": "Watch CI", "status": "running"},
-        {"type": "shell", "id": "b", "command": "npm test", "status": "running"}]})
-    engine.apply_event("s1", stopped)
-    engine.apply_shell_reading("s1", ShellReading((ShellTask(BackgroundJob("shell", "npm test", task_id="b"), 105),
-                                                  ShellTask(BackgroundJob("shell", "npm test", task_id="a"), 101)), frozenset()))
-    display = reg.get("s1").to_json()["displayWork"]
-    assert display["subagents"] == [{"kind": "subagent", "text": "Review the fix", "legacyIndex": 1}]
-    assert [item["legacyIndex"] for item in display["shells"]] == [3, 0]
-    assert reg.get("s1").state == "working"  # Existing child-deferred completion.
+        {"type": "shell", "id": "b", "command": "npm test", "status": "running"}))
+    engine.apply_event("s1", hook("subagentStart", "c2", subagent_label="explorer"))
+    engine.apply_shell_reading("s1", ShellReading((ShellTask(BackgroundJob("shell", "npm test -- b", task_id="b"), 105),
+                                                  ShellTask(BackgroundJob("shell", "npm run lint", task_id="c"), 111),
+                                                  ShellTask(BackgroundJob("shell", "npm test -- a", task_id="a"), 101)),
+                                                 frozenset()))
+    assert reg.get("s1").state == "working"  # Completion deferred to the children.
+    # The parent works on: the monitor is left out until its turn ends.
+    assert work(reg) == [item("shell", "npm test -- a", True), item("subagent", "Review the fix", True),
+                         item("shell", "npm test -- b", True), item("subagent", "explorer", False),
+                         item("shell", "npm run lint", False)]
     engine.apply_event("s1", parse_claude_hook({"hook_event_name": "Stop", "background_tasks": [
         {"type": "shell", "command": "unknown ID", "status": "running"}]}))
     engine.apply_shell_reading("s1", ShellReading((), frozenset()))
-    assert reg.get("s1").to_json()["displayWork"]["shells"] is None
+    assert reg.get("s1").state == "done" and reg.get("s1").shown_shells is None
+    assert work(reg) == [item("shell", "unknown ID", True)]
+
+
+def test_a_stop_holds_its_subagent_while_the_parent_works_and_all_its_work_once_the_turn_is_done(eng, clock):
+    engine, reg = eng
+    engine.apply_event("s1", hook("sessionStart"))
+    engine.apply_event("s1", hook("subagentStart", "c1"))
+    clock.now = 110
+    engine.apply_event("s1", stop(
+        {"type": "subagent", "id": "c1", "description": "Review the fix", "status": "running"},
+        {"type": "shell", "id": "b1", "command": "npm run dev", "status": "running"},
+        {"type": "monitor", "id": "m1", "description": "Watch CI", "status": "running"}))
+    assert reg.get("s1").state == "working"
+    assert work(reg) == [item("subagent", "Review the fix", True)]
+    assert engine.apply_event("s1", hook("subagentStop", "c1")) == ["s1"]
+    assert reg.get("s1").state == "done"
+    # The child that ended leaves the Stop's list; the rest holds the turn in the Stop's order.
+    assert work(reg) == [item("shell", "npm run dev", True), item("monitor", "Watch CI", True)]
+    engine.apply_shell_reading("s1", ShellReading((ShellTask(BackgroundJob("shell", "npm run dev", task_id="b1"), 101),
+                                                  ShellTask(BackgroundJob("shell", "npm test", task_id="b2"), 120)),
+                                                 frozenset()))
+    assert work(reg) == [item("shell", "npm run dev", True), item("monitor", "Watch CI", True),
+                         item("shell", "npm test", False)]
+
+
+def test_a_stop_shell_the_reader_saw_end_holds_the_turn_until_the_next_hook(eng, clock):
+    engine, reg = eng
+    engine.apply_event("s1", hook("sessionStart"))
+    engine.apply_event("s1", hook("working"))
+    clock.now = 110
+    engine.apply_event("s1", stop({"type": "shell", "id": "b1", "command": "npm run dev", "status": "running"}))
+    assert engine.apply_shell_reading("s1", ShellReading((), frozenset({"b1"}))) == ["s1"]
+    assert reg.get("s1").shown_shells == () and reg.get("s1").state == "done"
+    assert work(reg) == [item("shell", "npm run dev", True)]
+    engine.apply_event("s1", hook("working"))
+    assert work(reg) == []
 
 
 def test_claude_file_status_mapping(eng):
     engine, reg = eng
-    assert engine.apply_claude_file_status("s1", "idle", FRESH) == []          # idle at start: nothing
-    engine.apply_claude_file_status("s1", "thinking", FRESH)
+    assert claude_file(engine, "s1", "idle", FRESH) == []          # idle at start: nothing
+    claude_file(engine, "s1", "thinking", FRESH)
     assert reg.get("s1").state == "working"
-    engine.apply_claude_file_status("s1", "waiting", FRESH)
+    claude_file(engine, "s1", "waiting", FRESH)
     assert reg.get("s1").state == "needsInput"
-    engine.apply_claude_file_status("s1", "busy", FRESH)
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "busy", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "done"
 
 
@@ -159,25 +225,25 @@ def test_claude_file_status_mapping(eng):
 def test_claude_file_status_tracks_resume_after_input(eng, start_state, file_status, expected):
     engine, reg = eng
     reg.set_state("s1", start_state)
-    engine.apply_claude_file_status("s1", file_status, FRESH)
+    claude_file(engine, "s1", file_status, FRESH)
     assert reg.get("s1").state == expected
 
 
 def test_codex_title_spinner(eng):
     engine, reg = eng
-    engine.apply_codex_title("s2", "⠋ acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
     assert reg.get("s2").state == "working"
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "done"
-    assert engine.apply_codex_title("s2", "acme-web") == []
+    assert codex_title(engine, "s2", "acme-web") == []
 
 
 def test_codex_title_without_spinner_waits_for_background_subagent(eng):
     engine, reg = eng
-    engine.apply_codex_title("s2", "⠋ acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
     engine.apply_event("s2", hook("subagentStart", "child-1"))
     engine.apply_event("s2", hook("subagentStart", "child-2"))
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "working"
     engine.apply_event("s2", hook("subagentStop", "child-1"))
     assert reg.get("s2").state == "working"
@@ -189,7 +255,7 @@ def test_claude_idle_file_waits_for_background_subagent(eng):
     engine, reg = eng
     engine.apply_event("s1", hook("working"))
     engine.apply_event("s1", hook("subagentStart", "child-1"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "working"
     engine.apply_event("s1", hook("subagentStop", "child-1"))
     assert reg.get("s1").state == "done"
@@ -210,7 +276,7 @@ def test_session_start_forgets_a_subagent_whose_stop_was_lost(eng):
     engine.apply_event("s1", hook("working"))
     engine.apply_event("s1", hook("subagentStart", "lost"))
     engine.apply_event("s1", hook("sessionStart"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "done"
 
 
@@ -221,17 +287,27 @@ def test_a_replaced_process_forgets_the_previous_turns_subagents(eng):
     engine.apply_event("s1", hook("done"))
     engine.reset_turn("s1")
     engine.apply_event("s1", hook("working"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "done"
     engine.apply_event("s1", hook("subagentStop", "lost"))
     assert reg.get("s1").state == "done"
+
+
+@pytest.mark.parametrize("start_state", ["idle", "done"])
+def test_a_claude_file_saying_done_changes_nothing_on_a_turn_not_under_way_without_children(eng, clock, start_state):
+    engine, reg = eng
+    reg.set_state("s1", start_state)
+    reg.set_stopped_on("s1", StoppedOn("rate_limit", at=clock.now))
+    assert engine.apply_evidence("s1", Evidence("done", FRESH, "claude_file")) == []
+    assert (reg.get("s1").state, reg.get("s1").stopped_on) == (start_state, StoppedOn("rate_limit", at=clock.now))
+    assert engine.turn("s1") is None
 
 
 @pytest.mark.parametrize("start_state", ["working", "needsInput", "done"])
 def test_an_unknown_claude_file_status_is_ignored(eng, start_state):
     engine, reg = eng
     reg.set_state("s1", start_state)
-    assert engine.apply_claude_file_status("s1", "compacting", FRESH) == []
+    assert claude_file(engine, "s1", "compacting", FRESH) == []
     assert reg.get("s1").state == start_state
 
 
@@ -250,21 +326,21 @@ def test_claude_idle_file_does_not_hide_needs_input_while_child_runs(eng):
     engine.apply_event("s1", hook("working"))
     engine.apply_event("s1", hook("subagentStart", "child-1"))
     engine.apply_event("s1", hook("needsInput"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "needsInput"
 
 
 def test_codex_spinner_restores_working_after_input(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("needsInput"))
-    engine.apply_codex_title("s2", "⠋ acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
     assert reg.get("s2").state == "working"
 
 
 def test_codex_title_without_spinner_keeps_needs_input(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("needsInput"))
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "needsInput"
 
 
@@ -398,8 +474,8 @@ def test_a_hook_during_a_prompt_supersedes_the_state_it_interrupted(eng):
 def test_a_session_file_older_than_the_last_hook_does_not_override_it(eng, clock, kind, file_status):
     engine, reg = eng
     engine.apply_event("s1", hook(kind))
-    assert engine.apply_claude_file_status("s1", file_status, clock.now - 0.5) == []
-    assert engine.apply_claude_file_status("s1", file_status, clock.now) == []
+    assert claude_file(engine, "s1", file_status, clock.now - 0.5) == []
+    assert claude_file(engine, "s1", file_status, clock.now) == []
     assert reg.get("s1").state == kind
 
 
@@ -407,26 +483,26 @@ def test_a_session_file_written_after_the_last_hook_still_moves_the_row(eng, clo
     engine, reg = eng
     engine.apply_event("s1", hook("needsInput"))
     # The prompt was answered: Claude marks its file busy again and no hook says so.
-    assert engine.apply_claude_file_status("s1", "busy", clock.now + 0.5) == ["s1"]
+    assert claude_file(engine, "s1", "busy", clock.now + 0.5) == ["s1"]
     assert reg.get("s1").state == "working"
 
 
 def test_a_codex_prompt_is_not_ended_before_its_spinner_first_appears(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
-    assert engine.apply_codex_title("s2", "acme-web") == []
+    assert codex_title(engine, "s2", "acme-web") == []
     assert reg.get("s2").state == "working"
-    engine.apply_codex_title("s2", "⠋ acme-web")
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "done"
 
 
 def test_the_previous_turns_spinner_does_not_end_the_next_prompt(eng):
     engine, reg = eng
-    engine.apply_codex_title("s2", "⠋ acme-web")
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
+    codex_title(engine, "s2", "acme-web")
     engine.apply_event("s2", hook("working"))
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "working"
 
 
@@ -434,8 +510,8 @@ def test_a_spinner_after_an_answered_prompt_lets_its_absence_end_the_turn(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
     engine.apply_event("s2", hook("needsInput"))
-    engine.apply_codex_title("s2", "⠋ acme-web")
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "done"
 
 
@@ -737,7 +813,7 @@ def test_a_stop_lists_the_children_the_turn_waits_on_beside_its_other_work(clock
     stranger = BackgroundJob("subagent", "Not counted", agent_id="x9")
     stop = hook("done", background_work=(REVIEW, stranger, SHELL), running_subagents=frozenset({"c1", "x9"}))
     assert eng.apply_event("s1", stop) == ["s1"]
-    assert reg.get("s1").background == (REVIEW, SHELL) and reg.get("s1").state == "working"
+    assert reg.get("s1").stop_work == (REVIEW, SHELL) and reg.get("s1").state == "working"
 
 
 def test_a_childs_end_takes_it_off_what_the_turn_waits_on(clock):
@@ -746,7 +822,7 @@ def test_a_childs_end_takes_it_off_what_the_turn_waits_on(clock):
     eng.apply_event("s1", hook("done", background_work=(REVIEW, SHELL), running_subagents=frozenset({"c1"})))
     eng.apply_event("s1", hook("subagentStop", "c1"))
     assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True)}) == ["s1"]
-    assert reg.get("s1").background == (SHELL,) and reg.get("s1").state == "done"
+    assert reg.get("s1").stop_work == (SHELL,) and reg.get("s1").state == "done"
 
 
 def test_a_child_that_ends_at_its_subagent_stop_is_taken_off_what_the_turn_waits_on_at_once(clock):
@@ -758,9 +834,9 @@ def test_a_child_that_ends_at_its_subagent_stop_is_taken_off_what_the_turn_waits
     eng.apply_event("s1", hook("subagentStart", "c2"))
     index = BackgroundJob("subagent", "Index the docs", agent_id="c2")
     eng.apply_event("s1", hook("done", background_work=(index, SHELL), running_subagents=frozenset({"c2"})))
-    assert reg.get("s1").background == (index, SHELL)
+    assert reg.get("s1").stop_work == (index, SHELL)
     assert eng.apply_event("s1", hook("subagentStop", "c2")) == ["s1"]
-    assert (reg.get("s1").state, reg.get("s1").background) == ("done", (SHELL,))
+    assert (reg.get("s1").state, reg.get("s1").stop_work) == ("done", (SHELL,))
 
 
 def test_a_new_conversation_takes_its_children_off_what_the_turn_waits_on(clock):
@@ -768,7 +844,7 @@ def test_a_new_conversation_takes_its_children_off_what_the_turn_waits_on(clock)
     eng.apply_event("s1", hook("working"))
     eng.apply_event("s1", hook("done", background_work=(REVIEW, SHELL), running_subagents=frozenset({"c1"})))
     assert eng.apply_event("s1", hook("sessionStart")) == ["s1"]
-    assert reg.get("s1").background == (SHELL,)
+    assert reg.get("s1").stop_work == (SHELL,)
 
 
 def test_counted_children_keep_working_until_their_transcripts_end(clock):
@@ -881,16 +957,16 @@ def test_an_agent_exiting_from_its_trust_prompt_forgets_it(eng):
 def test_codex_rollout_completion_recovers_missed_stop_and_spinner(eng, clock):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
-    assert engine.apply_codex_title("s2", "Codex") == [], "no spinner was observed"
-    assert engine.apply_codex_rollout("s2", "done", 101.25) == ["s2"]
+    assert codex_title(engine, "s2", "Codex") == [], "no spinner was observed"
+    assert codex_rollout(engine, "s2", "done", 101.25) == ["s2"]
     assert reg.get("s2").state == "done"
-    assert engine.apply_codex_rollout("s2", "done", 101.25) == [], "one completion event"
-    assert engine.apply_codex_rollout("s2", "working", 102.5) == ["s2"]
+    assert codex_rollout(engine, "s2", "done", 101.25) == [], "one completion event"
+    assert codex_rollout(engine, "s2", "working", 102.5) == ["s2"]
     assert reg.get("s2").state == "working"
-    assert engine.apply_codex_rollout("s2", "done", 101.25) == [], "old completion cannot undo a later start"
+    assert codex_rollout(engine, "s2", "done", 101.25) == [], "old completion cannot undo a later start"
     clock.now = 104.0
     engine.apply_event("s2", hook("needsInput"))
-    assert engine.apply_codex_rollout("s2", "done", 103.0) == []
+    assert codex_rollout(engine, "s2", "done", 103.0) == []
     assert reg.get("s2").state == "needsInput", "a newer hook wins"
 
 
@@ -899,7 +975,7 @@ def test_resumed_codex_ignores_completion_from_before_session_start(eng, clock):
     engine.apply_event("s2", hook("working"))
     clock.now = 110.0
     engine.apply_event("s2", hook("sessionStart"))
-    assert engine.apply_codex_rollout("s2", "done", 105.0) == []
+    assert codex_rollout(engine, "s2", "done", 105.0) == []
     assert reg.get("s2").state == "working"
 
 
@@ -907,7 +983,7 @@ def test_rollout_start_clears_the_previous_turns_deferred_completion(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
     engine.apply_event("s2", hook("subagentStart", "child"))
-    engine.apply_codex_rollout("s2", "done", 101.0)
-    engine.apply_codex_rollout("s2", "working", 102.0)
+    codex_rollout(engine, "s2", "done", 101.0)
+    codex_rollout(engine, "s2", "working", 102.0)
     engine.apply_event("s2", hook("subagentStop", "child"))
     assert reg.get("s2").state == "working"
