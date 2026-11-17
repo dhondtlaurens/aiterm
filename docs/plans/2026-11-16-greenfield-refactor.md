@@ -1497,3 +1497,7 @@ left.
 - Review round 1: one Minor, confirmed: `presentingOperator` still checked `signalTask != nil` instead of 8a's
   accessor. Fixed by Codex (one line), gate green. No code finding of Critical or Important severity, verdict "ready
   with fixes", so no second round.
+- Plain `scripts/test.sh all` green on `b07327a4`. `main` had only the refactor's own merges; merged to `main`
+  (`d1599de8`). No check is owed to the maintainer for phase 8.
+
+### Phase 9
