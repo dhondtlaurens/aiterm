@@ -123,7 +123,7 @@ import Testing
     @Test func aSessionQuestionRedrawsOnlyTheOperatorAndBookkeepingRedrawsNothing() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
-        let operatorRow = OperatorRow.id(of: OperatorSession.rowID)
+        let operatorRow = OperatorSession.rowID
         sidebar.controller.workspace.mutate { $0.operatorSession = OperatorSession(createdAt: Date()); $0.operatorOpen = true }
         sidebar.settleRows()
         sidebar.counter.reset()

@@ -113,7 +113,7 @@ import Testing
         await controller.signalController.ports.work.settled()
         #expect(server.requests("window.createTask").isEmpty, "a closed chat with nothing to type stays closed")
 
-        await controller.choose(.operation(OperatorSession.rowID))?.value
+        await controller.choose(.operatorChat)?.value
 
         #expect(server.requests("window.createTask").count == 1)
         // The line it types, or past the inline limit the launch file that line reads.
@@ -124,7 +124,7 @@ import Testing
         #expect(controller.state.operatorSession?.window == "reopened")
         #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened"])
         #expect(focus.seen.count == 1)
-        #expect(controller.focus.selection == .operation(OperatorSession.rowID))
+        #expect(controller.focus.selection == .operatorChat)
         #expect(controller.issue == nil)
     }
 
@@ -136,9 +136,9 @@ import Testing
         controller.helper.setDaemonClient(server)
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        #expect(controller.choose(.operation(OperatorSession.rowID)) == nil)
+        #expect(controller.choose(.operatorChat) == nil)
 
-        #expect(controller.focus.selection == .operation(OperatorSession.rowID))
+        #expect(controller.focus.selection == .operatorChat)
         #expect(server.requests.isEmpty)
         #expect(controller.issue == nil)
     }

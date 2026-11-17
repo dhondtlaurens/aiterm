@@ -232,7 +232,7 @@ final class AppController {
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
             switch target {
-            case .operatorWindow: self.choose(.operation(OperatorSession.rowID))
+            case .operatorWindow: self.choose(.operatorChat)
             case .task(let id): self.choose(.task(id))
             }
         }
@@ -419,7 +419,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .operation, .signal, nil: nil
+        case .operatorChat, .signal, nil: nil
         }
     }
 
@@ -454,7 +454,7 @@ final class AppController {
         guard let selection = focus.selection else { return nil }
         switch selection {
         case .task(let id) where state.task(id: id) != nil: return choose(selection)
-        case .operation: return choose(selection)
+        case .operatorChat: return choose(selection)
         default: return focus.row(id: selection.id) != nil ? choose(selection) : nil
         }
     }
@@ -472,7 +472,7 @@ final class AppController {
             return choose(task: id)
         case .terminal(let id):
             return focus.select(row, after: windows.open(.terminal(id)))
-        case .operation:
+        case .operatorChat:
             return focus.select(row, after: windows.open(.operatorChat))
         }
     }

@@ -85,7 +85,7 @@ struct SignalSidebar {
 
 /// Only drawn facts: repeated activity events redraw this row without changing task rows.
 struct SignalOperatorRowValue: Equatable, Identifiable {
-    var id: UUID { OperatorRow.id(of: OperatorSession.rowID) }
+    var id: UUID { OperatorSession.rowID }
     var line: OperatorLine
     var status: TaskStatus
     var paused: Bool

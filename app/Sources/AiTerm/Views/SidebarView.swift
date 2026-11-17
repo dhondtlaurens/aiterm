@@ -81,7 +81,7 @@ struct SidebarView: View {
     /// The OPERATOR heading and, while its section is open (`SidebarProjection.operatorOpen`), what it holds, as the
     /// list draws them above the projects: the Operator's row — left out while it has no unfinished work or attention
     /// (`SignalOperatorRowValue.shown`) — then each signal's heading and tasks. The heading is off the arrow path,
-    /// as a divider is; the rest is on it, the Operator's row with an id of its own (`OperatorRow.id(of:)`).
+    /// as a divider is; the rest is on it, the Operator's row using the fixed `OperatorSession.rowID`.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SignalOperatorHeading(controller: controller).selectionDisabled()
         ForEach(rows.operatorOpen && rows.signalOperator.shown ? [rows.signalOperator] : []) { value in

@@ -228,14 +228,15 @@ public struct UsageTaskRow: Equatable, Sendable {
     }
 }
 
-/// A sidebar row that can have a window: a task (or review), a terminal, or the Operator's stable row.
+/// A sidebar row that can have a window: a task, a terminal, or the Operator's row.
 /// Focus View steps through them, and the Dock badge counts them.
 public enum RowID: Hashable, Sendable {
-    case task(UUID), terminal(UUID), operation(UUID)
+    case task(UUID), terminal(UUID), operatorChat
 
     public var id: UUID {
         switch self {
-        case .task(let id), .terminal(let id), .operation(let id): id
+        case .task(let id), .terminal(let id): id
+        case .operatorChat: OperatorSession.rowID
         }
     }
 }

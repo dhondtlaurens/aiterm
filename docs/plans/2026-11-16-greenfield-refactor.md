@@ -327,7 +327,7 @@ TS tests-scripts.
   picks the opener. `RowFocus` keeps selection, peek and raising; its three opener slots, the five
   copies of "a signal task is not restored here" and the Operator's 180-second "opened" grace go.
   What choosing a row does is decided in `AppController.choose` alone (WD F2, SB F7).
-- [ ] 3c. **Codex.** The Operator row has one fixed id and a payload-free selection case; the
+- [x] 3c. **Codex.** The Operator row has one fixed id and a payload-free selection case; the
   derived id goes (WD F8, SB F6, OC F11). Row flags are kept once, not as a set plus a mirror
   (WD F9).
 - [ ] 3d. **Codex.** The iTerm2 banner says what a person can act on: iTerm2 isn't running (with
@@ -890,3 +890,8 @@ left.
   its conversation was recorded starts a new generation on the next reconcile (unchanged keeper logic,
   rare); a closed chat whose workload ended retires at the next scheduled pass. `docs/architecture.md`
   still names `WindowReconciler` (3e).
+- 3c: the Operator row has one fixed id (`OperatorSession.rowID`) and a payload-free selection and
+  row case (`.operatorChat`); `OperatorRow.swift` and its derived id went. Missing checkouts are kept
+  once in `RowFlags` (a set with per-row observed cells) instead of a set plus a mirror. No test
+  deleted; added `RowFlagsTests`. Snapshots in `build/refactor-3c`: only `marks.png` differs from
+  `build/refactor-3b` (known variant). The brief's identity grep also matches `SignalOperatorRow`.

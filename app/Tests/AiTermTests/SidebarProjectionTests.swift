@@ -87,8 +87,8 @@ import Testing
         world.state.operatorSession?.questions = [.init(id: "q", task: driven, text: "Which locale?", openedAt: askedAt)]
         world.state.append(project: project); world.state.tasks.append(task)
         let sessions = [tab(.done), SessionInfo.make("worker", window: "worker-window", task: driven, state: .needsInput)]
-        #expect(try attention(world.state, sessions: sessions) == [.operation(OperatorSession.rowID), .task(driven), .task(Self.taskId)])
-        #expect(try attention(world.state, sessions: sessions, skipping: [driven]) == [.operation(OperatorSession.rowID), .task(Self.taskId)])
+        #expect(try attention(world.state, sessions: sessions) == [.operatorChat, .task(driven), .task(Self.taskId)])
+        #expect(try attention(world.state, sessions: sessions, skipping: [driven]) == [.operatorChat, .task(Self.taskId)])
     }
 
     /// What the list draws from: a write that changes none of it redraws no row.

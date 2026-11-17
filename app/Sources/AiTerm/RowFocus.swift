@@ -1,16 +1,16 @@
 import Foundation
 import AiTermCore
 
-/// The selected sidebar row: a project header, a task (or review), a terminal, or the Operator's stable row.
+/// The selected sidebar row: a project header, a signal header, a task (or review), a terminal, or the Operator's chat.
 /// A header has no window: selecting it shows nothing and raises nothing.
 enum RowSelection: Equatable {
-    case project(UUID), signal(UUID), task(UUID), terminal(UUID), operation(UUID)
+    case project(UUID), signal(UUID), task(UUID), terminal(UUID), operatorChat
 
     /// The row's UUID in the list. The Operator uses `OperatorSession.rowID`, independent of its session id.
     var id: UUID {
         switch self {
         case .project(let id), .signal(let id), .task(let id), .terminal(let id): return id
-        case .operation(let run): return OperatorRow.id(of: run)
+        case .operatorChat: return OperatorSession.rowID
         }
     }
 
@@ -19,7 +19,7 @@ enum RowSelection: Equatable {
         switch row {
         case .task(let id): self = .task(id)
         case .terminal(let id): self = .terminal(id)
-        case .operation(let run): self = .operation(run)
+        case .operatorChat: self = .operatorChat
         }
     }
 
@@ -28,7 +28,7 @@ enum RowSelection: Equatable {
         switch row {
         case .task(let id): self = .task(id)
         case .terminal(let id): self = .terminal(id)
-        case .operatorChat: self = .operation(OperatorSession.rowID)
+        case .operatorChat: self = .operatorChat
         }
     }
 }
@@ -133,14 +133,14 @@ final class RowFocus {
         return nil
     }
 
-    /// The row with this id, whichever kind it is. The Operator uses `OperatorSession.rowID`.
+    /// The row with this id, whichever kind it is. The Operator's chat has the fixed `OperatorSession.rowID`.
     func row(id: UUID) -> RowSelection? {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
         if state.signals.contains(where: { $0.id == id }) || state.tasks.contains(where: { $0.signalTask?.signal == id && $0.signalTask?.takenOver == false }) { return .signal(id) }
         if state.project(id: id) != nil { return .project(id) }
-        if OperatorRow.id(of: OperatorSession.rowID) == id { return .operation(OperatorSession.rowID) }
+        if OperatorSession.rowID == id { return .operatorChat }
         return nil
     }
 
@@ -179,7 +179,7 @@ final class RowFocus {
             return activate(row, failure: "Couldn’t activate the window", after: opening)
         case .terminal:
             return activate(row, failure: "Couldn’t activate the terminal", after: opening)
-        case .operation:
+        case .operatorChat:
             return activate(row, failure: "Couldn’t activate the operator’s window", after: opening)
         }
     }
@@ -260,7 +260,7 @@ final class RowFocus {
         } else if let terminal = state.terminals.first(where: { $0.windowId == windowId }) {
             browse(.terminal(terminal.id))
         } else if state.operatorSession?.window == windowId {
-            browse(.operation(OperatorSession.rowID))
+            browse(.operatorChat)
         }
     }
 
@@ -280,8 +280,7 @@ final class RowFocus {
         case .project, .signal: nil
         case .task(let id): state.task(id: id)?.windowId
         case .terminal(let id): state.terminal(id: id)?.windowId
-        case .operation(let id) where id == OperatorSession.rowID: state.operatorSession?.window
-        case .operation: nil
+        case .operatorChat: state.operatorSession?.window
         }
     }
 }

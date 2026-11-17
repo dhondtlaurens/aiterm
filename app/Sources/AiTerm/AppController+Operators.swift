@@ -87,7 +87,7 @@ extension AppController {
         guard canChangeWorkspace else { return }
         if rows.operatorHeading.folds {
             let underOperator = switch row {
-            case .operation, .signal: true
+            case .operatorChat, .signal: true
             case .task(let id): state.task(id: id)?.signalTask.map { !$0.takenOver && $0.phase != .stopped } == true
             case .project, .terminal: false
             }

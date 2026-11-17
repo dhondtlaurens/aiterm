@@ -39,7 +39,7 @@ struct SignalOperatorRow: View {
     let value: SignalOperatorRowValue
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
-    private var row: UUID { OperatorRow.id(of: OperatorSession.rowID) }
+    private var row: UUID { OperatorSession.rowID }
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
@@ -49,7 +49,7 @@ struct SignalOperatorRow: View {
         #endif
         let line = value.line, status = value.status
         SelectableRow(id: row, selected: controller.focus.isSelected(row), washed: true,
-                      activate: { controller.choose(.operation(OperatorSession.rowID)) }) {
+                      activate: { controller.choose(.operatorChat) }) {
             SidebarRowContent(avatars: AvatarGroup(marks: [.claude], overflow: 0)) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle("Operator")
