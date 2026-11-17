@@ -91,3 +91,7 @@ fixture. The live eval compares the current contract only. No current fixture by
 On 16 Nov 2026 greenfield step 1d re-recorded `state.json` with `AITERM_RECORD_SIGNAL_STATE=1`.
 The Operator's saved records lost the dead fields `agentPinned` (extra tab) and `kind` (Oracle round).
 No key was added; no brief or tool bytes changed. `brief.md` and `tools.json` were not touched.
+
+## Take Over makes an ordinary task
+
+Re-recorded in step 4e of the greenfield refactor: Take Over removes a task's signal record and marks the task `takenOver`; `signalTask` no longer has a `takenOver` key.

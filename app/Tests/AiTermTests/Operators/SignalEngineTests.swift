@@ -68,7 +68,10 @@ import Testing
                 let saved = try harness.file.load().task(id: id)
                 #expect(saved?.signalTask?.phase == .launching && saved?.signalTask?.launch != nil)
                 prepared = true
-                var task = task; task.worktreePath = "/synthetic/shop/.worktrees/pay-1"; return task
+                // As the app's checkout does: the worktree saved on the task.
+                harness.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/shop/.worktrees/pay-1" } }
+                harness.workspace.flush()
+                return try #require(harness.workspace.state.task(id: task.id))
             }, launch: { task, prompt in
                 #expect(prepared)
                 #expect(prompt.contains("/psg:plan") && prompt.contains("Use an idempotency key."))
@@ -91,7 +94,11 @@ import Testing
         var working = false, prompts: [String] = []
         let router = ItemRouter(workspace: h.workspace, now: { world.now }, workerIsWorking: { _ in working })
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            workerIsWorking: { _ in working }, prepare: { task, _ in var task = task; task.worktreePath = "/synthetic/work"; return task },
+            workerIsWorking: { _ in working }, prepare: { task, _ in
+                // As the app's checkout does: the worktree saved on the task.
+                h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/work" } }
+                h.workspace.flush(); return try #require(h.workspace.state.task(id: task.id))
+            },
             launch: { _, prompt in prompts.append(prompt); return "same-window" }, restore: { $0 }))
         let id = try #require(router.apply(signals: [first], read: SignalRead(items: [world.ticket()], complete: true)).first)
         await runner.run(id)
@@ -152,11 +159,12 @@ import Testing
         var launched = false
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: { _ in false }, prepare: { task, _ in
-                h.workspace.mutate { $0.updateSignalTask(id) { $0 = try! SignalTransitions.apply(.takeOver, to: $0, at: world.now) } }
-                var task = task; task.worktreePath = "/synthetic/work"; return task
+                h.workspace.mutate { $0.takeOver(id) }
+                h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/work" } }
+                return try #require(h.workspace.state.task(id: task.id))
             }, launch: { _, _ in launched = true; return "unexpected" }, restore: { $0 }))
         await runner.run(id)
-        #expect(!launched && h.workspace.state.task(id: id)?.signalTask?.takenOver == true)
+        #expect(!launched && h.workspace.state.task(id: id)?.signalTask == nil && h.workspace.state.task(id: id)?.takenOver == true)
     }
 
     @Test func anArchivedItemIsRestoredAndContinuedInItsOriginalTask() async throws {
@@ -170,8 +178,20 @@ import Testing
         }
         var restored = false
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            workerIsWorking: { _ in false }, prepare: { task, _ in var task = task; task.worktreePath = "/synthetic/work"; return task },
-            launch: { _, _ in "same-window" }, restore: { task in restored = true; var task = task; task.worktreePath = "/synthetic/work"; return task }))
+            workerIsWorking: { _ in false }, prepare: { task, _ in
+                // As the app's checkout does: the worktree saved on the task.
+                h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/work" } }
+                h.workspace.flush(); return try #require(h.workspace.state.task(id: task.id))
+            },
+            launch: { _, _ in "same-window" }, restore: { task in
+                // As the app's restore does: the worktree back, then the row in the sidebar.
+                restored = true
+                h.workspace.mutate { state in
+                    state.moveFromArchive(id: task.id)
+                    state.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/work" }
+                }
+                return try #require(h.workspace.state.task(id: task.id))
+            }))
         #expect(router.apply(signals: [second], read: SignalRead(items: [world.ticket()], complete: true)) == [id])
         await runner.run(id)
         #expect(restored && h.workspace.state.archive.isEmpty && h.workspace.state.tasks.map(\.id) == [id])

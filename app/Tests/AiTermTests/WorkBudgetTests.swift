@@ -97,13 +97,13 @@ enum Budget {
         let task = try await fixture.addTask(windowId: "alive")
 
         var mark = git.calls.count
-        await (await controller.archiver.archive(task: task))?.value
+        try await controller.teardown.archive(task, consent: .ask)
         let archive = Budget.commands(git, since: mark)
         #expect(controller.state.archive.map(\.id) == [task.id], "archived")
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         mark = git.calls.count
-        await controller.restoreFromArchive(task.id)?.value
+        await controller.restoreFromArchive(task.id)
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
@@ -125,7 +125,7 @@ enum Budget {
         let task = try await fixture.addTask(windowId: "alive")
 
         let mark = git.calls.count
-        await (await controller.remover.confirmRemove(task: task))?.value
+        try await controller.teardown.remove(task, consent: .ask)
         let remove = Budget.commands(git, since: mark)
         #expect(controller.state.task(id: task.id) == nil, "removed")
 

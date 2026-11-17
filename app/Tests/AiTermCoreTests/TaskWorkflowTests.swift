@@ -30,22 +30,78 @@ import Testing
         #expect(try git.run(["rev-parse", "HEAD"], in: adopted.made.task.worktreePath) != initial)
     }
 
-    @Test func removalRetainsUnmergedBranchAndRetryOnlyDeletesBranch() async throws {
+    /// A worker for a request works on the request's source branch, in a worktree named as a review's,
+    /// its base the request's target, with what `.worktreeinclude` selects copied in.
+    @Test func aRequestCheckoutIsItsSourceBranchInAReviewWorktreeBasedOnItsTarget() async throws {
+        let (project, _) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
+        try git.run(["branch", "request-source"], in: project.path)
+        try "secret\n".write(toFile: project.path + "/.env", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: project.path + "/.gitignore", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: project.path + "/.worktreeinclude", atomically: true, encoding: .utf8)
+        var worker = TaskItem.make(project: project.id, title: "Worker", branch: "request-source")
+        worker.worktreePath = ""; worker.baseBranch = ""
+
+        let made = try await workflow.checkOutRequest(worker, project: project, source: "request-source", target: "main")
+
+        #expect(made.task.id == worker.id)
+        #expect(made.task.worktreePath.hasSuffix("/.worktrees/review-request-source"))
+        #expect(made.task.baseBranch == "main")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: made.task.worktreePath) == "request-source")
+        #expect(FileManager.default.fileExists(atPath: made.task.worktreePath + "/.env"))
+    }
+
+    /// Not agreed to lose its commits, an unmerged branch is kept and the removal says why, in
+    /// AiTerm's words for git's "not fully merged"; agreed, it is deleted with them.
+    @Test func anUnmergedBranchIsKeptAndSaidSoAgreedItIsDeleted() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: true)
-        // The one refusal AiTerm can put in its own words: commits the base lacks.
-        #expect(result.branchRefusal == .notMerged(base: "main"))
+        #expect(result.keptBranch == .notDeleted("it has commits that aren’t on main"))
         #expect(!FileManager.default.fileExists(atPath: created.task.worktreePath))
         #expect(try git.run(["rev-parse", "--verify", draft.branch], in: project.path).isEmpty == false)
-        try git.run(["merge", "--ff-only", draft.branch], in: project.path)
-        let retried = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
-        #expect(retried.branchRefusal == nil)
+
+        let agreed = try await workflow.remove(task: created.task, project: project, deleteBranch: true, discardingUnmerged: true, force: false)
+        #expect(agreed.keptBranch == nil)
+        #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty)
         let again = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
-        #expect(again.branchRefusal == nil)
+        #expect(again.keptBranch == nil, "a branch already gone is nothing kept")
+    }
+
+    /// Whether Remove asks before deleting the branch: only when its tip is on neither its base nor
+    /// its upstream. A review's branch is never deleted on request, and a branch not there loses nothing.
+    @Test func aBranchHasUnmergedCommitsOnlyWhenNeitherItsBaseNorItsUpstreamHasThem() async throws {
+        let (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
+        let task = try await workflow.create(draft: draft, project: project).task
+        func commit() throws { try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "work"], in: task.worktreePath) }
+        #expect(try await workflow.branchHasUnmergedCommits(of: task, in: project) == false, "nothing on it yet")
+
+        try commit()
+        #expect(try await workflow.branchHasUnmergedCommits(of: task, in: project), "on neither")
+        var review = task
+        review.kind = .review
+        #expect(try await workflow.branchHasUnmergedCommits(of: review, in: project) == false)
+
+        let remote = project.path + "-origin.git"
+        defer { try? FileManager.default.removeItem(atPath: remote) }
+        try git.run(["init", "-q", "--bare", remote], in: project.path)
+        try git.run(["remote", "add", "origin", remote], in: project.path)
+        try git.run(["push", "-q", "-u", "origin", task.branch], in: task.worktreePath)
+        #expect(try await workflow.branchHasUnmergedCommits(of: task, in: project) == false, "on its upstream only")
+
+        try commit()
+        try git.run(["merge", "--ff-only", task.branch], in: project.path)
+        #expect(try await workflow.branchHasUnmergedCommits(of: task, in: project) == false, "on its base, not pushed")
+
+        var missing = task
+        missing.branch = "feat/never-made"
+        #expect(try await workflow.branchHasUnmergedCommits(of: missing, in: project) == false)
     }
 
     /// The command is built from the finished checkout, after the task exists: what it carries is
@@ -113,7 +169,7 @@ import Testing
         let planned = TaskItem.make(project: project.id, title: "t", branch: "feat/t", baseBranch: "", createdAt: Date())
         #expect(try await workflow.hasUnsavedWork(task: planned, project: project) == false)
         try await workflow.archive(task: planned, project: project, force: false)
-        #expect(try await workflow.remove(task: planned, project: project, deleteBranch: true, force: false).branchRefusal == nil)
+        #expect(try await workflow.remove(task: planned, project: project, deleteBranch: true, force: false).keptBranch == nil)
         #expect(recording.calls.map(\.args).allSatisfy { $0.first == "for-each-ref" })
     }
 
@@ -158,7 +214,7 @@ import Testing
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false,
                                                allowUnlisted: !triedRemoval)
 
-        #expect(result.branchRefusal == nil)
+        #expect(result.keptBranch == nil)
         #expect(!FileManager.default.fileExists(atPath: path))
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty)
     }
@@ -203,7 +259,7 @@ import Testing
 
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
 
-        #expect(result.branchRefusal == nil)
+        #expect(result.keptBranch == nil)
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty)
     }
 
@@ -220,22 +276,23 @@ import Testing
 
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: true)
 
-        #expect(result.branchRefusal == .notMerged(base: "main"))
+        #expect(result.keptBranch == .notDeleted("it has commits that aren’t on main"))
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty == false)
     }
 
-    /// "Delete Branch…" on the banner, after the person agreed to lose the commits: `-D`, which
-    /// `remove` never runs on a branch its base lacks.
+    /// Delete Branch answered, the person agreed to lose the commits: `-D`, which `remove` otherwise
+    /// never runs on a branch its base lacks. The worktree and the branch go in the one removal.
     @Test func deletingAnUnmergedBranchDropsItsCommits() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
-        _ = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: true)
 
-        try await workflow.deleteUnmergedBranch(of: created.task, in: project)
+        let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, discardingUnmerged: true, force: false)
 
+        #expect(result.keptBranch == nil)
+        #expect(!FileManager.default.fileExists(atPath: created.task.worktreePath))
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + draft.branch], in: project.path).isEmpty)
     }
 
@@ -255,8 +312,8 @@ import Testing
 
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
 
-        guard case .other(let reason) = result.branchRefusal else {
-            Issue.record("expected git's own refusal, got \(String(describing: result.branchRefusal))"); return
+        guard case .notDeleted(let reason) = result.keptBranch else {
+            Issue.record("expected git's own refusal, got \(String(describing: result.keptBranch))"); return
         }
         #expect(!reason.hasPrefix("error:"))
         #expect(reason.first?.isUppercase == true && reason.hasSuffix("."))
@@ -270,7 +327,7 @@ import Testing
         let result = try await TaskWorkflow(git: .hermetic()).remove(task: fixture.review, project: fixture.project, deleteBranch: true, force: true)
         #expect(try fixture.hasLocalBranch())
         #expect(!FileManager.default.fileExists(atPath: fixture.review.worktreePath))
-        #expect(result.branchRefusal == nil && result.keptBranch == nil)
+        #expect(result.keptBranch == nil)
     }
 
     @Test func aSignalCleanupCanKeepAReviewsBranchForAPendingStage() async throws {
@@ -290,14 +347,13 @@ import Testing
         defer { pushed.cleanUp() }
         let clean = try await TaskWorkflow(git: .hermetic()).remove(task: pushed.review, project: pushed.project, deleteBranch: false, force: false)
         #expect(try !pushed.hasLocalBranch())
-        #expect(clean.branchRefusal == nil && clean.keptBranch == nil)
+        #expect(clean.keptBranch == nil)
 
         let unpushed = try ReviewRemovalFixture(withOrigin: true)
         defer { unpushed.cleanUp() }
         try unpushed.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "fix"], in: unpushed.review.worktreePath)
         let kept = try await TaskWorkflow(git: .hermetic()).remove(task: unpushed.review, project: unpushed.project, deleteBranch: true, force: false)
         #expect(try unpushed.hasLocalBranch())
-        #expect(kept.branchRefusal == nil)
         #expect(kept.keptBranch == .unpushed(commits: 1))
     }
 
@@ -334,7 +390,7 @@ import Testing
         _ = try await workflow.forgetArchived(task: task, project: project, deleteBranch: false)
         #expect(!(try git.run(["branch", "--list", task.branch], in: project.path)).isEmpty)
         let removed = try await workflow.forgetArchived(task: task, project: project, deleteBranch: true)
-        #expect(removed.branchRefusal == nil)
+        #expect(removed.keptBranch == nil)
         #expect(try git.run(["branch", "--list", task.branch], in: project.path).isEmpty)
     }
 
@@ -379,7 +435,7 @@ import Testing
                   FileManager.default.fileExists(atPath: task.worktreePath) else { return false }
             return try Repository(project.path, git: git).worktree(at: task.worktreePath) == nil
         }
-        /// What the teardown asks after the preflight about uncommitted work (`WorktreeTeardown.prepare`): the check with
+        /// What the teardown asks after the preflight about uncommitted work (`TaskTeardown`'s prepare): the check with
         /// a listing of its own, right before status. The preflight it follows is passed to show it is not read.
         func teardownAsksUnsavedWork(_ task: TaskItem, after _: TaskWorkflow.Preflight) async throws -> Bool {
             try await workflow.hasUnsavedWork(task: task, project: project)

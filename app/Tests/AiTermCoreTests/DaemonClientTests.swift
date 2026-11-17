@@ -50,11 +50,20 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        let id = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4))
-        #expect(id == "w7")
+        let opened = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4))
+        #expect(opened == WorkerOpening(id: "w7"))
         let params = server.received.first?["params"] as? [String: Any]
         #expect(params?["taskId"] as? String == "t1")
         #expect((params?["frame"] as? [String: Any])?["w"] as? Double == 3)
+    }
+
+    /// A window iTerm2 made whose command it could not type: the one reply carries both, and both are read.
+    @Test func aTaskWindowWhoseCommandWasNotTypedReadsItsIdAndWhy() async throws {
+        server.handler = { req in ["id": req["id"]!, "result": ["windowId": "w8", "commandError": "send failed"]] }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        let opened = try await client.createTaskWindow(taskId: "t1", cwd: "/wt", title: "x", agentCommand: "claude", frame: Frame(x: 1, y: 2, w: 3, h: 4))
+        #expect(opened == WorkerOpening(id: "w8", commandError: "send failed"))
     }
 
     /// A review opened in its task's window: the daemon tags the tab with the window's task, and

@@ -537,10 +537,10 @@ public final class DaemonClient: Sendable {
     /// `background` opens the window behind the person's work: iTerm2 is not activated and the
     /// window not raised.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame,
-                                 background: Bool) async throws -> String {
-        try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
-                                                                      frame: frame, background: background),
-                          as: WindowResult.self).windowId
+                                 background: Bool) async throws -> WorkerOpening {
+        let result = try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
+                                                                                    frame: frame, background: background), as: WorkerWindowResult.self)
+        return WorkerOpening(id: result.windowId, commandError: result.commandError)
     }
     public func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
         let result = try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,

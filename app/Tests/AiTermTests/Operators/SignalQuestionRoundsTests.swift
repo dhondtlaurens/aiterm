@@ -123,7 +123,7 @@ import Testing
         var delivered = false
         let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             oracleEnabled: { true }, question: { _, _ in question }, oracle: { _ in
-                h.workspace.mutate { $0.updateSignalTask(task) { $0 = try! SignalTransitions.apply(.takeOver, to: $0, at: world.now) } }
+                h.workspace.mutate { $0.takeOver(task) }
                 return .agreed("Fine.")
             }, deliver: { _, _, _ in delivered = true }))
         await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, key: "q", proposal: "Answer.") }

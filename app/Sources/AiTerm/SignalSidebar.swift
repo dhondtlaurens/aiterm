@@ -16,7 +16,7 @@ struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
     init(state: AppState, entries: [SidebarEntry]) {
-        let held = state.tasks.filter { $0.signalTask.map { !$0.takenOver && $0.phase != .stopped } == true }
+        let held = state.tasks.filter { $0.signalTask.map { $0.phase != .stopped } == true }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
             if case .project(let section) = entry { return section.tasks }; return []

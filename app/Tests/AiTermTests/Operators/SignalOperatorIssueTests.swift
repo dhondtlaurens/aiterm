@@ -150,22 +150,6 @@ import Testing
         #expect(r.activity.contains { $0.line == "Waking the Operator recovered." })
     }
 
-    @Test func aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce() async throws {
-        let r = try await Rig(); defer { r.cleanUp() }
-        let journals = OperatorLaunch.folder(home: r.ports.home).appendingPathComponent("journals")
-        try? FileManager.default.removeItem(at: journals)
-        try FileManager.default.createDirectory(at: journals.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data().write(to: journals)
-        await r.root.takeOver(r.task); await r.ports.work.settled()
-        #expect(r.root.statusIssue?.hasPrefix("Take Over:") == true)
-        try? await r.root.openChat()
-        #expect(r.daemon.requests("window.createTask").isEmpty, "A Take Over issue without work must not start a throwaway chat.")
-        try FileManager.default.removeItem(at: journals)
-        await r.pass()
-        #expect(r.root.statusIssue?.hasPrefix("Take Over:") == true)
-        #expect(try !TaskJournal.read(task: r.task, folder: journals).contains { $0.text == .ours("The person took over this task.") })
-    }
-
     @Test func aRetiredChatDoesNotKeepItsOldReplyFailureOrReappearFromAStaleSnapshot() async throws {
         let r = try await Rig(); defer { r.cleanUp() }
         r.daemon.failing["operator.reply"] = .timeout

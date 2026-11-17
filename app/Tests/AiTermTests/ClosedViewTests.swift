@@ -192,7 +192,7 @@ import Testing
         #expect(controller.issue?.subject == task.id)
         #expect(controller.state.task(id: task.id)?.windowId == nil)
         #expect(controller.work.operation(onTask: task.id) == nil)
-        let caption = TaskRowCaption(removal: controller.remover.removal(of: task.id), missing: controller.checkouts.isMissing(task.id))
+        let caption = TaskRowCaption(removal: controller.teardown.state(of: task.id), missing: controller.checkouts.isMissing(task.id))
         #expect(caption == TaskRowCaption(progress: nil, note: nil))
         #expect(server.requests("window.createTask").count == 1, "nothing tries again by itself")
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))

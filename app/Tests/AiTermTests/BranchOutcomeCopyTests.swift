@@ -31,6 +31,8 @@ struct BranchOutcomeCopyTests {
             (.unmerged(target: "main"), "Branch feat/x kept: not on origin and not merged into main."),
             (.unmerged(target: ""), "Branch feat/x kept: not on origin and not merged into its target."),
             (.notDeleted("error: branch is locked"), "Branch feat/x kept: error: branch is locked."),
+            (.notDeleted("it has commits that aren’t on main"), "Branch feat/x kept: it has commits that aren’t on main."),
+            (.notDeleted("Cannot delete branch 'feat/x' checked out at '/r'."), "Branch feat/x kept: Cannot delete branch 'feat/x' checked out at '/r'."),
             (.unchecked("git merge-base timed out after 10 s"),
              "Branch feat/x kept: couldn’t check where its commits are (git merge-base timed out after 10 s)."),
         ]

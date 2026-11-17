@@ -133,7 +133,7 @@ final class MessagingChecks {
             // A tag of its own, which no row takes: the window is the check's alone.
             let window = try await daemon.createTaskWindow(taskId: "delivery-check-\(agent.rawValue)-\(UUID().uuidString)",
                                                            cwd: runtime.daemonDir.path, title: "Delivery check · \(agent.displayName)",
-                                                           agentCommand: command, frame: opener.frame(), background: false)
+                                                           agentCommand: command, frame: opener.frame(), background: false).id
             windows[window] = agent
             started[agent] = file ?? .missing
             opener.activateIterm()

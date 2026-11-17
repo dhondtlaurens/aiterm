@@ -25,8 +25,8 @@ final class RecordingDaemon: DaemonCommands {
     /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
     var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
                                                           .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
-    /// What `commandError` the worker-opening calls answer, by method (`window.createTask`, `tab.create`): an agent command
-    /// the daemon could not type.
+    /// What `commandError` the window and worker-opening calls answer, by method (`window.createTask`, `tab.create`): an
+    /// agent command the daemon could not type.
     var commandErrors: [String: String] = [:]
     private let holding: String?
     private var released = false
@@ -74,16 +74,16 @@ final class RecordingDaemon: DaemonCommands {
         return snapshotValue ?? DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
     }
 
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String {
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> WorkerOpening {
         var params: [String: Any] = ["taskId": taskId, "cwd": cwd, "title": title, "frame": Self.frame(frame)]
         params["agentCommand"] = agentCommand
         params["background"] = background
-        return try await answer("window.createTask", params, id: "reopened")
+        let id = try await answer("window.createTask", params, id: "reopened")
+        return WorkerOpening(id: id, commandError: commandErrors["window.createTask"])
     }
 
     func openWorkerWindow(taskId: String, cwd: String, title: String, agentCommand: String, frame: Frame) async throws -> WorkerOpening {
-        let id = try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: true)
-        return WorkerOpening(id: id, commandError: commandErrors["window.createTask"])
+        try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: true)
     }
 
     func openWorkerTab(windowId: String, cwd: String, agentCommand: String) async throws -> WorkerOpening {

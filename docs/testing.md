@@ -52,7 +52,9 @@ takeover, stale-result mutation or visible test windows.
 Use latches/rendezvous to control asynchronous ordering; elapsed-speed assertions are poor evidence
 of overlap. `TestLatch` and `eventually` are bounded by `TestDeadline`, so a missing signal fails
 rather than hangs. Join Operator work with `settled()` (or `settled(leaving:)`) on its `OperatorWork`,
-not an owner's last-task handle. When consolidating safety tests, establish which surviving test
+not an owner's last-task handle. A task lifecycle operation (archive, restore, remove, remove from
+the Archive) is awaited itself: it returns once its work is done; a race test holds it at a port
+latch and runs it in a task of its own. When consolidating safety tests, establish which surviving test
 detects the same failure rather than deleting by name or assertion sign.
 
 Prefer deterministic work budgets for hot paths. Swift budgets use `WorkMeter`, a task-local a test

@@ -46,7 +46,8 @@ import AiTermCore
             createdAt: Date())
         fixture.controller.workspace.mutate { $0.tasks = [task] }
 
-        #expect(await fixture.controller.remover.confirmRemove(task: task) == nil, "⎋ cancels")
+        try await fixture.controller.teardown.remove(task, consent: .ask)
+        #expect(fixture.controller.state.tasks.map(\.id) == [task.id], "⎋ cancels")
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Remove", "Cancel"])
         #expect(asked.defaultDeletes)

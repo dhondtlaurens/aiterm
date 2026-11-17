@@ -338,20 +338,20 @@ TS tests-scripts.
 
 ### Phase 4. One task lifecycle (after 3)
 
-- [ ] 4a. **Opus.** Lifecycle tests join through one settled join, as the Operator's tests do, and
+- [x] 4a. **Opus.** Lifecycle tests join through one settled join, as the Operator's tests do, and
   no product function returns a task handle only for a test (TS F4).
-- [ ] 4b. **Opus.** Remove asks everything before it acts: the unmerged-branch question comes up
+- [x] 4b. **Opus.** Remove asks everything before it acts: the unmerged-branch question comes up
   at once, a row with a window and no helper is refused as Archive refuses it, and the
   "worktree removed, waiting for a retry" state with its banner actions goes (TL F1).
-- [ ] 4c. **Opus.** One teardown owner for archive and remove over the shared prepare and run, with
+- [x] 4c. **Opus.** One teardown owner for archive and remove over the shared prepare and run, with
   consent as a policy (ask the person, or refuse while still allowed) and one per-row state that
   the row, the Dock badge and the checkout monitor read. The automatic variants and the remover's
   six dictionaries go; a task on its way out is filtered once, in the projection (TL F2, F9).
-- [ ] 4d. **Opus.** One restore (git, then the row back from the archive, then focus when a person
+- [x] 4d. **Opus.** One restore (git, then the row back from the archive, then focus when a person
   asked), one "worker checkout for an item" and one window opener whose commands depend on
   ownership. The Operator's stage launch and a person's click call the same operations
   (TL F3, RT F4).
-- [ ] 4e. **Opus.** Take Over makes an ordinary task: the signal record goes, a small mark on the
+- [x] 4e. **Opus.** Take Over makes an ordinary task: the signal record goes, a small mark on the
   task (saved as the optional key `takenOver`) keeps later signals from continuing it, and it is
   opened, archived and removed like any task. The
   taken-over opener, its checkout copy and its resume commands go (RT F4, TL F3). Saved format
@@ -933,3 +933,121 @@ left.
   and `marks.png` (known variant) differ. No bundle check is due after phase 3. `main` had only the
   refactor's own merges; merged to `main`. No manual check is owed for phase 3 by the plan; the smoke
   run after phase 9 covers the closed view.
+
+### Phase 4
+
+- 4a: every task lifecycle operation (archive, restore, remove, keep and delete branch, remove from
+  the Archive, `perform`, `removeSelection`) is `async` and returns once its work is done; no product
+  function returns a `Task` handle for a test, and `waitForRemoval` and the remover's `running` map
+  went. Tests join by awaiting the call, or hold it at a port latch in a task of their own (a new
+  `WorktreeAddHeldGit` in `ArchiveTests` for the restore races). No test deleted. Assertions that read
+  a nil handle now assert the effect. Differences: restore's choosing lives in
+  `AppController.restoreFromArchive`, which became `async` and awaits it; `perform(.rebaseDefault)`
+  awaits the rebase; about 90 call sites, not 200. `docs/testing.md` says how lifecycle tests join.
+- 4b: Remove asks everything before it acts: the Remove alert, the unlisted-folder and unsaved-work
+  questions, then the unmerged-branch question (Delete Branch / Keep Branch, asked only when the box
+  is ticked and the branch is on neither its base nor its upstream), and only then closes the window,
+  removes the worktree and deletes or keeps the branch; a branch git still refuses is kept and said in
+  the toast, and the row goes. A row with a window and no helper is refused ("Not removed: iTerm2
+  isn’t connected"), as Archive refuses it. The "worktree removed, waiting for a retry" state, its
+  banner actions (Keep, Delete), `BranchRefusal` and `awaitsRetry` went; the archived row's Remove
+  asks the same branch question. Tests deleted with their behaviour: nine retry tests in
+  `OperationIssueControllerTests`, `ArchiveControllerTests.aRowWaitingOnItsRemovalsRetryIsNotArchived`,
+  `RowAccessibilityTests.aRowAwaitingItsRemovalsRetryOffersRemoveAlone`, two `OperationIssueTests`;
+  `TaskWorkflowTests.removalRetainsUnmergedBranchAndRetryOnlyDeletesBranch` replaced by
+  `anUnmergedBranchIsKeptAndSaidSoAgreedItIsDeleted`. Survivors and new coverage: the new
+  `RemoveTaskControllerTests` (seven cases on real git) and
+  `aBranchHasUnmergedCommitsOnlyWhenNeitherItsBaseNorItsUpstreamHasThem`. Differences: the toast no
+  longer doubles a full stop after git's sentence; `closeWindow`'s `requiringDaemon:` went since every
+  caller passes true; a workspace that locks while the branch question is up stops Remove with
+  nothing changed. Snapshots in `build/refactor-4b`: the removal caption in `sidebar-removal*.png` and
+  the second banner in `sidebar-banners.png` (a diverged pull with Rebase replaces the deleted
+  branch-kept banner) changed, as the step implies. Environment: this capture carries no Display P3
+  profile while earlier ones did (the display changed while the maintainer was away), so raw RGB
+  differs on 48 files; converted to sRGB, every other file is within 16 per channel.
+- 4c: one teardown owner, `TaskTeardown`, for archive and remove over one prepare and one run, with
+  consent as a policy (`.ask`, or `.refuse(stillAllowed:)` for the Operator's automatic archive and
+  remove) and one per-row state that the row, the Dock badge and the checkout monitor read.
+  `TaskRemover`, `WorktreeTeardown` and `AutomaticCleanup` went (the archiver keeps only restore), and
+  with them the remover's dictionaries and `recordCleanups`; a task on its way out is filtered once,
+  in the projection (`needingAttention(skipping:)` went). No test deleted; added three refusal
+  tests in `SignalAutomaticCleanupTests` and `aLeavingTaskIsNotWaitingOnYouNorCountedUnderAFoldedHeading`.
+  Snapshots in `build/refactor-4c` byte-identical to `build/refactor-4b`. Differences: a missing
+  checkout whose window cannot close for lack of a helper is skipped until the helper is back
+  (instead of a "Closing" state that would flicker each pass); Archive's intermediate "The stage
+  changed before archiving." refusal went, the later check still catches it; `removeArchived` does not
+  throw. Noticed and left: Focus View's fold layout can still count a leaving task.
+- 4d: one restore (`TaskLauncher.restore`: git, then the row back from the archive; `AppController.restoreFromArchive`
+  adds the alert, project, toast and the choose a person asked for), one worker checkout for an item
+  (`TaskLauncher.checkOutWorker`, the request path with its fork refusal or the default-branch path,
+  with the late save before a refusal) and one window opener (`TaskLauncher.open`, whose commands
+  depend on ownership: a driven task resumes its first worker under its guard). The Operator's stage
+  launch and a person's click call the same operations through new `restore` and `checkout` ports;
+  `TaskArchiver` and `SignalWorkerIO`'s prepare, request checkout, restore and reopen went. No test
+  deleted; added `TaskWorkflowTests.aRequestCheckoutIsItsSourceBranchInAReviewWorktreeBasedOnItsTarget`,
+  `ArchiveControllerTests.theLaunchersRestoreBringsTheRowBackSavedNeitherChosenNorToastedItsProjectFoldUntouched`,
+  `SignalWorkerIOTests.aRequestStageChecksOutItsSourceBranchAndRefusesAFork`. Review round by the
+  orchestrator: `StageRunner`'s second save of the checkout after `prepare` went (callers save
+  nothing); the test `prepare` stubs save what they change, as the real port does. Differences: the
+  taken-over opener already holds the task's token, so the checkout takes only the project's
+  (`taskHeld`); a driven task without a checkout that is not launching opens nothing on a click instead
+  of saying it has no conversation.
+- 4e: Take Over makes an ordinary task: `AppState.takeOver` removes the signal record, sets the task's
+  own `takenOver` mark (saved only when true; the key the reset script writes), opens the project and
+  withdraws the task's questions and paused workers; `TaskLauncher.takeOver` saves, rewrites the
+  recorded guard scopes once (ownership + 1) and makes the worktree when the task has none. A marked
+  task is never continued or adopted by a match. The taken-over opener, its checkout copy, its resume
+  commands, `SignalAction.takeOver`, `SignalTask.takenOver` and the `.takeOver` issue source went.
+  Fixture re-recorded: `operator-signals/state.json` with `AITERM_RECORD_SIGNAL_STATE=1` (both
+  records lose `takenOver: false`, a taken-over task with `takenOver: true` is added), provenance
+  section added; the reset script's guard passed on it. Tests deleted: two `ItermFocusControllerTests`
+  taken-over opener tests (survivors: phase 3's latest-click and tagged-window journeys),
+  `SignalOperatorIssueTests.aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce` and
+  `OperatorIssuesTests.aPersonStartedActionNeedsYouAtOnceUntilThatSameActionSucceeds` (behaviour
+  deleted), the `.takeOver` cases in `SignalDomainTests`. Added three Core tests (not continued or
+  adopted; record removed and hold withdrawn; the mark round-trips). Snapshots in `build/refactor-4e`
+  byte-identical to `build/refactor-4c`. `docs/operators.md` and `docs/windows.md` follow. Noticed and
+  left: with `.takeOver` gone every `OperatorIssues.Source` is retried, so its non-retried branch and
+  doc are dead (for 5d or 5h). From this step on, the installed app and this branch cannot read each
+  other's Operator records: run `scripts/reset-operator-state.sh` with AiTerm quit before switching.
+- Phase close, review round 1 (Codex, `main..HEAD`): (1) Important, confirmed: a Take Over while the
+  stage's request checkout was still reading the request over HTTP left the task with no worktree
+  and no banner (the stage's checkout saw the revoked claim before `git worktree add` and stopped).
+  Fixed by the 4e implementer: the checkout's checks before git also pass when the task was taken
+  over meanwhile (marked, same project and branch), so it finishes for the person; the final check
+  still refuses the Operator, so no worker launches. Added
+  `SignalWorkerIOTests.takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree` (fails
+  without the fix). (2) Minor, listed: choosing an ordinary task with no worktree says nothing; after
+  fix 1 that is only a refused fork request, whose refusal banner was already shown. One plain gate run
+  of the implementer failed once in `ItermFocusControllerTests.aTakenOverRequestOpensItsSourceBranchAndRefusesAFork(fork: false)`
+  (21 seconds, no reason printed; the expectation now carries the banner's reason as its message);
+  the next runs, including the orchestrator's, were green. Left: a fork found during the stage's read
+  after a Take Over gives no banner (two unlikely things at once).
+- Review round 2: the same race with a failing request read (HTTP error, timeout) still left the
+  taken-over task with no checkout and no banner. Fixed by the 4e implementer: a checkout that fails
+  after its task was taken over meanwhile reports "The task is yours, but its worktree couldn’t be
+  made." on the task, once, in `checkOutWorker` (this also covers a fork found during that read). The
+  round-1 test runs for a 200 and a 500 answer (`readFails:`).
+- Review round 3 (the last allowed): two new Important findings, both confirmed and fixed (fix round
+  3, by the 4d implementer), verified by the orchestrator's reading of the diff and the gates, with no
+  fourth review round: (1) the shared task opener from 4d dropped the daemon's `commandError`, so a
+  window whose resume command iTerm2 could not type showed a bare shell with no reason;
+  `createTaskWindow` now returns `WorkerOpening` (id and command error) from its one decoding and the
+  opener reports "Reopened the window, but not every conversation." or, for a driven task, "…but its
+  worker didn’t resume." on the task (test `RowWindowsControllerTests.aWindowWhoseCommandWasNotTypedIsAdoptedAndSaidOnItsTask`,
+  `DaemonClientTests.aTaskWindowWhoseCommandWasNotTypedReadsItsIdAndWhy`); (2) with a task's tabs in
+  two windows, Remove closed one, the row adopted the other, and the task was forgotten with that
+  window running; the teardown now closes every window the task holds (its own and each window one of
+  its tagged tabs is in) before git runs (test `RemoveTaskControllerTests.aTaskWithTabsInTwoWindowsHasBothClosedAndItsRowAndWorktreeGo`).
+  The same round fixed the race behind the two intermittent failures of
+  `ItermFocusControllerTests.aTakenOverRequestOpensItsSourceBranchAndRefusesAFork`: a checkout scan
+  adopted the test's local `origin` as the project's remote before the request lookup; the test's
+  scanner now returns no remotes (five green runs in a row). Noticed and left: `TaskLauncher.create`
+  also ignores a `commandError` (a new task's agent that iTerm2 could not type says nothing, as before
+  the refactor); `openWorkerWindow` and `createTaskWindow` could merge (6c).
+- Phase close: plain `scripts/test.sh all` green on `dc7e5f7e` (after review fix round 3; also green on
+  `cd9278a8` before the review fixes). Snapshots in `build/refactor-phase4` identical to
+  `build/refactor-4b` (no view changed after 4b). No bundle check is due after phase 4. `main` had only
+  the refactor's own merges; merged to `main`. No manual check is owed for phase 4 by the plan. From
+  this merge on, `main` and the installed app cannot read each other's Operator records: run
+  `scripts/reset-operator-state.sh` with AiTerm quit before switching between them.

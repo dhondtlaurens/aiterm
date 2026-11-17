@@ -315,7 +315,7 @@ extension CheckoutMonitorTests {
     }
 }
 
-/// The task remover, as a pass sees it: which tasks are being removed, and where the removed tasks
+/// The task teardown, as a pass sees it: which tasks are being removed, and where the removed tasks
 /// a pass found go. The monitor holds it weakly, so a test holds it for as long as it runs.
 @MainActor
 private final class Removals: CheckoutRemovals {

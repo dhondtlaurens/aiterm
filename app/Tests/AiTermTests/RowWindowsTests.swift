@@ -39,7 +39,9 @@ import Testing
         return session
     }
 
-    @Test func choosingADrivenTaskWithoutAWindowResumesItsWorkerThroughTheGuardedReopenAndRaisesIt() async throws {
+    /// The person's click opens a driven task's window as a task's (`TaskLauncher.open`), whether the Operator runs or
+    /// not: in its worktree, titled by its branch, its first worker's conversation resumed under its branch guard.
+    @Test func choosingADrivenTaskWithoutAWindowResumesItsWorkerUnderItsGuardInItsWorktreeAndRaisesIt() async throws {
         let focus = ControllerItermFocus()
         let fixture = try await RaceFixture(activateIterm: { focus.activate() })
         let server = RecordingDaemon()
@@ -47,21 +49,55 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
-        let task = try await driven(fixture)
+        var task = try await driven(fixture)
+        controller.workspace.mutate { $0.updateSignalTask(task.id) { $0.ownership = 3 } }
+        task = try #require(controller.state.task(id: task.id))
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        controller.signalController.start()
-        await controller.signalController.ports.work.settled()
 
         await controller.choose(.task(task.id))?.value
 
         let opened = try #require(server.requests("window.createTask").first)
         #expect(server.requests("window.createTask").count == 1)
+        #expect(server.requests("tab.create").isEmpty, "one command: its first worker's")
+        #expect(opened.params["cwd"] as? String == task.worktreePath)
+        #expect(opened.params["title"] as? String == task.branch)
         let line = opened.params["agentCommand"] as? String
         #expect(line?.hasPrefix("/bin/sh '") == true, "the branch guard wraps the worker")
         #expect(try guardedWorkerCommand(line)?.contains("worker-conversation") == true)
+        let scope = try #require(WorkerGuardLaunch.recordedScope(task: task.id, home: controller.signalController.ports.home))
+        #expect(scope.ownership == 3 && scope.worktree == task.worktreePath && scope.branch == task.branch)
         #expect(controller.state.task(id: task.id)?.windowId == "reopened")
         #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened"])
         #expect(focus.seen.count == 1)
+    }
+
+    /// iTerm2 made the window but could not type its command: the row takes the window, and the plain shell it shows
+    /// is said on the row, with the daemon's reason, instead of passing for a resumed conversation.
+    @Test(arguments: [false, true])
+    func aWindowWhoseCommandWasNotTypedIsAdoptedAndSaidOnItsTask(isDriven: Bool) async throws {
+        let fixture = try await RaceFixture()
+        let server = RecordingDaemon()
+        server.commandErrors["window.createTask"] = "The session ended before the command was typed."
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task: TaskItem
+        if isDriven { task = try await driven(fixture) }
+        else {
+            task = try await fixture.addTask(windowId: nil)
+            controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1")] }
+        }
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+
+        await controller.choose(.task(task.id))?.value
+
+        #expect(server.requests("window.createTask").count == 1)
+        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
+        let issue = try #require(controller.issue)
+        #expect(issue.subject == task.id)
+        #expect(issue.title == (isDriven ? "Reopened the window, but its worker didn’t resume."
+                                       : "Reopened the window, but not every conversation."))
+        #expect(issue.reason == "The session ended before the command was typed.")
     }
 
     @Test func aDrivenWorkerReopenThatFailsIsReportedOnTheClickAboutItsTask() async throws {
@@ -72,8 +108,6 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await driven(fixture)
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        controller.signalController.start()
-        await controller.signalController.ports.work.settled()
 
         await controller.choose(.task(task.id))?.value
 

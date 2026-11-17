@@ -118,8 +118,8 @@ is not continued.
 **A task the Operator drives** resumes its worker's conversation under its branch guard, without
 sending the stage's prompt again. One the Operator has not started yet has nothing to open.
 
-**A task you took over** opens as your task, with its conversations resumed. If the Operator never
-made its worktree, opening it makes one first.
+**A task you took over** is your task and opens like one. If the Operator never made its worktree,
+Take Over made one.
 
 **A terminal** opens a fresh shell in its project folder. Whatever was running there, a dev server
 for example, is not started again.
@@ -131,10 +131,13 @@ ended.
 
 Some windows close because AiTerm closed them:
 
-- **Remove Task… / Remove Review…** closes the window before deleting the worktree.
-- **Archive Task** does the same, then moves the row to the Archive. A task with a window needs
-  iTerm2 connected to close it: without, it stops before closing anything, and the row says **Not
-  archived: iTerm2 isn’t connected**. A task with no window is archived either way.
+- **Remove Task… / Remove Review…** asks all its questions first, then closes the window, and any
+  other window one of the task's tabs was moved to, before deleting the worktree. A task with a
+  window needs iTerm2 connected to close it: without, it stops before closing or deleting anything,
+  and the row says **Not removed: iTerm2 isn’t connected**. A task with no window is removed either
+  way.
+- **Archive Task** does the same, then moves the row to the Archive. Without iTerm2 connected, a
+  task with a window says **Not archived: iTerm2 isn’t connected**.
 - **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
   branch is kept.
 - **Remove Terminal** closes the terminal's window and removes its row.
@@ -148,7 +151,8 @@ the task in the sidebar without a window, like any other.
 
 The banner above the list says that the window could not open, and why. A terminal's names the
 terminal; a task's names no row, and goes when that task opens or leaves the sidebar. Nothing else
-marks the row. Choose it again to try again.
+marks the row. Choose it again to try again. A task's window that opens but whose resume command
+iTerm2 could not type stays open as a plain shell, and the banner says so, with why.
 
 A row whose worktree is missing opens nothing and says **Worktree missing**: restore the worktree
 or remove the task.
@@ -175,6 +179,6 @@ or remove the task.
 | What choosing a row does | `AppController.choose(_:)`, then `RowFocus.select(_:after:)` |
 | Selection, peek and raising | `RowFocus` |
 | The invisible label | iTerm2 user variables `aiterm_task` / `aiterm_terminal`, read by the daemon (`sessions.py`, `windows.py`) |
-| The openers | `TaskLauncher.openWindow`, `TerminalActions.openWindow`, `SignalWorkerIO.reopen`, `TaskLauncher.openTakenOverWindow`, `SignalOperatorController.openChat` through `OperatorSessionKeeper.ensure` |
-| Which conversations resume | `AppState.rememberingConversations`, `TaskItem.resumeCommands` |
+| The openers | `TaskLauncher.open` for a task, manual, driven or taken over (through `TaskLauncher.openWindow`), `TerminalActions.openWindow`, `SignalOperatorController.openChat` through `OperatorSessionKeeper.ensure` |
+| Which conversations resume | `AppState.rememberingConversations`; `TaskLauncher.openCommands(for:)`: `TaskItem.resumeCommands` for your task, the first worker's under its guard for a driven one |
 | Starting iTerm2 | The daemon only at its own start (`ItermSupervisor`, `connection.py`); the app's `launchIterm` at AiTerm's start, on a row chosen while iTerm2 isn't connected, and from the banner's Open iTerm2 |

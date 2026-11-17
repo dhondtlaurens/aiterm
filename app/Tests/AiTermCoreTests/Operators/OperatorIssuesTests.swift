@@ -17,15 +17,6 @@ import Testing
         #expect(issue.attempts == 3 && issues.current.isEmpty && issues.attention == nil)
         #expect(issues.succeed(.wake, at: t0 + 20) == nil, "A success with nothing failing reports nothing.")
     }
-    @Test func aPersonStartedActionNeedsYouAtOnceUntilThatSameActionSucceeds() {
-        var issues = OperatorIssues()
-        _ = issues.fail(.takeOver, "Its journal entry could not be saved.", at: t0)
-        #expect(issues.attention?.source == .takeOver)
-        _ = issues.succeed(.wake, at: t0 + 1)
-        #expect(issues.attention?.source == .takeOver, "An unrelated success cannot hide it.")
-        _ = issues.succeed(.takeOver, at: t0 + 2)
-        #expect(issues.attention == nil)
-    }
     @Test func twoSourcesFailingAndOneRecoveringKeepsTheOther() {
         var issues = OperatorIssues()
         for at in 0..<3 { _ = issues.fail(.wake, "Wake failed.", at: t0 + Double(at)); _ = issues.fail(.reply, "Reply failed.", at: t0 + Double(at) + 0.5) }
@@ -41,9 +32,9 @@ import Testing
     }
     @Test func theIssueEncodesItsSourceTextAndWhetherItNeedsThePerson() throws {
         var issues = OperatorIssues()
-        _ = issues.fail(.takeOver, "The guard could not be refreshed.", at: t0)
+        for at in 0..<3 { _ = issues.fail(.session, "The session could not be adopted.", at: t0 + Double(at)) }
         let line = try #require(JSONValue(encoding: issues.current).arrayValue?.first)
-        #expect(line["source"] == "takeOver" && line["text"] == "The guard could not be refreshed." && line["needsYou"] == true)
-        #expect(OperatorIssues.Source.takeOver.label == "Take Over")
+        #expect(line["source"] == "session" && line["text"] == "The session could not be adopted." && line["needsYou"] == true)
+        #expect(OperatorIssues.Source.session.label == "The Operator's session")
     }
 }

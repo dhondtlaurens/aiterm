@@ -135,7 +135,7 @@ public extension TaskItem {
         guard let now, worker.map({ $0.state.turnEnded }) ?? true else { return false }
         let launch: LaunchAttempt?
         if let signalTask {
-            guard signalTask.phase.isActive, !signalTask.takenOver else { return false }
+            guard signalTask.phase.isActive else { return false }
             launch = signalTask.launch
         } else { return false }
         guard let launch else { return false }

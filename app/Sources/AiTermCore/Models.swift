@@ -258,6 +258,9 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     private var savedKind: String?
     /// What an operator adds to the task; nil for every task you made yourself.
     public var signalTask: SignalTask?
+    /// That a person took this task over from a signal (`AppState.takeOver`): it is theirs, and no later
+    /// match continues it. Saved only when true.
+    public var takenOver = false
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
@@ -271,7 +274,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
-        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, signalTask
+        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, signalTask, takenOver
     }
 
     /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
@@ -303,6 +306,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         conversations = (try? c.decodeIfPresent([SavedConversation].self, forKey: .conversations))?
             .compactMap(\.conversation) ?? []
         signalTask = try c.decodeIfPresent(SignalTask.self, forKey: .signalTask)
+        takenOver = try c.decodeIfPresent(Bool.self, forKey: .takenOver) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -328,6 +332,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
         // Left out for a task you made yourself, so it is written as it always was.
         try c.encodeIfPresent(signalTask, forKey: .signalTask)
+        if takenOver { try c.encode(true, forKey: .takenOver) }
     }
 
     /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;

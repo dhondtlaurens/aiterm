@@ -37,7 +37,6 @@ import AiTermUI
             if pose == "choosing" { record.phase = .choosing; record.choosableRows = signal.agents + [AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")] }
             if pose == "blocked" { record.phase = .blocked; record.blockedReason = "Its worker did not start after its saved launch. Inspect its window before resuming." }
             if pose == "done" { record.phase = .done; record.thenApplied = true }
-            if pose == "taken-over" { record.takenOver = true; record.ownership = 1 }
             if let index = state.tasks.firstIndex(where: { $0.id == fixture.working.id }) { state.tasks[index].signalTask = ["idle", "idle-paused"].contains(pose) ? nil : record
                 if waiting(pose) != nil { state.tasks[index].mr = MergeRequestRef(iid: 102, title: "Apple Pay", url: "https://git.example/shop/web/-/merge_requests/102") }
                 if pose == "window-closed" {
@@ -49,6 +48,7 @@ import AiTermUI
             state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now)
             if ["paused", "idle-paused"].contains(pose) { state.operatorSession?.paused = true }
             if pose == "fresh" { state.operatorSession?.startingFresh = true }
+            if pose == "taken-over" { state.takeOver(fixture.working.id) }
             // The Operator's section open, but where the pose is the projects': a taken-over task is theirs, and
             // section-folded is the default, OPERATOR folded with its amber count.
             state.operatorOpen = !["taken-over", "section-folded"].contains(pose)

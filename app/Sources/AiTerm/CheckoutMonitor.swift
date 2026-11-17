@@ -9,7 +9,7 @@ import AiTermCore
 @MainActor
 @Observable
 final class CheckoutMonitor {
-    /// The removals a pass defers to: the task remover, which sets itself here (see `CheckoutRemovals`).
+    /// The removals a pass defers to: the task teardown, which sets itself here (see `CheckoutRemovals`).
     /// Without one, no task counts as being removed and a removed checkout is nobody's to close.
     @ObservationIgnored weak var removals: (any CheckoutRemovals)?
 
@@ -259,8 +259,8 @@ private struct ScanInputs {
     }
 }
 
-/// The removals a checkout pass defers to: the task remover's. The remover refreshes the monitor and
-/// drops its diffs, so it is built after it and cannot be handed to it; it sets itself as the
+/// The removals a checkout pass defers to: the task teardown's. The teardown refreshes the monitor
+/// and drops its diffs, so it is built after it and cannot be handed to it; it sets itself as the
 /// monitor's `removals` instead — the one pair of owners that each call the other.
 @MainActor
 protocol CheckoutRemovals: AnyObject {

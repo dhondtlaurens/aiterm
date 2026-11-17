@@ -6,10 +6,10 @@ import AiTermCore
 /// The app's composition root, and the one handle the views and the tests have on it. `init` builds
 /// every owner below, each handed in its initializer the owners it calls, so each is built after
 /// them: the workspace, the notices, the helper, the tabs, the tiling, the checkouts, the task
-/// remover, the selection, then the actions, the operators, the windows, the review threads, and
+/// teardown, the selection, then the actions, the operators, the windows, the review threads, and
 /// Backpack Mode and the Mac's readings last. What an owner tells one built after it goes out
 /// through its `on…` hooks, which the later owner adds itself to as it is built; the checkout
-/// monitor and the task remover, which each call the other, are the one pair joined after both
+/// monitor and the task teardown, which each call the other, are the one pair joined after both
 /// exist (`CheckoutRemovals`). The sidebar's rows and the Dock badge are the controller's own. Views
 /// and tests reach each owner directly through this handle; the actions here coordinate owners or
 /// decide between them.
@@ -89,10 +89,8 @@ final class AppController {
     /// The work under way on each project, task and terminal: what one waits for before it starts,
     /// and what a project's removal waits for.
     let work: WorkInFlight
-    /// Removes tasks — the person's Remove, and the closing of one whose worktree went.
-    let remover: TaskRemover
-    /// Archives tasks and reviews.
-    let archiver: TaskArchiver
+    /// Takes tasks down: Archive, Remove, removing an archived row, and the closing of one whose worktree went.
+    let teardown: TaskTeardown
     /// The operations: their runs, their operators' tabs and tokens, and the services under them.
     let signalController: SignalOperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
@@ -122,18 +120,19 @@ final class AppController {
         let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: daemon)
         let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
                                         onTitles: { await helper.sendTitles($0) })
-        let teardown = WorktreeTeardown(workspace: workspace, workflow: workflow, prompter: prompter, daemon: daemon)
-        let remover = TaskRemover(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
-                                  teardown: teardown, checkouts: checkouts, live: live, daemon: daemon)
+        let teardown = TaskTeardown(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
+                                    checkouts: checkouts, live: live, daemon: daemon, now: { Date() })
         let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
-                             activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
+                             activateIterm: activateIterm, isRemoving: { teardown.isLeaving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent },
                                        defaults: preferences.defaults, claudeConfig: claudeConfig)
+        // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
+        let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
+                                                    agents: agents, preferences: preferences.defaults)
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
-                                    tiling: tiling, workflow: workflow, git: git, daemon: daemon)
-        let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
-                                    checkouts: checkouts, remover: remover, teardown: teardown, now: { Date() })
+                                    tiling: tiling, workflow: workflow, git: git, home: operatorPorts.home,
+                                    workerGuardExecutable: operatorPorts.workerGuardExecutable, daemon: daemon)
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -141,8 +140,7 @@ final class AppController {
         self.live = live
         self.tiling = tiling
         self.checkouts = checkouts
-        self.remover = remover
-        self.archiver = archiver
+        self.teardown = teardown
         self.focus = focus
         self.agents = agents
         self.launcher = launcher
@@ -163,9 +161,6 @@ final class AppController {
         helper.onEvent { [weak focus] event in
             if case .windowActivated(let window) = event { focus?.windowActivated(window) }
         }
-        // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
-        let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
-                                                    agents: agents, preferences: preferences.defaults)
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
         // Run check's window opens through the helper, tiled as a task's, and its closing reads the file again.
         let messaging = MessagingChecks(policyURL: AiTermPaths.deliveryPolicyURL(home: harnessHome),
@@ -177,8 +172,14 @@ final class AppController {
                                                         daemon: daemon, frame: { tiling.taskFrame() })
         self.signalController = signalController
         signalController.readConnections = { SignalConnections(jira: jiraSettings(), gitLab: gitLabSettings(), gitHub: gitHubSettings()) }
-        signalController.archive = { [archiver] task, allowed in try await archiver.archiveAutomatically(task, starting: allowed) }
-        signalController.remove = { [remover] task, allowed in try await remover.removeAutomatically(task, starting: allowed, stillAllowed: allowed) }
+        signalController.archive = { [teardown] task, allowed in try await teardown.archive(task, consent: .refuse(stillAllowed: allowed)) }
+        signalController.remove = { [teardown] task, allowed in try await teardown.remove(task, consent: .refuse(stillAllowed: allowed)) }
+        signalController.restore = { [launcher] id in
+            guard let restored = try await launcher.restore(id) else { throw ActionUnavailable("The task is busy.") }
+            return restored
+        }
+        signalController.checkout = { [launcher] task, allowed in try await launcher.checkOutWorker(task, stillAllowed: allowed).task }
+        launcher.connections = { [weak signalController] in await signalController?.connections() ?? SignalConnections() }
         // After the operators, whose openers it calls; its event hook right after the live sessions' own.
         windows = RowWindows(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                              launcher: launcher, terminals: terminals, signalController: signalController, notices: notices,
@@ -210,24 +211,22 @@ final class AppController {
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
-        // The rows are derived again whenever something they are made of may have changed, and the
-        // Dock badge recounted when they did or a removal moved.
+        // The rows are derived again whenever something they are made of may have changed, the
+        // tasks on their way out among them, and the Dock badge recounted when they did.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
         checkouts.onRowsChanged { [weak self] in self?.refreshRows() }
-        remover.onRemovalsChanged { [weak self] in self?.updateDockBadge() }
+        teardown.onChanged { [weak self] in self?.refreshRows() }
         // What a change to the workspace sets off, once per change, in this order: whatever named a
         // row that has gone goes with it — its context fills and the banner about it — then the rows
-        // are derived again if they changed, with the Dock badge counting what is left, and only
-        // then does a gone task's removal entry go. The entry is what keeps a task on its way out
-        // from being counted, so it outlasts the task's row in the sections: the other way round,
-        // the badge would count the row once more between the two. Before any of these runs the
-        // hook `focus` added as it was built, which drops a selection whose row went, in the same
-        // change; so do the owners' `PerRow` hooks, which drop only cells no row reads. Weak: the
-        // workspace outlives none of them, and each of them holds it.
+        // are derived again if they changed, with the Dock badge counting what is left, then what a
+        // teardown left on a gone task goes. Before any of these runs the hook `focus` added as it
+        // was built, which drops a selection whose row went, in the same change; so do the owners'
+        // `PerRow` hooks, which drop only cells no row reads. Weak: the workspace outlives none of
+        // them, and each of them holds it.
         workspace.onChange { [weak live] in live?.pruneContexts() }
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
-        workspace.onChange { [weak remover] in remover?.pruneRemovals() }
+        workspace.onChange { [weak teardown] in teardown?.pruneStates() }
         // A notification's click chooses the Operator's row or a task's, as a click on the row does.
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
@@ -244,6 +243,7 @@ final class AppController {
         }
         // Rows read the Operator's current activity and issues from its controller; a change derives the rows again.
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
+        rows.leaving = { [weak teardown] in teardown?.leaving ?? [] }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         signalController.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
@@ -311,10 +311,10 @@ final class AppController {
     }
 
     /// Only a changed label is written to the dock: this runs whenever a row's status may have
-    /// moved — a section changed, a removal started or ended — and the label almost never changes.
-    /// It counts what Focus View steps through, from the same rows.
+    /// moved — a section changed, a task started or stopped leaving — and the label almost never
+    /// changes. It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let count = rows.needingAttention(skipping: remover.leavingTasks).count
+        let count = rows.projectsNeedingAttention.count
         let label = count == 0 ? nil : String(count)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
@@ -335,8 +335,7 @@ final class AppController {
         guard applyView(signalLayout(focus: true)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = rows.needingAttention(skipping: remover.leavingTasks).first
-        else { return nil }
+        guard let first = rows.projectsNeedingAttention.first else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
     /// ⌘L: opens every project with rows in one save.
@@ -371,26 +370,32 @@ final class AppController {
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
             entries: { [weak self] in self?.state.archiveEntries ?? [] },
-            restore: { [weak self] in self?.restoreFromArchive($0) },
+            restore: { [weak self] id in Task { await self?.restoreFromArchive(id) } },
             // A turn later, never inside the key handler that asked (`Prompter`).
             remove: { [weak self] id in Task { await self?.removeFromArchive(id) } }))
     }
 
-    /// Restores an archived task or review, then chooses its row as a click does, which opens its
-    /// window with its conversations resumed. Nil when nothing started.
-    @discardableResult
-    func restoreFromArchive(_ id: UUID) -> Task<Void, Never>? {
-        guard let restoring = archiver.restore(id) else { return nil }
-        return Task { [weak self] in
-            await restoring.value
-            guard let self, self.state.task(id: id) != nil else { return }
-            await self.choose(.task(id))?.value
+    /// A person's restore of an archived task or review (`TaskLauncher.restore`): git's refusal is said
+    /// in an alert and the row stays archived; a row back has its project opened, is toasted, and is
+    /// chosen as a click chooses it, which opens its window with its conversations resumed. Returns
+    /// once that window has opened or the choosing gave up, or at once when nothing started.
+    func restoreFromArchive(_ id: UUID) async {
+        guard let archived = state.archived(id: id)?.task else { return }
+        let restored: TaskItem?
+        do { restored = try await launcher.restore(id) }
+        catch {
+            await prompter.ask(AlertPrompt(message: "“\(archived.title)” can’t be restored", detail: OperationIssue.reason(of: error)))
+            return
         }
+        guard let restored else { return }
+        workspace.mutate { $0.updateProject(id: restored.projectId) { $0.collapsed = false } }
+        if workspace.persistenceError == nil { notices.showToast("\(restored.kindName) restored.", symbol: "tray.and.arrow.up") }
+        await choose(.task(id))?.value
     }
 
-    /// Asks before removing an archived task or review.
+    /// Asks before removing an archived task or review, and returns once it is removed or not.
     func removeFromArchive(_ id: UUID) async {
-        await archiver.confirmRemove(archived: id)
+        await teardown.removeArchived(id)
     }
 
     // -- the banner ------------------------------------------------------------------
@@ -398,18 +403,14 @@ final class AppController {
     var issue: OperationIssue? { notices.issue }
     var toastState: ToastState { notices.toastState }
 
-    /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
-    /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
-    /// conflict, so it does not ask. Nil when nothing started: the question was declined, or the
-    /// task or project is gone or busy.
-    @discardableResult
-    func perform(_ action: OperationIssue.Action) async -> Task<Void, Never>? {
+    /// Answers the banner. Rebasing rewrites only local commits and aborts on a conflict, so it
+    /// does not ask. Returns once the action has ended, or at once when nothing started: the
+    /// project is gone or busy.
+    func perform(_ action: OperationIssue.Action) async {
         switch action {
-        case .keepBranch(let id): return remover.keepBranch(of: id)
-        case .deleteBranch(let id): return await remover.deleteBranch(of: id)
         case .rebaseDefault(let id):
-            guard let project = state.project(id: id) else { return nil }
-            return projects.rebaseDefault(project: project)
+            guard let project = state.project(id: id) else { return }
+            await projects.rebaseDefault(project: project)?.value
         }
     }
 
@@ -485,9 +486,9 @@ final class AppController {
     /// then raised.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
-        if windows.itermSynced, let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
+        if windows.itermSynced, let task = state.task(id: id), task.signalTask != nil, !teardown.isLeaving(id),
            let tab = task.tabToBring(sessions: live.sessions) { return bringTab(task: id, sessionId: tab.sessionId) }
-        if remover.isRemoving(id) { return focus.select(.task(id)) }
+        if teardown.isLeaving(id) { return focus.select(.task(id)) }
         return openAndRaise(.task(id), .task(id))
     }
 
@@ -504,12 +505,10 @@ final class AppController {
     }
 
     /// ⌘⌫ on the list: the selected row's own Remove, as its context menu has it — a task or a
-    /// review asks first, a terminal just closes.
-    @discardableResult
-    func removeSelection() async -> Task<Void, Never>? {
-        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return await remover.confirmRemove(task: task) }
-        if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { return terminals.close(terminal: terminal) }
-        return nil
+    /// review asks first, a terminal just closes. Returns once that has ended.
+    func removeSelection() async {
+        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { try? await teardown.remove(task, consent: .ask) }
+        else if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { await terminals.close(terminal: terminal)?.value }
     }
 }
 

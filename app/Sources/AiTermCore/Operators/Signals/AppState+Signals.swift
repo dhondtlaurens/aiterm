@@ -11,7 +11,7 @@ public extension AppState {
     /// A completed or superseded stage cannot leave a question badge or notification behind.
     func isCurrentOperatorQuestion(_ question: OperatorSession.Question) -> Bool {
         guard let id = question.task else { return true }
-        guard let record = signalItem(id: id)?.signalTask, !record.takenOver,
+        guard let record = signalItem(id: id)?.signalTask,
               question.stage.map({ $0 == record.stage }) != false,
               question.ownership.map({ $0 == record.ownership }) != false else { return false }
         switch record.phase {
@@ -28,7 +28,7 @@ public extension AppState {
         guard operatorSession?.paused != true else { return false }
         if signals.contains(where: \.isRunnable) { return true }
         return allSignalTasks.contains { task in
-            guard let record = task.signalTask, !record.takenOver,
+            guard let record = task.signalTask,
                   signal(id: record.signal)?.enabled != false,
                   let configuration = record.configuration ?? signal(id: record.signal), configuration.isRunnable else { return false }
             switch record.phase {
@@ -38,6 +38,19 @@ public extension AppState {
             case .stopped, .unknown: return false
             }
         }
+    }
+    /// A person's Take Over of sidebar task `id`: its signal record goes and the task is marked `takenOver`, so it is
+    /// an ordinary task of its project, which opens, and no later match continues it. The Operator's questions about
+    /// it and its paused workers go with the record. The record removed, or nil when the task has none and nothing changed.
+    @discardableResult
+    mutating func takeOver(_ id: UUID) -> SignalTask? {
+        guard let index = tasks.firstIndex(where: { $0.id == id }), let record = tasks[index].signalTask else { return nil }
+        tasks[index].signalTask = nil
+        tasks[index].takenOver = true
+        updateProject(id: tasks[index].projectId) { $0.collapsed = false }
+        operatorSession?.questions.removeAll { $0.task == id }
+        operatorSession?.pausedWorkers?.removeAll { $0.task == id }
+        return record
     }
     func signal(id: UUID) -> Signal? { signals.first { $0.id == id } }
     var allSignalTasks: [TaskItem] { tasks.filter { $0.signalTask != nil } + archive.map(\.task).filter { $0.signalTask != nil } }

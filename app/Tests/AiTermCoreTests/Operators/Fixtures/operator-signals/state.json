@@ -114,7 +114,6 @@
           "signal" : "E7A1C0DE-0000-4000-8000-000000000002",
           "stage" : 1,
           "startedAt" : "2026-11-14T12:00:00Z",
-          "takenOver" : false,
           "thenApplied" : true
         },
         "title" : "Earlier work",
@@ -478,12 +477,31 @@
         "prompt" : "\/psg:plan",
         "signal" : "E7A1C0DE-0000-4000-8000-000000000002",
         "stage" : 1,
-        "startedAt" : "2026-11-14T12:00:00Z",
-        "takenOver" : false
+        "startedAt" : "2026-11-14T12:00:00Z"
       },
       "title" : "Make retries safe",
       "windowId" : "worker-window",
       "worktreePath" : "\/synthetic\/shop\/.worktrees\/pay-1"
+    },
+    {
+      "agent" : "claude",
+      "appendTicket" : false,
+      "baseBranch" : "main",
+      "branch" : "feat\/pay-3",
+      "createdAt" : "2026-11-14T12:00:00Z",
+      "firstPrompt" : "\/psg:plan",
+      "id" : "E7A1C0DE-0000-4000-8000-000000000008",
+      "jira" : {
+        "key" : "PAY-3",
+        "summary" : "Tidy checkout",
+        "url" : "https:\/\/jira.example\/browse\/PAY-3"
+      },
+      "model" : "claude-opus-5-5",
+      "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
+      "reasoning" : "high",
+      "takenOver" : true,
+      "title" : "Tidy checkout",
+      "worktreePath" : "\/synthetic\/shop\/.worktrees\/pay-3"
     }
   ],
   "terminals" : [

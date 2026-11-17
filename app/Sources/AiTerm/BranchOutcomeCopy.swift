@@ -29,9 +29,12 @@ extension BranchRebase {
 }
 
 extension ReviewBranchRelease.Kept {
-    /// What a removed review's toast adds about its local `branch`: "Branch feat/x kept: 1 commit
-    /// not on origin."
-    func note(branch: String) -> String { "Branch \(branch) kept: \(reason(branch: branch))." }
+    /// What a removal's toast adds about the local `branch` it kept: "Branch feat/x kept: 1 commit
+    /// not on origin." A reason that is a sentence of git's already ends in its own full stop.
+    func note(branch: String) -> String {
+        let reason = reason(branch: branch)
+        return "Branch \(branch) kept: \(reason)" + (reason.last.map { ".!?".contains($0) } == true ? "" : ".")
+    }
 
     private func reason(branch: String) -> String {
         switch self {

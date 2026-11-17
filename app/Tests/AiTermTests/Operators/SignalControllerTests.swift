@@ -22,7 +22,11 @@ import Testing
         var launches = 0
         root.stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: root.native.busy, prepare: { task, _ in task },
-            launch: { _, _ in launches += 1; return "worker" }, restore: { $0 }))
+            launch: { _, _ in launches += 1; return "worker" }, restore: { task in
+                // As the app's restore does: the row back in the sidebar.
+                h.workspace.mutate { $0.moveFromArchive(id: task.id) }
+                return task
+            }))
         root.tabsKnown = true; root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
         _ = root.router.apply(signals: [next], read: SignalRead(items: [world.ticket()], complete: true))
         await root.reconcile(); await ports.work.settled()
@@ -97,19 +101,44 @@ import Testing
         #expect(daemon.requests("session.deliver").isEmpty)
         #expect(!native.busy(id))
     }
+    /// Take Over hands the task to the person: its record goes, the task is marked, its question is withdrawn, its
+    /// project opens, and its recorded guard scopes carry the raised ownership, so a launch past its claim check cannot
+    /// write one that still grants the Operator anything.
     @Test func takeOverRevokesTheStageAndWithdrawsItsQuestions() async throws {
-        var world = SignalWorld(); let signal = world.signal(); let task = world.workingTask(signal: signal)
-        world.state.operatorSession = OperatorSession(createdAt: world.now)
-        let askedAt = world.now
-        world.state.operatorSession?.questions = [.init(id: "q", task: task, text: "Which?", openedAt: askedAt)]
-        let h = try SignalHarness(world); defer { h.cleanUp() }
-        let ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
-        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
-            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
-        await root.takeOver(task)
-        #expect(h.workspace.state.task(id: task)?.signalTask?.takenOver == true)
-        #expect(h.workspace.state.task(id: task)?.signalTask?.ownership == 1)
-        #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
+        let fixture = try await RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller, ports = controller.signalController.ports
+        var task = try await fixture.addTask(windowId: "worker-window")
+        var record = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .working; record.ownership = 2
+        record.extraTabs = [ExtraTab(key: "review", agent: .claude, model: "model", reasoning: nil, modelReason: "", brief: "",
+                                     launch: LaunchAttempt(number: 1, requestedAt: Date()))]
+        task.signalTask = record; task.jira = JiraRef(key: "PAY-1", summary: "Pay", url: "https://jira.example/browse/PAY-1")
+        let id = task.id, project = fixture.project.id
+        controller.workspace.mutate { state in
+            state.tasks = [task]
+            state.updateProject(id: project) { $0.collapsed = true }
+            state.operatorSession = OperatorSession(createdAt: Date())
+            state.operatorSession?.questions = [.init(id: "q", task: id, text: "Which?", openedAt: Date())]
+        }
+        #expect(controller.workspace.flush())
+        for slot in ["main", "review"] {
+            var scope = WorkerGuard.Scope(task: id, worktree: task.worktreePath, branch: task.branch, remote: "", allowsPush: true)
+            scope.ownership = 2
+            _ = try WorkerGuardLaunch.prepare(scope: scope, home: ports.home, slot: slot, executable: ports.workerGuardExecutable)
+        }
+
+        await controller.takeOver(id)
+
+        let current = try #require(controller.state.task(id: id))
+        #expect(current.signalTask == nil && current.takenOver)
+        #expect(controller.state.project(id: project)?.collapsed == false)
+        #expect(controller.state.operatorSession?.questions.isEmpty == true)
+        for slot in ["main", "review"] {
+            #expect(WorkerGuardLaunch.recordedScope(task: id, home: ports.home, slot: slot)?.ownership == 3)
+        }
+        #expect(controller.toastState.toast?.message == "PAY-1 is yours. The Operator let go of it.")
+        #expect(controller.issue == nil)
     }
     @Test func aPausePersistsItsWorkerAndResumeCarriesOnBeforeAdvancing() async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)

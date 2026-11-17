@@ -35,11 +35,49 @@ struct AlertPrompt: Equatable {
 
 extension AlertPrompt {
     @MainActor static func removeTask(_ task: TaskItem, detail: String) -> AlertPrompt {
-        let offersBranch = TaskRemover.offersBranchDeletion(for: task)
+        let offersBranch = offersBranchDeletion(for: task)
         return AlertPrompt(message: "Remove \(task.kindName.lowercased()) “\(task.title)”?", detail: detail,
                            buttons: ["Remove", "Cancel"],
                            checkbox: offersBranch ? "Delete local branch" : nil,
                            checkboxHelp: offersBranch ? task.branch : nil, defaultDeletes: true)
+    }
+
+    /// Whether the remove alert offers a "Delete local branch" checkbox. A review's branch is the merge request's,
+    /// which the host deletes on merge, so it never does.
+    ///
+    /// This is the courtesy, not the guarantee: `TaskWorkflow.remove` refuses a review's branch deletion outright, so a
+    /// caller that asks anyway still gets nothing. Hiding the checkbox here only keeps the alert from offering
+    /// something that would be ignored.
+    static func offersBranchDeletion(for task: TaskItem) -> Bool { task.kind != .review }
+
+    /// The question before a branch with commits its base lacks is deleted, which deletes them too. Delete Branch is
+    /// the red default; Keep Branch answers ⎋ and still removes the row.
+    static func deleteUnmergedBranchQuestion(for task: TaskItem) -> AlertPrompt {
+        let base = task.baseBranch.isEmpty ? "its base" : task.baseBranch
+        return AlertPrompt(
+            message: "Delete branch \(task.branch)?",
+            detail: "It has commits that aren’t on \(base). Deleting the branch deletes them too.",
+            buttons: ["Delete Branch", "Keep Branch"], defaultDeletes: true, escape: 1)
+    }
+
+    /// The question before a folder git no longer lists is deleted: it may hold files AiTerm did not make. Keep is the
+    /// default and ⎋. One wording for Remove and Archive.
+    static func unlistedFolderQuestion(for task: TaskItem) -> AlertPrompt {
+        AlertPrompt(message: "Delete the unlisted folder for “\(task.title)”?",
+                    detail: "Git no longer lists this folder as a worktree. It may contain files AiTerm did not create.\n\(task.worktreePath)",
+                    buttons: ["Keep", "Delete Folder"], escape: 0)
+    }
+
+    /// The question before a worktree's uncommitted changes and untracked files are deleted. Keeping is the default,
+    /// on ↩ and ⎋ both; deleting is the plain grey button beside it, never marked red: the red default is for a button
+    /// ↩ can press.
+    static func unsavedWorkQuestion(for task: TaskItem, archiving: Bool) -> AlertPrompt {
+        AlertPrompt(
+            message: "The worktree has uncommitted changes",
+            detail: archiving ? "Archiving deletes its uncommitted changes and untracked files. The branch is kept."
+                              : "Removing this worktree permanently deletes its uncommitted changes and untracked files.",
+            buttons: [task.kind == .review ? "Keep Review" : "Keep Task",
+                      archiving ? "Delete Changes and Archive" : "Delete Changes and Remove"], escape: 0)
     }
 }
 

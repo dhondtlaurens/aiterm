@@ -2,12 +2,14 @@ import Foundation
 import AiTermCore
 
 /// Persist stage and launch intents before effects. A stage never reaches a worker mid-turn and
-/// every await is followed by an ownership check, so Take Over invalidates late completions.
+/// every await is followed by an ownership check, so Take Over, which removes the record, invalidates late completions.
 @MainActor final class StageRunner {
     struct Ports {
         var workerIsWorking: @MainActor (UUID) -> Bool
+        /// The task's worker checkout, saved on the task.
         var prepare: @MainActor (TaskItem, Signal) async throws -> TaskItem
         var launch: @MainActor (TaskItem, String) async throws -> String
+        /// The archived task's worktree recreated and its row back in the sidebar.
         var restore: @MainActor (TaskItem) async throws -> TaskItem
     }
     private let workspace: WorkspaceStore
@@ -35,13 +37,10 @@ import AiTermCore
             workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(id) { $0.currentAct = nil } } }
         }
         do {
+            // The row comes back to the sidebar with its worktree, even when the claim was lost meanwhile.
             if workspace.state.archived(id: id) != nil {
-                let restored = try await ports.restore(initial)
+                _ = try await ports.restore(initial)
                 guard holds(claim, generation: launchGeneration) else { return }
-                workspace.mutate { state in
-                    state.moveFromArchive(id: id)
-                    state.updateSignalItem(id) { $0.worktreePath = restored.worktreePath }
-                }
             }
             guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id) else { return }
             let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
@@ -55,14 +54,8 @@ import AiTermCore
             guard workspace.flush() else { return }
             try await journal.append(.ours("Starting stage \(record.stage) from \(signal.name)."), task: id)
             guard holds(claim, generation: launchGeneration), let before = workspace.state.task(id: id) else { return }
-            if !before.hasCheckout {
-                let prepared = try await ports.prepare(before, signal)
-                guard holds(claim, generation: launchGeneration) else { return }
-                workspace.mutate { $0.updateSignalItem(id) { task in
-                    task.worktreePath = prepared.worktreePath; task.branch = prepared.branch; task.baseBranch = prepared.baseBranch
-                } }
-                guard workspace.flush() else { return }
-            }
+            // The checkout saves itself on the task, even once the claim is lost.
+            if !before.hasCheckout { _ = try await ports.prepare(before, signal) }
             guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return }
             let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
             let window = try await ports.launch(task, prompt)
@@ -94,7 +87,7 @@ import AiTermCore
             throw ActionUnavailable("This stage waits for its agent choice. Use choose_agent.")
         }
         guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask, !record.takenOver,
+              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
               record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")
         }

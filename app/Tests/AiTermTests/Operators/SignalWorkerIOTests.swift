@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import AiTerm
 @testable import AiTermCore
 @testable import AiTermTestSupport
@@ -66,7 +67,7 @@ import Testing
         let router = ItemRouter(workspace: h.workspace, now: { world.now }, workerIsWorking: native.busy)
         _ = router.apply(signals: [signal], read: SignalRead(items: [world.ticket()], complete: true))
         let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            workerIsWorking: native.busy, prepare: native.prepare, launch: native.launch, restore: native.restore))
+            workerIsWorking: native.busy, prepare: { task, _ in task }, launch: native.launch, restore: { $0 }))
         await stages.run(id)
         #expect(daemon.requests("session.closeIdle").isEmpty && daemon.requests("window.createTask").isEmpty && daemon.requests("tab.create").isEmpty)
         for index in live.sessions.indices { live.sessions[index].state = .done }
@@ -184,46 +185,152 @@ import Testing
         let io = SignalWorkerIO(workspace: harness.workspace, live: live, work: WorkInFlight(), ports: .scratch(),
                                 daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
         let stale = try #require(harness.workspace.state.task(id: id))
-        harness.workspace.mutate { $0.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1 } }
+        harness.workspace.mutate { $0.takeOver(id) }
         await #expect(throws: (any Error).self) { try await io.launch(stale, prompt: "Run.") }
         #expect(daemon.requests("window.createTask").isEmpty)
     }
+    /// The stage's checkout is the app's (`TaskLauncher.checkOutWorker`): a Take Over that lands while git makes a
+    /// request task's worktree leaves the task with that worktree's folder and launches no worker.
     @Test(.blocking) func takeOverDuringARequestCheckoutKeepsItsFolderAndBaseBranchWithoutLaunchingAWorker() async throws {
-        let repo = try await GitFixture.makeRepoOffMain(prefix: "signal-checkout-")
-        defer { try? FileManager.default.removeItem(atPath: repo) }
         let git = CheckoutHeldGit()
-        try await BackgroundWork.run { _ = try GitRunner.hermetic().run(["branch", "work"], in: repo) }
+        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git", controllerGit: git)
+        let controller = fixture.controller, server = RecordingDaemon()
+        defer { git.release(); controller.shutdown(); fixture.cleanUp() }
+        let repo = fixture.repo.path, setup = fixture.git
+        try await BackgroundWork.run { _ = try setup.run(["branch", "work"], in: repo) }
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
-        world.state.updateProject(id: world.project.id) { $0.path = repo }
         world.state.updateSignalItem(id) {
+            $0.projectId = fixture.project.id
             $0.branch = "work"; $0.worktreePath = ""; $0.baseBranch = ""; $0.windowId = nil
             $0.mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
             $0.signalTask?.phase = .launching
         }
-        let h = try SignalHarness(world); defer { h.cleanUp() }
-        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch(git: git)
-        defer { git.release(); try? FileManager.default.removeItem(at: ports.home) }
+        controller.workspace.mutate { state in
+            state.signals = world.state.signals; state.tasks = world.state.tasks; state.operatorSession = world.state.operatorSession
+        }
+        #expect(controller.workspace.flush())
         let stub = StubSession { _ in
             (200, Data(#"[{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","source_project_id":1,"target_project_id":1}]"#.utf8))
         }
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
-        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
-            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
-        root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
-        defer { root.stop() }
-        root.native.connections = { links }
+        controller.signalController.readConnections = { links }
+        controller.helper.setDaemonClient(server)
+        let root = controller.signalController
+        root.sourceRegistrations = { _ in [] }
+        root.start(); await root.ports.work.settled()
         let checkout = Task { await root.stages.run(id) }
-        await git.entered.wait()
-        await root.takeOver(id)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.takenOver == true)
-        #expect(h.workspace.state.task(id: id)?.hasCheckout == false)
+        // The stage reads the request before git runs: on a loaded host that can take a while.
+        try #require(await eventually(describing: "the checkout reaching git") { git.reached })
+        await controller.takeOver(id)
+        #expect(controller.state.task(id: id)?.signalTask == nil && controller.state.task(id: id)?.takenOver == true)
+        #expect(controller.state.task(id: id)?.hasCheckout == false)
         git.release(); await checkout.value
-        let task = try #require(h.workspace.state.task(id: id))
+        let task = try #require(controller.state.task(id: id))
         #expect(task.worktreePath == repo + "/.worktrees/review-work")
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
         #expect(task.baseBranch == "main")
-        #expect(task.signalTask?.takenOver == true && task.signalTask?.ownership == 1)
-        #expect(daemon.requests.isEmpty, "The finished checkout cannot launch a worker after Take Over.")
+        #expect(task.signalTask == nil && task.takenOver)
+        #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
+                "The finished checkout cannot launch a worker after Take Over.")
+    }
+    /// A Take Over that lands while the stage still reads the request, before git runs, leaves that checkout to finish
+    /// for the person: the task gets its worktree on the request's source branch, and the Operator opens no worker.
+    /// A read that then fails is said on the task, as no one else would say it.
+    @Test(.blocking, arguments: [false, true])
+    func takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree(readFails: Bool) async throws {
+        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        let controller = fixture.controller, server = RecordingDaemon()
+        let read = HeldRead()
+        defer { read.release(); controller.shutdown(); fixture.cleanUp() }
+        let repo = fixture.repo.path, setup = fixture.git
+        try await BackgroundWork.run { _ = try setup.run(["branch", "work"], in: repo) }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalItem(id) {
+            $0.projectId = fixture.project.id
+            $0.branch = "work"; $0.worktreePath = ""; $0.baseBranch = ""; $0.windowId = nil
+            $0.mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+            $0.signalTask?.phase = .launching
+        }
+        controller.workspace.mutate { state in
+            state.signals = world.state.signals; state.tasks = world.state.tasks; state.operatorSession = world.state.operatorSession
+        }
+        #expect(controller.workspace.flush())
+        let stub = StubSession { _ in
+            read.hold()
+            if readFails { return (500, Data("{}".utf8)) }
+            return (200, Data(#"[{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","source_project_id":1,"target_project_id":1}]"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        controller.signalController.readConnections = { links }
+        controller.helper.setDaemonClient(server)
+        let root = controller.signalController
+        root.sourceRegistrations = { _ in [] }
+        root.start(); await root.ports.work.settled()
+        let stage = Task { await root.stages.run(id) }
+        try #require(await eventually(describing: "the stage reading the request") { read.reached })
+        await controller.takeOver(id)
+        #expect(controller.state.task(id: id)?.hasCheckout == false, "The stage's checkout is still under way.")
+        read.release(); await stage.value
+        #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
+                "The finished checkout cannot launch a worker after Take Over.")
+        if readFails {
+            let task = try #require(controller.state.task(id: id))
+            #expect(task.signalTask == nil && task.takenOver && !task.hasCheckout)
+            #expect(controller.issue?.title == "The task is yours, but its worktree couldn’t be made." && controller.issue?.subject == id)
+            #expect(controller.issue?.reason != nil)
+            return
+        }
+        try #require(await eventually(describing: "the checkout saved") { controller.state.task(id: id)?.hasCheckout == true })
+        let task = try #require(controller.state.task(id: id))
+        #expect(task.signalTask == nil && task.takenOver)
+        #expect(task.worktreePath == repo + "/.worktrees/review-work" && task.baseBranch == "main")
+        let path = task.worktreePath
+        let head = try await BackgroundWork.run { try setup.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) }
+        #expect(head.trimmingCharacters(in: .whitespacesAndNewlines) == "work")
+        #expect(controller.issue == nil)
+    }
+    /// A stage for a request item checks out the request's source branch through the app's checkout, and refuses a
+    /// fork's, whose source branch is not in this repository.
+    @Test(.blocking, arguments: [false, true]) func aRequestStageChecksOutItsSourceBranchAndRefusesAFork(fork: Bool) async throws {
+        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        let controller = fixture.controller
+        defer { controller.shutdown(); fixture.cleanUp() }
+        let repo = fixture.repo.path, setup = fixture.git
+        try await BackgroundWork.run { _ = try setup.run(["branch", "work"], in: repo) }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalItem(id) {
+            $0.projectId = fixture.project.id
+            $0.branch = "work"; $0.worktreePath = ""; $0.baseBranch = ""; $0.windowId = nil
+            $0.mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+            $0.signalTask?.phase = .launching
+        }
+        controller.workspace.mutate { state in
+            state.signals = world.state.signals; state.tasks = world.state.tasks; state.operatorSession = world.state.operatorSession
+        }
+        #expect(controller.workspace.flush())
+        let stub = StubSession { _ in
+            (200, Data("[{\"iid\":7,\"title\":\"Work\",\"source_branch\":\"work\",\"target_branch\":\"main\",\"web_url\":\"https://git.example/shop/web/-/merge_requests/7\",\"state\":\"opened\",\"source_project_id\":\(fork ? 2 : 1),\"target_project_id\":1}]".utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        controller.signalController.readConnections = { links }
+        let root = controller.signalController
+        root.sourceRegistrations = { _ in [] }
+        root.start(); await root.ports.work.settled()
+
+        // No helper: once its checkout is made, the stage's worker cannot start, and the stage blocks.
+        await root.stages.run(id)
+
+        let current = try #require(controller.state.task(id: id))
+        #expect(current.signalTask?.phase == .blocked)
+        if fork {
+            #expect(current.signalTask?.blockedReason == "The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
+            #expect(!current.hasCheckout)
+        } else {
+            #expect(current.worktreePath == repo + "/.worktrees/review-work", "saved on the task")
+            #expect(current.baseBranch == "main")
+            let head = try await BackgroundWork.run { try setup.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo + "/.worktrees/review-work") }
+            #expect(head == "work")
+        }
     }
     @Test func extraWorkTabPersistsItsKeyAndARepeatedOpenAdoptsIt() async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
@@ -294,14 +401,27 @@ import Testing
     }
 }
 
+/// A host read held until released, so a Take Over can land while the stage waits for it.
+private final class HeldRead: Sendable {
+    private let entered = Mutex(false)
+    private let gate = DispatchSemaphore(value: 0)
+    var reached: Bool { entered.withLock { $0 } }
+    func release() { gate.signal() }
+    func hold() {
+        entered.withLock { $0 = true }
+        _ = gate.wait(timeout: .now() + TestDeadline.seconds)
+    }
+}
 private final class CheckoutHeldGit: GitRunning {
-    let entered = TestLatch()
+    private let entered = Mutex(false)
     private let gate = DispatchSemaphore(value: 0)
     private let inner = GitRunner.hermetic()
+    /// Whether a `git worktree add` has reached the hold.
+    var reached: Bool { entered.withLock { $0 } }
     func release() { gate.signal() }
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         if args.starts(with: ["worktree", "add"]) {
-            entered.signal()
+            entered.withLock { $0 = true }
             guard gate.wait(timeout: .now() + TestDeadline.seconds) == .success else {
                 throw ActionUnavailable("Timed out waiting for Take Over during checkout.")
             }

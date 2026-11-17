@@ -16,7 +16,7 @@ import Testing
         try FileManager.default.createDirectory(atPath: fixture.task.worktreePath, withIntermediateDirectories: true)
         let file = URL(fileURLWithPath: fixture.task.worktreePath).appendingPathComponent("unknown")
         try Data("keep me".utf8).write(to: file)
-        await (await fixture.controller.remover.confirmRemove(task: fixture.task))?.value
+        try await fixture.controller.teardown.remove(fixture.task, consent: .ask)
         #expect(FileManager.default.fileExists(atPath: file.path) == (answer != "Delete Folder"))
         #expect((fixture.controller.state.task(id: fixture.task.id) != nil) == (answer != "Delete Folder"))
         #expect(prompt.asked.last?.buttons == ["Keep", "Delete Folder"])
@@ -79,9 +79,9 @@ import Testing
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = await controller.remover.confirmRemove(task: fixture.task)
-        #expect(prompter.asked.map(\.buttons) == [["Remove", "Cancel"]], "the menu's Remove offers no Archive")
+        let removal = Task { try? await controller.teardown.remove(fixture.task, consent: .ask) }
         try await server.received("window.close")
+        #expect(prompter.asked.map(\.buttons) == [["Remove", "Cancel"]], "the menu's Remove offers no Archive")
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")
         // The window's own `window.closed` finds the row windowless already: it stays while the removal runs.
@@ -90,7 +90,7 @@ import Testing
         #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless before the close was sent")
 
         server.release()
-        await removal?.value
+        await removal.value
         #expect(controller.state.tasks.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.task.worktreePath))
         #expect(server.closedWindowIds == ["alive"], "closed once")
@@ -108,14 +108,14 @@ import Testing
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = await controller.remover.confirmRemove(task: fixture.task)
+        let removal = Task { try? await controller.teardown.remove(fixture.task, consent: .ask) }
         try await server.received("window.close")
         // Saving breaks while the window closes: a directory stands where the backup goes.
         let backup = controller.workspace.file.backupURL
         try? FileManager.default.removeItem(at: backup)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
         server.release()
-        await removal?.value
+        await removal.value
 
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.persistenceError != nil)
@@ -131,7 +131,7 @@ import Testing
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        await controller.remover.confirmRemove(task: fixture.task)?.value
+        try await controller.teardown.remove(fixture.task, consent: .ask)
 
         #expect(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/.git"))
@@ -156,7 +156,7 @@ import Testing
             controller.helper.setDaemonClient(server)
             try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-            await controller.remover.confirmRemove(task: fixture.task)?.value
+            try await controller.teardown.remove(fixture.task, consent: .ask)
 
             let asked = try #require(prompter.asked.last)
             #expect(asked.buttons == ["Keep Task", "Delete Changes and Remove"])
@@ -180,12 +180,12 @@ import Testing
         controller.helper.setDaemonClient(server)
         try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-        let removal = await controller.remover.confirmRemove(task: fixture.task)
+        let removal = Task { try? await controller.teardown.remove(fixture.task, consent: .ask) }
         try await server.received("window.close")
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/notes.txt"))
 
         server.release()
-        await removal?.value
+        await removal.value
         #expect(prompter.asked.map(\.message).last == "The worktree has uncommitted changes")
         #expect(controller.state.tasks.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.task.worktreePath))
@@ -201,7 +201,7 @@ import Testing
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = await controller.remover.confirmRemove(task: fixture.task)
+        let removal = Task { try? await controller.teardown.remove(fixture.task, consent: .ask) }
         try await server.received("window.close")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)], usage: .empty)))
@@ -209,7 +209,7 @@ import Testing
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
 
         server.release()
-        await removal?.value
+        await removal.value
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.issue == nil)
     }
@@ -227,16 +227,16 @@ import Testing
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)],
                                                           usage: .empty)))
 
-        let removal = await controller.remover.confirmRemove(task: fixture.task)
+        let removal = Task { try? await controller.teardown.remove(fixture.task, consent: .ask) }
         try await server.received("window.close")
         try "late\n".write(toFile: fixture.task.worktreePath + "/late.txt", atomically: true, encoding: .utf8)
         server.release()
-        await removal?.value
+        await removal.value
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)))
 
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/late.txt"))
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
-        #expect(controller.remover.removals.isEmpty, "nothing half done: no note")
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil, "nothing half done: no note")
         #expect(controller.issue == nil)
         #expect(server.requests("window.createTask").isEmpty)
         #expect(controller.state.task(id: fixture.task.id)?.windowId == nil)
@@ -273,8 +273,11 @@ import Testing
         try fixture.git.run(["worktree", "lock", "--reason", Worktree.taskLockReason, path], in: fixture.repo.path)
         try FileManager.default.removeItem(atPath: path)
 
-        controller.remover.forgetRemovedCheckouts([fixture.task])
-        await controller.remover.waitForRemoval(of: fixture.task.id)
+        controller.teardown.forgetRemovedCheckouts([fixture.task])
+        let git = fixture.git, repo = fixture.repo.path
+        await eventually(describing: "the task and git's record of its checkout gone") {
+            controller.state.tasks.isEmpty && (try? git.run(["worktree", "list", "--porcelain"], in: repo))?.contains(path) == false
+        }
         #expect(controller.state.tasks.isEmpty)
         #expect(!(try fixture.git.run(["worktree", "list", "--porcelain"], in: fixture.repo.path)).contains(path))
         #expect(throws: Never.self) { try fixture.git.run(["worktree", "add", "-q", path, fixture.task.branch], in: fixture.repo.path) }
@@ -292,20 +295,20 @@ import Testing
         try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
         prompter.whileAsking = { prompt in
             guard prompt.buttons.contains("Keep Task") else { return }
-            #expect(controller.remover.removal(of: fixture.task.id) == .removing)
-            controller.remover.forgetRemovedCheckouts([fixture.task])
+            #expect(controller.teardown.state(of: fixture.task.id) == .removing)
+            controller.teardown.forgetRemovedCheckouts([fixture.task])
             #expect(server.closedWindowIds.isEmpty)
             #expect(controller.state.tasks == [fixture.task])
-            #expect(controller.remover.removal(of: fixture.task.id) == .removing)
+            #expect(controller.teardown.state(of: fixture.task.id) == .removing)
         }
         defer { prompter.whileAsking = nil }
 
-        await controller.remover.confirmRemove(task: fixture.task)?.value
+        try await controller.teardown.remove(fixture.task, consent: .ask)
 
         #expect(prompter.asked.count == 2)
         #expect(server.closedWindowIds.isEmpty)
         #expect(controller.state.tasks == [fixture.task])
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
     }
 
     @Test func deletedCheckoutKeepsWindowIdentityWhileDaemonIsUnavailable() async throws {
@@ -339,12 +342,12 @@ import Testing
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         await controller.checkouts.refresh().value
         // A close would have marked the row closing within the pass.
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
         #expect(controller.state.tasks == [fixture.task])
 
         controller.live.sessions[0].state = .done
         await controller.checkouts.refresh().value
-        await controller.remover.waitForRemoval(of: fixture.task.id)
+        await eventually(describing: "the closing ended") { controller.work.operation(onTask: fixture.task.id) == nil }
         #expect(server.closedWindowIds == [windowId])
         #expect(controller.state.tasks.isEmpty)
     }
@@ -360,18 +363,18 @@ import Testing
         controller.helper.setDaemonClient(server)
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         await controller.checkouts.refresh().value
-        await controller.remover.waitForRemoval(of: fixture.task.id)
+        await eventually(describing: "the closing ended") { controller.work.operation(onTask: fixture.task.id) == nil }
         try #require(server.closedWindowIds == ["alive"])
         if errorCode != .notFound {
             #expect(controller.state.tasks == [fixture.task])
             #expect(try controller.savedWorkspace().tasks == [fixture.task])
-            #expect(controller.remover.removals == [fixture.task.id: .closing])
+            #expect(controller.teardown.leaving == [fixture.task.id] && controller.teardown.state(of: fixture.task.id) == .closing)
             server.failing = [:]
             await controller.checkouts.refresh().value
-            await controller.remover.waitForRemoval(of: fixture.task.id)
+            await eventually(describing: "the closing ended") { controller.work.operation(onTask: fixture.task.id) == nil }
         }
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
         #expect(try controller.savedWorkspace().tasks.isEmpty)
         #expect(server.closedWindowIds == (errorCode != .notFound ? ["alive", "alive"] : ["alive"]))
     }
@@ -387,13 +390,13 @@ import Testing
         let aside = fixture.root.appendingPathComponent("aside")
         try FileManager.default.moveItem(at: URL(fileURLWithPath: fixture.task.worktreePath), to: aside)
         await controller.checkouts.refresh().value
-        await controller.remover.waitForRemoval(of: fixture.task.id)
-        try #require(controller.remover.removals == [fixture.task.id: .closing])
+        await eventually(describing: "the closing ended") { controller.work.operation(onTask: fixture.task.id) == nil }
+        try #require(controller.teardown.leaving == [fixture.task.id] && controller.teardown.state(of: fixture.task.id) == .closing)
 
         try FileManager.default.moveItem(at: aside, to: parent.appendingPathComponent("work"))
         await controller.checkouts.refresh().value
 
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
         #expect(controller.state.tasks == [fixture.task])
     }
 
@@ -485,16 +488,16 @@ extension CheckoutCleanupControllerTests {
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
 
-        let removal = await controller.remover.confirmRemove(task: fixture.task)
+        let removal = Task { try? await controller.teardown.remove(fixture.task, consent: .ask) }
         try await server.received("window.close")
-        #expect(controller.remover.removals == [fixture.task.id: .removing])
+        #expect(controller.teardown.leaving == [fixture.task.id] && controller.teardown.state(of: fixture.task.id) == .removing)
 
         server.release()
-        await removal?.value
+        await removal.value
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
     }
 
     @Test func aWindowThatWillNotCloseSaysSoOnTheRow() async throws {
@@ -504,9 +507,9 @@ extension CheckoutCleanupControllerTests {
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(RecordingDaemon(failing: ["window.close": "temporary_failure"]))
 
-        await controller.remover.confirmRemove(task: fixture.task)?.value
+        try await controller.teardown.remove(fixture.task, consent: .ask)
 
-        #expect(controller.remover.removals == [fixture.task.id: .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)])
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == .stopped(note: "Not removed: its window did not close"))
         #expect(controller.issue?.subject == fixture.task.id)
     }
 
@@ -518,10 +521,10 @@ extension CheckoutCleanupControllerTests {
         controller.helper.setDaemonClient(RecordingDaemon())
         try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-        await controller.remover.confirmRemove(task: fixture.task)?.value
+        try await controller.teardown.remove(fixture.task, consent: .ask)
 
         #expect(controller.state.tasks == [fixture.task])
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
         #expect(controller.issue == nil, "keeping it was the person's answer; there is nothing to explain")
     }
 
@@ -537,11 +540,11 @@ extension CheckoutCleanupControllerTests {
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         controller.checkouts.refresh()
         try await server.received("window.close")
-        #expect(controller.remover.removals == [fixture.task.id: .closing])
+        #expect(controller.teardown.leaving == [fixture.task.id] && controller.teardown.state(of: fixture.task.id) == .closing)
 
         server.release()
         await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.remover.removals.isEmpty)
+        #expect(controller.teardown.leaving.isEmpty && controller.teardown.state(of: fixture.task.id) == nil)
     }
 }

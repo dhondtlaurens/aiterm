@@ -4,8 +4,9 @@ import Foundation
 /// answers. `DaemonClient` sends them over the socket; the app's tests record them instead.
 public protocol DaemonCommands: Sendable {
     func snapshot() async throws -> DaemonSnapshot
-    /// `background` opens it behind the person's work: an operator's worker windows do.
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String
+    /// `background` opens it behind the person's work: an operator's worker windows do. Its window id, and why its agent
+    /// command could not be typed, when the daemon could not type it: the window is there either way.
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> WorkerOpening
     func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String
     /// A tab in an existing window, carrying that window's task or project tag. `tabKey` tags it as the Operator's
     /// extra worker tab of that key (`open_tab`), and a repeat returns the tab already tagged so; `background` opens
@@ -41,7 +42,7 @@ public protocol DaemonCommands: Sendable {
 
 extension DaemonCommands {
     /// A task window in front, as every window but an operator's worker's opens.
-    public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
+    public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> WorkerOpening {
         try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: false)
     }
 
@@ -51,8 +52,8 @@ extension DaemonCommands {
     }
 }
 
-/// A worker's window or tab the daemon opened (`openWorkerWindow`, `openWorkerTab`): its window or session id, and the
-/// reason its agent command could not be typed (the daemon's `commandError`), nil when it was.
+/// A window or tab the daemon opened for an agent command (`createTaskWindow`, `openWorkerWindow`, `openWorkerTab`): its
+/// window or session id, and the reason its agent command could not be typed (the daemon's `commandError`), nil when it was.
 public struct WorkerOpening: Equatable, Sendable {
     public var id: String
     public var commandError: String?

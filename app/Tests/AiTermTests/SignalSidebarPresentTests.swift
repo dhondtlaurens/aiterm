@@ -167,7 +167,7 @@ import Testing
         defer { controller.shutdown() }
         controller.workspace.mutate { $0 = world.state }
         controller.live.handle(.sessionOpened(worker))
-        #expect(controller.rows.needingAttention(skipping: []).isEmpty)
+        #expect(controller.rows.projectsNeedingAttention.isEmpty)
         #expect(!sidebar.signals[0].tasks.contains { $0.status.needsAttention })
     }
 }

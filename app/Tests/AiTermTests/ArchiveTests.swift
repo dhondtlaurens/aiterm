@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermTestSupport
 @testable import AiTerm
@@ -13,8 +14,7 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archiver.archive(task: task)
-        await archiving?.value
+        try await controller.teardown.archive(task, consent: .ask)
 
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
         #expect(controller.state.tasks.isEmpty)
@@ -35,14 +35,14 @@ import Testing
         let task = try await fixture.addTask(windowId: "alive")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
 
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
 
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Keep Task", "Delete Changes and Archive"])
         #expect(asked.detail == "Archiving deletes its uncommitted changes and untracked files. The branch is kept.")
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
         #expect(server.requests("window.close").isEmpty)
-        #expect(fixture.controller.remover.removal(of: task.id) == nil, "kept before anything moved: no note")
+        #expect(fixture.controller.teardown.state(of: task.id) == nil, "kept before anything moved: no note")
     }
 
     @Test func deleteChangesAndArchiveArchivesTheDirtyWorktree() async throws {
@@ -51,7 +51,7 @@ import Testing
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         #expect(fixture.controller.state.archive.map(\.id) == [task.id])
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
     }
@@ -63,7 +63,7 @@ import Testing
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
         try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         #expect(prompter.asked.first?.message == "“Work” can’t be archived")
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
@@ -83,14 +83,14 @@ import Testing
         let file = URL(fileURLWithPath: task.worktreePath).appendingPathComponent("unknown")
         try Data("keep me".utf8).write(to: file)
 
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
 
         let deleted = answer == "Delete Folder"
         #expect(prompter.asked.map(\.buttons) == [["Keep", "Delete Folder"]])
         #expect(FileManager.default.fileExists(atPath: file.path) == !deleted)
         #expect(fixture.controller.state.tasks.map(\.id) == (deleted ? [] : [task.id]))
         #expect(fixture.controller.state.archive.map(\.id) == (deleted ? [task.id] : []))
-        #expect(fixture.controller.remover.removal(of: task.id) == nil, "kept before anything moved: no note")
+        #expect(fixture.controller.teardown.state(of: task.id) == nil, "kept before anything moved: no note")
     }
 
     @Test func aWorktreeDetachedWhileTheWindowClosesIsNotArchived() async throws {
@@ -104,11 +104,11 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archiver.archive(task: task)
+        let archiving = Task { try? await controller.teardown.archive(task, consent: .ask) }
         try await server.received("window.close")
         try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
         server.release()
-        await archiving?.value
+        await archiving.value
 
         #expect(prompter.asked.map(\.message) == ["“Work” can’t be archived"])
         #expect(controller.state.tasks.map(\.id) == [task.id])
@@ -126,11 +126,11 @@ import Testing
         let task = try await fixture.addTask(windowId: "alive")
         try fixture.git.run(["branch", "feat/other"], in: fixture.repo.path)
 
-        let archiving = await controller.archiver.archive(task: task)
+        let archiving = Task { try? await controller.teardown.archive(task, consent: .ask) }
         try await server.received("window.close")
         try fixture.git.run(["checkout", "-q", "feat/other"], in: task.worktreePath)
         server.release()
-        await archiving?.value
+        await archiving.value
 
         #expect(controller.state.archive.map(\.task.branch) == ["feat/other"])
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
@@ -140,9 +140,9 @@ import Testing
         let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let task = try await fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived: iTerm2 isn’t connected", worktreeRemoved: false))
+        #expect(fixture.controller.teardown.state(of: task.id) == .stopped(note: "Not archived: iTerm2 isn’t connected"))
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
@@ -152,9 +152,9 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived: its window did not close", worktreeRemoved: false))
+        #expect(fixture.controller.teardown.state(of: task.id) == .stopped(note: "Not archived: its window did not close"))
     }
 
     @Test func anUnreadableProjectFolderStopsTheArchiveWithNothingMoved() async throws {
@@ -163,11 +163,11 @@ import Testing
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
         try FileManager.default.removeItem(at: fixture.repo.appendingPathComponent(".git"))
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"], "its window too")
         #expect(fixture.controller.state.archive.isEmpty)
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(fixture.controller.teardown.state(of: task.id) == .stopped(note: "Not archived"))
     }
 
     @Test func anArchiveThatCannotBeSavedLeavesTheWorktreeAndTheTask() async throws {
@@ -178,20 +178,20 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archiver.archive(task: task)
+        let archiving = Task { try? await controller.teardown.archive(task, consent: .ask) }
         try await server.received("window.close")
         // Saving breaks while the window closes: a directory stands where the backup goes.
         let backup = controller.workspace.file.backupURL
         try? FileManager.default.removeItem(at: backup)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
         server.release()
-        await archiving?.value
+        await archiving.value
 
         #expect(controller.persistenceError != nil)
         #expect(controller.state.tasks.map(\.id) == [task.id], "a task again, owed its window")
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath), "nothing deleted")
-        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.teardown.state(of: task.id) == .stopped(note: "Not archived"))
         #expect(controller.toastState.toast == nil)
     }
 
@@ -201,29 +201,13 @@ import Testing
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
-        let first = await fixture.controller.archiver.archive(task: task)
-        let second = await fixture.controller.archiver.archive(task: task)
-        #expect(first != nil && second == nil)
+        let first = Task { try? await fixture.controller.teardown.archive(task, consent: .ask) }
+        try await server.received("window.close")
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         server.release()
-        await first?.value
+        await first.value
         #expect(fixture.controller.state.archive.count == 1)
-    }
-
-    @Test func aRowWaitingOnItsRemovalsRetryIsNotArchived() async throws {
-        let prompter = ScriptedPrompter(answering: "Remove")
-        prompter.checksTheCheckbox = true
-        let fixture = try await RaceFixture(prompter: prompter)
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try await fixture.addTask(windowId: nil)
-        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
-                            in: task.worktreePath)
-        await controller.remover.confirmRemove(task: task)?.value
-        #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "removed up to its unmerged branch")
-
-        #expect(await controller.archiver.archive(task: task) == nil)
-        #expect(controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true), "its retry still held")
+        #expect(server.requests("window.close").count == 1)
     }
 
     @Test func uncommittedWorkWrittenWhileTheWindowClosesIsAskedAboutAndKeepPutsTheTaskBack() async throws {
@@ -236,16 +220,16 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archiver.archive(task: task)
+        let archiving = Task { try? await controller.teardown.archive(task, consent: .ask) }
         try await server.received("window.close")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
         server.release()
-        await archiving?.value
+        await archiving.value
 
         #expect(prompter.asked.map(\.buttons) == [["Keep Task", "Delete Changes and Archive"]])
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "owed its window")
-        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.teardown.state(of: task.id) == .stopped(note: "Not archived"))
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/wip.txt"))
     }
@@ -258,11 +242,11 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
 
-        let archiving = await controller.archiver.archive(task: task)
+        let archiving = Task { try? await controller.teardown.archive(task, consent: .ask) }
         try await server.received("window.close")
         try "wip".write(toFile: task.worktreePath + "/wip.txt", atomically: true, encoding: .utf8)
         server.release()
-        await archiving?.value
+        await archiving.value
 
         #expect(controller.state.archive.map(\.id) == [task.id])
         #expect(controller.state.tasks.isEmpty)
@@ -278,13 +262,13 @@ import Testing
         var task = try await fixture.addTask(windowId: "alive")
         controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "conv-1")] }
         task = controller.state.tasks[0]
-        await (await controller.archiver.archive(task: task))?.value
+        try await controller.teardown.archive(task, consent: .ask)
         controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = true } }
         // iTerm2's windows read, so a chosen row's window can open: with no snapshot yet, AiTerm
         // waits for one instead.
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await controller.restoreFromArchive(task.id)?.value
+        await controller.restoreFromArchive(task.id)
 
         #expect(controller.state.archive.isEmpty)
         #expect(controller.state.tasks.map(\.id) == [task.id])
@@ -302,10 +286,10 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         try fixture.git.run(["branch", "-D", "feat/work"], in: fixture.repo.path)
 
-        await fixture.controller.archiver.restore(task.id)?.value
+        await fixture.controller.restoreFromArchive(task.id)
 
         #expect(prompter.asked.last?.message == "“Work” can’t be restored")
         #expect(prompter.asked.last?.detail.contains("no longer exists here or on origin") == true)
@@ -317,20 +301,50 @@ import Testing
     @Test func aProjectCannotBeRemovedWhileOneOfItsArchivedRowsIsRestoring() async throws {
         // "OK" answers "“Repo” can’t be removed yet": the refusal comes before the question.
         let prompter = ScriptedPrompter(answering: "OK")
-        let fixture = try await RaceFixture(prompter: prompter)
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let git = WorktreeAddHeldGit()
+        let fixture = try await RaceFixture(prompter: prompter, controllerGit: git)
+        defer { git.open(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
-        await (await controller.archiver.archive(task: task))?.value
-        let restoring = controller.archiver.restore(task.id)
+        try await controller.teardown.archive(task, consent: .ask)
+        let restoring = Task { try await controller.launcher.restore(task.id) }
+        await git.reached.wait()
         // The project cannot be removed while its archived row is restoring.
         await controller.projects.confirmRemove(project: fixture.project)
         #expect(prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(controller.state.project(id: fixture.project.id) != nil)
-        await restoring?.value
+        git.open()
+        _ = try await restoring.value
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.focus.selection == nil, "the restore alone chooses nothing")
+    }
+
+    /// The restore the Operator shares with a person's: the row back and saved, its `.worktreeinclude`
+    /// shortfall said on it, and nothing a person's click adds: no choosing, no toast, no project opened.
+    @Test func theLaunchersRestoreBringsTheRowBackSavedNeitherChosenNorToastedItsProjectFoldUntouched() async throws {
+        let fixture = try await RaceFixture()
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: "alive")
+        try await controller.teardown.archive(task, consent: .ask)
+        controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = true } }
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+
+        let restored = try await controller.launcher.restore(task.id)
+
+        #expect(restored?.id == task.id)
+        #expect(restored?.windowId == nil)
+        #expect(controller.state.archive.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+        let saved = try StateStore(url: fixture.root.appendingPathComponent("state.json")).load()
+        #expect(saved.tasks.map(\.id) == [task.id], "saved before it returns")
+        #expect(controller.focus.selection == nil)
+        #expect(controller.toastState.toast?.message != "Task restored.")
+        #expect(controller.state.project(id: fixture.project.id)?.collapsed == true, "its project fold untouched")
+        #expect(server.requests("window.createTask").isEmpty)
     }
 
     /// Git's removal of the worktree has no seam to hold, so the row is put where an archive leaves it
@@ -355,15 +369,19 @@ import Testing
     }
 
     @Test func restoringTwiceAtOnceRestoresOnce() async throws {
-        let fixture = try await RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let git = WorktreeAddHeldGit()
+        let fixture = try await RaceFixture(controllerGit: git)
+        defer { git.open(); fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: "alive")
-        await (await fixture.controller.archiver.archive(task: task))?.value
-        let first = fixture.controller.archiver.restore(task.id), second = fixture.controller.archiver.restore(task.id)
-        #expect(first != nil && second == nil)
-        await first?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
+        let first = Task { await fixture.controller.restoreFromArchive(task.id) }
+        await git.reached.wait()
+        await fixture.controller.restoreFromArchive(task.id)
+        git.open()
+        await first.value
         #expect(fixture.controller.state.tasks.count == 1)
+        #expect(git.worktreeAdds == 1, "one worktree restored")
     }
 
     @Test func removingFromTheArchiveAsksRemovesQuestionAndForgetsTheRowKeepingTheBranchUnlessTicked() async throws {
@@ -372,9 +390,9 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: nil)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
 
-        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
+        await fixture.controller.teardown.removeArchived(task.id)
 
         let asked = try #require(prompter.asked.last)
         #expect(asked.message == "Remove task “Work”?")
@@ -392,11 +410,11 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: nil)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         try FileManager.default.createDirectory(atPath: task.worktreePath, withIntermediateDirectories: true)
         try "someone else's".write(toFile: task.worktreePath + "/f.txt", atomically: true, encoding: .utf8)
 
-        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
+        await fixture.controller.teardown.removeArchived(task.id)
 
         #expect(try String(contentsOfFile: task.worktreePath + "/f.txt", encoding: .utf8) == "someone else's")
         #expect(fixture.controller.state.archive.isEmpty)
@@ -411,18 +429,25 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
+        var archivedWhileAsked = false
+        prompter.whileAsking = { prompt in
+            if prompt.message == "Delete branch feat/work?" { archivedWhileAsked = fixture.controller.state.archived(id: task.id) != nil }
+        }
 
-        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
+        await fixture.controller.teardown.removeArchived(task.id)
 
         let asked = try #require(prompter.asked.last)
         #expect(asked.message == "Delete branch feat/work?")
+        #expect(asked.buttons == ["Delete Branch", "Keep Branch"])
+        #expect(archivedWhileAsked, "asked before the row is forgotten")
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path).isEmpty)
+        #expect(fixture.controller.toastState.toast?.message == "Task removed.")
     }
 
     @Test func decliningTheUnmergedBranchQuestionKeepsTheBranchAndStillForgetsTheRow() async throws {
-        let prompter = ScriptedPrompter(answering: "Remove", "Cancel")
+        let prompter = ScriptedPrompter(answering: "Remove", "Keep Branch")
         prompter.checksTheCheckbox = true
         let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -430,12 +455,13 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
 
-        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
+        await fixture.controller.teardown.removeArchived(task.id)
 
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
+        #expect(fixture.controller.toastState.toast?.message == "Task removed.", "kept as asked, nothing to say")
     }
 
     @Test func aBranchGitWillNotDeleteForAnotherReasonIsSaidKeptAndTheRowStillGoes() async throws {
@@ -445,20 +471,23 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try await fixture.addTask(windowId: nil)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         // Checked out in the project's own folder, the branch cannot be deleted — and not for want of a merge.
         try fixture.git.run(["checkout", "-q", "feat/work"], in: fixture.repo.path)
 
-        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
+        await fixture.controller.teardown.removeArchived(task.id)
 
-        let issue = try #require(fixture.controller.issue)
-        #expect(issue.title == "Branch feat/work kept.")
-        #expect(issue.actions.isEmpty)
+        #expect(fixture.controller.issue == nil, "said by the toast, with nothing to answer")
+        let toast = try #require(fixture.controller.toastState.toast?.message)
+        #expect(toast.hasPrefix("Task removed. Branch feat/work kept: "), "\(toast)")
+        #expect(!toast.hasSuffix(".."))
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
     }
 
-    @Test func aBranchThatCannotBeDeletedAfterTheUnmergedQuestionSaysTheRemovalFailedAndLeavesTheRowArchived() async throws {
+    /// Delete Branch answered, `-D` can still fail — the branch got checked out in the project's
+    /// folder meanwhile. The branch is kept, the toast says so in git's words, and the row goes.
+    @Test func aBranchThatCannotBeDeletedAfterTheUnmergedQuestionIsSaidKeptAndTheRowStillGoes() async throws {
         let prompter = ScriptedPrompter(answering: "Remove", "Delete Branch")
         prompter.checksTheCheckbox = true
         let fixture = try await RaceFixture(prompter: prompter)
@@ -467,17 +496,19 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await (await fixture.controller.archiver.archive(task: task))?.value
+        try await fixture.controller.teardown.archive(task, consent: .ask)
         // While the question is up the branch is checked out in the project's folder, so `-D` fails.
         let git = fixture.git, repo = fixture.repo
         prompter.whileAsking = { prompt in
             if prompt.message == "Delete branch feat/work?" { _ = try? git.run(["checkout", "-q", "feat/work"], in: repo.path) }
         }
 
-        await (await fixture.controller.archiver.confirmRemove(archived: task.id))?.value
+        await fixture.controller.teardown.removeArchived(task.id)
 
-        #expect(fixture.controller.issue?.title == "Couldn’t remove the task.")
-        #expect(fixture.controller.state.archive.map(\.id) == [task.id], "nothing is forgotten when the removal failed")
+        #expect(fixture.controller.issue == nil)
+        #expect(fixture.controller.toastState.toast?.message.hasPrefix("Task removed. Branch feat/work kept: ") == true)
+        #expect(fixture.controller.state.archive.isEmpty)
+        #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
     }
 
     @Test func removingAProjectSaysHowManyArchivedRowsItForgets() {
@@ -492,5 +523,23 @@ import Testing
                 == "Removes the project and its 4 tasks from AiTerm, and forgets its 12 archived tasks and reviews. Files, branches, worktrees and windows are kept.")
         #expect(ProjectActions.removalDetail(tasks: 0, archived: [archived(.review)])
                 == "Removes the project from AiTerm, and forgets its archived review. Files are kept and terminal windows stay open.")
+    }
+}
+
+/// Holds the first `git worktree add` until opened, so a restore can be caught while git recreates
+/// its worktree. Counts every `worktree add` it is asked to run.
+private final class WorktreeAddHeldGit: GitRunning {
+    let reached = TestLatch()
+    private let adds = Mutex(0)
+    private let gate = DispatchSemaphore(value: 0)
+    private let inner = GitRunner.hermetic()
+    var worktreeAdds: Int { adds.withLock { $0 } }
+    func open() { gate.signal() }
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["worktree", "add"]), adds.withLock({ $0 += 1; return $0 == 1 }) {
+            reached.signal()
+            gate.wait()
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }
