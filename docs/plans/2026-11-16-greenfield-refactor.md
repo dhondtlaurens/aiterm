@@ -838,3 +838,12 @@ left.
   4, remove 7 (worktree listings 4, 1, 3); first checkout pass 43, path probes 9; expired pass 12,
   diffs 6, untracked listings 6. No test deleted. `docs/testing.md` says ceilings and names the
   four budget suites that exist.
+- Phase close: plain `scripts/test.sh all` green on `a7c5999d` (daemon suite and lint, 1045 app and
+  1367 core Swift tests, snapshots). Snapshots in `build/refactor-phase2`: against
+  `build/refactor-phase1` only `marks.png` differs (known variant); against `build/refactor-before`
+  only `settings-agents.png` (phase 1's planned change) besides phase 1's swapped Find a Fix images.
+  Bundle: `scripts/make-app.sh` and `scripts/test-app-bundle.sh build/AiTerm.app` passed. Codex
+  adversarial review of `main..HEAD`: no findings, "ready". `main` had only the refactor's own merges;
+  merged to `main`.
+- Owed to the maintainer for phase 2: `scripts/compat-check.sh` (the Codex config editor changed in
+  2d). The opt-in `WorkerGuardCodexTests` probe (2g changed the worker guard) was not run either.
