@@ -59,15 +59,14 @@ import AiTermUI
         controller.workspace.mutate { $0 = world.state }
         _ = controller.signalController.activity.begin(task: id, act: "answering its worker")
         let driven = try #require(controller.rows.signalSections.first?.tasks.first)
-        let task = try #require(controller.state.task(id: id))
-        func height(_ row: TaskRow, _ item: TaskItem) -> CGFloat {
-            NSHostingView(rootView: TaskRowView(row: row, task: item, controller: controller)
+        func height(_ row: TaskRow) -> CGFloat {
+            NSHostingView(rootView: TaskRowView(row: row, controller: controller)
                 .frame(width: Size.sidebarWidth).environment(\.motionStill, .snapshot).surface(.sidebar)).fittingSize.height
         }
-        let drivenHeight = height(driven, task)
+        let drivenHeight = height(driven)
         controller.workspace.mutate { $0.takeOver(id) }
         let ordinary = try #require(controller.rows.sections.flatMap(\.tasks).first { $0.id == id })
-        #expect(drivenHeight == height(ordinary, try #require(controller.state.task(id: id))))
+        #expect(drivenHeight == height(ordinary))
         #expect(drivenHeight == Size.row)
     }
 
@@ -282,7 +281,7 @@ import AiTermUI
         #expect(try row().status == .waiting)
         world.state.signals[0].enabled = false
         #expect(try row().operatorLine == .paused)
-        #expect(try row().paused == true)
+        #expect(try row().mark == .pauseSign)
     }
     @Test func signalHeadersAreSelectableAndAFoldDoesNotFoldItsProject() throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
@@ -310,6 +309,20 @@ import AiTermUI
         #expect(!SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a signal with no task yet")
         _ = world.workingTask(signal: signal); world.state.signals = []
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a task left from a removed signal")
+    }
+    /// The Operator's row needs you only while it needs input: a question for you; paused, it draws the pause sign.
+    @Test func theOperatorRowWithAQuestionNeedsYou() {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let watching = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(!watching.needsYou && watching.mark == .status(.idle))
+        let askedAt = world.now
+        world.state.operatorSession?.questions = [.init(id: "q", task: id, text: "Which locale?", openedAt: askedAt)]
+        let asking = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(asking.needsYou && asking.mark == .status(.needsInput))
+        world.state.operatorSession?.questions = []
+        world.state.operatorSession?.paused = true
+        let paused = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(!paused.needsYou && paused.mark == .pauseSign)
     }
     @Test func theOperatorNamesItsActAndCountsTheSignalsStillHoldingTasks() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)

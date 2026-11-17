@@ -429,7 +429,7 @@ TS tests-scripts.
 - [x] 8a. **Codex.** One Core rule for "this task is under the Operator" (it has a signal record),
   read by the eight places that ask (SB F3). The defects the audit tied to a stopped task cannot
   be reached: nothing ever produced that phase, and 5a removes it.
-- [ ] 8b. **Opus.** The projection decides each row's mark and "needs you" once and hands views
+- [x] 8b. **Opus.** The projection decides each row's mark and "needs you" once and hands views
   small row values, not altered task copies; attention uses that one flag; the pure row values
   leave the view file (SB F4, F14). Redraw budgets and pixels hold.
 - [ ] 8c. **Codex.** One heading module for projects and signals and one for the two section
@@ -1361,3 +1361,22 @@ left.
   at `record.current.signal`, and `RequestWatch`'s boolean map over the record's phase became an explicit record
   read. No test deleted. Added the accessor test across every phase and a `SignalWorld` test that the places agree.
   Noticed and left: Remove Project's alert says "1 worktrees are run by signals" (grammar; older than this step).
+- 8b: Core's `TaskRowMark` and the rows' `needsYou` are decided in `SidebarModel.taskRow` and the terminal
+  mapping (done or needs input) and in 5h's `presentingOperator` (needs input only). Every attention reader uses
+  `needsYou`. The projection's private `DrawnTask` key replaces the doctored task copies, and `TaskRowView` takes only
+  its row. The five pure row values moved to `SidebarRowValues.swift`. Snapshots were identical (`build/8b-before`
+  against `build/8b-after`; `marks.png` differs only in encoding), and every redraw and work budget held. Differences
+  from the brief:
+  - `TaskRow.windowOpen` was added, and `DrawnTask` carries it, for VoiceOver's "open its window" or "focus the
+    window" hint. The old copies carried `windowId`, so no derivation is added.
+  - 5h's function returns a `TaskRow`, so the mark and flag are set inside it in Core.
+  - The Operator row's `mark` and `needsYou` are computed.
+  - Two Done-when greps are not literally clean: `DeliveryCheck`'s unrelated `.needsAttention(String)` case
+    matches, and `SidebarRows.swift` keeps `SidebarRowLayout` and the debug-only `RowBodyCounter` and `SeededHover`.
+  Tests deleted: the two removing cases of `TaskRowMarkTests` (`SidebarRowRedrawTests.aRemovalRedrawsOnlyItsRow` and
+  the `sidebar-removal` snapshots cover the spinner), and the two `task: nil` expectations of `RowAccessibilityTests`
+  (behaviour deleted: a drawn row always has its task). Added: Core `TaskRowMarkTests` and `RowNeedsYouTests`,
+  `SignalSidebarTests.theOperatorRowWithAQuestionNeedsYou`,
+  `AppControllerTests.aDrivenTaskWhoseTabIsDoneIsCountedByNoReaderAndYourOwnByAll` and
+  `SidebarProjectionTests.eachDrawnDrivenFactDerivesOnceAndChangesItsRow`. Not captured: the hosted-only
+  `signals-waiting-marks.png` (it opens windows; for 9c with the other hosted poses).

@@ -1170,6 +1170,37 @@ import Testing
         controller.showFocusView()
         #expect(controller.focus.selectedTerminalId == shell.id, "Focus View goes to the first of the rows the badge counts")
     }
+
+    /// A driven task whose worker ended its turn is the Operator's to read: the Dock badge, Focus View and the folded
+    /// heading's count all pass over it, while a task of your own in the same state is counted by each.
+    @Test func aDrivenTaskWhoseTabIsDoneIsCountedByNoReaderAndYourOwnByAll() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var written: [String?] = []
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       setBadge: { written.append($0) })
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(), driven = world.workingTask(signal: signal)
+        var project = world.project; project.collapsed = true
+        world.state.items = [.project(project)]
+        let own = TaskItem.make(project: project.id, title: "Own", branch: "feat/own", worktreePath: "/synthetic/shop/own", model: "opus",
+                                createdAt: Date(), windowId: "own-window")
+        world.state.tasks.append(own)
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.sessions = [SessionInfo.make("worker", window: "worker-window", task: driven, state: .done),
+                                    SessionInfo.make("own", window: "own-window", task: own.id, state: .done)]
+        #expect(written.last == "1", "the Dock badge")
+        #expect(controller.rows.projectsNeedingAttention == [.task(own.id)])
+
+        #expect(controller.rows.operatorHeading == SectionFold(folds: true, folded: true, attention: 0), "the folded Operator")
+        controller.toggleOperatorOpen()
+        #expect(controller.rows.projectsHeading == SectionFold(folds: true, folded: true, attention: 1), "the folded projects")
+
+        controller.showFocusView()
+        #expect(controller.state.signal(id: signal)?.collapsed == true, "Focus View folds the signal")
+        #expect(controller.state.project(id: project.id)?.collapsed == false, "and opens the project")
+    }
 }
 
 @MainActor @Suite struct ControllerLifecycleTests {

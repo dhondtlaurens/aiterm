@@ -136,7 +136,7 @@ import Testing
         #expect(try row(world).operatorLine == .windowClosed && row(world).status == .idle)
         world.state.tasks[0].windowId = "worker-window"
         world.state.operatorSession?.paused = true
-        #expect(try row(world).operatorLine == .paused && row(world).status == .idle)
+        #expect(try row(world).operatorLine == .paused && row(world).status == .idle && row(world).mark == .pauseSign)
     }
 
     // MARK: - Counted as waiting, never as working
@@ -167,6 +167,6 @@ import Testing
         controller.workspace.mutate { $0 = world.state }
         controller.live.handle(.sessionOpened(worker))
         #expect(controller.rows.projectsNeedingAttention.isEmpty)
-        #expect(!sidebar.signals[0].tasks.contains { $0.status.needsAttention })
+        #expect(!sidebar.signals[0].tasks.contains { $0.needsYou })
     }
 }

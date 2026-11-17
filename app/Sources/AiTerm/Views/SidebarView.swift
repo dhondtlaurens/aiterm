@@ -73,7 +73,7 @@ struct SidebarView: View {
     /// snapshots stack on their own.
     @ViewBuilder static func taskRows(of section: ProjectSection, in rows: SidebarProjection, controller: AppController) -> some View {
         ForEach(section.tasks) { row in
-            TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
+            TaskRowView(row: row, controller: controller)
                 .tag(row.id)
         }
     }
@@ -91,7 +91,7 @@ struct SidebarView: View {
             SignalHeader(section: section, controller: controller).equatable()
             if !section.collapsed {
                 ForEach(section.tasks) { row in
-                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+                    TaskRowView(row: row, controller: controller).tag(row.id)
                 }
             }
         }

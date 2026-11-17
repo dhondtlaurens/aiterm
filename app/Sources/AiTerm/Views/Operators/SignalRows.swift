@@ -47,7 +47,7 @@ struct SignalOperatorRow: View {
         #if DEBUG
         let _ = bodyCounter?.count(row)
         #endif
-        let line = value.line, status = value.status
+        let line = value.line
         SelectableRow(id: row, selected: controller.focus.isSelected(row), washed: true,
                       activate: { controller.choose(.operatorChat) }) {
             SidebarRowContent(avatars: AvatarGroup(marks: [.claude], overflow: 0)) {
@@ -56,7 +56,7 @@ struct SignalOperatorRow: View {
                     OperatorActivityCaption(line: line, completed: value.completedActivity, event: value.event)
                 }.layoutPriority(1)
             } mark: {
-                TaskRowMarkView(mark: TaskRowMark(status: status, line: line, removing: false, paused: value.paused), size: SidebarRowLayout.trailingGlyph(scale))
+                TaskRowMarkView(mark: value.mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }

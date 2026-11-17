@@ -1,86 +1,83 @@
 import Foundation
 import Testing
-import AiTermCore
+@testable import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
 
 /// VoiceOver offers a row's actions without a menu to grey them, so each one it offers must be one
 /// the row's context menu would let the person choose now — and a row's label must read whole.
 @Suite @MainActor struct RowAccessibilityTests {
-    private func task(windowId: String?, branch: String = "feat/work") -> TaskItem {
-        TaskItem.make(project: UUID(), branch: branch, worktreePath: "/wt", model: "opus", createdAt: Date(),
-            windowId: windowId)
+    /// The row a task with or without a window draws: its title, saved branch and kind.
+    private func row(windowId: String?, branch: String = "feat/work", kindName: String = "Task") -> TaskRow {
+        TaskRow(id: UUID(), title: "Work", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none, avatars: AvatarGroup(marks: [], overflow: 0),
+                status: .idle, kindName: kindName, worktreePath: "/wt", savedBranch: branch, windowOpen: windowId != nil)
     }
 
     /// Choosing the row is its reopen, so VoiceOver offers Archive and Remove alone, as the menu does.
     @Test func aTaskRowOffersRemoveAndNoReopen() {
-        let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: true)
+        let open = TaskRowAccessibility(row: row(windowId: "w"), missing: false, canChangeWorkspace: true)
         #expect(open.actions == [.archive, .remove])
-        let closed = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: true)
+        let closed = TaskRowAccessibility(row: row(windowId: nil), missing: false, canChangeWorkspace: true)
         #expect(closed.actions == [.archive, .remove])
-        let missing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: true, canChangeWorkspace: true)
+        let missing = TaskRowAccessibility(row: row(windowId: nil), missing: true, canChangeWorkspace: true)
         #expect(missing.actions == [.archive, .remove])
     }
 
     /// The hint and the tooltip say what choosing the row does: a row without a window opens one, and
     /// a row with one focuses it.
     @Test func aTaskRowsHintSaysWhatChoosingItDoes() {
-        let closed = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: true)
+        let closed = TaskRowAccessibility(row: row(windowId: nil), missing: false, canChangeWorkspace: true)
         #expect(closed.hint == "Press Return to open its window.")
         #expect(closed.help == "")
-        let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: true)
+        let open = TaskRowAccessibility(row: row(windowId: "w"), missing: false, canChangeWorkspace: true)
         #expect(open.hint == "Press Return to focus the window.")
         #expect(open.help == "")
-        let missing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: true, canChangeWorkspace: true)
+        let missing = TaskRowAccessibility(row: row(windowId: nil), missing: true, canChangeWorkspace: true)
         #expect(missing.hint == "Restore the worktree or use Remove Task.")
         #expect(missing.help == "Worktree missing. Restore it or use Remove Task.")
-        let removing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, removing: true,
+        let removing = TaskRowAccessibility(row: row(windowId: nil), missing: false, removing: true,
                                             canChangeWorkspace: true)
         #expect(removing.hint == "" && removing.help == "")
     }
 
     @Test func archiveIsOfferedBesideRemoveAndNamedWithoutAnEllipsis() {
-        let a = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: true)
+        let a = TaskRowAccessibility(row: row(windowId: "w"), missing: false, canChangeWorkspace: true)
         #expect(a.actions == [.archive, .remove])
         #expect(a.title(of: .archive) == "Archive Task")
     }
 
     /// Nothing is offered on a row being removed: its menu has Remove disabled.
     @Test func aTaskRowBeingRemovedOffersNothing() {
-        let removing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, removing: true,
+        let removing = TaskRowAccessibility(row: row(windowId: nil), missing: false, removing: true,
                                             canChangeWorkspace: true)
         #expect(removing.actions.isEmpty)
     }
 
     /// While the workspace cannot change a row with a window still focuses it.
     @Test func aLockedWorkspacesRowWithAWindowStillSaysItFocusesIt() {
-        let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: false)
+        let open = TaskRowAccessibility(row: row(windowId: "w"), missing: false, canChangeWorkspace: false)
         #expect(open.hint == "Press Return to focus the window.")
     }
 
     @Test func aLockedWorkspaceOffersNoTaskActions() {
-        let locked = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: false)
+        let locked = TaskRowAccessibility(row: row(windowId: nil), missing: false, canChangeWorkspace: false)
         #expect(locked.actions.isEmpty)
-        #expect(TaskRowAccessibility(title: "Work", task: nil, missing: false, canChangeWorkspace: true).actions.isEmpty)
     }
 
     /// Remove names the row's kind, as its menu item does, without the menu's ellipsis.
     @Test func aRowsActionsAreItsMenuItemsTitles() {
-        let task = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: true)
+        let task = TaskRowAccessibility(row: row(windowId: nil), missing: false, canChangeWorkspace: true)
         #expect(task.actions.map(task.title(of:)) == ["Archive Task", "Remove Task"])
-        var reviewItem = self.task(windowId: "w")
-        reviewItem.kind = .review
-        let review = TaskRowAccessibility(title: "Work", task: reviewItem, missing: false, canChangeWorkspace: true)
+        let review = TaskRowAccessibility(row: self.row(windowId: "w", kindName: "Review"), missing: false, canChangeWorkspace: true)
         #expect(review.actions.map(review.title(of:)) == ["Archive Review", "Remove Review"])
         #expect(TerminalRowAccessibility.Action.remove.rawValue == "Remove Terminal")
         #expect(DividerRow.Action.allCases.map(\.rawValue) == ["Rename", "Move Up", "Move Down", "Remove Divider"])
     }
 
     @Test func aTaskRowReadsItsBranchOnlyWhenItHasOne() {
-        #expect(TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: true).label
+        #expect(TaskRowAccessibility(row: row(windowId: "w"), missing: false, canChangeWorkspace: true).label
                 == "Work, feat/work")
-        #expect(TaskRowAccessibility(title: "Work", task: nil, missing: false, canChangeWorkspace: true).label == "Work")
-        #expect(TaskRowAccessibility(title: "Work", task: task(windowId: "w", branch: ""), missing: false,
+        #expect(TaskRowAccessibility(row: row(windowId: "w", branch: ""), missing: false,
                                      canChangeWorkspace: true).label == "Work")
     }
 

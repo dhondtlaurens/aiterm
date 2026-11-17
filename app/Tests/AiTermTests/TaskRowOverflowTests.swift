@@ -20,7 +20,7 @@ struct TaskRowOverflowTests {
                           mr: MergeRequestRef(iid: 45, title: "Dependency updates", url: "https://gitlab.example.com/mr/45"),
                           branch: BranchLabel(name: task.branch, extra: 0, drifted: false, detail: ""), avatars: AvatarGroup(marks: [], overflow: 0), status: .idle,
                           diff: BaseDiff(base: "main", stat: DiffStat(added: 1416, removed: 1072)))
-        let host = NSHostingController(rootView: TaskRowView(row: row, task: task, controller: controller))
+        let host = NSHostingController(rootView: TaskRowView(row: row, controller: controller))
         let size = host.sizeThatFits(in: CGSize(width: width, height: 400))
         #expect(size.width <= width, "the row asked for \(size.width) pt of \(width)")
     }

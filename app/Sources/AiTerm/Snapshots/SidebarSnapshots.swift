@@ -155,7 +155,7 @@ enum SidebarSnapshots {
             controller.focus.browse(.task(fixture.working.id))
             @MainActor func taskRow(_ status: TaskStatus) -> TaskRow {
                 var row = controller.rows.sections.flatMap(\.tasks).first { $0.id == fixture.working.id }!
-                row.title = status.label; row.status = status; row.background = jobs
+                row.title = status.label; row.status = status; row.mark = .status(status); row.background = jobs
                 return row
             }
             var terminal = controller.rows.sections.flatMap(\.terminals).first { $0.id == fixture.terminal.id }!
@@ -165,7 +165,7 @@ enum SidebarSnapshots {
             return SnapshotColumn(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset), spacing: Space.base,
                                   horizontalInset: scale(Space.inset), verticalInset: scale(Space.base)) {
                 ForEach([TaskStatus.working, .background, .needsInput], id: \.self) { status in
-                    TaskRowView(row: taskRow(status), task: fixture.working, controller: controller)
+                    TaskRowView(row: taskRow(status), controller: controller)
                 }
                 TerminalRowView(row: terminal, terminal: fixture.terminal, project: fixture.project, controller: controller)
             }

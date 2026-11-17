@@ -102,12 +102,15 @@ import Synchronization
         #expect(SidebarModel.statusCountsLabel(counts) == "1 working, 2 waiting, 1 needs input")
     }
 
+    /// A row of your own as `SidebarModel` makes it: it needs you when done or needing input.
     func taskRow(_ status: TaskStatus) -> TaskRow {
-        TaskRow(id: UUID(), title: "t", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: status)
+        TaskRow(id: UUID(), title: "t", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: status,
+                mark: .status(status), needsYou: status.needsAttention)
     }
 
     func terminalRow(_ status: TaskStatus) -> TerminalRow {
-        TerminalRow(id: UUID(), name: "Terminal", branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: status)
+        TerminalRow(id: UUID(), name: "Terminal", branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: status,
+                    needsYou: status.needsAttention)
     }
 
     @Test func testStatusCountsOrderTheLifecycleAndDropEmptyOnes() {
@@ -217,7 +220,9 @@ import Synchronization
         #expect(sections.count == 1)
         #expect(sections[0].tasks == [TaskRow(id: t.id, title: "SIGTERM", jiraKey: "WEB-5447", jiraUrl: "u", mr: nil,
                                               branch: BranchLabel(name: "feat/web-5447-sigterm", extra: 0, drifted: false, detail: ""),
-                                              avatars: AvatarGroup(marks: [.claude, .codex], overflow: 0), status: .needsInput)])
+                                              avatars: AvatarGroup(marks: [.claude, .codex], overflow: 0), status: .needsInput,
+                                              mark: .status(.needsInput), needsYou: true, kindName: "Task", worktreePath: "/r/.worktrees/x",
+                                              savedBranch: "feat/web-5447-sigterm", windowOpen: true)])
         #expect(sections[0].terminals == [TerminalRow(id: term.id, name: "Terminal", branch: BranchLabel(name: "main", extra: 0, drifted: false, detail: ""),
                                                       avatars: AvatarGroup(marks: [.shell], overflow: 0), status: .idle)])
     }

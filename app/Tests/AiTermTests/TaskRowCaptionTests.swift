@@ -27,28 +27,3 @@ import Testing
     }
 
 }
-
-/// A task row's trailing mark: its status's `StatusMark`, the green check once the Operator's work on the task
-/// is over, or the pause sign while paused.
-@Suite struct TaskRowMarkTests {
-    let ended = OperatorLine("merged · 9b3e07d", look: .ended)
-
-    @Test func anEndedTaskShowsTheCheckInPlaceOfItsIdleSessionOrItsUnseenTurn() {
-        #expect(TaskRowMark(status: .idle, line: ended, removing: false) == .ended)
-        #expect(TaskRowMark(status: .done, line: ended, removing: false) == .ended, "the last turn is the Operator's to read")
-    }
-
-    @Test func aSessionInUseARemovalAndEveryOtherLineKeepTheirOwnMark() {
-        #expect(TaskRowMark(status: .working, line: ended, removing: false) == .status(.working))
-        #expect(TaskRowMark(status: .needsInput, line: ended, removing: false) == .status(.needsInput))
-        #expect(TaskRowMark(status: .idle, line: ended, removing: true) == .status(.working), "removing or archiving spins")
-        #expect(TaskRowMark(status: .idle, line: OperatorLine("failed · the tests fail"), removing: false) == .status(.idle))
-        #expect(TaskRowMark(status: .done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou), removing: false) == .status(.done))
-        #expect(TaskRowMark(status: .done, line: nil, removing: false) == .status(.done), "a task of your own")
-    }
-
-    @Test func aTaskPausedByYouShowsThePauseSignUnlessItIsBeingRemoved() {
-        #expect(TaskRowMark(status: .idle, line: .paused, removing: false, paused: true) == .pauseSign)
-        #expect(TaskRowMark(status: .idle, line: .paused, removing: true, paused: true) == .status(.working))
-    }
-}

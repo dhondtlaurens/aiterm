@@ -386,7 +386,6 @@ struct RowTitle: View {
 /// A signal's task offers Take Over; a task you own has the usual task menu.
 struct TaskRowView: View {
     let row: TaskRow
-    let task: TaskItem?
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     @Environment(\.motionStill) private var motionStill
@@ -406,14 +405,15 @@ struct TaskRowView: View {
         let caption = TaskRowCaption(removal: removal, missing: missing)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
-        let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
+        let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing,
                                              canChangeWorkspace: controller.canChangeWorkspace)
-        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, paused: row.paused)
+        // Removing or archiving spins, whatever the row's own mark.
+        let mark = removing ? TaskRowMark.status(.working) : row.mark
         // The same work card is inspectable while the agent works or asks for input, including
         // driven rows. A removal spinner offers no card.
         let jobs = removing ? [] : row.background
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if !removing { controller.choose(task: row.id) } }) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.title, dimmed: removing)
@@ -429,7 +429,7 @@ struct TaskRowView: View {
                         HStack(spacing: 0) {
                             ViewThatFits(in: .horizontal) {
                                 // "Absent, not disabled": no VS Code, no badge.
-                                ForEach(badges.fits(editor: task != nil && ExternalApps.vscode != nil), id: \.self) { fit in
+                                ForEach(badges.fits(editor: ExternalApps.vscode != nil), id: \.self) { fit in
                                     badgeLine(fit, of: badges, beforeBranch: !row.branch.name.isEmpty)
                                 }
                             }
@@ -454,12 +454,10 @@ struct TaskRowView: View {
         .accessibilityValue(BackgroundCard(jobs: jobs).accessibilityValue(status: row.status,
                             detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip))
         .accessibilityActions {
-            if let task {
-                ForEach(voiceOver.actions, id: \.self) { action in
-                    switch action {
-                    case .archive: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.archive(current, consent: .ask) } } }
-                    case .remove: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.remove(current, consent: .ask) } } }
-                    }
+            ForEach(voiceOver.actions, id: \.self) { action in
+                switch action {
+                case .archive: Button(voiceOver.title(of: action)) { archive() }
+                case .remove: Button(voiceOver.title(of: action)) { remove() }
                 }
             }
         }
@@ -468,26 +466,35 @@ struct TaskRowView: View {
         // The arrows step over it, as over a header: its window is closing, or gone.
         .selectionDisabled(removing)
         .contextMenu {
-            if let task {
-                if task.isUnderOperator {
-                    Button("Take Over") { Task { await controller.takeOver(task.id) } }
-                        .disabled(!controller.canChangeWorkspace || removing)
-                    Divider()
-                }
-                Button("Rename…") { controller.sheets.presentRename(task: task) }
+            if row.underOperator {
+                Button("Take Over") { Task { await controller.takeOver(row.id) } }
                     .disabled(!controller.canChangeWorkspace || removing)
                 Divider()
-                Button("Open in Finder") { ExternalApps.openInFinder(path: task.worktreePath) }
-                if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: task.worktreePath) } }
-                if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
-                Divider()
-                // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.archive(current, consent: .ask) } } }
-                    .disabled(!controller.canChangeWorkspace || removing)
-                Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.remove(current, consent: .ask) } } }
-                    .disabled(!controller.canChangeWorkspace || removing)
             }
+            Button("Rename…") { if let current = controller.state.task(id: row.id) { controller.sheets.presentRename(task: current) } }
+                .disabled(!controller.canChangeWorkspace || removing)
+            Divider()
+            Button("Open in Finder") { ExternalApps.openInFinder(path: row.worktreePath) }
+            if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: row.worktreePath) } }
+            if let url = row.jiraUrl {
+                Button(row.ticketIsGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: url) }
+            }
+            Divider()
+            // No ellipsis: it asks nothing unless the worktree has changes to lose.
+            Button("Archive \(row.kindName)") { archive() }
+                .disabled(!controller.canChangeWorkspace || removing)
+            Button("Remove \(row.kindName)…", role: .destructive) { remove() }
+                .disabled(!controller.canChangeWorkspace || removing)
         }
+    }
+
+    /// The task as it is when chosen: nothing, once it is gone.
+    private func archive() {
+        Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.archive(current, consent: .ask) } }
+    }
+
+    private func remove() {
+        Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.remove(current, consent: .ask) } }
     }
 
     /// One fit of the badge line. Quiet badges carry no box, so `Space.gap` is what keeps them apart,
@@ -499,10 +506,10 @@ struct TaskRowView: View {
                            sharesMark: badges.sharesGitLabMark)
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
             // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
-            if fit.editor != .none, let task {
+            if fit.editor != .none {
                 Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: fit.editor == .diff ? badges.diff : nil,
                       style: .quiet, markInk: badges.markInk) {
-                    ExternalApps.openInVSCode(path: task.worktreePath)
+                    ExternalApps.openInVSCode(path: row.worktreePath)
                 }
             }
         }
@@ -643,88 +650,6 @@ private struct ProjectJiraBadgeView: View {
     }
 }
 
-/// A project row's linked Jira project count and menu, testable without rendering the sidebar.
-struct ProjectJiraBadge: Equatable {
-    struct MenuItem: Equatable {
-        let title: String
-        let url: URL
-    }
-
-    /// The total count, unless the Interface tab has turned the detail off.
-    let label: String?
-    let help: String
-    let accessibilityLabel: String
-    /// Every linked project, in the order they were linked.
-    let items: [MenuItem]
-
-    /// The project's badge, or none when it links no Jira project.
-    static func badge(for project: Project, showsCount: Bool = true) -> ProjectJiraBadge? {
-        guard !project.jiraProjects.isEmpty else { return nil }
-        return ProjectJiraBadge(jira: project.jiraProjects, showsCount: showsCount)
-    }
-
-    private init(jira: [JiraProjectRef], showsCount: Bool) {
-        label = showsCount ? "\(jira.count)" : nil
-        items = jira.map { .init(title: "\($0.key) · \($0.name)", url: $0.browseURL) }
-        help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
-        accessibilityLabel = "\(jira.count) Jira \(jira.count == 1 ? "project" : "projects"): \(jira.map(\.key).sentenceList)"
-    }
-}
-
-/// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
-/// the actions its context menu would let the person choose now, and what choosing the row does — its
-/// hint, and the tooltip: a row without a window opens one, a row with one focuses it. A value, so the
-/// rule is testable without rendering the sidebar, as `TaskRowBadges` is.
-struct TaskRowAccessibility: Equatable {
-    enum Action: Hashable {
-        case archive, remove
-    }
-
-    var label: String
-    var actions: [Action]
-    var hint: String
-    var help: String
-    /// "Task" or "Review", which Remove names as the menu does.
-    private var kindName = "Task"
-
-    /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
-    func title(of action: Action) -> String {
-        switch action {
-        case .archive: "Archive \(kindName)"
-        case .remove: "Remove \(kindName)"
-        }
-    }
-
-    init(title: String, task: TaskItem?, missing: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
-        let branch = task?.branch ?? ""
-        label = branch.isEmpty ? title : "\(title), \(branch)"
-        let kindName = task?.kindName ?? "Task"
-        self.kindName = kindName
-        let words: (hint: String, help: String) =
-            removing ? ("", "")
-            : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
-            : task.map({ $0.windowId == nil }) == true ? ("Press Return to open its window.", "")
-            : ("Press Return to focus the window.", "")
-        hint = words.hint
-        help = words.help
-        guard task != nil, canChangeWorkspace, !removing else { actions = []; return }
-        actions = [.archive, .remove]
-    }
-}
-
-/// A task's status mark, the check after the Operator's work ends, or a pause sign during a
-/// pause. Active work and input keep their own mark; removal and archiving spin.
-enum TaskRowMark: Equatable {
-    case status(TaskStatus), ended, pauseSign
-
-    init(status: TaskStatus, line: OperatorLine?, removing: Bool, paused: Bool = false) {
-        if removing { self = .status(.working) }
-        else if paused { self = .pauseSign }
-        else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
-        else { self = .status(status) }
-    }
-}
-
 /// `TaskRowMark` drawn: the `StatusMark`; `checkmark` at the mark's size in `Palette.green`; or `pause.fill`
 /// at the mark's size in `Palette.idleRing`, the idle ring's ink, since nothing runs yet. On the accent either
 /// is `Palette.onAccent`, as the working arc turns there; a selected row is neutral, so both keep their
@@ -744,156 +669,6 @@ struct TaskRowMarkView: View {
             Icon(.symbol("pause.fill"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.idleRing)
                 .frame(width: size, height: size).accessibilityHidden(true)
         }
-    }
-}
-/// The missing checkout below a task’s branch; removal progress takes precedence.
-struct TaskRowCaption: Equatable {
-    enum Note: Equatable {
-        /// What the task is missing, its worktree, in the surface's secondary ink.
-        case plain(String)
-        /// Why a removal stopped, in `Palette.amber` — until the row is selected.
-        case warning(String)
-
-        var text: String {
-            switch self {
-            case .plain(let text), .warning(let text): text
-            }
-        }
-
-        var warns: Bool {
-            if case .warning = self { true } else { false }
-        }
-    }
-
-    /// In place of the badge line, while the row is being removed.
-    var progress: String?
-    var note: Note?
-
-    init(progress: String?, note: Note?) {
-        self.progress = progress
-        self.note = note
-    }
-
-    /// `removal` is the row's own: whatever the banner above the list is saying meanwhile.
-    init(removal: TaskRemoval?, missing: Bool) {
-        switch removal {
-        case .removing: self.init(progress: "Removing…", note: nil)
-        case .closing: self.init(progress: "Closing…", note: nil)
-        case .archiving: self.init(progress: "Archiving…", note: nil)
-        case .stopped(let note): self.init(progress: nil, note: .warning(note))
-        case nil:
-            if missing { self.init(progress: nil, note: .plain("Worktree missing")) }
-            else { self.init(progress: nil, note: nil) }
-        }
-    }
-}
-
-/// The actions VoiceOver offers on a terminal row: its context menu's, when they are enabled.
-struct TerminalRowAccessibility: Equatable {
-    /// Rename is spoken without the menu's ellipsis, as a divider's is: VoiceOver reads the action,
-    /// and the sheet it opens says the rest.
-    enum Action: String, Hashable {
-        case rename = "Rename", remove = "Remove Terminal"
-    }
-
-    var actions: [Action]
-
-    init(canChangeWorkspace: Bool) {
-        guard canChangeWorkspace else { actions = []; return }
-        actions = [.rename, .remove]
-    }
-}
-
-/// The badges a task row wears, after the Interface tab's switches. A badge whose detail is off
-/// keeps its mark and its link; the text it no longer prints leads its tooltip instead. A merge
-/// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
-/// all resolved included — whether or not its number is switched off; one with none, or whose
-/// threads have not been read, wears none.
-struct TaskRowBadges: Equatable {
-    struct Link: Equatable {
-        var label: String?
-        var help: String
-        var url: String?
-        var host: CodeHost? = nil
-        /// The merge request's resolved review threads of all of them, behind a bubble.
-        var threads: Badge.Suffix? = nil
-        /// What VoiceOver reads when the badge says more than its label: the count, in words.
-        var accessibilityLabel: String? = nil
-    }
-
-    /// The SF Symbol a merge request's thread count stands behind.
-    static let threadsSymbol = "bubble.left"
-
-    /// A ticket's `host` is `.gitLab` for a GitLab issue, nil for a Jira ticket.
-    var ticket: Link?
-    var mergeRequest: Link?
-
-    /// A GitLab issue beside a GitLab merge request: they share one mark (`gitLabPair`).
-    var sharesGitLabMark: Bool { ticket?.host == .gitLab && (mergeRequest?.host ?? .gitLab) == .gitLab && mergeRequest != nil }
-    /// The VS Code badge's `+12 −3`; `nil` draws the plain mark.
-    var diff: Badge.Diff?
-    /// Always names the counts when there are any, whether or not the badge prints them.
-    var editorHelp: String
-    /// The line's marks: in the ink of their words, or the vendor's colours once Settings asks.
-    var markInk: Badge.MarkInk
-
-    /// `threads` is the row's merge request's, as last read; `nil` while there is no answer.
-    init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil) {
-        let ticketHost: CodeHost? = row.ticketIsGitLabIssue ? .gitLab : nil
-        ticket = row.jiraKey.map { key in
-            details.jiraTicket
-                ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
-                : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
-        }
-        mergeRequest = row.mr.map { mr in
-            var link = details.mergeRequest
-                ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
-                : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
-            // Nothing until there is a thread to count; then it stays, all resolved included.
-            if let threads, threads.total > 0 {
-                let words = Self.words(threads)
-                link.accessibilityLabel = "\(link.label ?? link.help), \(words)"
-                link.help += " · \(words)"
-                link.threads = Badge.Suffix(icon: .symbol(Self.threadsSymbol), text: "\(threads.resolved)/\(threads.total)")
-            }
-            return link
-        }
-        diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil
-        editorHelp = row.diff?.help ?? "Open in VS Code"
-        markInk = details.markInk
-    }
-
-    /// How a fit draws the VS Code badge: with its `+12 −3`, as the plain mark, or not at all.
-    enum Editor: Hashable { case diff, plain, none }
-
-    /// The badges one width of the row keeps.
-    struct Fit: Hashable {
-        var ticket: Bool, mergeRequest: Bool, editor: Editor
-        var wearsNone: Bool { !ticket && !mergeRequest && editor == .none }
-    }
-
-    /// The badge line at every width, fullest first, each fit giving up one more thing than the last:
-    /// the VS Code counts fold to the plain mark, then the editor, the merge request and the ticket drop
-    /// in turn, from the end of the line, so what is left reads in the same order. Only what the row
-    /// wears is given up, and the last fit wears nothing. `editor` is whether the row has a VS Code badge.
-    func fits(editor: Bool) -> [Fit] {
-        var fit = Fit(ticket: ticket != nil, mergeRequest: mergeRequest != nil,
-                      editor: !editor ? .none : diff == nil ? .plain : .diff)
-        var fits = [fit]
-        func giveUp(_ change: (inout Fit) -> Void) {
-            change(&fit)
-            if fit != fits.last { fits.append(fit) }
-        }
-        giveUp { if $0.editor == .diff { $0.editor = .plain } }
-        giveUp { $0.editor = .none }
-        giveUp { $0.mergeRequest = false }
-        giveUp { $0.ticket = false }
-        return fits
-    }
-
-    /// The count as the tooltip and VoiceOver say it: "2 of 5 threads resolved", "1 of 1 thread resolved".
-    static func words(_ threads: ReviewThreads) -> String {
-        "\(threads.resolved) of \(threads.total) \(threads.total == 1 ? "thread" : "threads") resolved"
     }
 }
 

@@ -348,7 +348,7 @@ final class AppController {
     private func signalLayout(focus: Bool) -> [UUID: Bool] {
         var layout = focus ? SidebarModel.focusView(rows.sections) : SidebarModel.listView(rows.sections)
         for section in rows.signalSections where !section.tasks.isEmpty {
-            layout[section.id] = focus && !section.tasks.contains { $0.status == .needsInput }
+            layout[section.id] = focus && !section.tasks.contains(where: \.needsYou)
         }
         return layout
     }
