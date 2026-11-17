@@ -246,7 +246,7 @@ struct SheetPrimaryButton: View {
 /// With no `secondary` there is nothing for ⎋ to do, and it does nothing.
 ///
 /// Every button in it is the house push button: Cancel or Back, and whatever `status` carries (a failure's
-/// recovery, Find a Fix, the board's leading actions), secondary; the primary, primary.
+/// recovery or leading actions), secondary; the primary, primary.
 ///
 /// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
 struct SheetFooter<Status: View>: View {
@@ -298,12 +298,6 @@ struct SheetFooter<Status: View>: View {
 /// lines of it used to be all there was room for. The reason is git's failure lines as one sentence
 /// (`GitError.sentence`), or any other error's own, as the banner has it — short by construction, so
 /// it is never cut, and the Notice's title alone; git's whole output is the tooltip.
-///
-/// A failure an agent can fix (`fix`, New Review's) offers Find a Fix after the recovery, led by the
-/// Operator's mark; from then on the session's state is drawn where the failure was, and takes
-/// Cancel and the primary while the agent looks, proposes — Apply on ⌘↩ — and applies
-/// (`FixFooterPresentation`). A fix that fails keeps the failure's sentence as the title, with why
-/// it failed as the description.
 struct CreationFooter: View {
     let step: Int
     /// How many steps there are and which picks the agent: New Task's and New Review's unless told.
@@ -318,85 +312,27 @@ struct CreationFooter: View {
     let advance: () -> Void
     /// The failure's fix, then the create it stopped.
     let recover: () -> Void
-    /// The Fix offered for the failure, if any; its state is the one thing here it observes.
-    var fix: FixSession? = nil
-    /// Whether Apply may run: the workspace can change, so the create after the fix can too.
-    var canApply = true
-    /// Apply on the proposal that is up.
-    var applyFix: () -> Void = {}
     /// What the create waits for, one line each, under a title: New Signal's `SignalReadiness`.
     /// A Notice with no actions, as a failure is; none while nothing waits.
     var waiting: (title: String, lines: [String])? = nil
 
     var body: some View {
-        let state = fix?.state
-        // Read only while it is drawn: it is never cleared, so in any other state it is stale.
-        let applied: FixProposal? = switch state { case .applying?, .done?: fix?.lastProposal; default: nil }
-        let shown = FixFooterPresentation(error: error, state: state, fixer: fix?.fixer, lastProposal: applied)
         VStack(alignment: .leading, spacing: Space.gap) {
-            switch shown.lead {
-            case .failure(let text, let description, let help)?:
-                Notice(title: text, description: description, help: help)
-            case .busy(let text)?: FixBusyLine(text: text)
-            case .proposal(let agent, let proposal)?: FixProposalBlock(agent: agent, proposal: proposal)
-            case nil: EmptyView()
-            }
+            if let error { Notice(title: error.reason, help: error.detail) }
             if steps.saysNoAgentCanRun(onStep: step), availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
                 Notice(title: note)
             }
             if let waiting, !waiting.lines.isEmpty {
                 Notice(title: waiting.title, description: waiting.lines.joined(separator: "\n"))
             }
-            SheetFooter(secondary: shown.buttons == .sheet ? steps.secondaryTitle(onStep: step) : "Cancel",
-                        primary: primaryTitle(shown.buttons),
-                        canCancel: shown.buttons == .applying ? false : !creating,
-                        canSubmit: canSubmit(shown.buttons),
-                        primaryBusy: shown.buttons == .applying,
-                        primaryHelp: shown.buttons == .proposal ? "Applies \(fix?.fixer?.shortName ?? "the agent")’s fix, then creates the review." : nil,
-                        closeList: closeList,
-                        // While a fix holds the buttons, Cancel — and ⎋ — are its: they stop a Look,
-                        // decline a proposal, and do nothing while it is applied. ⌘↩ is Apply only
-                        // on a proposal; while it is applied, nothing.
-                        cancel: shown.buttons == .sheet ? back : { fix?.cancel() },
-                        submit: submit(shown.buttons)) {
-                if shown.showsRecovery, let recovery = error?.recovery {
+            SheetFooter(secondary: steps.secondaryTitle(onStep: step),
+                        primary: steps.primaryTitle(onStep: step, createLabel: createLabel),
+                        canCancel: !creating, canSubmit: canAdvance,
+                        closeList: closeList, cancel: back, submit: advance) {
+                if let recovery = error?.recovery {
                     Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
                 }
-                if let offer = shown.offer {
-                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: {
-                        if offer.retries { Text(offer.title) } else { FixOfferLabel() }
-                    }
-                    .help(offer.help).disabled(!offer.isEnabled || creating)
-                }
-                if shown.buttons == .applying {
-                    Text("Applying…").font(Typography.caption).foregroundStyle(Palette.muted)
-                }
             }
-        }
-    }
-
-    private func canSubmit(_ buttons: FixFooterPresentation.Buttons) -> Bool {
-        switch buttons {
-        case .sheet: canAdvance
-        case .looking: false
-        case .proposal: canApply
-        // Drawn as the mock has it, turning and not dimmed; `submit` makes it do nothing.
-        case .applying: true
-        }
-    }
-
-    private func submit(_ buttons: FixFooterPresentation.Buttons) -> () -> Void {
-        switch buttons {
-        case .sheet, .looking: advance
-        case .proposal: applyFix
-        case .applying: {}
-        }
-    }
-
-    private func primaryTitle(_ buttons: FixFooterPresentation.Buttons) -> String {
-        switch buttons {
-        case .proposal, .applying: "Apply"
-        case .sheet, .looking: steps.primaryTitle(onStep: step, createLabel: createLabel)
         }
     }
 }

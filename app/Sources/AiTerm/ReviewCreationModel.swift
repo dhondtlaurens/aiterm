@@ -98,11 +98,9 @@ final class ReviewCreation: CreationKind {
     func draftChanged(from old: ReviewDraft, in model: ReviewCreationModel) {
         guard model.draft.branch != old.branch else { return }
         model.findOwningTask()
-        // A refusal, its Rebase and its Fix were all about the branch the draft has just left.
+        // The refusal and its Rebase were about the branch the draft has just left.
         model.dropFailure()
     }
-
-    func fixApplies(_ request: FixRequest, to draft: ReviewDraft) -> Bool { request.branch == draft.branch }
 
     func branchesChanged(in model: ReviewCreationModel) { model.filterBranches() }
 
@@ -135,21 +133,16 @@ extension CreationModel where Kind == ReviewCreation {
     // requests would make a misconfigured sheet look merely empty rather than broken, and every
     // real call site passes `ReviewCreationModel.searcher(gitLab:gitHub:remote:)` anyway. So is
     // `recover`, the fixes the footer offers (`TaskLauncher.recover`): one that did nothing would
-    // offer a button whose create fails again with the same refusal. `fixer` and `pipeline` are the
-    // agent's Fix (`FixSession`); without a pipeline a failure offers none.
+    // offer a button whose create fails again with the same refusal.
     convenience init(project: Project, draft: ReviewDraft, context: CreationContext,
                      owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
                      codeHost: CodeHost = .gitLab,
                      searchMergeRequests: @escaping @MainActor (String) async throws -> [MergeRequest],
                      tickets: ReviewTicketLookup = .none,
                      createReview: @escaping @MainActor (ReviewDraft) async throws -> Void,
-                     recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void,
-                     fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
-                     fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
-                     backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
+                     recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void) {
         self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover, tickets: tickets), project: project, draft: draft, context: context,
-                  search: searchMergeRequests, submit: createReview,
-                  fixer: fixer, pipeline: pipeline, fixLanded: fixLanded, backupKept: backupKept)
+                  search: searchMergeRequests, submit: createReview)
         findOwningTask()
     }
 

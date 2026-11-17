@@ -41,7 +41,7 @@ and `QuietBadgeLine` share the status/agent/branch vocabulary. `BackgroundCardVi
 list under a background/working/input mark, only with verified work. Display evidence does not
 change persisted state or Operator readiness. Amber means the person needs to act.
 
-`ToastView`, `Notice` and `FixOfferLabel` share message hierarchy.
+`ToastView` and `Notice` share message hierarchy.
 `SidebarFooterHost`/`SelectedRowSidebarFooter` scope telemetry to selection. `UsageRing`, `UsageLine`,
 `ToneRing`, `MacMode` and `MacModeLine` keep readings neutral unless their own warning applies.
 
@@ -55,7 +55,7 @@ with a field/list, Escape closes an open list before going back, and Cancel canc
 `SteppedSheetFrame` draws the shared frame. `SheetStepper` ticks completed steps and names the
 current one; completed steps are clickable and answer their command-number keys. Future steps
 cannot be jumped to. `CreationSheet`/`CreationFooter` share task/review validation, destination,
-command preview and Fix recovery. `CreationClosingBlock` ends each creation sheet with the effect
+command preview and failure recovery. `CreationClosingBlock` ends each creation sheet with the effect
 of its current picks.
 
 | Pattern | Decisions in order |
@@ -96,8 +96,8 @@ explains behavior; only the Oracle's disabled fields fade, with their values kep
 `SettingsSwitch`, `SettingsTone` and native controls remain the shared settings vocabulary.
 
 `ArchiveSheet`/`ArchiveRow` restore or remove tasks. Search retains keyboard ownership; there are
-no broadcast records. `Notice` offers useful actions and one amber attention mark. `CheckChip`,
-`CheckFailureDetails`, `FixProposalBlock` and `FixBusyLine` retain their existing check/Fix roles.
+no broadcast records. `Notice` offers useful actions and one amber attention mark. `CheckChip`
+and `CheckFailureDetails` show check status and failure details.
 
 The [design reference](design-system.html) mirrors shipped components; Proposals holds only future
 options. Add domain-independent primitives to AiTermUI only when existing compositions cannot

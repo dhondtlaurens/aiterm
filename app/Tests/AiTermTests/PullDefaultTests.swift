@@ -81,9 +81,7 @@ import Testing
         let reason = "Your local “main” has 1 commit that isn’t on origin, and origin has 1 commit it doesn’t. "
             + "Rebase puts yours on top of origin’s; nothing is pushed."
         #expect(fixture.controller.issue == OperationIssue(
-            title: "Couldn’t pull the default branch.", reason: reason, actions: [.rebaseDefault(fixture.project.id)],
-            fix: FixRequest(title: "Couldn’t pull the default branch.", reason: reason, detail: nil, projectPath: fixture.project.path,
-                            branch: "main", recreateRebase: false, retry: .pullDefault(fixture.project.id))))
+            title: "Couldn’t pull the default branch.", reason: reason, actions: [.rebaseDefault(fixture.project.id)]))
         #expect(OperationIssue.Action.rebaseDefault(fixture.project.id).title == "Rebase")
 
         let rebase = await fixture.controller.perform(.rebaseDefault(fixture.project.id))
@@ -132,13 +130,12 @@ import Testing
 
         await fixture.controller.perform(.rebaseDefault(fixture.project.id))?.value
 
-        // “Rebase it by hand.” gives way to the Fix it offers, which carries git's words.
+        // The whole sentence stays in the banner, with git's words as its tooltip.
         let issue = try #require(fixture.controller.issue)
         #expect(issue.title == "Couldn’t rebase the default branch.")
-        #expect(issue.reason == "Rebasing “main” onto origin’s hit a conflict, so it was left as it was.")
+        #expect(issue.reason == "Rebasing “main” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand.")
         #expect(issue.actions.isEmpty)
-        #expect(issue.fix?.recreateRebase == true && issue.fix?.retry == .pullDefault(fixture.project.id))
-        #expect(issue.detail?.contains("CONFLICT") == true && issue.fix?.detail == issue.detail)
+        #expect(issue.detail?.contains("CONFLICT") == true)
         #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
     }
 

@@ -32,16 +32,7 @@ final class AgentIntegrations {
     let claudeConfig: ClaudeConfig
     private(set) var claudeConfigPath: String?
 
-    /// Settings › Agents' “Help with problems”, saved on every write.
-    var helpWithProblems: HelpWithProblems {
-        didSet { if helpWithProblems != oldValue { HelpWithProblems.save(helpWithProblems, defaults: defaults) } }
-    }
-    /// What every Find a Fix is: Claude, the Operator's agent, while the switch is on and Claude Code is
-    /// installed; else Off.
-    var fixer: FixerResolution { helpWithProblems.resolve(installed: availableAgents) }
-
-    /// Settings › Operator's profile as these defaults keep it, read as each caller asks: a broadcast
-    /// freezes it as it starts, and every Fix runs at its model and reasoning. Off the main actor.
+    /// Settings › Operator's profile as these defaults keep it, read off the main actor when asked.
     var operatorProfile: @Sendable () -> OperatorProfile {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let defaults = defaults
@@ -60,22 +51,10 @@ final class AgentIntegrations {
                      skills: { SkillCatalog.discover(agent: $0, projectPath: nil, home: home, claudeConfig: claudeConfig) })
     }
 
-    /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
-    /// handed, since the fixer is always the Operator's own, Claude.
-    var fixModel: @Sendable () -> (model: String, reasoning: String?) {
-        let profile = operatorProfile
-        return { let operating = profile(); return (operating.model, operating.reasoning) }
-    }
-
-    /// The banner's and New Review's Fix for `project`: a clone, the agent at `fixModel`, AiTerm's landing.
-    func fixPipeline(for project: Project, git: any GitRunning, workflow: TaskWorkflow) -> FixPipeline {
-        .live(git: git, workflow: workflow, project: project, model: fixModel, locate: { HarnessCommandRunner.live.locate($0) })
-    }
-
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
     /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
-    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none;
-    /// a Fix runs at the Operator's own (`fixModel`). Read as each run starts, off the main actor.
+    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none.
+    /// Read when each task starts, off the main actor.
     nonisolated static func taskModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
         ModelSettings.load(for: agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent] ?? "", nil)
@@ -106,7 +85,6 @@ final class AgentIntegrations {
          defaults: UserDefaults = .standard, claudeConfig: ClaudeConfig = ClaudeConfig()) {
         self.defaults = defaults
         self.claudeConfig = claudeConfig
-        helpWithProblems = HelpWithProblems.load(defaults: defaults)
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]

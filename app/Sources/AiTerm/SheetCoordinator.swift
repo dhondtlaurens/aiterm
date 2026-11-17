@@ -15,8 +15,6 @@ final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
     var sheet: SheetKind?
-    /// New Review's Fix for a project: the controller's `fixPipeline`, the banner's too.
-    @ObservationIgnored private let fixPipeline: @MainActor (Project) -> FixPipeline
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -38,15 +36,12 @@ final class SheetCoordinator {
     private let gitHubSettings: @Sendable () -> GitHubConfig?
     /// What the creation sheets' Create runs.
     private let launcher: TaskLauncher
-    /// The queue a New Review Fix lands on, with creation, removal and pull.
-    private let workflow: TaskWorkflow
 
     init(projects: ProjectActions, workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         launcher: TaskLauncher, workflow: TaskWorkflow, defaults: UserDefaults,
-         fixPipeline: @escaping @MainActor (Project) -> FixPipeline) {
+         launcher: TaskLauncher, defaults: UserDefaults) {
         self.projects = projects
         self.defaults = defaults
         self.workspace = workspace
@@ -58,8 +53,6 @@ final class SheetCoordinator {
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
         self.launcher = launcher
-        self.workflow = workflow
-        self.fixPipeline = fixPipeline
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -285,8 +278,6 @@ final class SheetCoordinator {
                                    searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    tickets: ReviewTicketLookup(project: project, jira: jira, gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    createReview: { try await launcher.createReview(draft: $0, project: project) },
-                                   recover: { try await launcher.recover($0, in: project) }, fixer: { [agents] in agents.fixer },
-                                   pipeline: fixPipeline(project), fixLanded: { launcher.announceFix($0, by: $1) },
-                                   backupKept: { launcher.announceBackup($0) })
+                                   recover: { try await launcher.recover($0, in: project) })
     }
 }

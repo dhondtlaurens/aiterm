@@ -14,7 +14,7 @@ struct SecondOpinionRunner: Sendable {
     var run: Run
     var timeout: Duration = .seconds(OperatorTiming.challengeTimeout)
 
-    /// The app's: the CLIs where the launch's probe found them, run as a fix's agent is.
+    /// The app's: the CLIs where the launch probe found them, in a process group with a timeout.
     static let live = SecondOpinionRunner(locate: { HarnessCommandRunner.live.locate($0) },
                                           run: { try await AgentProcess.run($0, $1, environment: $2, in: $3, timeout: $4) })
     /// No second opinion at all: every challenged act proceeds unchallenged. What a test's ports start with.
@@ -50,7 +50,7 @@ struct SecondOpinionRunner: Sendable {
     private func perform(_ invocation: HeadlessInvocation, in directory: String, timeout: Duration) async -> Result<ProcessOutput, NoOutput> {
         let name = invocation.executable, locate = self.locate
         guard let executable = await BackgroundWork.run({ locate(name) }) else { return .failure(.missing(name)) }
-        // As a fix's agent: a CLI installed by npm needs its own bin on the PATH launchd gives an app.
+        // A CLI installed by npm needs its own bin on the PATH launchd gives an app.
         let environment = ProcessRunner.environment(runningCLI: executable, overrides: invocation.environment)
         let output: ProcessOutput
         do { output = try await run(executable, invocation.arguments, environment, directory, timeout) }

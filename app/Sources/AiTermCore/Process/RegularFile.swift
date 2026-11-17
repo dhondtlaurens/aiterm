@@ -3,9 +3,9 @@ import Foundation
 import Darwin
 #endif
 
-/// A file AiTerm reads from a fix's clone, which the agent can write: only a regular file, never
-/// through a symlink, never by waiting on a FIFO, and only up to a limit — the clone's settings
-/// (`FixClone.settings(at:)`) and the Oracle's answer file.
+/// A file AiTerm reads that an agent can write: only a regular file, never through a symlink,
+/// never by waiting on a FIFO, and only up to a limit. Reads the Oracle's answer file and the
+/// worker guard's scope file.
 enum RegularFile {
     enum Entry: Equatable { case absent, bytes(Data) }
 

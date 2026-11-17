@@ -76,9 +76,6 @@ final class AppController {
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
-    /// What the banner's and New Review's Fix run for a project: the live pipeline — a clone, the agent, AiTerm's
-    /// landing — unless the ports name one (`AppPorts.fixPipeline`), as a test's stub does.
-    let fixPipeline: @MainActor (Project) -> FixPipeline
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
@@ -186,11 +183,9 @@ final class AppController {
         signalController.remove = { [remover] task, allowed in try await remover.removeAutomatically(task, starting: allowed, stillAllowed: allowed) }
         helper.onEvent { [weak signalController] in signalController?.handle($0) }
         helper.onAttach { [weak signalController] in signalController?.daemonAttached() }
-        let fixPipeline = ports.fixPipeline ?? { [agents] project in agents.fixPipeline(for: project, git: git, workflow: workflow) }
-        self.fixPipeline = fixPipeline
         sheets = SheetCoordinator(projects: projects, workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                                  launcher: launcher, workflow: workflow, defaults: preferences.defaults, fixPipeline: fixPipeline)
+                                  launcher: launcher, defaults: preferences.defaults)
         projects.presentAdd = { [weak sheets] path in
             guard let sheets else { return }
             sheets.presentAddProject(path: path)
@@ -227,8 +222,6 @@ final class AppController {
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
-        // The banner's Fix needs the agents and the pull, both built after the notices.
-        notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
         // A notification's click: a broadcast's board opens over the sidebar, a task's window comes forward.
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
@@ -276,9 +269,6 @@ final class AppController {
         agentProbe = Task { await agents.probe() }
         helper.start()
         signalController.start()
-        // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
-        // Blocking disk work, so off the cooperative pool.
-        DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
         // The daemon launches iTerm2 only at its own start, which an AiTerm adopting the daemon a
         // previous one left running never causes: starting AiTerm is the person asking for it.
         if !itermRunning() { launchIterm() }
@@ -295,9 +285,6 @@ final class AppController {
         agentProbe = nil
         checkouts.stop()
         sheets.cancelPreparation()
-        // A fix's agent runs in a process group of its own, which would outlive the app.
-        notices.fixSession?.stop()
-        if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
         signalController.stop()
@@ -415,28 +402,6 @@ final class AppController {
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return nil }
             return projects.rebaseDefault(project: project)
-        }
-    }
-
-    /// The banner's Find a Fix for a refused Pull main or its rebase, as Help with problems allows: once
-    /// the fix has landed, the banner goes, what waited behind it comes up, and the pull runs
-    /// again — saying where the branch as it was is kept, however it ends, or in a toast when the
-    /// project's default branch is no longer the one fixed. None for a problem
-    /// another surface retries, or for a project that has gone.
-    private func makeFix(for request: FixRequest) -> FixSession? {
-        guard case .pullDefault(let id) = request.retry, let project = state.project(id: id) else { return nil }
-        let resolution = agents.fixer
-        let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
-        return FixSession(request: request, fixer: resolution, pipeline: fixPipeline(project)) { [weak self] landing in
-            guard let self else { return }
-            // Only this fix's banner: nothing replaces it while it lands, and the landed session is the shown one.
-            if case .done? = notices.fixSession?.state { notices.clearIssue() }
-            guard let project = state.project(id: id) else { return }
-            // A default branch that is no longer the one fixed is not the pull this fix was for.
-            let git = self.git
-            let current = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
-            guard current == landing.branch else { return notices.showToast(landing.keptSentence) }
-            projects.pullDefault(project: project, after: (landing, agent))
         }
     }
 
@@ -568,7 +533,7 @@ extension AppController {
                                  NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                              },
                              machineSensor: machineSensor, git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                             operatorPorts: nil, fixPipeline: nil)
+                             operatorPorts: nil)
         return AppController(preferences: preferences, ports: ports, timings: .live)
     }
 

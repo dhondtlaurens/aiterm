@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermUI
 
 /// Metrics members held at the numbers a picked design drew: the Operator's greenfield design's
-/// (19 Oct 2026) 12 pt mark beside a line of text — the Notice's, the Find a Fix button's — and the
+/// (19 Oct 2026) 12 pt mark beside a Notice's line of text, and the
 /// layered foundation's radii and
 /// heading styles (13 Nov 2026).
 struct MetricsTests {

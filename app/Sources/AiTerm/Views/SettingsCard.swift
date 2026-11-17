@@ -91,9 +91,8 @@ extension SettingsCard where Chips == EmptyView, Actions == EmptyView {
 /// group: a `SettingsCard`'s box and rule without its mark, status line or actions. A heading over
 /// one line of `HelpText`, a `Hairline`, then the rows, one heading gap (`Space.gap`) either side of
 /// the rule and between the rows, so every group in Settings starts its rows at the same depth.
-/// The rows draw their own `Hairline` between them where they want one. An `accessory` — Help with
-/// problems' switch — sits at the heading's trailing edge, as a card's actions do; with no rows there
-/// is no rule.
+/// The rows draw their own `Hairline` between them where they want one. An `accessory`, such as
+/// the Oracle switch, sits at the heading's trailing edge, as a card's actions do.
 struct SettingsGroup<Accessory: View, Rows: View>: View {
     let title: String
     let help: String
@@ -117,11 +116,8 @@ struct SettingsGroup<Accessory: View, Rows: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 accessory
             }
-            // A group that is its heading's switch alone (Help with problems) has no rule to draw.
-            if Rows.self != EmptyView.self {
-                Hairline()
-                rows
-            }
+            Hairline()
+            rows
         }
         .padding(Space.block)
         .groupChrome()

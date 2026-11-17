@@ -271,7 +271,7 @@ TS tests-scripts.
   choice-block upgrade, old-helper decoding forms and
   defaults on the wire, the old GitLab URL form, Jira's paging fallbacks (CG F8, TL F7, PL F3,
   OC F15, WD F4 decoding paths only, HO F5 items 1 and 2).
-- [ ] 1i. **Codex.** Find a Fix: its Core folder, session, views, banner and footer wiring, the fix
+- [x] 1i. **Codex.** Find a Fix: its Core folder, session, views, banner and footer wiring, the fix
   fields on issues and creation failures, the Settings switch, tests, README and configuration
   lines. `AgentProcess` and `RegularFile` move to a process folder; the Oracle runner and the
   worker guard keep using them (PL F1).
@@ -687,3 +687,24 @@ left.
   `ModelsTests.aProjectsKeyIsPreservedWithoutCreatingItems`; `theLaunchProbeMigratesAnOldStatusLineRecord`
   became `theLaunchProbeRecordsTheHookPort`. Fixtures unchanged. Hand-built session JSON in tests
   now carries `active` and `background`.
+- Found while proving 1i: since 1h made `background` required, the debug snapshot fixture
+  (`Snapshots/Fixture.swift`) built sessions without it and decoded them with `try?`, so every
+  sidebar snapshot lost its tabs. The gate did not see it (its snapshot pass covers the signal
+  drawings only). Fixed in its own commit after 1h (`"background":[]` added); every sidebar PNG is
+  again RGB-identical to `build/refactor-before`. Lesson for later steps: compare the full
+  snapshot set, not only the gate.
+- 1i: Find a Fix went (thirty files, 4,403 lines, 203 test declarations: its Core folder, session,
+  views, banner and footer wiring, the fix fields, the Settings switch, compat entries, README and
+  configuration lines). `AgentProcess` and `RegularFile` moved to `AiTermCore/Process/`; the
+  `RegularFile` tests moved to `RegularFileTests` (symlink and absent-file checks added); the
+  task-model test moved to `AgentIntegrationsTests`. Survivors: `AgentProcessTests`,
+  `RegularFileTests`, `ChallengeLaunchTests`, the worker guard's tests, `OperationIssueTests`,
+  `PullDefaultControllerTests`, `UnbornTaskCreationTests`. Fixture re-recorded: `compat/launch.json`
+  with `AITERM_RECORD_COMPAT=1` (only `fixerApply` and `fixerLook` removed); the capture
+  `daemon/tests/fixtures/compat/claude/headless/fixer-look.json` stays, unread. Snapshots in
+  `build/refactor-1i`: 96 of 109 unchanged; `settings-agents.png` loses the Help with problems
+  group (the planned change); the eleven Find a Fix images are gone and three plain banner and
+  footer images replace them (`review-rebase-conflicted.png` equals the old unavailable state);
+  `marks.png` is its known variant. The pull suite is named `PullDefaultControllerTests`, not
+  `PullDefaultTests`. One plain gate run failed in `StatusLineShimTests` with 50 to 90 second
+  timeouts under load (load average about 4.5); the next plain run was green with no change.

@@ -105,7 +105,7 @@ enum SidebarSnapshots {
                         Notice(title: "Couldn’t save the workspace: the disk is full.", description: nil) { Button("Retry Saving") {} }
                     }
                     IssueBanner(issue: OperationIssue.branchKept("feat/migrate-alert", of: UUID(), because: .notMerged(base: "main")),
-                                fix: nil, perform: { _ in }, cancelFix: {}, dismiss: {})
+                                perform: { _ in }, dismiss: {})
                     SidebarConnectionBanner(banner: ItermConnection.refused("not allowed").banner!,
                                             status: ItermConnection.refused("not allowed").status)
                     SidebarConnectionBanner(banner: .info("Waiting for iTerm2…"), status: "Waiting for iTerm2…")
@@ -128,18 +128,10 @@ enum SidebarSnapshots {
             // GitHub pull request selected, its badge on the selection's stronger wash.
             reviewThreads("sidebar-review-threads.png"),
             gitLabIssues("sidebar-gitlab-issues.png"),
-            // Pull main's Find a Fix in the banner, in the states the Operator's images leave out (offered,
-            // looking, the proposal and a failed fix are `OperatorSnapshots`'): offered beside Rebase for a
-            // diverged branch, applying, and no fix.
-            Snapshot("banner-find-a-fix-offered-beside-rebase.png") {
-                fixBanner(.offered, issue: .pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 3), in: UUID(),
-                                                        projectPath: "/Users/me/Sites/jvs-platform"))
+            Snapshot("banner-pull-diverged.png") {
+                issueBanner(.pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 3), in: UUID()))
             },
-            Snapshot("banner-find-a-fix-applying.png") { fixBanner(.applying, issue: mainConflict) },
-            Snapshot("banner-find-a-fix-nofix.png") {
-                fixBanner(.noFix("Claude found no fix it can stand behind: your commit and origin’s change the same release version."),
-                          issue: mainConflict)
-            },
+            Snapshot("banner-rebase-conflicted.png") { issueBanner(mainConflict) },
         ]
     }
 
@@ -183,20 +175,12 @@ enum SidebarSnapshots {
     /// The design's conflicted rebase of `main`, refused from the banner's Rebase.
     private static var mainConflict: OperationIssue {
         .rebaseRefused(WorktreeError.rebaseConflicted("main", detail: "CONFLICT (content): Merge conflict in package.json"),
-                       in: UUID(), projectPath: "/Users/me/Sites/jvs-platform")
+                       in: UUID())
     }
 
-    /// The design's proposal for it: both new scripts kept.
-    private static let mainProposal = FixProposal(
-        headline: "Rebase main, keeping both new scripts in package.json.",
-        why: "Your commit added lint:fix, origin’s added test:e2e on the same line. Neither replaces the other.",
-        steps: ["Keep your main as aiterm/backup/main", "Rebase onto origin’s with both scripts", "Pull main again. Nothing is pushed."],
-        moves: ["main"], drops: [], verify: nil)
-
-    /// The failed-operation banner as the sidebar draws it, its Fix in `state`, at the sidebar's width.
-    private static func fixBanner(_ state: FixSession.State, issue: OperationIssue) -> some View {
-        let session = FixSession.snapshot(state, fixer: .ready(.claude), request: issue.fix!, proposal: mainProposal)
-        return IssueBanner(issue: issue, fix: session, perform: { _ in }, cancelFix: {}, dismiss: {})
+    /// A failed-operation banner at the sidebar's width.
+    private static func issueBanner(_ issue: OperationIssue) -> some View {
+        IssueBanner(issue: issue, perform: { _ in }, dismiss: {})
             .frame(width: Size.sidebarWidth + 20)
             .background(Palette.sidebar)
     }

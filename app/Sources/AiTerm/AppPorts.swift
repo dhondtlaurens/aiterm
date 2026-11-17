@@ -4,7 +4,7 @@ import AiTermCore
 /// Everything an `AppController` reaches outside the process: the state file, the person's home and Claude's folder,
 /// the app's bundle, the agent CLIs and Python found on this machine, the connections Settings saved, the modal alerts,
 /// the Dock badge, iTerm2 started and handed focus, Backpack Mode's ports and secrets, the Mac's load, git, the checkout
-/// monitor's reading of the disk and its last look at a checkout gone, the operators' ports and the banner's Fix. Nothing
+/// monitor's reading of the disk and its last look at a checkout gone, and the operators' ports. Nothing
 /// has a default: the app builds them with `AppController.live`, the snapshots with `live` and a few of their own, and a
 /// test with the scratch ones in its target, which touch none of them.
 ///
@@ -15,8 +15,7 @@ import AiTermCore
 /// iTerm2 when AiTerm starts while `itermRunning` says it is not, and when a row is chosen while it is away.
 /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`). `operatorPorts` are what the
 /// operators reach: run folders, the agents' home, notifications; nil is the app's own (`OperatorPorts.live`), from
-/// `harnessHome`, `git`, `jiraSettings` and Settings › Agents. `fixPipeline` is what the banner's and New Review's Fix
-/// run for a project; nil is the live pipeline — a clone, the agent, AiTerm's landing.
+/// `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
 struct AppPorts {
     var store: StateStore
     var harnessHome: URL
@@ -41,7 +40,6 @@ struct AppPorts {
     var scan: CheckoutMonitor.Scanner
     var confirmsRemoval: TaskRemover.ConfirmsRemoval
     var operatorPorts: OperatorPorts?
-    var fixPipeline: (@MainActor (Project) -> FixPipeline)?
 }
 
 /// How long the controller's owners wait, and against what clock: `peekDelay` is `RowFocus`'s (a test passes none, and

@@ -43,8 +43,8 @@ menus resolve saved tasks at action time. Journals, reply markers and launch his
 rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No leaf `body`
 performs I/O or reads the whole workspace.
 
-`AppController` composes owners. It takes its outside dependencies as `AppPorts` (live or scratch,
-the Fix pipeline among them) and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
+`AppController` composes owners. It takes its outside dependencies as `AppPorts` (live or scratch)
+and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
 does. Owners publish changes through `HookList`, whose hooks return removal tokens; a hook with one
 slot says so in its name. `SheetCoordinator` owns the single sheet slot and cancels stale
 preparation. Creation models share `CreationModel`, `CreationSheet` and model/reasoning controls;
@@ -57,7 +57,7 @@ different.
 
 Git work that changes a repository runs on that repository's lane (`GitLanes`), keyed by its git
 common directory, so a project's folder and its worktrees share one and work on one repository never
-waits for another's. Manual creation, worker checkout, restore, removal, pull, rebase, Fix landing,
+waits for another's. Manual creation, worker checkout, restore, removal, pull, rebase,
 and the merged-branch check run there through `TaskWorkflow` or the lanes directly; a
 head or an unsaved-work question runs on the shared pool. `TaskCreator` owns branch/worktree
 creation; worker retry reuses the existing worktree and its original baseline. Scheduling, focus,
@@ -131,8 +131,6 @@ credential changes are explicit user actions.
 Operator startup also records trust for its own private Operator folder in the resolved Claude
 profile's global JSON. It preserves unrelated state and a backup, uses Claude's config lock and
 an atomic private write, and skips the write when that exact folder is already trusted.
-`FixSession` owns an isolated clone through proposal, apply, landing and cleanup; quit cannot begin
-a new landing after an awaited agent reply.
 
 `BackpackController` owns Backpack Mode permissions, network/lid-sleep transitions and cleanup.
 `MachineMonitor` samples in-process platform readings. `UpdateController` owns release lookup,

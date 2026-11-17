@@ -29,16 +29,6 @@ import Testing
                                                  prompt: "{prompt}", runFolder: "{folder}", projects: ["{project}"], answerFile: "{answer}")
             return [run.executable] + run.arguments
         }
-        let clone = FixClone(path: "{clone}", branch: "{branch}", startTip: "a", originTip: nil, git: GitRunner.hermetic())
-        let request = FixRequest(title: "t", reason: nil, detail: nil, projectPath: "{project}", branch: "{branch}",
-                                 recreateRebase: false, retry: .createReview)
-        let proposal = FixProposal(headline: "h", why: "w", steps: [], moves: [], drops: [], verify: nil)
-        // The fixer's prompt is written from the failure; the capture asks its own.
-        func fixer(_ run: HeadlessInvocation) -> [String] {
-            var words = run.arguments
-            words[1] = "{prompt}"
-            return [run.executable] + words
-        }
         let runFolder = URL(fileURLWithPath: "/{run}")
         var result: [String: [String: [String]]] = [:]
         for agent in AgentKind.allCases {
@@ -56,8 +46,6 @@ import Testing
                 uses["operator"] = OperatorCommand.launchWords(model: model, effort: reasoning, runFolder: runFolder, projectPaths: ["{project}"])
                 uses["operatorResume"] = OperatorCommand.launchWords(model: model, effort: reasoning, runFolder: runFolder,
                                                                      projectPaths: ["{project}"], resuming: "{conversation}")
-                uses["fixerLook"] = fixer(FixerLaunch.look(model: model, reasoning: reasoning, clone: clone, request: request, sessionID: "{session}"))
-                uses["fixerApply"] = fixer(FixerLaunch.apply(model: model, reasoning: reasoning, clone: clone, proposal: proposal, sessionID: "{session}"))
             }
             result[agent.rawValue] = uses
         }
@@ -175,13 +163,6 @@ import Testing
         #expect(codex?.contains("OK") == true, "codex exec's -o answer no longer reads: \(String(describing: codex))")
         let pi = ChallengeLaunch.critique(.pi, output: Self.ran(try Self.text(.pi, "headless/challenge.txt")), answerFile: nil)
         #expect(pi?.contains("OK") == true, "PI's -p answer no longer reads: \(String(describing: pi))")
-    }
-
-    @Test func theFixersSchemaAnswerReadsAsTheAppReadsIt() throws {
-        let invocation = HeadlessInvocation(executable: "claude", arguments: [], environment: [:], sessionID: "S", answerFile: nil)
-        let (_, session) = try FixerLaunch.lookAnswer(.claude, output: Self.ran(try Self.text(.claude, "headless/fixer-look.json")),
-                                                     invocation: invocation)
-        #expect(!session.isEmpty)
     }
 
     /// Every option the app passes `agent`, from its templates: a word that starts with a dash, but

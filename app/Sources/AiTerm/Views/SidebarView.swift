@@ -280,9 +280,9 @@ struct SidebarBanners: View {
             }
         }
         if let issue = controller.issue {
-            IssueBanner(issue: issue, fix: controller.notices.fixSession,
+            IssueBanner(issue: issue,
                         perform: { action in Task { await controller.perform(action) } },
-                        cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.notices.dismissIssue() })
+                        dismiss: { controller.notices.dismissIssue() })
         }
 
         if let banner = controller.helper.itermConnection.banner {
@@ -317,60 +317,21 @@ struct SidebarConnectionBanner: View {
     }
 }
 
-/// A failed operation above the list, and the Find a Fix it offers (`BannerFixPresentation`), as one
-/// `Notice`: the issue's title and reason, its ways out as links — then, once a fix is asked for, the
-/// busy line or the proposal under the issue, with Apply and Cancel, and Applying… with the banner held.
+/// A failed operation above the list: its sentence, its actions as links, then Dismiss.
 struct IssueBanner: View {
     let issue: OperationIssue
-    /// The Fix offered for the issue, if any; its state is the one thing here it observes.
-    let fix: FixSession?
     let perform: (OperationIssue.Action) -> Void
-    let cancelFix: () -> Void
     let dismiss: () -> Void
 
     var body: some View {
-        let shown = BannerFixPresentation(issue: issue, state: fix?.state, fixer: fix?.fixer)
         SidebarBanner(vertical: Space.base) {
-            switch shown.content {
-            case .text(let title, let detail, let help):
-                Notice(title: title, description: detail, help: help) { links(shown.links) }
-            case .busy(let line):
-                Notice(title: issue.title, description: issue.reason, help: issue.detail) {
-                    FixBusyLine(text: line)
-                } actions: { links(shown.links) }
-            case .proposal(let agent, let proposal):
-                Notice(title: issue.title, description: issue.reason, help: issue.detail) {
-                    FixProposalBlock(agent: agent, proposal: proposal)
-                } actions: { links(shown.links) }
+            Notice(title: issue.title, description: issue.reason, help: issue.detail) {
+                ForEach(issue.actions.indices, id: \.self) { index in
+                    let action = issue.actions[index]
+                    Button(action.title) { perform(action) }
+                }
+                Button("Dismiss", action: dismiss)
             }
-        }
-    }
-
-    @ViewBuilder private func links(_ links: [BannerFixPresentation.Link]) -> some View {
-        ForEach(links.indices, id: \.self) { index in
-            let link = links[index]
-            switch link {
-            case .action(let action): Button(link.title) { perform(action) }
-            case .fix(_, let isEnabled, let help):
-                Button { fix?.start() } label: { FixOfferLabel() }.disabled(!isEnabled).help(help)
-            case .tryAgain(let help): Button(link.title) { fix?.tryAgain() }.help(help)
-            case .apply(let help): Button(link.title) { fix?.apply() }.help(help)
-            case .cancel(let isEnabled): Button(link.title, action: cancelFix).disabled(!isEnabled)
-            case .dismiss: Button(link.title, action: dismiss)
-            }
-        }
-    }
-}
-
-/// Find a Fix, led by the Operator's mark — its agent's, Claude's — at `Size.inlineMark`, where Fix
-/// with AI had `sparkles`: the fix runs as the Operator. It reads the sidebar's scale, or ×1 in a sheet.
-struct FixOfferLabel: View {
-    @Environment(\.interfaceScale) private var scale
-
-    var body: some View {
-        HStack(spacing: scale(Space.tight)) {
-            VendorMark(agent: .claude, size: scale(Size.inlineMark))
-            Text(FixOffer.title)
         }
     }
 }

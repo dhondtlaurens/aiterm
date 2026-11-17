@@ -101,8 +101,7 @@ public enum Size {
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18
     /// A mark that leads a line of text and stands no taller than it: the Notice's amber
-    /// exclamation mark beside its `Typography.label` title, and the Operator's mark leading Find a
-    /// Fix (the Operator's greenfield design, 19 Oct 2026).
+    /// exclamation mark beside its `Typography.label` title.
     public static let inlineMark: CGFloat = 12
     /// A vendor mark outside an avatar group: the sidebar footer, the agent picker.
     public static let vendorMark: CGFloat = 16
@@ -265,8 +264,8 @@ public enum Sheet {
     public static let height: CGFloat = 560
     /// New Task's and New Review's every step, so the sheet does not jump from one to the next: their
     /// prompt editor and ticket checkbox fit under the title and above the footer.
-    /// The last step shows the agent fields and destination summary. A notice or a fix proposal in
-    /// the footer is taller and scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
+    /// The last step shows the agent fields and destination summary. A notice in the footer is
+    /// taller and scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
     public static let creationHeight: CGFloat = 500
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
