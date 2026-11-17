@@ -88,8 +88,8 @@ There are no ended broadcasts to open.
 ## Settings and alerts
 
 ⌘1…⌘4 selects Agents, Operator, Integrations and Interface. Focused segmented controls and tabs
-answer left/right. Settings stages ordinary changes until Save; explicit integration actions and
-interface-size preview retain their immediate behavior.
+answer left/right. Settings stages every switch and field until Save; Install, Repair, Run check,
+the Mac card's Allow… and Remove, and the sidebar size preview apply at once.
 
 An alert's default button answers Return, Escape its safe choice. Destructive Remove/Delete Branch
 is the default only when the alert says so. Closing a row's iTerm2 window asks nothing; the row stays

@@ -449,7 +449,7 @@ TS tests-scripts.
   a disabled Continue; Add Project's folder as a line with Choose…; Base branch as the filtered
   field; one cancel rule in `DebouncedSearch`, which fixes the late ticket answer after a pick
   (SS F5, F6, F10, F12, F13, F15).
-- [ ] 8h. **Codex.** Settings tidy: the Operator profile save cannot silently fail, dead staging
+- [x] 8h. **Codex.** Settings tidy: the Operator profile save cannot silently fail, dead staging
   paths go, the copy about Cancel not undoing "Help with problems" goes with the switch (SS F1,
   tidy only).
 - [ ] 8i. **Codex.** Headless agent launches are described in the one agent table beside the
@@ -1468,3 +1468,13 @@ left.
   → `aSavedModelOffTheCatalogueShowsAsUnavailableAndSaveKeepsIt`, `onlyTheAgentsTheOperatorMayPlanOnAreWaitedFor` →
   `onlyTheSignalsOwnAgentsAreChecked`. Added the brief's model, sheet, Agents-reason and base-field tests. Noticed
   and left: `SignalContext.read` picks the first catalogue model when a resolved preference is empty.
+- 8h: the profile save was already non-throwing after 2h. `OperatorSettingsModel.save()` now guards on `original`
+  alone, and `HarnessSettingsModel.save()` lost its redundant `loaded.contains`. The Agents tab's closing help, the
+  Settings comments, and `docs/configuration.md` and `docs/keyboard.md` say what Save stages and what applies at
+  once. Differences from the brief:
+  - The `try?` Done-when grep still matches one line, `catalogue.models(for:)` (a catalogue read, not the profile
+    save).
+  - `settings-agents.png` is byte-identical because the changed help line falls below its captured viewport; the
+    only other differing image is the known `marks.png` variant.
+  No test deleted or added. Noticed and left for 9a: `docs/keyboard.md` still says "There are no ended broadcasts
+  to open." (Archive section).

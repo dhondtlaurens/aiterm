@@ -90,7 +90,7 @@ final class OperatorSettingsModel {
     /// saved keeps following Claude's default in Settings › Agents. An empty model is never written:
     /// the one loaded stands in for it.
     func save() {
-        guard isLoaded, let original else { return }
+        guard let original else { return }
         var saving = profile
         if saving.model.isEmpty { saving.model = original.model; saving.reasoning = original.reasoning }
         if saving.oracle.model.isEmpty {

@@ -32,7 +32,8 @@ final class AgentIntegrations {
     let claudeConfig: ClaudeConfig
     private(set) var claudeConfigPath: String?
 
-    /// Settings › Operator's profile as these defaults keep it, read off the main actor when asked.
+    /// Settings › Operator's profile as these defaults keep it, read by the Operator for its next
+    /// session, off the main actor.
     var operatorProfile: @Sendable () -> OperatorProfile {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let defaults = defaults
