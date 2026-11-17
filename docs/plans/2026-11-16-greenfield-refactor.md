@@ -460,7 +460,7 @@ TS tests-scripts.
 
 - [x] 9a. **Opus.** Docs brought to the code: architecture, Operator, windows, status model, daemon
   protocol, configuration, keyboard, testing, the READMEs and the UI README.
-- [ ] 9b. **Opus.** Release notes for the major release: what changed for a person, and the
+- [x] 9b. **Opus.** Release notes for the major release: what changed for a person, and the
   upgrade procedure. The Operator's saved records change shape in phases 4 and 5 and nothing
   migrates them, so the notes carry the reset command of `scripts/reset-operator-state.sh` (0d),
   word for word, to run once with AiTerm closed: it removes
@@ -1515,3 +1515,14 @@ left.
   - `TaskWorkflow`'s header says "a pull and a landing".
   - `daemon/aitermd/models.py` cites `status.shows_trust_prompt`, which lives in `screens.py`.
   - `SheetPrimaryButton`/`SheetFooter`'s `busy` is no longer passed by anyone.
+- 9b: `docs/release-notes/2026-11-major-release.md` covers Upgrade (the reset command, the script's own line
+  verified byte-identical with `cmp`), What changes and Going back. `docs/workflow/release.md`'s Operator format
+  section describes this release. Step 1, the saved keys from `d9e9ccaa` to `HEAD`: none renamed or restructured
+  outside `operatorSession` and `signalTask`. Readers for older formats were dropped (`Project`'s `jiraProject`, the
+  flat `projects`, a terminal's missing `name`). One optional key is new, a task's `takenOver`, and the seen
+  `baseline` value still loads as an unknown seen value. Step 2: the drivers only lost Claude's `PostModelSwitch`
+  entry, so no agent needs Repair. Decision: the script's line differs from the brief's quoted command, and the
+  script wins as the brief says. While AiTerm runs, the script prints "Quit AiTerm first." and calls `exit 1`,
+  which closes a Terminal shell the line was pasted into. Nothing is changed or harmed, and the note says so
+  ("ends the shell in that window: quit AiTerm and run the command again in a new window"). Changing the script to
+  the brief's `else ... fi` form is left to the maintainer (it would mean regenerating the note's block).
