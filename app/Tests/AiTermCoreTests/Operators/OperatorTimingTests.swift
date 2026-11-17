@@ -5,7 +5,6 @@ import Foundation
 @Suite struct OperatorTimingTests {
     /// The contract's table, value for value.
     @Test func theTimingsAreTheContractsValues() {
-        #expect(OperatorTiming.wakeCoalesce == 3)
         #expect(OperatorTiming.reconcileInterval == 60)
         #expect(OperatorTiming.challengeTimeout == 180)
         #expect(OperatorTiming.gateTimeout == 200)

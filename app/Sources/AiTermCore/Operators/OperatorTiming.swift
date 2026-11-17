@@ -4,8 +4,6 @@ import Foundation
 /// `aitermd/delivery.py`, and the two must agree (`OperatorTimingTests` pins both the values and
 /// their names in the Python file).
 public enum OperatorTiming {
-    /// Wake lines within this of each other are merged into one.
-    public static let wakeCoalesce: TimeInterval = 3
     /// Sessions and branches are reconciled this often, and on every reconnect (spec §7.3).
     public static let reconcileInterval: TimeInterval = 60
     /// An Oracle that takes longer is abandoned, and the act proceeds unchallenged (§4.4).
@@ -17,10 +15,6 @@ public enum OperatorTiming {
     /// App only: seconds `jira_search` waits for Jira before it answers that Jira didn't, inside `operatorRequestTimeout`. The
     /// app's Jira client ends each request by then too (`JiraClient.resourceDeadline`).
     public static let jiraSearchBudget: TimeInterval = 20
-    /// App only: minutes a tool call a worker started and has no result for yet (`WorkerTranscript.OpenCalls`) counts as its
-    /// worker at work, though its transcript says nothing meanwhile: neither quiet (spec §H) nor possibly stalled. Past that,
-    /// a tool that hung is caught as any silence is.
-    public static let openCallMinutes = 30
     /// App only: seconds after its window was seen, else asked for, that a first worker which has named no conversation yet
     /// still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
     public static let firstWorkerOpening: TimeInterval = 180

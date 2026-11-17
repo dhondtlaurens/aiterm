@@ -11,9 +11,6 @@ import AiTermCore
     init(workspace: WorkspaceStore, now: @escaping () -> Date, workerIsWorking: @escaping @MainActor (UUID) -> Bool = { _ in false }) {
         self.workspace = workspace; self.now = now; self.workerIsWorking = workerIsWorking
     }
-    @discardableResult func apply(signals ids: [UUID], read: SignalRead) -> [UUID] {
-        apply(observations: [SignalObservation(signals: ids, read: read)])
-    }
     @discardableResult func apply(observations: [SignalObservation]) -> [UUID] {
         let complete = observations.filter { $0.read.complete }
         guard !complete.isEmpty, workspace.canChangeWorkspace else { return [] }

@@ -251,7 +251,7 @@ TS tests-scripts.
   never-produced branch item and `baseline` seen state, the dead saved fields (`peopleReview`,
   `ExtraTab` role and launch fields, unused round fields) and `SavedDefaults` (OC F1, F3, F8).
   `operator-signals/state.json` is re-recorded.
-- [ ] 1e. **Codex.** Operator runtime leftovers: dead `OperatorPorts` fields, the transcript
+- [x] 1e. **Codex.** Operator runtime leftovers: dead `OperatorPorts` fields, the transcript
   open-call reader, locator test hooks, `markOutcome`, members only tests call (RT F6).
 - [ ] 1f. **Codex.** App leftovers: `ShelfRow` becomes `ArchiveSearch.Entry` and Shelf becomes
   Archive in code names; dead controller and coordinator members and empty comment stubs; the
@@ -622,3 +622,10 @@ left.
   `identityContinuesOrdinaryTaskByTicketOrRequest`. The Done-when symbol grep matches the required
   provenance line naming `agentPinned`; no code names any of the symbols. Left for 1j: a
   `WorkerTabs.tabToBring` comment that names `BroadcastRequest`.
+- 1e: Operator runtime leftovers went (`OperatorClock.sleep`, the unread port budgets and
+  `appVersion`, `wakeCoalesce`, `openCallMinutes`, `StallWatch`, the transcript open-call reader,
+  the locator's numbering and test hooks, `markOutcome`, `SecondOpinionRunner.cancelled`,
+  `ThenRunner.isRunning`, `SignalPoller.onRead`); `ItemRouter.apply(signals:read:)` is now a
+  test-only extension in `OperatorFakes.swift`. No test deleted; the `wakeCoalesce` timing row went
+  with its constant. Added `WorkerTranscriptTests.aReplyIsReadAgainOnlyWhenItsFileChanged`; three
+  `SignalPollerTests` moved from `onRead` to `onPass` with the same expectations.

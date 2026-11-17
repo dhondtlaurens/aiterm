@@ -50,6 +50,23 @@ import Testing
     private let assistantLine = { (text: String) in
         #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(text)"}]}}"#
     }
+
+    @Test func aReplyIsReadAgainOnlyWhenItsFileChanged() throws {
+        defer { cleanUp() }
+        let file = try write([assistantLine("First.")], to: ".claude/projects/p/cached.jsonl")
+        let locator = TranscriptLocator(home: home, claudeConfig: ClaudeConfig())
+        let first = try #require(locator.lastReply(agent: .claude, conversation: "cached"))
+        let unchanged = try #require(locator.lastReply(agent: .claude, conversation: "cached"))
+        #expect(first.text == "First.")
+        #expect(unchanged.text == first.text && unchanged.identity == first.identity && unchanged.fingerprint == first.fingerprint)
+
+        let handle = try FileHandle(forWritingTo: file)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((assistantLine("Second.") + "\n").utf8))
+        #expect(locator.lastReply(agent: .claude, conversation: "cached")?.text == "Second.")
+    }
+
     private func userLine(_ size: Int) -> String {
         #"{"type":"user","message":{"role":"user","content":"\#(String(repeating: "u", count: size))"}}"#
     }

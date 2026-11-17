@@ -67,14 +67,9 @@ extension TestClock {
     static func operators() -> TestClock { TestClock(Date(timeIntervalSince1970: 1_000_000)) }
 }
 
-extension OperatorClock {
-    /// Replaces just the wait the fixture controls; all other purposes keep their previous sleep.
-    @MainActor mutating func overrideSleep(_ wait: Wait, _ replacement: @escaping @MainActor @Sendable (Duration) async throws -> Void) {
-        let previous = sleep
-        sleep = { purpose, duration in
-            if purpose == wait { try await replacement(duration) }
-            else { try await previous(purpose, duration) }
-        }
+extension ItemRouter {
+    @discardableResult func apply(signals ids: [UUID], read: SignalRead) -> [UUID] {
+        apply(observations: [SignalObservation(signals: ids, read: read)])
     }
 }
 
@@ -89,18 +84,12 @@ extension OperatorWork {
 }
 
 extension OperatorPorts {
-    /// Ports that reach nothing real: a fresh temporary folder as the home — run folders and the agents'
-    /// conversations under it — notifications recorded,
-    /// hermetic git, wake lines with no wait.
+    /// Ports that reach nothing real: a fresh temporary home for the agents' conversations,
+    /// recorded notifications and hermetic git.
     @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = ScratchFolder.path("aiterm-operators-")
-        var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
-        // No wait for a summary ends but a test's own: a test that gives up on one moves the clock or the sleep.
-        ports.clock.sleep = { purpose, duration in
-            guard purpose == .wake else { throw CancellationError() }
-            try await Task.sleep(for: duration)
-        }
+        var ports = OperatorPorts(home: home, git: git, notifications: notifications)
         // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
         ports.installedAgents = { [.claude, .codex] }
         ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }

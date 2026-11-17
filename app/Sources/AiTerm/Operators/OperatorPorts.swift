@@ -2,12 +2,7 @@ import Foundation
 import AiTermCore
 
 struct OperatorClock: Sendable {
-    enum Wait: Sendable, Equatable { case wake, summary, prompt, merge }
-
     var now: @Sendable () -> Date = { Date() }
-    var sleep: @MainActor @Sendable (Wait, Duration) async throws -> Void = { _, duration in
-        try await Task.sleep(for: duration)
-    }
 }
 
 struct OperatorPorts {
@@ -17,22 +12,12 @@ struct OperatorPorts {
     var git: any GitRunning
     var workerGuardExecutable: URL = Bundle.main.executableURL!
     var notifications: any OperatorNotifications
-    /// The Jira client `jira_search` runs through, while Settings has one.
-    /// How long `jira_search` waits for Jira before it answers that Jira didn't (`OperatorTiming.jiraSearchBudget`).
-    var jiraSearchBudget: Duration = .seconds(OperatorTiming.jiraSearchBudget)
     /// The Oracle's runner.
     var secondOpinion: SecondOpinionRunner = .unavailable
-    /// How long a challenged call waits for its critique before answering that it is still coming: well
-    /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
-    var challengeReplyBudget: Duration = .seconds(20)
     var clock = OperatorClock()
     var now: @Sendable () -> Date { clock.now }
     /// What every owner starts its work through, so that a test waits for all of it at once (`OperatorWork.settled`).
     let work = OperatorWork()
-    /// The version of AiTerm that is running, for the snags the Operator reports: "dev" for a build with none.
-    var appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-    /// How long a burst of changes is gathered into one wake line.
-    var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// How long the host's view of a task's request is waited for (`OperatorTiming.hostReadTimeout`) and kept (`hostReadCache`):
