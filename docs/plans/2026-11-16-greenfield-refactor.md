@@ -1045,3 +1045,9 @@ left.
   scanner now returns no remotes (five green runs in a row). Noticed and left: `TaskLauncher.create`
   also ignores a `commandError` (a new task's agent that iTerm2 could not type says nothing, as before
   the refactor); `openWorkerWindow` and `createTaskWindow` could merge (6c).
+- Phase close: plain `scripts/test.sh all` green on `dc7e5f7e` (after review fix round 3; also green on
+  `cd9278a8` before the review fixes). Snapshots in `build/refactor-phase4` identical to
+  `build/refactor-4b` (no view changed after 4b). No bundle check is due after phase 4. `main` had only
+  the refactor's own merges; merged to `main`. No manual check is owed for phase 4 by the plan. From
+  this merge on, `main` and the installed app cannot read each other's Operator records: run
+  `scripts/reset-operator-state.sh` with AiTerm quit before switching between them.
