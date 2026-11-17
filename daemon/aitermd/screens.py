@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, Protocol
 
 from .models import HARNESS_BY_AGENT, AgentKind, Harness, SessionInfo
 from .text import shows
@@ -57,12 +57,6 @@ def screen_string(lines: Iterable[str]) -> str:
 PromptKind = Literal["permission", "startup", "menu"]
 
 
-class PromptDetails(TypedDict):
-    kind: PromptKind | None
-    text: str | None
-
-
-
 def open_prompt(agent: AgentKind, screen: str, *, needs_input: bool = True) -> PromptKind | None:
     """The prompt open on `screen`, by the harness's markers or numbered menus. The last arrow
     must select an option next to its neighbour, outside the input frame. A later input arrow
@@ -91,8 +85,7 @@ def open_prompt(agent: AgentKind, screen: str, *, needs_input: bool = True) -> P
 
 def _session_prompt(session: SessionInfo, screen: str) -> PromptKind | None:
     """The prompt open on `session`'s screen, read as its state stands now: only a needs-input hook
-    makes markers above a later input arrow count. Both what refuses a message and what session.prompt
-    reports, so the two never disagree."""
+    makes markers above a later input arrow count. Used to refuse delivery while a prompt is open."""
     return open_prompt(session.agent, screen, needs_input=session.state == "needsInput")
 
 

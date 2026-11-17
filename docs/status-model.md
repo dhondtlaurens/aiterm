@@ -31,21 +31,19 @@ order — the chips sit still, so a stable reading order beats ranking.
 | `Notification` | needsInput | Claude only: `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`. |
 | `Notification` | done | Claude only: `agent_completed`. |
 | `SubagentStart` / `Stop` | working | Tracked per child id. A needs-input row is *not* overwritten — an input request must stay visible. A Claude child's `SubagentStop` ends it only once its transcript shows the run over, and a child that died without one is found there too (below). |
-| `SessionStart` | model | Not a state: it updates the model, and forgets the previous conversation's subagents and deferred completion — but not after a compaction (`source: "compact"`), and only in the tab the post provably came from. |
-| `PostModelSwitch` | model | Not a state: it updates which model the row reports, once Claude Code has switched. Like every Claude post from inside a subagent (`agent_id`), one there says nothing of the session's model. |
+| `SessionStart` | metadata | Forgets the previous conversation's subagents and deferred completion — but not after a compaction (`source: "compact"`), and only in the tab the post provably came from. |
 
 PI reports the same state machine through its public extension events:
 
 | PI extension event | Signal | Notes |
 |---|---|---|
-| `session_start` | metadata | Resolves the PI session and updates model, reasoning and context when present. With reason `startup`, `new`, `resume` or `fork` it is also Claude's `SessionStart`: the previous conversation's subagents and deferred completion are forgotten. `reload`, or no reason at all (an extension older than schema 3), is metadata only — PI's counterpart of a compaction. |
+| `session_start` | metadata | Resolves the PI session and updates context when present. With reason `startup`, `new`, `resume` or `fork` it is also Claude's `SessionStart`: the previous conversation's subagents and deferred completion are forgotten. `reload`, or no reason at all (an extension older than schema 3), is metadata only — PI's counterpart of a compaction. |
 | `agent_start` | working | A PI turn started. |
 | `ui_prompt_start` | needsInput | PI opened a prompt that needs the user. It remembers the state it interrupted — the first one, if prompts nest — and counts the prompts open. |
 | `ui_prompt_end` | the interrupted state | Once the last open prompt closes, restores what the first interrupted: idle, done or working; an inner prompt closing leaves the row at needs input. A deferred completion is left alone. It changes nothing when no state is remembered: no prompt was opened, or a state hook since then took over. |
 | `agent_settled` | done | The PI turn finished. |
 | `subagent_start` / `subagent_stop` | working | Relayed from pi-subagents' `subagents:started`, `:completed` and `:failed`, and tracked per child id like Claude's. The extension keeps its last session past `session_shutdown`, so a child that ends after it is still reported. |
-| `model_select` | model | Updates the full `provider/model` identifier. |
-| `thinking_level_select` | reasoning | Updates PI's current thinking level. |
+| `thinking_level_select` | metadata | Refreshes the context percentage when present. |
 | `turn_end` | metadata | Refreshes the context percentage after each tool turn while the agent keeps running. Child sessions post nothing. |
 
 These extension events use the existing urgency and unread rules; PI does not introduce a fifth
@@ -240,12 +238,7 @@ transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or on
 down, where Claude Code files some agents, or two: a workflow's agents write theirs at
 `subagents/workflows/<run>/agent-<id>.jsonl` (Claude Code 2.1.308). Only the last 64 KiB of each
 transcript is read, on a worker thread with the one-second bound of the Codex rollout read above,
-and again only once its mtime or size changes. Each read also notes when the transcript was last
-written, its mtime, and the session carries the newest of its counted children's as
-`subagentsWrittenAt`. A parent whose turn ended on its children writes nothing while they work, so
-the app's doubt of a worker whose transcript has stopped growing (`WorkerQuietWatch`, `working?` in
-`run_status`) reads this beside the worker's own transcript. It moves as a child writes, so no
-sidebar row redraws for it (`SessionInfo.rowRelevant`).
+and again only once its mtime or size changes.
 
 Claude's own session file cannot do this job. It stays `busy` while a background child runs past the
 end of the turn, and it names no child. Only Claude children are checked. PI relays a crashed
@@ -272,38 +265,6 @@ process ID. When that same Codex process returns, or the helper restarts, the th
 from the tag, and its rollout supplies the CLI version for the usual delivery check. Another agent
 or another process cannot inherit it. `SubagentStart` and `SubagentStop` never replace that binding;
 a directory-based placement pin does not establish one.
-
-## What a Claude worker runs, and what became of a slash command
-
-The model a Claude session reports is the session's own, as Claude Code holds it: `SessionStart`'s
-`model` as it starts, `PostModelSwitch`'s `to_model` once a switch has happened, and the status line's
-`model.id`, the one it runs now. A `/model` moves them only once it has run, never when it is typed, and
-one that asks the person to confirm ("Switch model?") changes none of them until it is answered. A post
-from inside a subagent, which carries `agent_id`, sets nothing, and neither does one placed by its
-directory alone: another agent in the same worktree is not the tab's. Its
-effort comes from the status line's `effort.level` alone, which Claude Code redraws once an `/effort`
-has run, and leaves out for a model that takes none: a status line that names a model and no effort
-clears the last one's. Its hooks carry an `effort` too, but a Stop's is its turn's: an `/effort` typed
-mid-turn takes effect at once, and that turn's Stop can still name the old level. `run_status` shows
-both beside the model a task was planned on, for Claude workers only: a Codex hook may carry a child
-thread's model.
-
-What became of a slash command `message_task` delivered to a Claude tab is read from that tab's
-transcript (`slash_commands.py`; `transcript_path` from its own hooks and status line), on every tick,
-from where the transcript ended when the earliest command still looked for was typed, a few megabytes a
-read: a read behind that place skips to it. Its command record (`<command-name>`, a local command's
-`<local-command-stdout>` after it) says it ran; a `queue-operation` `enqueue` holding its text says it
-is queued, until anything leaves the queue that names it or names nothing: a `dequeue`, a `remove`, a
-`popAll` or `popOne` that takes it back into the input. Nothing seen for a minute, or no transcript to
-read, is unknown, never that it did not run: `/model` and `/effort` run at once even mid-turn and then
-write no record at all, and one waiting on a dialog writes its record only once answered. A command is
-looked for for an hour, and only what its transcript records within that hour is its own: past it, one
-that has not run is unknown. A tab keeps its last three, and the same text typed twice is two commands,
-each record taken by the older that can. One queued runs in its turn, the same text queued twice first
-in first out, unless a `remove`, `popAll` or `popOne` named it first: then no run is its own. One never
-seen queued ran at once if at all, so only a run recorded before the next of its text was typed is its
-own, and a run of its text before any enqueue of it is one it ran at once: that enqueue is a later
-command's, such as the person's.
 
 ## A turn that removes its own checkout
 

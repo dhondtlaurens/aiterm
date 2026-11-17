@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
@@ -162,7 +164,7 @@ async def test_an_abandoned_scan_keeps_indexed_pid_evidence_and_reports_a_late_e
         release.set()
         try:
             await asyncio.wait_for(finished.wait(), 2)
-            await resolver.settle_reads()
+            await settle(resolver)
             await asyncio.gather(pending, return_exceptions=True)
             if late_error:
                 await asyncio.wait_for(logged.wait(), 2)
@@ -170,3 +172,9 @@ async def test_an_abandoned_scan_keeps_indexed_pid_evidence_and_reports_a_late_e
             logger.removeHandler(capture)
     if late_error:
         assert any(rec.exc_info and str(rec.exc_info[1]) == "late scan error" for rec in errors)
+
+
+async def settle(resolver):
+    """Drain this test resolver's own worker after releasing its read latch."""
+    if resolver._scan is not None:
+        await asyncio.gather(asyncio.shield(resolver._scan), return_exceptions=True)

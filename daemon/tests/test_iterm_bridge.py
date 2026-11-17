@@ -1147,15 +1147,14 @@ async def test_a_piped_review_child_is_the_tabs_agent_until_it_exits(monkeypatch
 
         assert (registry.get("s1").agent, registry.get("s1").job_pid) == (agent, child_pid)
         assert (await bridge.session_info("s1")).job_pid == child_pid
-        registry.set_model("s1", "review-model")
 
         wrapper.stdin.write(b"exit child\n")
         await wrapper.stdin.drain()
         assert await asyncio.wait_for(wrapper.stdout.readline(), 5) == b"exited\n"
         diff = registry.apply_snapshot(await bridge.snapshot())
         assert diff.replaced == ["s1"]
-        assert (registry.get("s1").agent, registry.get("s1").job_pid, registry.get("s1").model) == (
-            "shell", wrapper.pid, None)
+        assert (registry.get("s1").agent, registry.get("s1").job_pid) == (
+            "shell", wrapper.pid)
     finally:
         if wrapper.returncode is None:
             os.killpg(wrapper.pid, signal.SIGKILL)

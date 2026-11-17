@@ -5,13 +5,18 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import stat
 import time
 from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID
 
-from .operator_token import well_formed
+_TOKEN = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def well_formed(token: str) -> bool:
+    return _TOKEN.fullmatch(token) is not None
 
 
 class OperatorSessionTokens:

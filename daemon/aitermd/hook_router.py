@@ -67,10 +67,10 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if tick.model or tick.reasoning or tick.context_percent is not None or "context_window" in body:
+            if tick.context_percent is not None or "context_window" in body:
                 async with self._in_order:
-                    post = HookEvent(agent, None, tick.model, tick.session_id, tick.cwd,
-                                     iterm_session_id=tick.iterm_session_id, reasoning=tick.reasoning,
+                    post = HookEvent(agent, None, tick.session_id, tick.cwd,
+                                     iterm_session_id=tick.iterm_session_id,
                                      context_percent=tick.context_percent, context_tokens=tick.context_tokens, transcript=tick.transcript)
                     ticked = await self._place_and_apply(post, body, statusline=True)
                 if ticked:
@@ -106,14 +106,11 @@ class HookRouter:
         # by evidence: another agent in the same worktree, a headless review there, is placed by the
         # directory alone.
         own = sid == direct
-        changed = self.status.apply_metadata(sid, model=ev.model if own else None, reasoning=ev.reasoning if own else None,
-                                             context=ev.context_percent, cwd=ev.cwd if not statusline else None,
+        changed = self.status.apply_metadata(sid, context=ev.context_percent, cwd=ev.cwd if not statusline else None,
                                              context_tokens=ev.context_tokens if own and statusline else None,
                                              clear_context_tokens=statusline and own,
                                              conversation=ev.conversation_id if own and not statusline else None,
-                                             transcript=ev.transcript if own else None,
-                                             # A status line naming a model without effort clears the previous one's.
-                                             clear_reasoning=statusline and own and bool(ev.model) and ev.reasoning is None)
+                                             transcript=ev.transcript if own else None)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct

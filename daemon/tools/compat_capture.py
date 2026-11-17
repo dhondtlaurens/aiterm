@@ -602,15 +602,6 @@ async def close(session: Session) -> None:
         await session.live.bridge.close_window(session.window)
 
 
-async def slash_command(session: Session, command: str) -> None:
-    """Types a slash command that only reports, and closes whatever it opened."""
-    await session.type(command)
-    await asyncio.sleep(4)
-    if open_prompt(session.agent, await session.look()) is not None:
-        await session.live.bridge.send_text(session.sid, ESC)
-    await asyncio.sleep(1)
-
-
 def read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
@@ -652,7 +643,7 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
     values = {"model": model, "reasoning": reasoning}
     launch = fill(launches()["claude"]["task"], values)
     command = " ".join(["env"] + [f"{key}={shlex.quote(value)}" for key, value in env.items()] + [shlex.quote(word) for word in launch])
-    turns = ["plain", "shellCommand", "subagent", "backgroundShell", "slashCommand", "approval"]
+    turns = ["plain", "shellCommand", "subagent", "backgroundShell", "approval"]
     session = await open_session(live, listener, "claude", work, command, claude_sessions=config / "sessions")
     try:
         say("claude: a plain turn")
@@ -672,11 +663,6 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
             await asyncio.sleep(1)
             await session.look()
         await asyncio.sleep(2)
-        # One AiTerm types itself. A session launched with --model keeps it, so nothing switches: its
-        # output reports nothing of the account, where /context lists the account's connectors.
-        say("claude: a slash command")
-        await slash_command(session, "/model sonnet")
-        await session.look()
     finally:
         await close(session)
     # The task launch names no permission mode, and Claude's default (auto) lets a classifier approve:

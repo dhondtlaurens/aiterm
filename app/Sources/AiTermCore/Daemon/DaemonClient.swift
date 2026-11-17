@@ -485,8 +485,6 @@ public final class DaemonClient: Sendable {
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
     struct RegisterParams: Encodable { var runId, token: String; var generation: Int }
     struct RunParams: Encodable { var runId: String; var generation: Int }
-    typealias PromptResult = PromptDetails
-    struct DismissResult: Decodable { var dismissed: Bool }
     struct DeliveryPolicyResult: Decodable { var agents: [String: DeliveryVerdict] }
     /// `result` and `error` are both always sent, `null` when absent, as the daemon reads them.
     struct OperatorReplyParams: Encodable {
@@ -589,17 +587,6 @@ public final class DaemonClient: Sendable {
     public func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
         struct Params: Encodable { var sessionId: String; var ownership: Int; var conversation: String }
         return try await request(.sessionCloseIdle, params: Params(sessionId: sessionId, ownership: ownership, conversation: conversation), as: Delivery.self)
-    }
-    public func prompt(sessionId: String) async throws -> PromptKind? {
-        try await promptDetails(sessionId: sessionId).kind
-    }
-    public func promptDetails(sessionId: String) async throws -> PromptDetails {
-        try await request(.sessionPrompt, params: SessionParams(sessionId: sessionId), as: PromptDetails.self)
-    }
-    /// True when the daemon found Codex's update offer open and declined it with Esc; false for any
-    /// other screen, a trust question included, which it leaves for the person.
-    public func dismissStartup(sessionId: String) async throws -> Bool {
-        try await request(.sessionDismissStartup, params: SessionParams(sessionId: sessionId), as: DismissResult.self).dismissed
     }
     /// Each agent's delivery verdict; a harness this app does not know is left out.
     public func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict] {

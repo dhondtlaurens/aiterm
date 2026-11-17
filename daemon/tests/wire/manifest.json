@@ -93,12 +93,6 @@
         "reply.session.deliver.json",
         "reply.session.deliver.refused.json"
       ],
-      "session.dismissStartup": [
-        "reply.session.dismissStartup.json"
-      ],
-      "session.prompt": [
-        "reply.session.prompt.json"
-      ],
       "session.setOwnership": [
         "reply.session.setOwnership.json"
       ],
@@ -151,8 +145,6 @@
     "session.activate",
     "session.closeIdle",
     "session.deliver",
-    "session.dismissStartup",
-    "session.prompt",
     "session.setOwnership",
     "sessions.list",
     "sessions.markSeen",

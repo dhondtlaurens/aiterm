@@ -5,7 +5,7 @@ from bisect import insort
 from dataclasses import dataclass, field, fields
 
 from .models import (CODEX_THREAD_TAG, PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, DisplayWork, RawSession,
-                     SessionInfo, SlashCommand, State, StoppedOn, classify_agent)
+                     SessionInfo, State, StoppedOn, classify_agent)
 
 
 @dataclass(slots=True)
@@ -95,7 +95,7 @@ class SessionRegistry:
             terminal_id=r.user_vars.get(TERMINAL_TAG) or self._window_terminal.get(r.window_id),
             # The tab's own: a tab beside an extra worker's is not that worker.
             tab_key=r.user_vars.get(TAB_TAG),
-            agent=classify_agent(r.command_line), model=None, state="idle",
+            agent=classify_agent(r.command_line), state="idle",
             title=r.title or "", cwd=r.cwd or "", job_pid=r.job_pid,
             # Read back from the map rather than from `r`, so a snapshot in which iTerm2
             # marks nothing current leaves the last known answer standing instead of
@@ -143,9 +143,6 @@ class SessionRegistry:
         leaves the last one standing. Not a change to announce: it is not sent."""
         return self._set(session_id, "transcript", transcript, keep_last_if_empty=True)
 
-    def set_slash_commands(self, session_id: str, commands: tuple[SlashCommand, ...]) -> bool:
-        return self._set(session_id, "slash_commands", commands)
-
     def set_background(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:
         if (session := self.get(session_id)) is None:
             return False
@@ -160,9 +157,6 @@ class SessionRegistry:
         session.display_work = work  # Equal display text can still carry a new provider identity internally.
         return changed
 
-    def set_subagents_written_at(self, session_id: str, written_at: float | None) -> bool:
-        return self._set(session_id, "subagents_written_at", written_at)
-
     def set_context(self, session_id: str, percent: int | None) -> bool:
         return self._set(session_id, "context_percent", percent)
 
@@ -173,12 +167,6 @@ class SessionRegistry:
         """The version the tab's agent CLI reports (SessionInfo.cli_version). None or empty is no
         reading, which leaves the last one standing: a process's version does not change."""
         return self._set(session_id, "cli_version", version, keep_last_if_empty=True)
-
-    def set_model(self, session_id: str, model: str | None) -> bool:
-        return self._set(session_id, "model", model)
-
-    def set_reasoning(self, session_id: str, reasoning: str | None) -> bool:
-        return self._set(session_id, "reasoning", reasoning)
 
     # -- lookups ---------------------------------------------------------
     def get(self, session_id: str) -> SessionInfo | None:

@@ -13,20 +13,15 @@
       "shells": null,
       "subagents": []
     },
-    "model": "claude-opus-5",
     "projectId": null,
-    "reasoning": "high",
     "sessionId": "s2",
-    "slashCommands": [],
     "state": "working",
     "stoppedOn": null,
-    "subagentsWrittenAt": null,
     "tabIndex": 0,
     "tabKey": null,
     "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
     "terminalId": null,
     "testActivity": null,
-    "title": "pi",
     "windowId": "w1",
     "yourPrompt": null
   }

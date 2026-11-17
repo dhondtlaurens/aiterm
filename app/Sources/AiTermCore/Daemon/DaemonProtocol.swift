@@ -37,13 +37,8 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     /// Types text into a session by the daemon's delivery rules (bracketed paste, re-check, Enter).
     case sessionDeliver = "session.deliver"
     case sessionCloseIdle = "session.closeIdle"
-    /// The prompt a session has open, if any: what an operator's `read_task(prompt)` reads.
-    case sessionPrompt = "session.prompt"
     /// The ownership generation a delivery must carry to land: a takeover moves it on.
     case sessionSetOwnership = "session.setOwnership"
-    /// Declines a startup dialog with Esc — only Codex's update offer: the daemon sends it only when the
-    /// open prompt is a startup one and the screen shows the update dialog. A trust question is the person's.
-    case sessionDismissStartup = "session.dismissStartup"
     /// Each harness's delivery verdict as the daemon reads it on every delivery: what the Operator is
     /// told before it plans a task on that agent.
     case deliveryPolicy = "delivery.policy"

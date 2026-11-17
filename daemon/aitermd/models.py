@@ -48,8 +48,8 @@ class Harness:
     numbered_menus: bool = False
     # Footer of the transcript-only view, which has no input box.
     transcript_view: tuple[str, ...] = ()
-    # Text that marks the CLI's update offer, every one of them needed: the one startup dialog AiTerm
-    # answers itself, declining it with Esc (session.dismissStartup, spec §7.1). A folder's trust is
+    # Text that marks the CLI's update offer, every one of them needed: the one startup dialog the
+    # delivery check can decline with Esc. A folder's trust is
     # yours to give: no harness marks it here.
     update_prompt: tuple[str, ...] = ()
     # What an idle or working CLI draws at the start of its input line (delivery.shows_input_box): the
@@ -214,36 +214,6 @@ class DisplayWork:
                 "shells": [item.to_json() for item in self.shells] if self.shells is not None else None}
 
 
-# What a slash command AiTerm typed into a Claude session became, as the session's own transcript shows it
-# (slash_commands.settle): typed and nothing seen yet; queued, its enqueue there and nothing taken from the queue
-# since; ran, its own command record there; or unknown: nothing seen within UNSEEN_SECONDS, or a transcript that
-# cannot be read; something taken from the queue since it was queued; or WATCH_SECONDS passed without its run. Until
-# then an unknown command can still become ran, but not one a remove, popAll or popOne named, nor one never queued once
-# the same text was typed again.
-SlashState = Literal["delivered", "queued", "ran", "unknown"]
-
-
-@dataclass(frozen=True, slots=True)
-class SlashCommand:
-    """A slash command AiTerm typed into a Claude session and pressed Enter on (message_task), and what became of it.
-    `delivered_at` is the wall clock just before it was typed, which the transcript's timestamps are compared with."""
-    text: str
-    delivered_at: float
-    state: SlashState = "delivered"
-    # When the transcript recorded it queued or run, by the record's own time.
-    seen_at: float | None = None
-    # A local command's output, on one line, once it ran.
-    output: str | None = None
-    # How long its transcript was when it was typed, in bytes: what Claude Code records of it comes after. Neither
-    # sent nor compared, and neither is the transcript that is a place in: the session may write another by now.
-    start: int = field(default=0, compare=False)
-    transcript: str | None = field(default=None, compare=False)
-
-    def to_json(self) -> dict[str, Any]:
-        return {"text": self.text, "state": self.state, "deliveredAt": self.delivered_at, "seenAt": self.seen_at,
-                "output": self.output}
-
-
 @dataclass(frozen=True, slots=True)
 class StoppedOn:
     """What ended a Claude session's last turn short: the API error Claude Code reported in place of its Stop (a
@@ -285,15 +255,13 @@ class SessionInfo:
     task_id: str | None
     project_id: str | None
     agent: AgentKind
-    model: str | None = field(metadata={"process": True})
     state: State
     # The tab's process title, which only the status engine reads (a Codex spinner). Left out of
-    # equality: a spinner turns on almost every poll, and clients do not use it, so a title-only
-    # difference is not a change to announce.
+    # equality and the wire: a spinner turns on almost every poll, so a title-only difference
+    # is not a change to announce.
     title: str = field(compare=False)
     cwd: str
     job_pid: int | None
-    reasoning: str | None = field(default=None, metadata={"process": True})
     # The directory the *agent* is in. iTerm2 only ever reports the shell's (`cwd`), and a
     # Claude that has entered a worktree chdirs its own process without moving the shell, so
     # this is filled in from the agent's own session file (Claude) or its hook posts (Codex).
@@ -307,7 +275,7 @@ class SessionInfo:
     context_tokens: int | None = field(default=None, metadata={"process": True})
     # The conversation the tab's agent runs, as the agent's own hooks name it (HookEvent.conversation_id),
     # and what the app resumes when it reopens the task's window. Another process in the tab is another
-    # conversation, so it goes with the agent's process, as the model does (SessionRegistry).
+    # conversation, so it goes with the agent's process (SessionRegistry).
     conversation_id: str | None = field(default=None, metadata={"process": True})
     # The terminal row this tab's window was opened for (TERMINAL_TAG), which the app adopts the
     # window by; None for a task's tab and for a terminal opened by an app too old to send it.
@@ -318,10 +286,6 @@ class SessionInfo:
     cli_version: str | None = field(default=None, compare=False, metadata={"process": True})
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
-    # When a transcript of the Claude subagents it counts was last written, the newest, as the tick last read them (the
-    # file's mtime): a child still at work, whose parent's own transcript may say nothing for minutes. None while it
-    # counts none, or has read none. It goes with the agent's process.
-    subagents_written_at: float | None = field(default=None, metadata={"process": True})
     # What its agent left running in the background when its last turn ended, which wakes it again (a Claude Stop's
     # `background_tasks`): a turn ended with this is paused, not finished. Empty once a new turn starts. A subagent
     # stays on it while the status engine counts it.
@@ -330,12 +294,9 @@ class SessionInfo:
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = field(default=None, metadata={"process": True})
-    # Where Claude writes this tab's conversation, as its own hooks name it (`transcript_path`): what shows what became
-    # of a slash command AiTerm typed here. Neither sent nor compared; it goes with the agent's process.
+    # Where Claude writes this tab's conversation, as its own hooks name it (`transcript_path`).
+    # Neither sent nor compared; it goes with the agent's process.
     transcript: str | None = field(default=None, compare=False, metadata={"process": True})
-    # The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each
-    # (slash_commands.py). It goes with the agent's process.
-    slash_commands: tuple[SlashCommand, ...] = field(default=(), metadata={"process": True})
     # What ended its last turn short (StoppedOn), until it works again: a new turn, a Stop, another conversation. It goes
     # with the agent's process.
     stopped_on: StoppedOn | None = field(default=None, metadata={"process": True})
@@ -345,15 +306,13 @@ class SessionInfo:
     def to_json(self) -> dict[str, Any]:
         return {
             "sessionId": self.session_id, "windowId": self.window_id, "tabIndex": self.tab_index,
-            "taskId": self.task_id, "projectId": self.project_id, "agent": self.agent, "model": self.model,
-            "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
+            "taskId": self.task_id, "projectId": self.project_id, "agent": self.agent,
+            "state": self.state, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
             "contextTokens": self.context_tokens,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
-            "subagentsWrittenAt": self.subagents_written_at,
             "background": [job.to_json() for job in self.background], "yourPrompt": self.your_prompt,
             "displayWork": self.display_work.to_json() if self.display_work is not None else None,
-            "slashCommands": [command.to_json() for command in self.slash_commands],
             "stoppedOn": self.stopped_on.to_json() if self.stopped_on else None,
             "testActivity": self.test_activity.to_json() if self.test_activity else None,
         }

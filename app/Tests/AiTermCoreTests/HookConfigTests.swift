@@ -15,7 +15,7 @@ import Foundation
         let obj = try JSONSerialization.jsonObject(with: once) as! [String: Any]
         let hooks = obj["hooks"] as! [String: [[String: Any]]]
         #expect(hooks["Stop"]!.count == 2, "Emdash entry kept, ours added")
-        #expect(Set(hooks.keys) == ["SessionStart", "PostModelSwitch", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
+        #expect(Set(hooks.keys) == ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
                                     "Notification", "PermissionRequest"])
         #expect(hooks.values.allSatisfy { $0.allSatisfy { entry in
             (entry["hooks"] as! [[String: Any]]).allSatisfy { $0["_aiterm"] == nil || $0["async"] as? Bool == true }
@@ -37,8 +37,8 @@ import Foundation
     func testClaudeMergeFromNoOrEmptySettingsStartsEmpty(_ settings: Data?) throws {
         let (data, original) = try ClaudeSettings.merge(settings, hookURL: "u", shimPath: "s")
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect((obj["hooks"] as! [String: Any]).count == 9)
-        #expect(ClaudeSettings.events.count == 9)
+        #expect((obj["hooks"] as! [String: Any]).count == 8)
+        #expect(ClaudeSettings.events.count == 8)
         #expect(original == nil)
     }
 

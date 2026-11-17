@@ -5,7 +5,7 @@ public struct Frame: Codable, Equatable, Sendable { public var x, y, w, h: Doubl
 
 public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var sessionId: String, windowId: String, tabIndex: Int, taskId: String?, projectId: String?
-    public var agent: SessionAgent, model: String?, reasoning: String? = nil, state: SessionState, title: String, cwd: String
+    public var agent: SessionAgent, state: SessionState, cwd: String
     /// The directory the *agent* is in. `cwd` is iTerm2's, which is the shell's and never follows
     /// a Claude that has entered a worktree; the daemon fills this in from the agent's own session
     /// file (Claude) or its hook posts (Codex). Absent for a plain shell.
@@ -37,16 +37,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var background: [BackgroundJob] = []
     /// Display-only source observations. Neither this inventory nor its availability decides readiness.
     public var displayWork: DisplayWork? = nil
-    /// When the transcripts of the Claude subagents it counts were last written, the newest, in seconds since 1970: a
-    /// child still at work while its parent's own transcript says nothing (`WorkerQuietWatch`). Nil while it counts
-    /// none, and from a daemon too old to send it.
-    public var subagentsWrittenAt: Double? = nil
     /// The first line of the prompt you typed into this tab yourself, for the turn it started: not one AiTerm launched
     /// the agent with or delivered. Nil once that turn ends, for any other prompt, and from a daemon too old to send it.
     public var yourPrompt: String? = nil
-    /// The last slash commands AiTerm typed into this Claude tab, oldest first, and what became of each as the tab's
-    /// own transcript shows it. Empty for any other tab, and from a daemon too old to send it.
-    public var slashCommands: [SlashCommand] = []
     /// What ended its last turn short, an API error Claude Code reported in place of its Stop, until it works again. Nil
     /// for any other tab, and from a daemon too old to send it.
     public var stoppedOn: StoppedOn? = nil
@@ -60,12 +53,6 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var terminalUUID: UUID? { terminalId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
-    /// The model and effort this tab runs now, as its own Claude Code says them, never a subagent's: the model from its
-    /// SessionStart as it starts, its PostModelSwitch once a switch has happened and its status line, the effort from its
-    /// status line alone. A /model or /effort moves them once it has run, never when it is typed. Nil for any other agent,
-    /// whose hooks may carry a child thread's model, and while Claude hasn't said.
-    public var liveModel: String? { agent == .claude ? model : nil }
-    public var liveReasoning: String? { agent == .claude ? reasoning : nil }
 }
 
 extension SessionInfo {
@@ -81,10 +68,7 @@ extension SessionInfo {
         taskId = try c.decodeIfPresent(String.self, forKey: .taskId)
         projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
         agent = try c.decode(SessionAgent.self, forKey: .agent)
-        model = try c.decodeIfPresent(String.self, forKey: .model)
-        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
         state = try c.decode(SessionState.self, forKey: .state)
-        title = try c.decode(String.self, forKey: .title)
         cwd = try c.decode(String.self, forKey: .cwd)
         agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
         active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
@@ -95,9 +79,7 @@ extension SessionInfo {
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
         background = try c.decodeIfPresent([BackgroundJob].self, forKey: .background) ?? []
         displayWork = try c.decodeIfPresent(DisplayWork.self, forKey: .displayWork)
-        subagentsWrittenAt = try c.decodeIfPresent(Double.self, forKey: .subagentsWrittenAt)
         yourPrompt = try c.decodeIfPresent(String.self, forKey: .yourPrompt)
-        slashCommands = try c.decodeIfPresent([SlashCommand].self, forKey: .slashCommands) ?? []
         stoppedOn = try c.decodeIfPresent(StoppedOn.self, forKey: .stoppedOn)
         testActivity = try c.decodeIfPresent(TestActivity.self, forKey: .testActivity)
     }
@@ -148,29 +130,6 @@ public struct StoppedOn: Codable, Equatable, Sendable {
 
     /// A usage or rate limit, which Claude Code may carry on from by itself once it resets.
     public var isLimit: Bool { error == "rate_limit" }
-}
-
-/// A slash command AiTerm typed into a Claude tab and pressed Enter on (`message_task`), and what became of it, as the
-/// tab's own transcript shows it (the daemon's `slash_commands.py`).
-public struct SlashCommand: Codable, Equatable, Sendable {
-    /// `delivered`: typed, nothing of it seen yet. `queued`: Claude Code queued it, and nothing has been taken from the
-    /// queue since. `ran`: its own command record is there. `unknown`: nothing of it seen within a minute, or a
-    /// transcript that can't be read; something taken from the queue since it was queued; or an hour passed without its
-    /// run. Within that hour it can still become `ran`, but not once a remove, popAll or popOne named it, nor, never
-    /// queued, once the same text was sent again; a /model or /effort run mid-turn takes effect and writes nothing.
-    /// See `SessionAgent`'s decoding note: a state this app does not know reads as unknown.
-    public enum State: String, Codable, LenientRawDecodable, Sendable {
-        case delivered, queued, ran, unknown
-        static var unrecognized: Self { .unknown }
-    }
-    public var text: String, state: State
-    /// When AiTerm typed it, and when its transcript recorded it queued or run: seconds since 1970.
-    public var deliveredAt: Double, seenAt: Double?
-    /// A local command's output, on one line, once it ran.
-    public var output: String?
-    public init(text: String, state: State, deliveredAt: Double, seenAt: Double? = nil, output: String? = nil) {
-        self.text = text; self.state = state; self.deliveredAt = deliveredAt; self.seenAt = seenAt; self.output = output
-    }
 }
 
 /// Display sources are independent of the legacy ended-turn obligations and each other's availability.
@@ -333,14 +292,6 @@ public struct DeliveryVerdict: Codable, Equatable, Sendable {
     public init(policy: DeliveryPolicy, version: String?) { self.policy = policy; self.version = version }
 }
 
-/// The prompt a session has open, as the daemon's screen markers classify it.
-/// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
-/// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)
-public enum PromptKind: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
-    case permission, startup, menu
-    static var unrecognized: Self { .menu }
-}
-
 /// One tool call from an operator: answered with `operator.reply` and the same `requestId`.
 public struct OperatorRequest: Decodable, Equatable, Sendable {
     public var requestId: String, runId: String, tool: String
@@ -378,13 +329,6 @@ struct DaemonErrorBody: Decodable { var code: DaemonError.Code, message: String 
 struct Reply<Value: Decodable>: Decodable { var result: Value }
 /// An event's `payload`, as the type its name says.
 struct EventPayload<Value: Decodable>: Decodable { var payload: Value }
-
-/// A prompt and the visible screen read with it. Older helpers may know only its kind.
-public struct PromptDetails: Codable, Equatable, Sendable {
-    public var kind: PromptKind?
-    public var text: String?
-    public init(kind: PromptKind?, text: String? = nil) { self.kind = kind; self.text = text }
-}
 
 extension DaemonError {
     /// Whether what the request asked for may still happen: it timed out, or the helper or iTerm2 went before it

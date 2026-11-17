@@ -45,22 +45,6 @@ final class DaemonOperatorWireTests {
         #expect(params()["worktree"] as? String == "/wt")
     }
 
-    @Test func blockingPromptIncludesReadableTextAndOptions() async throws {
-        try connect { _ in ["kind": "menu", "text": "Select reasoning\n1. Medium\n2. High"] }
-        let details = try await client.promptDetails(sessionId: "s1")
-        #expect(details.kind == .menu)
-        #expect(details.text == "Select reasoning\n1. Medium\n2. High")
-    }
-
-    @Test func anOpenPromptReadsAsItsKindAndNoneAsNil() async throws {
-        try connect { req in
-            ["kind": (req["params"] as? [String: Any])?["sessionId"] as? String == "s1" ? "permission" as Any : NSNull()]
-        }
-        #expect(try await client.prompt(sessionId: "s1") == .permission)
-        #expect(try await client.prompt(sessionId: "s2") == nil)
-        #expect(method() == "session.prompt")
-    }
-
     /// What the delivery check vouches for, per agent: a policy a newer daemon names reads as off, and a
     /// harness this app doesn't know is left out.
     @Test func theDeliveryPolicyReadsAsEachAgentsVerdict() async throws {
@@ -71,17 +55,6 @@ final class DaemonOperatorWireTests {
         #expect(method() == "delivery.policy")
         #expect(verdicts == [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"), .codex: DeliveryVerdict(policy: .pasteOnly, version: "0.160.0"),
                              .pi: DeliveryVerdict(policy: .off, version: "1.0.0")])
-    }
-
-    @Test func anUnknownPromptKindReadsAsAnOpenMenuAndANullKindStaysNone() async throws {
-        try connect { req in
-            switch (req["params"] as? [String: Any])?["sessionId"] as? String {
-            case "s1": ["kind": "somethingNew"]
-            default: ["kind": NSNull()]
-            }
-        }
-        #expect(try await client.prompt(sessionId: "s1") == .menu)
-        #expect(try await client.prompt(sessionId: "s2") == nil)
     }
 
     @Test func anUnknownDeliveryResultReadsAsRefused() async throws {
@@ -126,14 +99,6 @@ final class DaemonOperatorWireTests {
         try await client.revokeOperator(runId: "R", generation: 2)
         #expect(params(0)["generation"] as? Int == 2)
         #expect(params(1)["generation"] as? Int == 2)
-    }
-
-    @Test func aStartupDialogIsDismissedOnlyWhenTheDaemonSaysItDeclinedOne() async throws {
-        try connect { req in ["dismissed": (req["params"] as? [String: Any])?["sessionId"] as? String == "s1"] }
-        #expect(try await client.dismissStartup(sessionId: "s1"))
-        #expect(try await client.dismissStartup(sessionId: "s2") == false)
-        #expect(method() == "session.dismissStartup")
-        #expect(params(1)["sessionId"] as? String == "s2")
     }
 
     @Test func aReplyToTheOperatorSendsItsResultAndAnExplicitNullError() async throws {

@@ -6,7 +6,7 @@ import Foundation
 /// writes the file; launch asks only whether Claude Code still runs the usage shim.
 public enum ClaudeSettings {
     /// `StopFailure` fires in place of `Stop` when an API error ended the turn: a usage limit, a billing or sign-in failure.
-    static let events = ["SessionStart", "PostModelSwitch", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
+    static let events = ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
                          "Notification", "PermissionRequest"]
     /// Events AiTerm used to install and no longer does. `PreToolUse` was a *synchronous* Bash hook
     /// for a cleanup interception the daemon has since dropped, so every Bash tool call waited on a

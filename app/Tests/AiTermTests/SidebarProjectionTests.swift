@@ -143,9 +143,7 @@ import Testing
         #expect(row?.background == [BackgroundJob(kind: .subagent, text: "Review")])
     }
 
-    /// Before: ten session events that moved only a fill, a model and a title derived the rows ten
-    /// times, for the badge; ten sidebar moves or remembered choices twenty, and redrew the list ten
-    /// times; and each menu validation of Focus and List View two. Now none of them derives a row.
+    /// Context fills, sidebar moves, remembered choices and menu validation do not derive the rows again.
     @Test func onlyAChangeToARowDerivesTheRowsAgain() throws {
         let controller = try controller()
         let rows = controller.rows
@@ -154,10 +152,10 @@ import Testing
         var event = tab()
         #expect(!invalidates(readsTheList(rows)) {
             for n in 1...10 {
-                event.contextPercent = n; event.model = "model-\(n)"; event.title = "✳ step \(n)"
+                event.contextPercent = n
                 controller.live.handle(.sessionChanged(event))
             }
-        }, "a fill, a model or a title draws no row")
+        }, "a context fill draws no row")
         #expect(rows.derivations == start)
 
         #expect(!invalidates(readsTheList(rows)) {
@@ -270,7 +268,7 @@ import Testing
     }
 
     /// The footer's context row reads the rows' tabs and the fills: a session event that moved a fill
-    /// redraws it, one that moved only a model or a title does not, and neither does a sidebar move.
+    /// redraws it; a sidebar move does not.
     @Test func theContextRowRedrawsForAFillAlone() throws {
         let controller = try controller()
         controller.focus.browse(.task(Self.taskId))
@@ -279,8 +277,6 @@ import Testing
         event.contextPercent = 40
         #expect(invalidates({ _ = footer.body }) { controller.live.handle(.sessionChanged(event)) })
         #expect(controller.rows.usageRow(for: .task(Self.taskId))?.context?.percent == 40)
-        event.model = "sonnet"; event.title = "✳ thinking"
-        #expect(!invalidates({ _ = footer.body }) { controller.live.handle(.sessionChanged(event)) })
         #expect(!invalidates({ _ = footer.body }) {
             controller.workspace.mutate { $0.sidebarFrame = CGRect(x: 0, y: 0, width: 300, height: 800) }
         })

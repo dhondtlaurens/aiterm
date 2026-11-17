@@ -121,11 +121,6 @@ class CodexSessionFiles:
         for path in self._rollouts.keys() - set(self._paths.values()):
             del self._rollouts[path]
 
-    def context_percent(self, session_id: str) -> int | None:
-        located = self._path_for(session_id)
-        if located.path is None or located.after_cached_miss:
-            return None
-        return self._context_at(session_id, located.path)
 
     def _context_at(self, session_id: str, path: Path) -> int | None:
         try:
@@ -143,30 +138,9 @@ class CodexSessionFiles:
         self._context[session_id] = (stamp, percent)
         return percent
 
-    def cli_version(self, thread_id: str) -> str | None:
-        if (path := self._path_for(thread_id).path) is None:
-            return None
-        try:
-            stat = path.stat()
-        except OSError:
-            return None
-        try:
-            cursor = self._rollout(path, thread_id, stat)
-        except OSError:
-            return self._previous_version(path, stat)
-        error, cursor.version_error = cursor.version_error, None
-        if error is not None:
-            raise error
-        return cursor.version
-
     def _previous_version(self, path: Path, stat: os.stat_result) -> str | None:
         previous = self._rollouts.get(path)
         return previous.version if previous is not None and not previous.rewritten(stat.st_ino, stat.st_size) else None
-
-    def turn_state(self, thread_id: str) -> tuple[State, float] | None:
-        if (path := self._path_for(thread_id).path) is None:
-            return None
-        return self._turn_at(path, thread_id)
 
     def _turn_at(self, path: Path, thread_id: str) -> tuple[State, float] | None:
         try:

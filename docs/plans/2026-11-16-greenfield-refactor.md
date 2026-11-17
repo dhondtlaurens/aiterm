@@ -259,7 +259,7 @@ TS tests-scripts.
   and Dock badge path (its live cases move to the projection's); dead pickers, the command preview,
   the segmented agent picker, the broadcast step config, the disabled prompt editor, subtitles that
   never draw; the branch type and name halves of `TaskDraft` (TL F4, SB F1, F2, SS F4, F7, F8, TS F2).
-- [ ] 1g. **Codex.** Daemon leftovers: slash-command tracking, live model and effort attribution
+- [x] 1g. **Codex.** Daemon leftovers: slash-command tracking, live model and effort attribution
   and the `PostModelSwitch` hook, `subagentsWrittenAt`, `title` on the wire, the `session.prompt`
   and `session.dismissStartup` requests, the prose wake rule and its fixture, `operator_token.py`
   folded, the test-only `settle_reads` seams, the Codex reader's test-only methods and the copied
@@ -650,3 +650,23 @@ left.
   (names of deleted symbols, as the brief's decision says); one `TaskDraft` test passed a bare
   `bad..name` and now passes `feat/bad..name` with the same expectation. `AgentCommand.resumeWorker`
   is called only by tests; left, as the brief says.
+- 1g: daemon leftovers went: slash-command tracking, live model and effort attribution and the
+  `PostModelSwitch` hook, `subagentsWrittenAt`, `title` on the wire, `session.prompt` and
+  `session.dismissStartup`, the prose wake rule (a wake line is the grammar or refused with
+  `wakeText`) and `wake-lines.json`, `operator_token.py` (folded into `operator_session.py`), the
+  `settle_reads` seams, the Codex reader's test-only methods and `codex_reference.py`. Fixtures
+  re-recorded: `daemon/tests/wire/` with `AITERM_UPDATE_WIRE_FIXTURES=1` (only the session frames,
+  the snapshot, the manifest and the two deleted request replies changed; provenance paragraph
+  added) and `compat/drivers/claude-settings.json` with `AITERM_RECORD_COMPAT=1` (only the
+  `PostModelSwitch` block left; `launch.json` and `codex-hooks.toml` unchanged; no provenance file
+  exists for `compat/`). Decision: the brief expected no daemon budget number to move, but a steady
+  tick's registry sorts fell from 6 to 4 with the slash step gone; per `docs/testing.md` ("a change
+  lowers a number with the work that earned it") the four sort ceilings in
+  `test_tick_budgets.py` were lowered to 4 in this step, nothing else. Tests deleted with their
+  behaviour: all 39 of `test_slash_commands.py` (its helpers moved to `test_stop_failures.py`, the
+  survivor for stopped-worker transcripts), the attribution tests in `test_hook_events.py`,
+  `test_hook_router.py`, `test_sessions.py`, `test_status.py`, the prose wake tests (survivors:
+  `test_a_wake_line_outside_the_app_grammar_is_refused`, `test_the_app_grammar_wake_line_passes`),
+  the `session.prompt`/`dismissStartup` service tests (prompt recognition survives through test-owned
+  screen helpers; `dismiss_startup` tests stay), `test_claude_transcript_shows_the_slash_command_and_its_output`,
+  three `DaemonTypesTests` and four `DaemonOperatorWireTests` cases. The planner's points held.

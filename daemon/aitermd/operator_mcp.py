@@ -13,7 +13,6 @@ from typing import Any
 
 from . import delivery, mcp, protocol
 from .models import support_dir
-from .operator_token import well_formed as well_formed
 from .operator_session import OperatorSessionTokens
 from .rpc_params import optional_param, param
 from .rpc_server import RpcError

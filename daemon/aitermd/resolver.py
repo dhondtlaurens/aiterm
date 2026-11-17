@@ -39,11 +39,6 @@ class SessionResolver:
         if not done.cancelled() and (error := done.exception()) is not None:
             log.error("the Claude pid scan failed", exc_info=error)
 
-    async def settle_reads(self) -> None:
-        """Drain the resolver's own worker after a test releases its read latch."""
-        if self._scan is not None:
-            await asyncio.gather(asyncio.shield(self._scan), return_exceptions=True)
-
     async def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                               iterm_session_id: str | None = None) -> tuple[str | None, str | None]:
         """The placed tab and the directly evidenced tab, from one lookup. Hooks use the

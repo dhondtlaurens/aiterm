@@ -67,7 +67,7 @@ enum Budget {
 
     // MARK: - The window lock
 
-    /// Ten `session.changed` events for a task's tab that move only its context fill and its title, which no row draws,
+    /// Ten `session.changed` events for a task's tab that move only its context fill, which no row draws,
     /// through the app's own routing (`HelperLink.handle`): 0 `WindowReconciler` passes (10 before phase 7, one per
     /// event, none with anything to do). A pass now runs on a session event only when the tabs as a pass reads them
     /// moved. None may raise it.
@@ -86,7 +86,6 @@ enum Budget {
         let work = await Budget.metered {
             for n in 1...10 {
                 tab.contextPercent = n * 5
-                tab.title = "✳ step \(n)"
                 controller.helper.handle(.sessionChanged(tab))
             }
         }

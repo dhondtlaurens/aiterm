@@ -52,31 +52,6 @@ import Testing
         #expect(reason("unknown") == "stopped on an API error; it won’t carry on by itself")
     }
 
-    /// A tab whose turn waits on its subagent says so, and when its subagents last wrote; an older daemon says neither.
-    /// That moves as a child writes, and no row draws it.
-    @Test func aSessionCarriesWhenItsSubagentsWroteAndAnOlderDaemonsNothing() throws {
-        let waiting = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/repo","subagentsWrittenAt":1792701295.5,"background":[{"kind":"subagent","text":"Review the docs"}]}"#
-        let session = try JSONDecoder().decode(SessionInfo.self, from: Data(waiting.utf8))
-        #expect(session.subagentsWrittenAt == 1_792_701_295.5)
-        #expect(session.background == [BackgroundJob(kind: .subagent, text: "Review the docs")])
-        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"agent":"claude","state":"working","title":"","cwd":"/repo"}"#
-        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).subagentsWrittenAt == nil)
-        var later = session
-        later.subagentsWrittenAt = 1_792_701_300
-        #expect(later.rowRelevant == session.rowRelevant, "no row draws it")
-    }
-
-    @Test func sessionReasoningDecodesWhenPresentAndDefaultsToNilWhenAbsent() throws {
-        let withReasoning = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"pi","model":"openai/model-x","reasoning":"high","state":"working","title":"PI","cwd":"/repo"}"#
-        let pi = try JSONDecoder().decode(SessionInfo.self, from: Data(withReasoning.utf8))
-        #expect(pi.agent == .pi)
-        #expect(pi.reasoning == "high")
-
-        let legacy = #"{"sessionId":"s2","windowId":"w1","tabIndex":1,"taskId":null,"projectId":null,"agent":"codex","model":"gpt-5.6","state":"idle","title":"Codex","cwd":"/repo"}"#
-        let codex = try JSONDecoder().decode(SessionInfo.self, from: Data(legacy.utf8))
-        #expect(codex.reasoning == nil)
-    }
-
     /// C4: a daemon built from a different worktree can send a `SessionAgent`/`SessionState` raw
     /// value this app has never heard of. Decoding it to `.shell`/`.idle` keeps that one session
     /// from failing the whole snapshot, instead of a `.helperUnreachable` reconnect loop.
@@ -204,17 +179,4 @@ import Testing
         #expect(renamed.rowRelevant == session.rowRelevant, "no row draws a conversation")
     }
 
-    /// A Claude tab says what became of the slash commands AiTerm typed into it: a state this app doesn't know reads as
-    /// unknown, and an older daemon sends none. No row draws them, so a command that ran redraws nothing.
-    @Test func aSessionCarriesWhatBecameOfItsSlashCommandsAndAnOlderDaemonsNone() throws {
-        let sent = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"working","title":"","cwd":"/repo","slashCommands":[{"text":"/effort high","state":"ran","deliveredAt":1000,"seenAt":1001.5,"output":"Set effort level to high"},{"text":"/compact","state":"somethingNew","deliveredAt":1002,"seenAt":null,"output":null}]}"#
-        let session = try JSONDecoder().decode(SessionInfo.self, from: Data(sent.utf8))
-        #expect(session.slashCommands == [SlashCommand(text: "/effort high", state: .ran, deliveredAt: 1000, seenAt: 1001.5, output: "Set effort level to high"),
-                                          SlashCommand(text: "/compact", state: .unknown, deliveredAt: 1002)])
-        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"working","title":"","cwd":"/repo"}"#
-        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).slashCommands.isEmpty)
-        var settled = session
-        settled.slashCommands[1].state = .ran
-        #expect(settled.rowRelevant == session.rowRelevant, "no row draws a slash command")
-    }
 }

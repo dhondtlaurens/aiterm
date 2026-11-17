@@ -164,8 +164,8 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         await svc.tick()
         mark = app.mark()
         await svc.hook_router.handle_hook("/hook/pi", {
-            "hook_event_name": "agent_start", "session_id": "pi-wire", "cwd": WORKTREE + "/app", "model": "claude-opus-5",
-            "reasoning": "high", "context_percent": 42,
+            "hook_event_name": "agent_start", "session_id": "pi-wire", "cwd": WORKTREE + "/app",
+            "context_percent": 42,
             "_aiterm_iterm_session_id": pi})
         events[protocol.SESSION_CHANGED] = await app.event(protocol.SESSION_CHANGED, mark)
 
@@ -194,13 +194,10 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["session.setOwnership"] = await app.call("session.setOwnership", {"sessionId": worker, "ownership": 1})
         replies["session.deliver"] = await app.call("session.deliver", {
             "sessionId": worker, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
-        # A slash command typed into the Claude worker, whose hooks named its transcript: its session says what became of it.
         # The additive single-Operator context field: current input on this conversation alone.
         svc.status.apply_metadata(worker, context_tokens=39239)
-        svc.registry.set_transcript(worker, "/repo/claude-profile/projects/-repo/c-wire.jsonl")
-        await app.call("session.deliver", {"sessionId": worker, "text": "/effort high", "ownership": 1, "wake": False, "worktree": None})
-        replies["session.prompt"] = await app.call("session.prompt", {"sessionId": worker})
-        replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": worker})
+        # Fixed request IDs keep unrelated frames stable.
+        app._next_id += 3
         replies["delivery.policy"] = await app.call("delivery.policy")
 
         # The operator asks for run_status over /operator; the app answers the request it is sent.
@@ -222,12 +219,10 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["sessions.list"] = await app.call("sessions.list")
         replies["usage.get"] = await app.call("usage.get")
         # The Claude worker, the one Claude in its worktree, ends its turn while a review it started in the background and
-        # the gate run: the snapshot lists both on its session, the review by its description, with when the review's
-        # transcript was last written.
+        # the gate run: the snapshot lists both on its session, the review by its description.
         review = tmp_path / "claude-wire" / "subagents" / "agent-review-1.jsonl"
         review.parent.mkdir(parents=True, exist_ok=True)
         review.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "Review the fix"}}) + "\n")
-        os.utime(review, (1_790_000_300.5, 1_790_000_300.5))
         claude = {"session_id": "claude-wire", "cwd": WORKTREE, "transcript_path": str(tmp_path / "claude-wire.jsonl")}
         await svc.hook_router.handle_hook("/hook/claude", {**claude, "hook_event_name": "SubagentStart", "agent_id": "review-1"})
         await svc.hook_router.handle_hook("/hook/claude", {**claude, "hook_event_name": "Stop", "background_tasks": [
@@ -252,7 +247,9 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         errors[protocol.INTERNAL] = await app.call("window.setFrame", {"windowId": task_window, "frame": FRAME})
         # A wake line PI cannot be sent: no prompt of its can be read off its screen. The refusal names why.
         replies["session.deliver.refused"] = await app.call("session.deliver", {
-            "sessionId": pi, "text": "[AiTerm] updates waiting, call run_status", "ownership": 1, "wake": True, "worktree": None})
+            "sessionId": pi,
+            "text": "[AiTerm] worker_ended 11111111-1111-1111-1111-111111111111; call run_status",
+            "ownership": 1, "wake": True, "worktree": None})
         # An Operator's worker window whose agent command iTerm2 would not take: the window, and why.
         iterm.send_error = ItermUnavailable("iTerm2 did not answer within 10s")
         replies["window.createTask.commandError"] = await app.call("window.createTask", {

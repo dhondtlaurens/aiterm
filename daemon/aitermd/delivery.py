@@ -7,7 +7,6 @@ import functools
 import json
 import os
 import re
-import string
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -18,7 +17,7 @@ from .iterm_port import ItermPort, ItermUnavailable
 from .iterm_port import SessionNotFound
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, support_dir
 from .offload import run_detached
-from .screens import (PromptDetails as PromptDetails, PromptKind as PromptKind, _session_prompt,
+from .screens import (PromptKind as PromptKind, _session_prompt,
                       input_text as input_text, open_prompt as open_prompt,
                       shows_input_box as shows_input_box, shows_update_offer as shows_update_offer)
 from .sessions import SessionRegistry
@@ -123,7 +122,7 @@ def read_policy() -> dict[AgentKind, Verdict]:
 # prompt that opens while it arrives receives a paste rather than shortcut keys (spec §7.1).
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
 SUBMIT = "\r"
-# Esc: what declines Codex's update offer (session.dismissStartup).
+# Esc: the delivery check uses it to decline Codex's update offer.
 ESC = "\x1b"
 # What a paste may not carry: every C0 control but tab and newline -- ESC above all, which could end
 # the paste early and type the rest as keys -- DEL, and the C1 controls, CSI among them.
@@ -212,10 +211,6 @@ def _partial(why: Refusal) -> DeliveryResult:
     return DeliveryResult("partial", why.reason, why.code)
 
 
-# Quotes a word may be wrapped in, besides ASCII punctuation, when a wake line's words are counted.
-_QUOTES = "‘’“”"
-
-
 # The events the app wakes the Operator with (`OperatorWakeEvent`): app-owned names, never host
 # text. The wire manifest carries them, so app and daemon cannot drift apart again.
 WAKE_EVENTS: tuple[str, ...] = (
@@ -225,23 +220,11 @@ WAKE_EVENTS: tuple[str, ...] = (
 
 
 def wake_text_problem(text: str) -> str | None:
-    """Why `text` may not be typed as a wake line, or None when it may. A wake line is fixed and plain
-    (the app's OperatorWaker): no digit and no one-letter word, which a menu opening as it arrives could
-    take for its answer (`1`, `y`, `a`), and short enough to paste, since a wake line never goes
-    through a message file."""
-    # Signal wakes carry only an app-owned event and UUID, never a host title or key. Keep
-    # the older prose form's digit restriction; this narrow grammar is the only exception.
+    """Accept only the app's fixed event and UUID wake grammar."""
     identity = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     if re.fullmatch(r"\[AiTerm\] (?:" + "|".join(WAKE_EVENTS) + ") " + identity + r"; call run_status", text):
         return None
-    if any(ch.isdigit() for ch in text):
-        return "a wake line may not carry a digit"
-    words = (word.strip(string.punctuation + _QUOTES) for word in text.split())
-    if any(len(word) == 1 and word.isalpha() for word in words):
-        return "a wake line may not carry a one-letter word"
-    if len(text) > MESSAGE_FILE_THRESHOLD:
-        return "a wake line is too long to paste"
-    return None
+    return "a wake line is the app's fixed wake line or nothing"
 
 
 class Deliverer:
@@ -491,19 +474,8 @@ class Deliverer:
             return Refusal("pasteOnly", "before Enter, automatic submission is no longer checked safe")
         return None
 
-    async def prompt_details(self, session_id: str) -> PromptDetails:
-        """Classify and quote one screen read, so the operator sees the question and all its options.
-        The full visible screen preserves context that harness-specific menu slicing could lose."""
-        if (session := self.registry.get(session_id)) is None or (screen := await self.iterm.screen_text(session_id)) is None:
-            raise SessionNotFound(session_id)
-        if not screen.strip():
-            raise ItermUnavailable("the screen came back empty, so whether a prompt is open is unknown")
-        kind = _session_prompt(session, screen)
-        return {"kind": kind, "text": screen if kind is not None else None}
-
     async def dismiss_startup(self, session_id: str) -> bool:
-        """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one
-        itself (spec §7.1), so a task's agent is not left waiting on it. Sent only while the screen,
+        """The delivery check declines the CLI's update offer with Esc. Sent only while the screen,
         read within the session's turn, shows that offer below any input arrow and the tab is not
         working. It must bear every update marker: any other
         startup dialog -- a folder's trust above all -- is yours to answer, and is left open. True

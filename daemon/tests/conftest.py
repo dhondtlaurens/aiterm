@@ -260,3 +260,13 @@ async def task_tab(svc, r, w):
     window = (await call(r, w, "window.createTask", {
         "taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
     return window, svc.iterm.windows[window]["sessions"][0]
+
+
+async def settle(svc):
+    """Drain this test service's outstanding reads and release their finished handles."""
+    checks = dict(svc._checks)
+    if checks:
+        await asyncio.gather(*(asyncio.shield(check) for check in checks.values()), return_exceptions=True)
+    for name, check in checks.items():
+        if svc._checks.get(name) is check and check.done():
+            del svc._checks[name]

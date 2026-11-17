@@ -159,7 +159,7 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
         let box = EventBox(client.events)
         server.push(event: "iterm.connected", payload: ["version": "3.7.2"])
         server.push(event: "window.activated", payload: ["windowId": "w1"])
-        server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "model": "claude-opus-5", "state": "working", "title": "✳", "cwd": "/wt"])
+        server.push(event: "session.changed", payload: ["sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": NSNull(), "agent": "claude", "state": "working", "cwd": "/wt"])
         server.push(event: "usage.changed", payload: ["claude": ["fiveHour": ["usedPercent": 23, "resetsAt": 99], "sevenDay": NSNull(), "spend": NSNull(), "updatedAt": 1], "codex": NSNull()])
 
         guard case .event(let e1) = await nextEvent(box) else { Issue.record("timed out waiting for iterm.connected event"); return }
@@ -170,7 +170,7 @@ private func nextEvent(_ box: EventBox, timeoutSeconds: Double = 2) async -> Nex
 
         guard case .event(let e5) = await nextEvent(box) else { Issue.record("timed out waiting for session.changed event"); return }
         guard case .sessionChanged(let s)? = e5 else { Issue.record("expected .sessionChanged"); return }
-        #expect(s.state == .working); #expect(s.model == "claude-opus-5")
+        #expect(s.state == .working)
 
         guard case .event(let e6) = await nextEvent(box) else { Issue.record("timed out waiting for usage.changed event"); return }
         guard case .usageChanged(let u)? = e6 else { Issue.record("expected .usageChanged"); return }

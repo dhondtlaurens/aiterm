@@ -18,3 +18,9 @@ On 15 Nov 2026 the Signal activation/deletion deliberately added `generation: 1`
 `operator.request` event. Register and revoke now require the single Operator's generation;
 per-run tokens are retired. The existing capture driver produced this frame through the real
 socket and HTTP route. Every other previously captured frame stayed byte-for-byte unchanged.
+
+On 17 Nov 2026, greenfield refactor step 1g removed `model`, `reasoning`, `title`,
+`subagentsWrittenAt` and `slashCommands` from every session, and `session.prompt` and
+`session.dismissStartup` from the manifest and reply fixtures. Re-recorded with
+`AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py` through the synthetic
+Service and FakeIterm; no live account or iTerm2 used. All other frames retain their bytes.

@@ -1,6 +1,7 @@
 """A Claude turn an API error ended (its StopFailure hook, in place of a Stop): what the session says stopped it, when
 a usage limit it hit resets, as its transcript records that, and what clears it once the session works again."""
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,7 +10,51 @@ from aitermd.models import Frame, RawSession, StoppedOn
 from aitermd.sessions import SessionRegistry
 from aitermd.status import StatusEngine
 from aitermd.stop_failures import StopReading, StopTranscripts
-from tests.test_slash_commands import IDLE, Clock, caveat, iso, output, ran, write
+
+
+def iso(at: float) -> str:
+    """A transcript timestamp: UTC, to the millisecond, as Claude Code writes it."""
+    return datetime.fromtimestamp(at, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+# A Claude transcript's records around the slash commands typed into it, as Claude Code 2.1.310 writes them (taken
+# from a session driven live on 26 Oct 2026, its text shortened).
+def caveat(at: float, prompt: str = "p1") -> dict:
+    return {"isSidechain": False, "promptId": prompt, "type": "user", "isMeta": True, "timestamp": iso(at),
+            "message": {"role": "user", "content": "<local-command-caveat>The command below was run directly in Claude Code, "
+                                                   "not sent to you as a request.</local-command-caveat>"}}
+
+
+def ran(name: str, args: str, at: float, prompt: str = "p1", sidechain: bool = False) -> dict:
+    """A local command Claude Code ran, by its name and arguments."""
+    return {"isSidechain": sidechain, "promptId": prompt, "type": "user", "timestamp": iso(at), "message": {"role": "user", "content":
+            f"<command-name>/{name}</command-name>\n            <command-message>{name}</command-message>\n"
+            f"            <command-args>{args}</command-args>"}}
+
+
+def output(text: str, at: float, prompt: str = "p1") -> dict:
+    return {"isSidechain": False, "promptId": prompt, "type": "user", "timestamp": iso(at),
+            "message": {"role": "user", "content": f"<local-command-stdout>{text}</local-command-stdout>"}}
+
+
+def write(path, *records, tail=""):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write("".join(json.dumps(r) + "\n" for r in records) + tail)
+    return str(path)
+
+
+class Clock:
+    """A wall clock a test moves by hand."""
+
+    def __init__(self, now: float):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+IDLE = "────────────────\n❯\x20\n────────────────\n  ? for shortcuts"
 
 T0 = 1_793_000_000.0
 # When the limit in the records below resets: 26 Oct 2026, 13:20 in Brussels.

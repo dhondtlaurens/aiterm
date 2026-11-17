@@ -56,11 +56,11 @@ The loopback receiver defaults to `127.0.0.1:47821`:
 
 | Route | Input |
 | --- | --- |
-| `/hook/claude` | Session/model/turn/subagent/permission/notification/StopFailure events. |
+| `/hook/claude` | Session/turn/subagent/permission/notification/StopFailure events. |
 | `/hook/codex` | Session/turn/subagent/permission events. |
-| `/hook/pi` | Session, activity, UI prompt and model/reasoning events. |
+| `/hook/pi` | Session, activity and UI prompt events. |
 | `/mcp` | Stateless Codex Stop bridge, still reachable after checkout removal. |
-| `/statusline` | Claude's context, model and usage telemetry. |
+| `/statusline` | Claude's context and usage telemetry. |
 
 Requests require `X-AiTerm-Hook: 1`; missing headers and unknown routes receive a plain 404. Codex/PI
 tab placement uses `X-AiTerm-iTerm-Session`, never a same-named body field. Telemetry is acknowledged

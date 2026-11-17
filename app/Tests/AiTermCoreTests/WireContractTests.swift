@@ -98,8 +98,6 @@ import Testing
                 // A code this app knows: one it did not would read as `.unknown`.
                 #expect(try delivery.code?.rawValue == field("code") as? String)
                 #expect(delivery.code != .unknown)
-            case .sessionPrompt: #expect(try read(DaemonClient.PromptResult.self).kind?.rawValue == field("kind") as? String)
-            case .sessionDismissStartup: #expect(try read(DaemonClient.DismissResult.self).dismissed == field("dismissed") as? Bool)
             case .deliveryPolicy:
                 let agents = try #require(field("agents") as? [String: [String: Any]])
                 let verdicts = try read(DaemonClient.DeliveryPolicyResult.self).agents
