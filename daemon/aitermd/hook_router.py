@@ -5,6 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .codex_threads import CodexThreads
 from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS, HookEvent
 from .models import AgentKind
 from .publisher import Publisher
@@ -26,13 +27,15 @@ def _first_line(prompt: str | None) -> str:
 
 
 class HookRouter:
-    """Places each post on a tab through the resolver, applies it to the status engine or the
-    usage store, and publishes what changed. Knows nothing of HTTP or of iTerm2."""
+    """Places each post on a tab through the resolver, binds a Codex tab's thread, applies the post
+    to the status engine or the usage store, and publishes what changed. Knows nothing of HTTP or of
+    iTerm2."""
 
-    def __init__(self, resolver: SessionResolver, status: StatusEngine, usage: UsageStore,
+    def __init__(self, resolver: SessionResolver, codex_threads: CodexThreads, status: StatusEngine, usage: UsageStore,
                  clock: Callable[[], float], publisher: Publisher,
                  tick: Callable[[], Awaitable[None]] | None = None, retick_seconds: float = RETICK_SECONDS):
-        self.resolver, self.status, self.usage, self.clock, self.publisher = resolver, status, usage, clock, publisher
+        self.resolver, self.codex_threads = resolver, codex_threads
+        self.status, self.usage, self.clock, self.publisher = status, usage, clock, publisher
         # `tick` re-reads iTerm2 into the registry: the service's own, which already shares one pass
         # between callers that ask together.
         self._tick, self._retick_seconds = tick, retick_seconds
@@ -167,5 +170,8 @@ class HookRouter:
                       iterm_session_id: str | None = None, hook_event: str | None = None) -> tuple[str | None, str | None]:
         sid, direct = await self.resolver.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)
         if sid is not None:
-            self.resolver.bind(sid, agent, session_id, hook_event, authoritative=sid == direct)
+            self.resolver.bind(sid, agent, session_id)
+            # Only a post placed by evidence says which thread the tab runs: a pin or the directory can name a sibling.
+            if agent == "codex" and session_id and sid == direct:
+                self.codex_threads.bind(sid, session_id, hook_event)
         return sid, direct

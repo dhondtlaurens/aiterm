@@ -407,7 +407,7 @@ TS tests-scripts.
   (WD F5).
 - [x] 6d. **Codex.** Readings carry one session key and are dropped generically when it changed;
   the six hand-written identity checks and `Turn.generation` go (DM F6).
-- [ ] 6e. **Opus.** One owner for Codex thread identity: restored from the tab's tag, bound by
+- [x] 6e. **Opus.** One owner for Codex thread identity: restored from the tab's tag, bound by
   hooks, asked by the readers, written back after the tick (DM F5). The tag's format stays.
 - [ ] 6f. **Opus.** Telemetry grouped by agent (Claude, Codex, PI), each turning its readings into
   evidence for one status entry point; the engine loses its agent-specific methods (DM F4). The
@@ -1245,3 +1245,10 @@ left.
   so two stops with the same error give two keys and the wire is byte-identical. No test deleted; added
   the same-error regression, partial acceptance across two sessions and whole-plan cases. Tick budgets
   unchanged (an extra registry sort was avoided with a session-id lookup).
+- 6e: one owner for Codex thread identity, `CodexThreads`: restored from the tab's tag at each
+  snapshot (validated there), bound by hooks placed by evidence, asked by the readers, written back to
+  the tag after the tick (once per new thread). The resolver only places posts and keeps pins; the
+  registry no longer reads the tag. Tag format and wire unchanged. No test deleted; four Codex thread
+  tests moved to the new `test_codex_threads.py`, plus `test_a_thread_restored_after_a_helper_restart_is_not_written_again`.
+  Behaviour note: at a helper restart, each Codex tab restored from its tag gets one `session.changed`
+  after its `session.opened` (identical payload).

@@ -1,9 +1,8 @@
-"""Which iTerm2 session an agent's post belongs to, and which Codex thread each tab runs."""
+"""Places each agent post on the iTerm2 session it belongs to."""
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
 
 from .claude_sessions import ClaudeSessionFiles
 from .offload import run_detached
@@ -15,23 +14,11 @@ SCAN_SECONDS = 1.0
 log = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
-class CodexBinding:
-    """The Codex thread a tab runs. Unlike a pin, this is authoritative and replaced by every
-    resolved Codex hook. A non-None `pending_generation` leaves the process binding open until a
-    newer snapshot, because a replacement Codex can post before iTerm2 reports its new pid."""
-    thread_id: str
-    pid: int | None
-    pending_generation: int | None
-
-
 class SessionResolver:
     def __init__(self, registry: SessionRegistry, claude_files: ClaudeSessionFiles):
         self.registry, self.claude_files = registry, claude_files
         # (agent, the agent's own session id) -> the iTerm2 session it was last resolved to.
         self._pins: dict[tuple[str, str], str] = {}
-        self._codex: dict[str, CodexBinding] = {}
-        self._generation = 0
         self._scan: asyncio.Future[int | None] | None = None
 
     @staticmethod
@@ -87,55 +74,12 @@ class SessionResolver:
                 return s.session_id
         return None
 
-    def bind(self, iterm_session_id: str, agent: AgentKind, session_id: str | None, hook_event: str | None = None, *,
-             authoritative: bool = True) -> None:
-        """Records what a resolved post says about its tab: the pin, and for Codex the thread."""
-        if not session_id:
-            return
-        self._pins[(agent, session_id)] = iterm_session_id
-        if agent != "codex" or not authoritative or hook_event in ("SubagentStart", "SubagentStop"):
-            return
-        session = self.registry.get(iterm_session_id)
-        pid = session.job_pid if session else None
-        current = self._codex.get(iterm_session_id)
-        if hook_event == "Stop":
-            # A final hook cannot authorize this thread to follow a future process id. Binding it
-            # to the currently observed process makes replacement invalidate it.
-            self._codex[iterm_session_id] = CodexBinding(session_id, pid, None)
-        elif current is None or current.thread_id != session_id or hook_event == "SessionStart":
-            # A different thread, or an explicit resume of the same thread, may belong to a
-            # replacement process whose pid iTerm2 has not reported yet.
-            self._codex[iterm_session_id] = CodexBinding(session_id, pid, self._generation)
-
-    def snapshot_applied(self) -> None:
-        """Called after every registry snapshot. Validates every Codex binding, including those of
-        tabs no longer running Codex, which the tick's Codex branch never reaches."""
-        self._generation += 1
-        for iterm_session_id in tuple(self._codex):
-            self.codex_thread(iterm_session_id)
-
-    def codex_thread(self, iterm_session_id: str) -> str | None:
-        binding = self._codex.get(iterm_session_id)
-        session = self.registry.get(iterm_session_id)
-        if binding is None and session is not None and session.agent == "codex" and session.conversation_id:
-            # SessionRegistry restored the tab's hook-proven, process-bound identity.
-            binding = self._codex[iterm_session_id] = CodexBinding(session.conversation_id, session.job_pid, None)
-        if binding is None:
-            return None
-        if session is None or session.agent != "codex":
-            del self._codex[iterm_session_id]
-            return None
-        if binding.pending_generation is not None:
-            if self._generation > binding.pending_generation:
-                binding.pid, binding.pending_generation = session.job_pid, None
-            return binding.thread_id
-        if session.job_pid != binding.pid:
-            del self._codex[iterm_session_id]
-            return None
-        return binding.thread_id
+    def bind(self, iterm_session_id: str, agent: AgentKind, session_id: str | None) -> None:
+        """Pins the agent's conversation to the tab a post was placed on."""
+        if session_id:
+            self._pins[(agent, session_id)] = iterm_session_id
 
     def forget(self, iterm_session_id: str) -> None:
-        self._codex.pop(iterm_session_id, None)
         for key in [key for key, pinned in self._pins.items() if pinned == iterm_session_id]:
             del self._pins[key]
 

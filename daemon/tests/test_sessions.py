@@ -1,7 +1,3 @@
-import json
-
-import pytest
-
 from aitermd.sessions import SessionRegistry
 
 from tests.builders import (
@@ -17,23 +13,6 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
         "agent": "claude", "state": "idle", "cwd": "/home",
         "agentCwd": None, "active": False, "contextPercent": None, "contextTokens": None, "conversationId": None, "terminalId": None,
         "tabKey": None, "work": [], "yourPrompt": None, "stoppedOn": None, "testActivity": None})
-
-
-@pytest.mark.parametrize(("agent", "pid", "tag", "conversation"), [
-    ("codex", 42, json.dumps({"pid": 42, "thread": "worker"}), "worker"),
-    ("codex", 43, json.dumps({"pid": 42, "thread": "worker"}), None),
-    ("claude", 42, json.dumps({"pid": 42, "thread": "worker"}), None),
-    ("codex", None, json.dumps({"pid": 42, "thread": "worker"}), None),
-    ("codex", 42, "not json", None),
-    ("codex", 42, json.dumps({"pid": 42, "thread": ""}), None),
-])
-def test_a_saved_codex_thread_belongs_only_to_its_process(agent, pid, tag, conversation):
-    reg = SessionRegistry()
-    session = raw(cmd=agent, pid=pid, aiterm_codex_thread=tag)
-    reg.apply_snapshot([session])
-    assert reg.get("s1").conversation_id == conversation
-    reg.apply_snapshot([session])
-    assert reg.get("s1").conversation_id == conversation
 
 
 def test_untagged_session_in_tagged_window_inherits_task():

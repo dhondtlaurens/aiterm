@@ -560,7 +560,7 @@ async def test_a_codex_hook_placed_only_by_directory_cannot_supply_a_saved_threa
     await svc.hook_router.handle_hook("/hook/codex", {
         "hook_event_name": "SessionStart", "session_id": "headless-thread", "cwd": "/wt"})
     await svc.tick()
-    assert svc.resolver.codex_thread(sid) is None
+    assert svc.codex_threads.thread(sid) is None
     assert svc.registry.get(sid).conversation_id is None
 
 
@@ -593,7 +593,7 @@ async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack
     await it.user_runs(sid, "codex", job_pid=108, title="Codex")
     await svc.tick()
 
-    assert svc.resolver.codex_thread(sid) is None
+    assert svc.codex_threads.thread(sid) is None
     assert svc.registry.get(sid).context_percent is None
 
 
@@ -617,7 +617,7 @@ async def test_new_codex_hook_before_snapshot_binds_to_the_replacement_process(s
     })
     await svc.tick()
 
-    assert svc.resolver.codex_thread(sid) == "new-thread"
+    assert svc.codex_threads.thread(sid) == "new-thread"
 
 
 async def test_tick_uses_claude_file_status_and_agent_exit(stack):
@@ -1352,7 +1352,7 @@ async def test_closed_sessions_leave_nothing_behind(stack):
     await svc.tick()
     assert sid not in svc.windows._self_created and sid not in svc.windows._applied_titles
     assert svc.status.turn(sid) is None
-    assert not svc.resolver._pins and not svc.resolver._codex
+    assert not svc.resolver._pins and not svc.codex_threads._bindings and not svc.codex_threads._written
     assert not svc.codex_files._paths and not svc.codex_files._missed and not svc.codex_files._rollouts
 
 
@@ -1993,10 +1993,10 @@ async def test_a_tick_that_raises_after_the_snapshot_still_publishes_what_the_sn
     class Abort(BaseException):
         """Not an Exception, so no step's guard swallows it, as with a cancelled tick."""
 
-    def broken():
+    def broken(_raw):
         raise Abort
 
-    monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
+    monkeypatch.setattr(svc.codex_threads, "restore", broken)
     with pytest.raises(Abort):
         await svc.tick()
     # The registry already holds the new agent, so the next tick would diff nothing: the app must hear of it now.
@@ -2060,7 +2060,10 @@ async def test_a_step_before_the_announcements_failing_does_not_cost_them(stack,
         forgotten.extend(args)
         raise RuntimeError("a store that could not keep up")
 
-    monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
+    def unrestorable(_raw):
+        raise RuntimeError("a store that could not keep up")
+
+    monkeypatch.setattr(svc.codex_threads, "restore", unrestorable)
     monkeypatch.setattr(svc.windows, "forget_title", broken)
     with caplog.at_level("ERROR", logger="aitermd.service"):
         await svc.tick()
@@ -2068,7 +2071,7 @@ async def test_a_step_before_the_announcements_failing_does_not_cost_them(stack,
         pass
     assert sorted(forgotten) == sorted([first, moved]), "the second moved session is forgotten though the first raised"
     logged = [rec.getMessage() for rec in caplog.records if rec.name == "aitermd.service"]
-    assert any("bindings after the snapshot" in m for m in logged)
+    assert any("Codex threads after the snapshot" in m for m in logged)
     assert all(any(f"moved session {sid}" in m for m in logged) for sid in (first, moved))
 
 
@@ -2087,10 +2090,11 @@ async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stac
     assert (await next_event(r, "session.closed"))["sessionId"] == second
 
 
-@pytest.mark.parametrize("part,method", [("windows", "forget_session"), ("status", "reset_turn"), ("resolver", "forget")])
+@pytest.mark.parametrize("part,method", [("windows", "forget_session"), ("status", "reset_turn"), ("resolver", "forget"),
+                                         ("codex_threads", "forget")])
 async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_others_from_it(stack, monkeypatch, caplog, part, method):
     svc, it, files, r, w = stack
-    what = {"windows": "window state", "status": "turn", "resolver": "bindings"}[part]
+    what = {"windows": "window state", "status": "turn", "resolver": "pins", "codex_threads": "Codex thread"}[part]
     wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=301, title="Codex")
     await svc.tick()
@@ -2098,7 +2102,7 @@ async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_othe
         await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": event, "session_id": "thread-z", "cwd": "/wt",
                                                           "agent_id": "child", "_aiterm_iterm_session_id": sid})
     await call(r, w, "sessions.setTitles", {"titles": [{"sessionId": sid, "title": "main"}]}, id_=2)
-    assert svc.status.turn(sid) and svc.resolver._pins and sid in svc.windows._applied_titles
+    assert svc.status.turn(sid) and svc.resolver._pins and svc.codex_threads._bindings and sid in svc.windows._applied_titles
 
     def broken(session_id):
         raise RuntimeError("a store that could not forget")
@@ -2110,6 +2114,7 @@ async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_othe
     assert part == "windows" or sid not in svc.windows._applied_titles
     assert part == "status" or svc.status.turn(sid) is None
     assert part == "resolver" or not svc.resolver._pins
+    assert part == "codex_threads" or not svc.codex_threads._bindings
     assert f"forgetting the {what} of closed session {sid} failed" in [rec.getMessage() for rec in caplog.records]
 
 
@@ -2403,12 +2408,12 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
     wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "codex", job_pid=500, title="Codex")
     await svc.tick()
-    svc.resolver.bind(sid, "codex", "old-thread", "SessionStart")
+    svc.codex_threads.bind(sid, "old-thread", "SessionStart")
 
     async def replaced_during_read(name, work, nothing):
         from aitermd.codex_sessions import CodexReading
 
-        svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
+        svc.codex_threads.bind(sid, "new-thread", "SessionStart")
         return {sid: CodexReading(90, "old-version", None)}
 
     monkeypatch.setattr(svc, "run_check", replaced_during_read)

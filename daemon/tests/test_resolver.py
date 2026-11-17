@@ -59,35 +59,6 @@ async def test_the_hooks_own_prefixed_tab_id_wins_for_its_agent_only(world):
     assert (await resolver.resolve_with_evidence("pi", "p1", "/elsewhere", "w1t2p0:x"))[0] is None
 
 
-async def test_a_codex_thread_waits_for_the_next_snapshot_to_learn_its_process(world):
-    resolver, reg, _ = world
-    resolver.bind("x", "codex", "thread-1", "UserPromptSubmit")
-    # The replacement process posts before iTerm2 has reported its pid.
-    reg.apply_snapshot([RawSession("x", "w1", 2, "codex", 104, "", "/repo", {})])
-    resolver.snapshot_applied()
-    assert resolver.codex_thread("x") == "thread-1"
-    # Bound to 104 from here on: another process in the tab is another conversation.
-    reg.apply_snapshot([RawSession("x", "w1", 2, "codex", 105, "", "/repo", {})])
-    resolver.snapshot_applied()
-    assert resolver.codex_thread("x") is None
-
-
-async def test_a_stop_binds_the_thread_to_the_process_it_came_from(world):
-    resolver, reg, _ = world
-    resolver.bind("x", "codex", "thread-1", "Stop")
-    reg.apply_snapshot([RawSession("x", "w1", 2, "codex", 104, "", "/repo", {})])
-    resolver.snapshot_applied()
-    assert resolver.codex_thread("x") is None
-
-
-@pytest.mark.parametrize("event", ["SubagentStart", "SubagentStop"])
-async def test_a_codex_child_does_not_replace_its_parents_thread(world, event):
-    resolver, _, _ = world
-    resolver.bind("x", "codex", "parent", "Stop")
-    resolver.bind("x", "codex", "child", event)
-    assert resolver.codex_thread("x") == "parent"
-
-
 async def test_pi_resolves_directly_by_iterm_session(tmp_path):
     reg = SessionRegistry()
     reg.apply_snapshot([RawSession("tab-1", "w1", 0, "pi", 41, "", "/wt", {"aiterm_task": "t1"})])

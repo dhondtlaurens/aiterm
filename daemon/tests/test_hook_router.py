@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
+from aitermd.codex_threads import CodexThreads
 from aitermd.hook_router import HookRouter
 from aitermd.models import RawSession
 from aitermd.publisher import Publisher
@@ -22,8 +23,9 @@ class Hooks:
         self.registry, self.usage = SessionRegistry(), UsageStore()
         self.status = StatusEngine(self.registry, lambda: 1000.0)
         self.resolver = SessionResolver(self.registry, ClaudeSessionFiles(tmp_path / "claude-sessions"))
+        self.codex_threads = CodexThreads(self.registry, None)
         self.events: list[tuple[str, dict]] = []
-        self.router = HookRouter(self.resolver, self.status, self.usage, lambda: 1000.0,
+        self.router = HookRouter(self.resolver, self.codex_threads, self.status, self.usage, lambda: 1000.0,
                                  Publisher(self._record, self.registry, self.usage), tick=self._tick,
                                  retick_seconds=0.02)
 
@@ -38,9 +40,10 @@ class Hooks:
 
     def tabs(self, *tabs: tuple[str, str, int]) -> list[str]:
         """Task t1's window, one tab per (session id, command line, job pid), all in /wt."""
-        self.registry.apply_snapshot([RawSession(sid, "w1", index, command, pid, "", "/wt", {"aiterm_task": "t1"})
-                                      for index, (sid, command, pid) in enumerate(tabs)])
-        self.resolver.snapshot_applied()
+        raw = [RawSession(sid, "w1", index, command, pid, "", "/wt", {"aiterm_task": "t1"})
+               for index, (sid, command, pid) in enumerate(tabs)]
+        self.registry.apply_snapshot(raw)
+        self.codex_threads.restore(raw)
         return [sid for sid, _, _ in tabs]
 
     async def post(self, path, body):
@@ -126,7 +129,7 @@ async def test_resuming_an_older_codex_thread_makes_it_current_for_the_tab(hooks
     for thread_id in ("thread-a", "thread-b", "thread-a"):
         await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": thread_id,
                                          "cwd": "/wt", "_aiterm_iterm_session_id": sid})
-    assert hooks.resolver.codex_thread(sid) == "thread-a"
+    assert hooks.codex_threads.thread(sid) == "thread-a"
 
 
 async def test_codex_hook_matches_after_the_agent_moved(hooks):

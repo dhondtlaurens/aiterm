@@ -12,9 +12,9 @@ from .claude_background import BackgroundTranscripts, ShellReading
 from .claude_sessions import ClaudeSessionFile, ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .codex_sessions import CODEX_READ, CodexReading, CodexSessionFiles
+from .codex_threads import CodexThreads
 from .iterm_port import ItermPort
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
-from .resolver import SessionResolver
 from .sessions import SessionRegistry
 from .status import StatusEngine
 from .screens import shows_trust_prompt
@@ -62,9 +62,9 @@ class ReadPlan(Generic[T]):
 
 
 class CorroboratingReaders:
-    def __init__(self, registry: SessionRegistry, status: StatusEngine, resolver: SessionResolver,
+    def __init__(self, registry: SessionRegistry, status: StatusEngine, codex_threads: CodexThreads,
                  iterm: ItermPort, clock: Callable[[], float]):
-        self.registry, self.status, self.resolver = registry, status, resolver
+        self.registry, self.status, self.codex_threads = registry, status, codex_threads
         self.iterm, self.clock = iterm, clock
 
     def snapshot(self, sessions: list[SessionInfo], changed: list[str]) -> tuple[dict[str, str], list[str]]:
@@ -76,7 +76,7 @@ class CorroboratingReaders:
                         changed += self.status.agent_exited(session.session_id)
                 elif HARNESS_BY_AGENT[session.agent].corroboration == "codex_title":
                     changed += self.status.apply_codex_title(session.session_id, session.title)
-                    if thread := self.resolver.codex_thread(session.session_id):
+                    if thread := self.codex_threads.thread(session.session_id):
                         threads[session.session_id] = thread
         return threads, []
 
@@ -133,7 +133,7 @@ class CorroboratingReaders:
         captured = dict(threads)
 
         def key(session: SessionInfo) -> SessionKey:
-            return SessionKey.capture(session, self.resolver.codex_thread(session.session_id))
+            return SessionKey.capture(session, self.codex_threads.thread(session.session_id))
 
         keys = {sid: SessionKey.capture(session, thread) for sid, thread in captured.items()
                 if (session := self.registry.get(sid)) is not None}
