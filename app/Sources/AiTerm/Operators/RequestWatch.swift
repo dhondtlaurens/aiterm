@@ -47,35 +47,42 @@ import AiTermCore
         self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports; self.effects = effects; self.activity = activity
     }
     /// One pass over the working and watching tasks. A task whose worker is at work or that another effect holds is
-    /// skipped this pass; the merge holds its task from the Oracle's veto through the confirming read.
+    /// skipped this pass; the merge holds its task from the Oracle's veto through the confirming read. A task whose
+    /// stage leaves the phase it was read in, a block included, is left alone from then on.
     func pass() async {
         var cache: [String: Snapshot] = [:]
-        let ids = workspace.state.tasks.compactMap { task -> UUID? in
-            guard let record = task.signalTask else { return nil }
-            if record.phase == .working { return task.id }
-            if case .watching = record.phase { return task.id }
-            return nil
-        }
+        let ids = workspace.state.tasks.filter { $0.signalTask.map { Self.isRead($0.phase) } == true }.map(\.id)
         for id in ids {
             guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
+                  Self.isRead(record.phase),
                   !ports.workerIsWorking(id), !effects.holds(id) else { continue }
+            let phase = record.phase
             let signal = record.current.configuration
             let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.current.item.identity ?? id.uuidString
             let snapshot: Snapshot
             do {
                 if let saved = cache[key] { snapshot = saved }
                 else { let value = try await ports.read(task); cache[key] = value; snapshot = value }
-                guard allowed(claim) else { continue }
-                try await check(snapshot, task: task, claim: claim, signal: signal)
+                guard still(claim, in: phase) else { continue }
+                try await check(snapshot, task: task, claim: claim, phase: phase, signal: signal)
             } catch {
                 // A failed host read is unknown. Existing work and its phase stay as they are.
             }
         }
     }
+    /// The phases a pass reads a task in, working and watching, and so the only ones a merge starts from.
+    private static func isRead(_ phase: TaskPhase) -> Bool {
+        if case .watching = phase { return true }
+        return phase == .working
+    }
     private func allowed(_ claim: SignalClaim) -> Bool {
         claim.allows(in: workspace) && !ports.workerIsWorking(claim.task)
     }
-    private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, signal: Signal) async throws {
+    /// `allowed`, with the stage still in `phase`, the phase this pass read it in.
+    private func still(_ claim: SignalClaim, in phase: TaskPhase) -> Bool {
+        allowed(claim) && workspace.state.task(id: claim.task)?.signalTask?.phase == phase
+    }
+    private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, phase: TaskPhase, signal: Signal) async throws {
         var snapshot = first
         let merges = signal.finish.mergesWhenReady
         // The done condition met and only merge when ready holding the task: the line names what the merge lacks.
@@ -96,12 +103,11 @@ import AiTermCore
         } }
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
         if merges, snapshot.canMerge, workspace.state.operatorSession?.lifecycle.isChanging != true {
-            guard effects.claim(task.id) else { return }
+            // The merge goes on only while the stage is still in the phase the pass read it in: a block stops it.
+            guard still(claim, in: phase), effects.claim(task.id) else { return }
             defer { effects.release(task.id) }
             let generation = workspace.state.operatorSession?.generation
-            // The merge goes on only while the stage is still in the phase it started from: a block stops it.
-            let phase = workspace.state.task(id: task.id)?.signalTask?.phase
-            let merging = { [self] in allowed(claim) && workspace.state.task(id: task.id)?.signalTask?.phase == phase }
+            let merging = { [self] in still(claim, in: phase) }
             let agreed: Snapshot? = try await activity.acting(task: task.id, act: "consulting the Oracle") { [snapshot] in
                 guard try await ports.oracleMerge(task, snapshot), merging(),
                       workspace.state.operatorSession?.generation == generation else { return nil }

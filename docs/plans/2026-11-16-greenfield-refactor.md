@@ -1181,3 +1181,8 @@ left.
   `SignalTransitionError` reaches the Operator as Foundation's generic "The operation couldn’t be
   completed." (no description of its own; older than this phase; giving it words changes Operator-visible
   text, so it is left for the maintainer).
+- Review round 2: the same gap one step earlier, confirmed: a block during the watch's first host read
+  (before the merge claims the task) was taken as the phase the merge started from. Fixed by the 5e
+  implementer: the watch captures the phase before the first read (only working or watching) and every
+  check from the read on requires the stage still in it. Added
+  `SignalWatchTests.aStageBlockedWhileThePassReadsTheRequestIsNeverMerged` (fails without the fix).

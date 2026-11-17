@@ -233,12 +233,16 @@ import Testing
         #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .done)
     }
 
-    /// A merge whose Oracle veto is held: the watch, Then, the stage owner and the tool handler share one in-flight set.
+    /// A merge whose Oracle veto is held, and with `holdingTheRead` its first host read too: the watch, Then, the stage
+    /// owner and the tool handler share one in-flight set.
     @MainActor private final class HeldMerge {
         let entered = TestLatch(), release = TestLatch()
+        let reading = TestLatch(), read = TestLatch()
+        private var holdsRead: Bool
         private(set) var merged = false
         private(set) var watch: RequestWatch!, handler: SignalOperatorToolHandler!
-        init(_ h: SignalHarness, world: SignalWorld, ready: @escaping (Bool) -> RequestWatch.Snapshot) {
+        init(_ h: SignalHarness, world: SignalWorld, holdingTheRead: Bool = false, ready: @escaping (Bool) -> RequestWatch.Snapshot) {
+            holdsRead = holdingTheRead
             let effects = OperatorInFlight(), entered = entered, release = release
             let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
                 workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in "worker-window" }, restore: { $0 }), effects: effects)
@@ -246,7 +250,10 @@ import Testing
                                   ports: .init(workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }), effects: effects)
             let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in entered.signal(); await release.wait(); return .critique("YES") }
             watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
-                workerIsWorking: { _ in false }, read: { [unowned self] _ in ready(self.merged) },
+                workerIsWorking: { _ in false }, read: { [unowned self] _ in
+                    if self.holdsRead { self.holdsRead = false; self.reading.signal(); await self.read.wait() }
+                    return ready(self.merged)
+                },
                 oracleMerge: { task, snapshot in
                     let status = OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true, task: task.id)
                     if case .agreed = await oracle.consult.consult(.mergeVeto(head: snapshot.head, status: status), binding: .init(claim: SignalClaim(task))) { return true }
@@ -296,6 +303,27 @@ import Testing
             try state.updateSignalTask(task) { $0 = try SignalTransitions.apply(.block("The worker gave up."), to: $0, at: world.now) }
         }
         rig.release.signal(); await pass.value
+        #expect(!rig.merged)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .blocked)
+    }
+
+    /// A block that lands while the pass reads the request, before the merge holds the task, also stops the merge: the
+    /// stage left the phase the pass read it in.
+    @Test func aStageBlockedWhileThePassReadsTheRequestIsNeverMerged() async throws {
+        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        world.state.signals[0].finish.mergesWhenReady = true
+        let task = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let rig = HeldMerge(h, world: world, holdingTheRead: true, ready: { ready(merged: $0) })
+        let pass = Task { await rig.watch.pass() }
+        await rig.reading.wait()
+        let session = try #require(h.workspace.state.operatorSession)
+        let answer = await rig.handler.respond(OperatorRequest(requestId: "blocked", operatorId: session.id.uuidString, tool: "finish_stage",
+            arguments: ["task": .string(task.uuidString), "stage": 1, "ownership": 0, "key": "blocked", "outcome": "blocked",
+                        "evidence": "The worker gave up."], generation: session.generation))
+        #expect(answer.message == nil, "nothing holds the task while the pass reads")
+        #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .blocked)
+        rig.read.signal(); await pass.value
         #expect(!rig.merged)
         #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .blocked)
     }
