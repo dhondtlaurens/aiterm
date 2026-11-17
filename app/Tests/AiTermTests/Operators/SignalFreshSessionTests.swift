@@ -65,10 +65,10 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }; var ports = OperatorPorts.scratch()
         defer { try? FileManager.default.removeItem(at: ports.home) }; nonisolated(unsafe) let defaults = ports.preferences
         let profile = OperatorProfile(model: "opus", reasoning: "high", oracle: .init(isOn: true, agent: .claude, model: "oracle", reasoning: nil), instructions: "Never move tickets to Done.")
-        try OperatorProfileStore.save(profile, defaults); ports.profile = { profile }
+        OperatorProfileStore.save(profile, defaults); ports.profile = { profile }
         ports.oracle = OracleRunner(locate: { _ in "/synthetic/claude" }, run: { _, arguments, _, _, _ in
             #expect(arguments.joined(separator: " ").contains(profile.instructions))
-            try await MainActor.run { var changed = profile; changed.instructions = "Ask before any merge."; try OperatorProfileStore.save(changed, defaults) }
+            await MainActor.run { var changed = profile; changed.instructions = "Ask before any merge."; OperatorProfileStore.save(changed, defaults) }
             return ProcessOutput(status: 0, stdout: #"{"result":"YES"}"#, stderr: "", timedOut: false)
         })
         let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(), ports: ports,
@@ -136,13 +136,13 @@ import Testing
         var ports = OperatorPorts.scratch(); defer { try? FileManager.default.removeItem(at: ports.home) }
         nonisolated(unsafe) let defaults = ports.preferences
         let profile = OperatorProfile(model: "opus", reasoning: "high", oracle: .init(isOn: true, agent: .claude, model: "oracle", reasoning: nil))
-        try OperatorProfileStore.save(profile, defaults)
+        OperatorProfileStore.save(profile, defaults)
         ports.profile = { profile }
         ports.oracle = OracleRunner(locate: { _ in "/synthetic/claude" }, run: { _, _, _, _, _ in
-            try await MainActor.run {
+            await MainActor.run {
                 var changed = profile; changed.oracle.isOn = false
-                try OperatorProfileStore.save(changed, defaults)
-                try OperatorProfileStore.save(profile, defaults)
+                OperatorProfileStore.save(changed, defaults)
+                OperatorProfileStore.save(profile, defaults)
             }
             return ProcessOutput(status: 0, stdout: #"{"result":"YES"}"#, stderr: "", timedOut: false)
         })

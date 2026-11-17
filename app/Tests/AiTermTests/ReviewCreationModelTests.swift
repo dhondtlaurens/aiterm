@@ -269,20 +269,6 @@ import Foundation
         #expect(m.searchError == nil)
     }
 
-    /// The window a double press slips through: the destination check reads git before the submit,
-    /// and a second press during that read must be refused, not submitted as well.
-    @Test func aSecondPressDuringTheDestinationCheckIsRefused() async throws {
-        var calls = 0
-        let m = model(create: { _ in calls += 1 })
-        m.draft.setTitle("Review")
-        await m.loadAgentCatalogue()
-        async let first = m.create()
-        async let second = m.create()
-        let results = await [first, second]
-        #expect(results.filter { $0 }.count == 1)
-        #expect(calls == 1)
-    }
-
     /// Mirrors `TaskCreationModelTests.duplicateSubmissionIsBlockedAndFailureKeepsDraft`: `create()`'s
     /// `!creating` guard must block a second submission while the first is still in flight, and a
     /// failed create must leave the draft intact.
@@ -296,11 +282,7 @@ import Foundation
         m.draft.setTitle("Keep this draft")
         await m.loadAgentCatalogue()
         let first = Task { await m.create() }
-        // A review re-reads git's checkouts before submitting, so wait for the submit itself
-        // rather than a fixed moment. `creating` is set before that read: a press during it is
-        // as blocked as one during the submit. The read resumes on the main actor, which the
-        // suite's pixel tests hold for seconds at a time, so the deadline is generous: it only
-        // bounds a hang, and the loop leaves as soon as the submit lands.
+        // Wait for the submit to suspend before attempting another press.
         await eventually(timeout: 30) { calls != 0 }
         #expect(m.creating)
         #expect(await m.create() == false)

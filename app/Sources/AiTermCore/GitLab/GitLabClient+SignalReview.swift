@@ -13,7 +13,7 @@ extension GitLabClient: SignalHostReading {
         struct Note: Decodable { var author: User?; var body: String; var system: Bool; var createdAt: String }
         let api = Self.api(config, session: session, notFound: .projectNotFound(project))
         let user = try await currentUser().lowercased()
-        let read = try await HTTPJSON.shortPages(perPage: 100, pages: 100) { page in
+        let read = try await HTTPJSON.pages(perPage: 100, limit: 100, ending: .shortPage) { page in
             try await api.get([Note].self, path: Self.projectPath(project) + "/merge_requests/\(number)/notes",
                               query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))])
         }

@@ -52,7 +52,7 @@ import AiTermCore
         } catch {}
     }
     func chooseFolder() async {
-        guard !editing, let url = await choose(), !Task.isCancelled else { return }
+        guard let url = await choose(), !Task.isCancelled else { return }
         folder = url.path
     }
     func loadProjects() async {

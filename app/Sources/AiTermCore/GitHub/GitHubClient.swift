@@ -93,7 +93,7 @@ public struct GitHubClient: HostRepository {
     /// Up to `pages` pages of the repository's open pull requests, `perPage` at a time, the most
     /// recently updated first, and whether that was all of them: a short page is the last.
     func openPullRequests(perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
-        let result = try await HTTPJSON.shortPages(perPage: perPage, pages: pages) { page in
+        let result = try await HTTPJSON.pages(perPage: perPage, limit: pages, ending: .shortPage) { page in
             let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
                          URLQueryItem(name: "direction", value: "desc"), URLQueryItem(name: "per_page", value: String(perPage)),
                          URLQueryItem(name: "page", value: String(page))]
@@ -167,17 +167,20 @@ public struct GitHubClient: HostRepository {
     public func signalRequest(from source: String) async throws -> MergeRequest? {
         if let open = try await existingRequest(from: source) { return open }
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
-        for page in 1...100 {
+        let matches: (PullPayload) -> Bool = {
+            let request = $0.mergeRequest
+            return request.sourceBranch == source && request.forkHead == nil
+        }
+        let read = try await HTTPJSON.pages(perPage: 100, limit: 100, ending: .shortPage,
+                                           stopWhen: { $0.contains(where: matches) }) { page in
             let query = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
                          URLQueryItem(name: "sort", value: "created"), URLQueryItem(name: "direction", value: "desc"),
                          URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
-            let values = try await get([PullPayload].self, path: boundPath + "/pulls", query: query, notFound: .repoNotFound(repo))
-            if let own = values.map(\.mergeRequest).first(where: { $0.sourceBranch == source && $0.forkHead == nil }) {
-                return try await mergeRequests(search: String(own.iid)).first
-            }
-            if values.count < 100 { return nil }
+            return try await get([PullPayload].self, path: boundPath + "/pulls", query: query, notFound: .repoNotFound(repo))
         }
-        throw IncompleteRead("branch requests")
+        guard read.complete else { throw IncompleteRead("branch requests") }
+        guard let own = read.items.first(where: matches) else { return nil }
+        return try await mergeRequests(search: String(own.number)).first
     }
 
     /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
@@ -349,13 +352,14 @@ public struct GitHubClient: HostRepository {
     /// `IncompleteRead`, as a later review may take an approval back.
     public func approvals(of number: Int) async throws -> [String] {
         struct Review: Decodable { struct User: Decodable { var login: String? }; var user: User?, state: String? }
-        let reviews = try await HTTPJSON.pagesUntilEmpty(limit: Self.threadPagesRead, exhausted: IncompleteRead("reviews")) { page in
+        let read = try await HTTPJSON.pages(perPage: 100, limit: Self.threadPagesRead, ending: .emptyPage) { page in
             try await get([Review].self, path: boundPath + "/pulls/\(number)/reviews",
                           query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))],
                           notFound: .repoNotFound(repo))
-        } items: { $0 }
+        }
+        guard read.complete else { throw IncompleteRead("reviews") }
         var latest: [String: String] = [:], order: [String] = []
-        for review in reviews {
+        for review in read.items {
             guard let login = review.user?.login, let state = review.state, state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "DISMISSED" else { continue }
             if latest[login] == nil { order.append(login) }
             latest[login] = state
@@ -420,17 +424,16 @@ public struct GitHubClient: HostRepository {
         guard Self.ownerAndName(repo) != nil else { throw GitHubError.repoNotFound(repo) }
         let segment = HTTPJSON.pathSegment(name)
         struct Rule: Decodable { var type: String }
-        var listedWhole = false
-        for page in 1...Self.listedPages {
+        let read = try await HTTPJSON.pages(perPage: 100, limit: Self.listedPages, ending: .emptyPage,
+                                           stopWhen: { $0.contains { !Self.harmlessRules.contains($0.type) } }) { page in
             let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
-            let rules = try await get([Rule].self, path: boundPath + "/rules/branches/\(segment)", query: query,
-                                      notFound: .repoNotFound(repo))
-            if let rule = rules.first(where: { !Self.harmlessRules.contains($0.type) }) {
-                return .protected("a ruleset’s \(rule.type.replacingOccurrences(of: "_", with: " ")) rule covers it")
-            }
-            if rules.isEmpty { listedWhole = true; break }
+            return try await get([Rule].self, path: boundPath + "/rules/branches/\(segment)", query: query,
+                                 notFound: .repoNotFound(repo))
         }
-        guard listedWhole else { throw ProtectionUnknown.tooManyRules(Self.listedPages * 100) }
+        guard read.complete else { throw ProtectionUnknown.tooManyRules(Self.listedPages * 100) }
+        if let rule = read.items.first(where: { !Self.harmlessRules.contains($0.type) }) {
+            return .protected("a ruleset’s \(rule.type.replacingOccurrences(of: "_", with: " ")) rule covers it")
+        }
         struct Branch: Decodable { var name: String, protected: Bool }
         do {
             let existing = try await get(Branch.self, path: boundPath + "/branches/\(segment)", notFound: .badResponse(404))

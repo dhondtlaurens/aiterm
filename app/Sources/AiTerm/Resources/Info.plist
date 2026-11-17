@@ -24,7 +24,5 @@
 	<string>AiTerm reads the names of nearby Wi-Fi networks so Backpack Mode can join the one you chose. It never reads your location.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>AiTerm reads the names of nearby Wi-Fi networks so Backpack Mode can join the one you chose. It never reads your location.</string>
-	<key>AiTermUpdateFeed</key>
-	<string>github:dhondtlaurens/aiterm</string>
 </dict>
 </plist>

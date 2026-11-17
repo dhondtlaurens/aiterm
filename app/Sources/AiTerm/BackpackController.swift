@@ -66,7 +66,7 @@ final class BackpackController {
     @ObservationIgnored private var joinedHotspot = false
 
     init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
-         retryDelays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(30)],
+         retryDelays: [Duration] = BackpackMode.rejoinDelays.map { .seconds($0) },
          now: @escaping @Sendable () -> Date = Date.init, agentsWorking: @escaping @MainActor () -> Bool = { false },
          operatorCanStartWork: @escaping @MainActor () -> Bool = { false },
          openLocationSettings: @escaping @MainActor () -> Void = {},
@@ -197,20 +197,8 @@ final class BackpackController {
         transition = .turningOff
         defer { busy = false; transition = nil }
         ticking?.cancel()
-        let mode = self.mode, wifi = ports.wifi, hotspot = network ?? ""
         joinedHotspot = false
-        let (restored, current) = await worker.run { () -> (Bool, String?) in
-            let restored = mode.turnOff()
-            _ = mode.rejoinPreferred(leaving: hotspot)
-            return (restored, wifi.currentNetwork())
-        }
-        state = mode.state
-        phase = nil
-        currentNetwork = current
-        if !restored {
-            toast(Self.restoreFailed)
-            startTicking()
-        }
+        await restoreWhileBusy(rejoin: true, leaving: network ?? "")
     }
 
     /// Cancel's undo, under `busy`: off if it got that far, then off the hotspot if the connect
@@ -218,11 +206,17 @@ final class BackpackController {
     /// `turnOff()`.
     private func undoWhileBusy(leaving hotspot: String) async {
         transition = .turningOff
-        let mode = self.mode, wifi = ports.wifi, leave = joinedHotspot
+        let leave = joinedHotspot
         joinedHotspot = false
+        await restoreWhileBusy(rejoin: leave, leaving: hotspot)
+    }
+
+    /// Turns off on the worker and publishes the restored sleep and network state.
+    private func restoreWhileBusy(rejoin: Bool, leaving hotspot: String) async {
+        let mode = self.mode, wifi = ports.wifi
         let (restored, current) = await worker.run { () -> (Bool, String?) in
             let restored = mode.turnOff()
-            if leave { _ = mode.rejoinPreferred(leaving: hotspot) }
+            if rejoin { _ = mode.rejoinPreferred(leaving: hotspot) }
             return (restored, wifi.currentNetwork())
         }
         state = mode.state

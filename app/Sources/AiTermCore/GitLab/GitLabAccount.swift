@@ -12,22 +12,19 @@ public struct GitLabAccount: SignalAccountReading {
         let filters = event == .reviewRequested ? ["reviewer_username"] : ["author_username", "assignee_username[]"]
         var items: [SignalItem] = [], identities = Set<String>(), complete = true
         for filter in filters {
-            var ended = false
-            for page in 1...100 {
+            let read = try await HTTPJSON.pages(perPage: 100, limit: 100, ending: .shortPage) { page in
                 var query = [URLQueryItem(name: "scope", value: "all"), URLQueryItem(name: "state", value: "opened"),
                              URLQueryItem(name: filter, value: user), URLQueryItem(name: "per_page", value: "100"),
                              URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "order_by", value: "updated_at"),
                              URLQueryItem(name: "sort", value: "desc")]
                 if let since { query.append(URLQueryItem(name: "updated_after", value: ISO8601DateFormatter().string(from: since))) }
-                let values = try await api.get([Lenient<AccountRequest>].self, path: "/api/v4/merge_requests", query: query)
-                if values.contains(where: { $0.value == nil }) { complete = false }
-                for entry in values {
-                    guard let raw = entry.value, let item = raw.item(host: config.hostURL), let id = item.item.identity else { complete = false; continue }
-                    if identities.insert(id).inserted { items.append(item) }
-                }
-                if values.count < 100 { ended = true; break }
+                return try await api.get([Lenient<AccountRequest>].self, path: "/api/v4/merge_requests", query: query)
             }
-            if !ended { complete = false }
+            if !read.complete { complete = false }
+            for entry in read.items {
+                guard let raw = entry.value, let item = raw.item(host: config.hostURL), let id = item.item.identity else { complete = false; continue }
+                if identities.insert(id).inserted { items.append(item) }
+            }
         }
         return SignalRead(items: items, complete: complete, cursor: at, accountUser: user)
     }

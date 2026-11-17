@@ -44,29 +44,39 @@ import Testing
         }
     }
 
-    @Test func shortPagingKeepsTheCurrentRequestsAndTerminalRule() async throws {
-        func current(_ raw: [[Int]], perPage: Int, pages: Int) -> (items: [Int], complete: Bool, reads: [Int]) {
+    @Test func pagingKeepsTheRequestsAndTerminalRules() async throws {
+        func current(_ raw: [[Int]], perPage: Int, pages: Int, ending: HTTPJSON.PageEnding,
+                     stop: Int?) -> (items: [Int], complete: Bool, reads: [Int]) {
             var all: [Int] = [], reads: [Int] = []
             for page in 1...max(1, pages) {
                 reads.append(page)
                 let batch = page <= raw.count ? raw[page - 1] : []
                 all += batch
-                if batch.count < perPage { return (all, true, reads) }
+                if let stop, batch.contains(stop) { return (all, true, reads) }
+                switch ending {
+                case .shortPage: if batch.count < perPage { return (all, true, reads) }
+                case .emptyPage: if batch.isEmpty { return (all, true, reads) }
+                }
             }
             return (all, false, reads)
         }
         for raw in [[], [[]], [[1, 2], [3]], [[1, 2], [3, 4], []]] as [[[Int]]] {
             for perPage in [-1, 0, 1, 2, 3] {
                 for pages in [-1, 0, 1, 2, 3] {
-                    var reads: [Int] = []
-                    let result = try await HTTPJSON.shortPages(perPage: perPage, pages: pages) { page in
-                        reads.append(page)
-                        return page <= raw.count ? raw[page - 1] : []
+                    for ending in [HTTPJSON.PageEnding.shortPage, .emptyPage] {
+                        for stop in [nil, 1, 3, 9] as [Int?] {
+                            var reads: [Int] = []
+                            let stopWhen: (([Int]) -> Bool)? = stop.map { value in { $0.contains(value) } }
+                            let result = try await HTTPJSON.pages(perPage: perPage, limit: pages, ending: ending, stopWhen: stopWhen) { page in
+                                reads.append(page)
+                                return page <= raw.count ? raw[page - 1] : []
+                            }
+                            let reference = current(raw, perPage: perPage, pages: pages, ending: ending, stop: stop)
+                            #expect(result.items == reference.items)
+                            #expect(result.complete == reference.complete)
+                            #expect(reads == reference.reads)
+                        }
                     }
-                    let reference = current(raw, perPage: perPage, pages: pages)
-                    #expect(result.items == reference.items)
-                    #expect(result.complete == reference.complete)
-                    #expect(reads == reference.reads)
                 }
             }
         }

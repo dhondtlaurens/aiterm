@@ -23,7 +23,7 @@ import Foundation
         defaults.set(old, forKey: "operator.profile")
         let profile = OperatorProfileStore.load(defaults, claudeDefault: (model: "opus", reasoning: "high"))
         #expect(profile.instructions == "Keep draft requests.")
-        try OperatorProfileStore.save(profile, defaults)
+        OperatorProfileStore.save(profile, defaults)
         let object = try JSONDecoder().decode(JSONValue.self, from: #require(defaults.data(forKey: "operator.profile")))
         #expect(object["slices"] == nil)
     }
@@ -33,7 +33,7 @@ import Foundation
         let profile = OperatorProfile(model: "claude-sonnet-5", reasoning: nil,
                                       oracle: OracleSetting(isOn: false, agent: .claude, model: "claude-opus-5-5", reasoning: "low"),
                                       instructions: "Run the linter before you accept.")
-        try OperatorProfileStore.save(profile, defaults)
+        OperatorProfileStore.save(profile, defaults)
         #expect(OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high")) == profile)
         #expect(defaults.data(forKey: "operator.profile") != nil, "kept as JSON under operator.profile")
     }
@@ -67,7 +67,7 @@ import Foundation
         #expect(!first.oracle.isOn)
         var chosen = first
         chosen.oracle.isOn = true
-        try OperatorProfileStore.save(chosen, defaults)
+        OperatorProfileStore.save(chosen, defaults)
         #expect(OperatorProfileStore.load(defaults, claudeDefault: ("opus", nil), installed: [.claude]).oracle.isOn)
     }
 }

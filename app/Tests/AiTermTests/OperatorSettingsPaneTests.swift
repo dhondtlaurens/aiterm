@@ -27,7 +27,7 @@ import Foundation
                                 .codex: ModelPreference(model: "gpt-6-mini", reasoning: "low"),
                                 .pi: ModelPreference(model: "openai-codex/gpt-5.6-sol", reasoning: "medium")],
                 skills: [])
-        }, save: { try OperatorProfileStore.save($0, defaults) })
+        }, save: { OperatorProfileStore.save($0, defaults) })
     }
 
     /// A model already loaded with `profile`, over `installed` agents and the catalogues given.
@@ -37,7 +37,7 @@ import Foundation
                         into defaults: UserDefaults = ScratchDefaults.make()) -> OperatorSettingsModel {
         nonisolated(unsafe) let defaults = defaults
         let settings = OperatorSettingsModel(installed: { installed }, load: { fatalError("handed in") },
-                                             save: { try OperatorProfileStore.save($0, defaults) })
+                                             save: { OperatorProfileStore.save($0, defaults) })
         settings.received(.init(profile: profile, models: models, agentDefaults: agentDefaults, skills: []))
         return settings
     }
@@ -70,7 +70,7 @@ import Foundation
     @Test func cancelDiscards() async throws {
         let defaults = ScratchDefaults.make()
         let kept = OperatorProfile(model: "claude-opus-5-5", reasoning: "low")
-        try OperatorProfileStore.save(kept, defaults)
+        OperatorProfileStore.save(kept, defaults)
         let settings = settings(defaults)
         await settings.load()
         #expect(settings.profile == kept)
@@ -127,8 +127,6 @@ import Foundation
         let claudeOracle = OracleSetting(isOn: true, agent: .claude, model: "claude-opus-5-5", reasoning: "high")
         let claudeSaved = loaded(OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: claudeOracle), installed: [.claude])
         #expect(claudeSaved.oracleAgentChoices == [.claude])
-        claudeSaved.select(oracleAgent: .codex)
-        #expect(claudeSaved.oracle == claudeOracle, "Codex is not installed")
         let both = loaded(OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: claudeOracle), installed: [.claude, .codex])
         #expect(both.oracleAgentChoices == [.claude, .codex])
 

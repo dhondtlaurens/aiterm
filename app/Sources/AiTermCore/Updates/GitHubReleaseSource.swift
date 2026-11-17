@@ -5,6 +5,8 @@ import Foundation
 /// reviews. Drafts and prereleases are never offered. The image is the asset's
 /// `browser_download_url`, which GitHub redirects to its CDN.
 public struct GitHubReleaseSource: ReleaseSource {
+    public static let aiTerm = GitHubReleaseSource(owner: "dhondtlaurens", repo: "aiterm")
+
     public let owner: String, repo: String
     let session: URLSession
 

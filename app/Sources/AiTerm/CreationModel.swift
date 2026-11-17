@@ -84,9 +84,6 @@ protocol CreationKind {
     func draftChanged(from old: Draft, in model: CreationModel<Self>)
     /// Told after the branch list was read.
     func branchesChanged(in model: CreationModel<Self>)
-    /// A last check between the press and the submit, run while `creating` holds off a second
-    /// press. `false` stops the create; the kind says why with `model.refuse`.
-    func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
 }
@@ -98,7 +95,6 @@ extension CreationKind {
 
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
     func branchesChanged(in model: CreationModel<Self>) {}
-    func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
     /// Kinds with no recovery effects need no implementation.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
 }
@@ -366,9 +362,6 @@ final class CreationModel<Kind: CreationKind> {
     /// read as its answer. One source failed and another answered: its rows, and the line saying which failed.
     func search(text: String, debounce: Bool = false) async { await itemSearch.search(text, debounce: debounce) }
 
-    /// Stops a create before it starts, saying why in the footer.
-    func refuse(_ reason: String) { show(CreationFailure(reason: reason, detail: nil)) }
-
     /// The draft moved off the branch the last failure was about.
     func dropFailure() {
         guard error != nil else { return }
@@ -394,7 +387,6 @@ final class CreationModel<Kind: CreationKind> {
         if let recovery {
             do { try await kind.recover(recovery) } catch { show(CreationFailure(error)); return false }
         }
-        guard await kind.confirmBeforeSubmit(self) else { return false }
         do { try await submit(draft); return true }
         catch { show(CreationFailure(error)) }
         return false

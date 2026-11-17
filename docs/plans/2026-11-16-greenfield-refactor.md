@@ -308,7 +308,7 @@ TS tests-scripts.
   and its next checkout is refused.
 - [x] 2g. **Codex.** Worker guard: local `git merge` allowed, one argument table and one "this API
   call writes" rule shared with the shell gate, the GraphQL-file and deep alias paths go (OC F9).
-- [ ] 2h. **Codex.** Small ones: New Review's "press again" recheck, the profile save that cannot
+- [x] 2h. **Codex.** Small ones: New Review's "press again" recheck, the profile save that cannot
   fail, guards behind controls that cannot send the input, one paging helper for the hosts, the
   duplicate Backpack rejoin delays and turn-off block, the release feed as constants
   (SS F16, HO F5 item 3, PL F6, F8).
@@ -821,3 +821,13 @@ left.
   with their behaviour: `WorkerGuardCLITests.graphqlQueriesReadFromFilesStillRefuseMerge` and the
   `git merge main` refusal cases; `workerCanCommitAndPublishItsOwnBranch` now checks local merges are
   allowed. `WorkerGuardCodexTests` is opt-in and was not run (a live probe; not in the plan's owed list).
+- 2h: small guards went: New Review's destination re-check ("press again"), the profile save that
+  could not fail (now non-throwing), guards behind controls that cannot send the input, the hosts'
+  separate paging loops (one helper in `HTTPJSON`), the duplicated Backpack rejoin delays and
+  turn-off block, and the release feed parser and its `Info.plist` key (one `GitHubReleaseSource.aiTerm`
+  constant). Tests deleted: `theSheetRefusesADestinationThatMovedSinceItWasShown` (survivors
+  `aReviewOfTheBranchADriftedTaskLeftGetsAWorktreeOfItsOwn`, `aReviewOfTheBranchADriftedTaskMovedToOpensInThatTask`),
+  `aSecondPressDuringTheDestinationCheckIsRefused` (survivor `duplicateSubmissionIsBlockedAndFailureKeepsDraft`;
+  the brief did not name it), and `ReleaseFeedTests` (anonymous requests survive in
+  `GitHubReleaseSourceTests`; a missing version in `aBuildWithoutAVersionSaysSo`). The bundle check
+  no longer looks for the feed key.
