@@ -32,7 +32,7 @@ public enum WorkerGuardCLI {
                 reason = try await BackgroundWork.run {
                     ShellGate.publishingDenial(command) { program, args in
                         if let why = WorkerGuard.argvDenial(program: program, arguments: args, branch: scope.branch, allowsPush: scope.allowsPush) { return why }
-                        return additionalDenial(program, args: args, cwd: cwd, scope: scope, git: dependencies.git)
+                        return configuredAliasDenial(program, args: args, cwd: cwd, scope: scope, git: dependencies.git)
                     }
                 }
             case "argv":
@@ -40,7 +40,7 @@ public enum WorkerGuardCLI {
                 let program = arguments[2], args = Array(arguments.dropFirst(3)), cwd = FileManager.default.currentDirectoryPath
                 reason = try await BackgroundWork.run {
                     WorkerGuard.argvDenial(program: program, arguments: args, branch: scope.branch, allowsPush: scope.allowsPush)
-                        ?? additionalDenial(program, args: args, cwd: cwd, scope: scope, git: dependencies.git)
+                        ?? configuredAliasDenial(program, args: args, cwd: cwd, scope: scope, git: dependencies.git)
                 }
             case "push":
                 guard arguments.count == 4, scope.allowsPush else { throw WorkerGuard.GuardFailure("Publishing is not enabled for this worker.") }
@@ -82,10 +82,8 @@ public enum WorkerGuardCLI {
         }
         return Output(status: reason == nil ? 0 : 2, output: "", error: reason ?? "")
     }
-    /// The argv shim sees expanded arguments. Resolve configured git aliases too, and inspect API
-    /// input files so a GraphQL body is not a way around the local merge refusal.
-    private static func additionalDenial(_ program: String, args: [String], cwd: String, scope: WorkerGuard.Scope, git: any GitRunning, depth: Int = 0) -> String? {
-        guard depth < 4 else { return "The worker guard cannot verify this chain of git aliases." }
+    /// The argv shim sees expanded arguments. Scan a configured git alias once with the argv rules.
+    private static func configuredAliasDenial(_ program: String, args: [String], cwd: String, scope: WorkerGuard.Scope, git: any GitRunning) -> String? {
         let name = URL(fileURLWithPath: program).lastPathComponent
         do {
             if name == "git", let command = WorkerGuard.gitCommand(args) {
@@ -97,24 +95,7 @@ public enum WorkerGuardCLI {
                     let text = (alias.hasPrefix("!") ? String(alias.dropFirst()) : "git " + globals + " " + alias) + " " + extra
                     return ShellGate.publishingDenial(text) { nested, words in
                         WorkerGuard.argvDenial(program: nested, arguments: words, branch: scope.branch, allowsPush: scope.allowsPush)
-                            ?? additionalDenial(nested, args: words, cwd: cwd, scope: scope, git: git, depth: depth + 1)
                     }
-                }
-            }
-            if ["gh", "glab"].contains(name), args.contains("api") {
-                for (index, arg) in args.enumerated() {
-                    let field = WorkerGuard.hostField(args, at: index)
-                    let typed = arg == "-F" || arg == "--field" || arg.hasPrefix("--field=") || (arg.hasPrefix("-F") && arg.count > 2)
-                    let queryFile = typed ? field.flatMap { $0.hasPrefix("query=@") ? String($0.dropFirst(7)) : nil } : nil
-                    let path = queryFile ?? (arg.hasPrefix("--input=") ? String(arg.dropFirst(8)) : arg == "--input" && index + 1 < args.count ? args[index + 1] : nil)
-                    guard let path else { continue }
-                    guard path != "-" else { return "Write the API body to a file so the worker guard can read it before it runs." }
-                    let file = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: cwd, isDirectory: true))
-                    let bytes = try Data(contentsOf: file)
-                    guard bytes.count <= 1_000_000 else { return "The API body is too large for the worker guard to verify." }
-                    let query = queryFile != nil ? String(decoding: bytes, as: UTF8.self)
-                        : (try? JSONDecoder().decode(JSONValue.self, from: bytes))?["query"]?.stringValue
-                    if let query, WorkerGuard.graphqlMerges(query) { return "Workers never merge through an API." }
                 }
             }
         } catch { return "The worker guard could not verify this command: " + OperationIssue.reason(of: error) }

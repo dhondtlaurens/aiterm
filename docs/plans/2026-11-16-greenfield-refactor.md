@@ -306,7 +306,7 @@ TS tests-scripts.
   recovery reduced to "a tagged tab with the planned agent, else block" (RT F10). The checkout save
   after a Take Over during a request checkout stays: without it the taken-over task has no folder
   and its next checkout is refused.
-- [ ] 2g. **Codex.** Worker guard: local `git merge` allowed, one argument table and one "this API
+- [x] 2g. **Codex.** Worker guard: local `git merge` allowed, one argument table and one "this API
   call writes" rule shared with the shell gate, the GraphQL-file and deep alias paths go (OC F9).
 - [ ] 2h. **Codex.** Small ones: New Review's "press again" recheck, the profile save that cannot
   fail, guards behind controls that cannot send the input, one paging helper for the hosts, the
@@ -814,3 +814,10 @@ left.
   repair and scope-matching tests, replaced by `aFailedActivityWriteIsReportedAndTheNextWrittenEntryClearsIt`,
   `aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce` and
   `anInterruptedLaunchAdoptsItsTaggedWorkerWithoutRepeatingThePrompt`.
+- 2g: workers may run `git merge` locally (the publishing denial list and the guard's refusal
+  dropped it; review workers still deny it); the guard and the shell gate share `gitValued`,
+  `hostValued`, `hostPositionals` and `sendsToTheAPI`; the GraphQL-file inspection and the deep
+  alias chain went (one configured alias lookup stays). Host-side merges stay refused. Tests deleted
+  with their behaviour: `WorkerGuardCLITests.graphqlQueriesReadFromFilesStillRefuseMerge` and the
+  `git merge main` refusal cases; `workerCanCommitAndPublishItsOwnBranch` now checks local merges are
+  allowed. `WorkerGuardCodexTests` is opt-in and was not run (a live probe; not in the plan's owed list).

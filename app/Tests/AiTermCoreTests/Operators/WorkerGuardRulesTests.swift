@@ -16,18 +16,21 @@ import Testing
     @Test(arguments: [
         "git push --no-verify", "git push -f origin HEAD", "git push --force-with-lease origin HEAD",
         "git -C /repo push origin +HEAD:feat/pay-1", "git push origin HEAD:main", "git push origin other",
-        "git push --all", "git push --mirror", "git push --delete origin feat/pay-1", "git merge main",
+        "git push --all", "git push --mirror", "git push --delete origin feat/pay-1",
         "gh pr merge 4", "glab mr accept 4", "sh -c 'git push --no-verify'", "echo $(git push -f)",
         "git -c alias.send='push --no-verify' send", "gh api -X PUT repos/a/b/pulls/4/merge",
+        "gh api -iXPUT repos/a/b/pulls/4/merge", "glab api -XPUT projects/1/merge_requests/3/merge",
         "gh api graphql -f 'query=mutation { mergePullRequest(input: {}) { clientMutationId } }'",
         "glab api graphql -f 'query=mutation { mergeRequestAccept(input: {}) { errors } }'",
     ]) func unsafePublishingIsRefusedBeforeTheCommandRuns(_ command: String) {
         #expect(WorkerGuard.commandDenial(command, branch: branch, allowsPush: true) != nil)
     }
     @Test(arguments: [
-        "git status", "git commit -m 'Fix retries'", "git push -u origin HEAD", "git push origin feat/pay-1",
+        "git status", "git commit -m 'Fix retries'", "git merge main", "git merge origin/main",
+        "git push -u origin HEAD", "git push origin feat/pay-1",
         "git push origin HEAD:refs/heads/feat/pay-1", "gh pr create --draft --title 'Fix retries'",
         "glab mr create --draft", "gh api repos/a/b/pulls/4/merge -X GET",
+        "gh api repos/a/b/pulls/4/merge -iX GET",
         "gh api repos/a/b/issues/4/comments -f 'body=Please avoid mergePullRequest here.'",
         "gh api graphql -f 'query=mutation { addComment(input: {body: \"mergePullRequest\"}) { clientMutationId } }'", "gh pr comment 4 --body 'Please review.'", "echo 'git push --force'",
     ]) func workerCanCommitAndPublishItsOwnBranch(_ command: String) {

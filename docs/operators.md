@@ -91,8 +91,9 @@ A missing or revoked Operator token always refuses the gated call.
 Workers run the requested skills, including their own adversarial review and publication. They
 may commit, push their own task branch, open a draft request and perform host actions authorised
 through Operator/Oracle judgment. AiTerm's worker guard refuses force pushes, `--no-verify`, another
-branch, the default/protected branch and worker-initiated merges, for Claude and Codex. It preserves
-the project's own pre-push hook. These are cooperative CLI guards, not an operating-system sandbox.
+branch, the default/protected branch and worker-initiated merges of a request on the host, for Claude
+and Codex. A worker may merge branches locally. The guard preserves the project's own pre-push hook.
+These are cooperative CLI guards, not an operating-system sandbox.
 
 AiTerm finds the request from the branch and adds its ordinary clickable badge. Done conditions
 fit the source: Operator judgment, a reviewer, approval, resolved threads, merged, a Jira status,

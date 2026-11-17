@@ -9,10 +9,9 @@ extension WorkerGuard {
         default: return nil
         }
     }
-    static let gitValues: Set<String> = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"]
     static func gitCommand(_ args: [String]) -> (verb: String, arguments: [String])? {
         var index = 0
-        while index < args.count, args[index].hasPrefix("-") { index += gitValues.contains(args[index]) ? 2 : 1 }
+        while index < args.count, args[index].hasPrefix("-") { index += ShellGate.gitValued.contains(args[index]) ? 2 : 1 }
         guard index < args.count else { return nil }
         return (args[index], Array(args.dropFirst(index + 1)))
     }
@@ -23,7 +22,6 @@ extension WorkerGuard {
             if setting.lowercased().hasPrefix("core.hookspath=") { return "A worker may not override its push hook." }
         }
         guard let command = gitCommand(args) else { return nil }
-        if command.verb == "merge" { return "Workers never merge; AiTerm performs an enabled merge through the host." }
         guard command.verb == "push" else { return nil }
         guard allowsPush else { return "Publishing is not enabled for this worker." }
         var refs: [String] = [], index = 0
@@ -60,7 +58,7 @@ extension WorkerGuard {
         let code = query.replacingOccurrences(of: #"\"(?:\\.|[^\"\\])*\"|#[^\n]*"#, with: " ", options: .regularExpression)
         return code.range(of: #"\b(?:mergePullRequest|mergeRequestAccept)\s*\("#, options: .regularExpression) != nil
     }
-    static func hostField(_ arguments: [String], at index: Int) -> String? {
+    private static func hostField(_ arguments: [String], at index: Int) -> String? {
         let arg = arguments[index]
         if ["-f", "-F", "--field", "--raw-field"].contains(arg), index + 1 < arguments.count { return arguments[index + 1] }
         if arg.hasPrefix("--field=") { return String(arg.dropFirst(8)) }
@@ -68,15 +66,8 @@ extension WorkerGuard {
         if (arg.hasPrefix("-f") || arg.hasPrefix("-F")), arg.count > 2 { return String(arg.dropFirst(2)) }
         return nil
     }
-    private static let hostValues: Set<String> = ["-R", "--repo", "--hostname", "-X", "--method", "-f", "-F", "--field", "--raw-field", "--input", "-H", "--header", "--jq", "-q"]
     private static func hostDenial(_ tool: String, arguments: [String], allowsPush: Bool) -> String? {
-        var positionals: [String] = [], index = 0
-        while index < arguments.count {
-            let word = arguments[index]; index += 1
-            if word.hasPrefix("-") {
-                if hostValues.contains(word) { index += 1 }
-            } else { positionals.append(word) }
-        }
+        let positionals = ShellGate.hostPositionals(arguments)
         let group = tool == "gh" ? "pr" : "mr"
         if positionals.first == group, positionals.count >= 2 {
             if ["merge", "accept"].contains(positionals[1]) { return "Workers never merge; AiTerm performs an enabled merge through the host." }
@@ -84,18 +75,13 @@ extension WorkerGuard {
         }
         if positionals.first == "api", positionals.count > 1 {
             let endpoint = positionals[1].removingPercentEncoding ?? positionals[1]
-            var method: String?, query: String?, writes = false
-            for (index, arg) in arguments.enumerated() {
-                if ["-X", "--method"].contains(arg), index + 1 < arguments.count { method = arguments[index + 1].uppercased() }
-                if arg.hasPrefix("-X"), arg.count > 2 { method = String(arg.dropFirst(2)).uppercased() }
-                if arg.hasPrefix("--method=") { method = String(arg.dropFirst(9)).uppercased() }
+            var query: String?
+            for index in arguments.indices {
                 let field = hostField(arguments, at: index)
-                if let field { writes = true; if field.hasPrefix("query=") { query = String(field.dropFirst(6)) } }
-                if arg == "--input" || arg.hasPrefix("--input=") { writes = true }
+                if let field, field.hasPrefix("query=") { query = String(field.dropFirst(6)) }
             }
             if let query, graphqlMerges(query) { return "Workers never merge through an API." }
-            let verb = method ?? (writes ? "POST" : "GET")
-            if !["GET", "HEAD"].contains(verb), endpoint.range(of: #"(?i)/merge(?:$|\?)"#, options: .regularExpression) != nil {
+            if ShellGate.sendsToTheAPI(arguments), endpoint.range(of: #"(?i)/merge(?:$|\?)"#, options: .regularExpression) != nil {
                 return "Workers never merge through an API."
             }
         }
