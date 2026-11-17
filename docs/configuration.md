@@ -31,8 +31,8 @@ Sign in through your chosen agent's CLI as needed. AiTerm uses that agent's acco
 installing an agent does not supply a subscription or API credentials. PI lists models from its
 signed-in providers; run `/login` in PI if none are available.
 
-**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet previews
-the command before launch. An ordinary **New Review…** uses the normal agent launch command;
+**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet summarises
+the destination before launch. An ordinary **New Review…** uses the normal agent launch command;
 signal workers also use the task-branch publishing guard. See the
 [Operator guide](operators.md#publishing-done-conditions-and-merging) for publishing and merge boundaries.
 

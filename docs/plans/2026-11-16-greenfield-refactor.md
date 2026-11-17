@@ -253,7 +253,7 @@ TS tests-scripts.
   `operator-signals/state.json` is re-recorded.
 - [x] 1e. **Codex.** Operator runtime leftovers: dead `OperatorPorts` fields, the transcript
   open-call reader, locator test hooks, `markOutcome`, members only tests call (RT F6).
-- [ ] 1f. **Codex.** App leftovers: `ShelfRow` becomes `ArchiveSearch.Entry` and Shelf becomes
+- [x] 1f. **Codex.** App leftovers: `ShelfRow` becomes `ArchiveSearch.Entry` and Shelf becomes
   Archive in code names; dead controller and coordinator members and empty comment stubs; the
   `queued` row state and its plumbing; the unread project hand-off counts; the test-only attention
   and Dock badge path (its live cases move to the projection's); dead pickers, the command preview,
@@ -629,3 +629,24 @@ left.
   test-only extension in `OperatorFakes.swift`. No test deleted; the `wakeCoalesce` timing row went
   with its constant. Added `WorkerTranscriptTests.aReplyIsReadAgainOnlyWhenItsFileChanged`; three
   `SignalPollerTests` moved from `onRead` to `onPass` with the same expectations.
+- 1f: `ShelfRow` became `ArchiveSearch.Entry` and every Shelf name became Archive; dead controller
+  and coordinator members, comment stubs, the `queued` row state, the hand-off counts, `DockBadge`
+  and the model's attention helpers (one `SidebarProjection.needingAttention(skipping:)` remains),
+  dead pickers and segments, the command preview, the broadcast step config, the disabled prompt
+  editor, never-drawn subtitles and `TaskDraft`'s type and name halves went. Tests deleted with
+  survivors: `DockBadgeTests` and three `SidebarModelTests` places (four new `SidebarProjectionTests`
+  attention tests), `SearchPickerStateTests` (behaviour deleted; the keyboard tests live on as
+  `DropdownKeysTests`), `CreationSheetStepsTests.broadcastCreatesOnStepFive` and the preview tests
+  (prompt rules survive in `AgentCommandTests.testComposePrompt`, `DescriptionPromptTests`,
+  `TicketSourcesTests`; quoting and PI cases now assert `build`), the queued mark and card variants,
+  `TaskCreatorTests.testAnEditedNameStillTakesANewType` and `testATypedPrefixMovesIntoTheType`,
+  `NewTaskSheetKeyboardTests.typingATypePrefixIntoTheBranchFieldPicksTheTypeAsYouType`,
+  `BranchTypeTests.testABranchSplitsOnlyOnAKnownType`, and the disabled half of
+  `PromptEditorTests` (now `theEditorAcceptsTypingAndTakesTheKeyboardOnAppear`); added
+  `TaskCreatorTests.aWholeBranchFollowsAutomaticNamingUntilEdited`. Snapshots in
+  `build/refactor-1f`: all 66 named sheet captures RGB-identical to `build/refactor-before`; only
+  `marks.png` differs, one of the two known two-variant captures. Differences: the `SearchPicker`
+  name was also rewritten in `docs/design/design-system.html` and `docs/design/ui-patterns.md`
+  (names of deleted symbols, as the brief's decision says); one `TaskDraft` test passed a bare
+  `bad..name` and now passes `feat/bad..name` with the same expectation. `AgentCommand.resumeWorker`
+  is called only by tests; left, as the brief says.

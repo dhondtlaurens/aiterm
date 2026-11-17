@@ -30,7 +30,6 @@ struct Destination: Equatable {
 
     /// A broadcast's: the Operator's own window. Its tasks open wherever the Operator plans them, so no
     /// branch is named.
-    static let operatorWindow = Destination(place: "the Operator’s window", branch: "")
 
     var text: String {
         (["Opens in iTerm2", place] + (branch.isEmpty ? [] : [branch])).joined(separator: " · ")

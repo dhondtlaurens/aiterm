@@ -16,7 +16,7 @@ public final class WorkMeter: Sendable {
         case stateSave
         /// One file a `StateStore` writes the bytes of: the workspace, or its backup.
         case stateWrite
-        /// A Shelf projection's search ranking.
+        /// An Archive projection's search ranking.
         case archiveRank
     }
 

@@ -95,7 +95,6 @@ struct PromptEditor: NSViewRepresentable {
                                   height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = [.width]
         textView.string = text
-        Self.enable(textView, context.environment.isEnabled)
 
         let scroll = NSScrollView()
         scroll.documentView = textView
@@ -123,13 +122,6 @@ struct PromptEditor: NSViewRepresentable {
             }
             coordinator.written = text
         }
-        Self.enable(textView, context.environment.isEnabled)
-    }
-
-    /// `.disabled(…)` around the editor: no typing and no selecting, which also refuses it the keyboard.
-    private static func enable(_ textView: NSTextView, _ enabled: Bool) {
-        if textView.isEditable != enabled { textView.isEditable = enabled }
-        if textView.isSelectable != enabled { textView.isSelectable = enabled }
     }
 
     @MainActor
@@ -273,13 +265,12 @@ final class PromptTextView: NSTextView {
     /// Called with `true` when the view takes the keyboard and `false` when it gives it up.
     var onFocusChange: ((Bool) -> Void)?
     /// Whether to take the keyboard once, on joining a window. SwiftUI inserts the representable
-    /// before it has one, so asking at `makeNSView` would find no window to ask. A disabled editor doesn't take it:
-    /// `makeFirstResponder` doesn't ask whether a view accepts it.
+    /// before it has one, so asking at `makeNSView` would find no window to ask.
     var wantsFocus = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard wantsFocus, isSelectable, let window else { return }
+        guard wantsFocus, let window else { return }
         wantsFocus = false
         window.makeFirstResponder(self)
     }
@@ -420,7 +411,6 @@ struct CompletionPopup: View {
         }
     }
 }
-
 
 /// Discoverability hint for the prompt editor’s completion shortcuts. One key for every agent: a
 /// Codex skill picked from `/` is written as its `$` mention.

@@ -65,8 +65,8 @@ Requires **macOS 26+**, **iTerm2** and **Python 3.11+**. Enable
    CLI and AiTerm's driver. Sign in through the chosen agent's CLI as needed; you use your own agent
    account or API access.
 
-**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The task sheet previews the
-command before launch. Ordinary **New Review…** uses the normal agent command. Signal workers also run with publishing
+**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The task sheet summarises the
+destination before launch. Ordinary **New Review…** uses the normal agent command. Signal workers also run with publishing
 guards on their own task branch. [Agent configuration](docs/configuration.md#agents).
 
 Use **AiTerm › Check for Updates…** for subsequent versions. To have a coding agent install it,
@@ -85,7 +85,7 @@ Jira, GitHub and GitLab service connections are optional for this task.
 3. In **Ticket**, pick a ticket or continue without one.
 4. In **Name and branch**, enter “Explain the test setup”, check the branch and choose a base branch.
 5. In **Prompt**, write: “Find the test commands for this project and explain how to run them.”
-6. In **Agent**, choose the agent, model and reasoning. Check the command and closing box, then
+6. In **Agent**, choose the agent, model and reasoning. Check the destination and closing box, then
    press **Create Task**.
 
 Your task appears in the sidebar with its own branch, worktree and iTerm2 agent window. Select it

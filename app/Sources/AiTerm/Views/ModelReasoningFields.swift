@@ -8,7 +8,6 @@ struct ModelReasoningFields: View {
     let model: String
     @Binding var reasoning: String?
     var prefix = ""
-    var missingModelLabel = "Choose a current model…"
     var disabled = false
     var reasoningOptions: [String]? = nil
     /// Off, the two `Select`s go without their labels: New Broadcast's Agents rows label their columns once.
@@ -17,7 +16,7 @@ struct ModelReasoningFields: View {
 
     var selectedModel: AgentModel? { models.first { $0.id == model } }
     private var placeholder: AgentModel {
-        AgentModel(id: "", label: missingModelLabel, detail: nil, efforts: [], defaultEffort: nil)
+        AgentModel(id: "", label: "Choose a current model…", detail: nil, efforts: [], defaultEffort: nil)
     }
     var modelChoices: [AgentModel] { selectedModel == nil ? [placeholder] + models : models }
 

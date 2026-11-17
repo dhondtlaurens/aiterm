@@ -33,6 +33,64 @@ import Testing
         return controller
     }
 
+    private func attention(_ state: AppState, sessions: [SessionInfo], skipping: Set<UUID> = []) throws -> [RowID] {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = state }
+        for session in sessions { controller.live.handle(.sessionOpened(session)) }
+        return controller.rows.needingAttention(skipping: skipping)
+    }
+
+    private func attentionState(tasks: [TaskItem], terminals: [TerminalItem] = []) -> AppState {
+        var state = AppState.empty
+        state.append(project: project); state.tasks = tasks; state.terminals = terminals
+        return state
+    }
+
+    @Test func nothingWaitingGivesNoAttentionRows() throws {
+        #expect(try attention(attentionState(tasks: [task]), sessions: [tab(.working),
+            SessionInfo.make("idle", window: "w", task: Self.taskId, state: .idle)]).isEmpty)
+        #expect(try attention(attentionState(tasks: [task]), sessions: [
+            SessionInfo.make("unknown", window: "elsewhere", task: UUID(), state: .needsInput),
+            SessionInfo.make("stray", window: "stray-window", state: .done)]).isEmpty)
+    }
+
+    @Test func aTaskCountsOnceHoweverManyTabsWaitAndDoneCountsToo() throws {
+        var second = task; second.id = UUID(); second.windowId = "second-window"
+        var firstTab = tab(.needsInput); firstTab.taskId = Self.taskId.uuidString.lowercased()
+        let sessions = [firstTab, SessionInfo.make("another", window: "w", task: Self.taskId, state: .needsInput),
+                        SessionInfo.make("second", window: "second-window", task: second.id, state: .done)]
+        #expect(try attention(attentionState(tasks: [task, second]), sessions: sessions) == [.task(Self.taskId), .task(second.id)])
+    }
+
+    @Test func attentionFollowsProjectsInOrderWithTerminalsBeforeTasksAndSkipsLeavingTasks() throws {
+        let shell = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "terminal-window", createdAt: Date())
+        var later = task; later.id = UUID(); later.windowId = "later-window"
+        let busyProject = Project.make(name: "Busy", path: "/busy")
+        let busy = TaskItem.make(project: busyProject.id, windowId: "busy-window")
+        var state = attentionState(tasks: [busy, task, later], terminals: [shell])
+        state.items.insert(.project(busyProject), at: 0)
+        let sessions = [tab(.done), SessionInfo.make("later", window: "later-window", task: later.id, state: .needsInput),
+                        SessionInfo.make("shell", window: "terminal-window", state: .needsInput),
+                        SessionInfo.make("busy", window: "busy-window", task: busy.id, state: .working)]
+        #expect(try attention(state, sessions: sessions) == [.terminal(shell.id), .task(Self.taskId), .task(later.id)])
+        #expect(try attention(state, sessions: sessions, skipping: [Self.taskId, shell.id]) == [.terminal(shell.id), .task(later.id)])
+        state.terminals = []
+        #expect(try attention(state, sessions: sessions).first == .task(Self.taskId))
+        #expect(try attention(state, sessions: sessions, skipping: [Self.taskId]).first == .task(later.id))
+    }
+
+    @Test func operatorAttentionRowsComeBeforeProjectRows() throws {
+        var world = SignalWorld(); let signal = world.signal(), driven = world.workingTask(signal: signal)
+        let askedAt = world.now
+        world.state.operatorSession?.questions = [.init(id: "q", task: driven, text: "Which locale?", openedAt: askedAt)]
+        world.state.append(project: project); world.state.tasks.append(task)
+        let sessions = [tab(.done), SessionInfo.make("worker", window: "worker-window", task: driven, state: .needsInput)]
+        #expect(try attention(world.state, sessions: sessions) == [.operation(OperatorSession.rowID), .task(driven), .task(Self.taskId)])
+        #expect(try attention(world.state, sessions: sessions, skipping: [driven]) == [.operation(OperatorSession.rowID), .task(Self.taskId)])
+    }
+
     /// What the list draws from: a write that changes none of it redraws no row.
     private func readsTheList(_ rows: SidebarProjection) -> () -> Void {
         { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
@@ -210,10 +268,6 @@ import Testing
         #expect(controller.state.tasks.isEmpty, "the task is removed")
         #expect(written == ["1", nil])
     }
-
-    /// What a Claude worker runs now is in no row, but the board's card tooltip says it: while the board shows, a session
-    /// event that moved only its worker's model or effort derives the board again, and while it does not, nothing.
-
 
     /// The footer's context row reads the rows' tabs and the fills: a session event that moved a fill
     /// redraws it, one that moved only a model or a title does not, and neither does a sidebar move.

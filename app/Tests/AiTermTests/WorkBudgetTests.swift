@@ -19,7 +19,6 @@ enum Budget {
     /// Waits until the Operator's owners have finished what they started (`OperatorWork`): the turn and transcript
     /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
 
-
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
     static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
         WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
@@ -65,7 +64,6 @@ enum Budget {
     /// rows, the projects' entries and the board read them. Before it (phase 0): 3 and 5 with the board closed, the header
     /// and the operated-row lookup, built twice, deriving the requests each; 4 and 18 open, the board deriving them again
     /// and matching worker tabs 13 more times for its 4 cards. None may raise them.
-
 
     // MARK: - The window lock
 
@@ -135,7 +133,7 @@ enum Budget {
     /// unlisted folder and unsaved work each listed on their own). Restore: 4 spawns, one `worktree list`, then 2
     /// `rev-parse` and `worktree add` (6 before phase 2 listed the worktrees once per restore, 3 `worktree list`). None
     /// may raise them.
-    @Test func shelvingAndRestoringATaskSpawnsGit() async throws {
+    @Test func archivingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
         let server = RecordingDaemon()
@@ -209,7 +207,7 @@ enum Budget {
 
     /// The frozen workspace padded with 500 archived tasks, saved 20 times: the median, printed. Never asserted, and no
     /// installed-app latency: a fixture timing on this machine, for deciding whether the save on the main actor stalls.
-    @Test(.enabled(if: Budget.measuring)) func savingTheFrozenWorkspaceWith500ShelvedTasks() throws {
+    @Test(.enabled(if: Budget.measuring)) func savingTheFrozenWorkspaceWith500ArchivedTasks() throws {
         var state = Budget.workspace()
         let project = try #require(state.tasks.first?.projectId)
         state.archive = (0..<500).map { n in

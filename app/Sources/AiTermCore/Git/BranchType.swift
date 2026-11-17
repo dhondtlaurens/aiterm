@@ -26,10 +26,4 @@ public enum BranchType: String, CaseIterable, Equatable, Sendable {
         else { self = .feat }
     }
 
-    /// `branch` split at its first `/`, when what comes before it is a type. Case-sensitive, as git
-    /// branch names are.
-    public static func split(_ branch: String) -> (type: BranchType, name: String)? {
-        guard let slash = branch.firstIndex(of: "/"), let type = BranchType(rawValue: String(branch[..<slash])) else { return nil }
-        return (type, String(branch[branch.index(after: slash)...]))
-    }
 }

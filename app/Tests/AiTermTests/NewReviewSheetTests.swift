@@ -92,9 +92,6 @@ import AiTermCore
     /// With no CLI installed every segment is disabled — none of them would open anything — and
     /// the note sends the user to where the CLIs are installed.
     @Test func anAgentIsSelectableOnlyWhenItsCLIIsInstalled() {
-        #expect(AgentKind.allCases.allSatisfy { !AgentSegmented.isSelectable($0, available: []) })
-        #expect(AgentSegmented.isSelectable(.pi, available: [.pi]))
-        #expect(!AgentSegmented.isSelectable(.claude, available: [.pi]))
         #expect(AgentStep.missingAgentNote(available: Set(AgentKind.allCases)) == nil)
         #expect(AgentStep.missingAgentNote(available: [.claude, .codex])
                 == "PI isn’t installed. Install it in Settings › Agents.")

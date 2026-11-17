@@ -317,11 +317,6 @@ struct SidebarConnectionBanner: View {
     }
 }
 
-/// The Operator's wake line refused (`OperatorWakeNotice`): what waits on it and why, with Open the Operator
-/// and, when Settings can fix it, Fix in Settings as its links. The Operator runs on Claude Code, whose card Fix in
-/// Settings is for.
-
-
 /// A failed operation above the list, and the Find a Fix it offers (`BannerFixPresentation`), as one
 /// `Notice`: the issue's title and reason, its ways out as links — then, once a fix is asked for, the
 /// busy line or the proposal under the issue, with Apply and Cancel, and Applying… with the banner held.

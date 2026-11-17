@@ -64,7 +64,7 @@ it or type, not when the sheet focuses it.
 
 ## Picker and prompt completions
 
-An open `SearchPicker`/`ChipsPicker` list takes ↑/↓ (wrap), Return (pick) and Escape (close).
+An open `ChipsPicker` list takes ↑/↓ (wrap), Return (pick) and Escape (close).
 It hands keys back once closed. A selected item appears as a chip; multi-selection leaves the field
 ready for another item.
 

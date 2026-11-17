@@ -162,8 +162,12 @@ import Testing
         let entries = SidebarModel.entries(state: world.state, sessions: [worker], branchByCwd: [:], projectBranch: [:])
         let sidebar = SignalSidebar(state: world.state, entries: entries)
         #expect(sidebar.signals[0].tasks[0].status == .waiting)
-        let projects = sidebar.projects.compactMap { if case .project(let section) = $0 { return section }; return nil }
-        #expect(DockBadge.label(for: projects) == nil)
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.handle(.sessionOpened(worker))
+        #expect(controller.rows.needingAttention(skipping: []).isEmpty)
         #expect(!sidebar.signals[0].tasks.contains { $0.status.needsAttention })
     }
 }

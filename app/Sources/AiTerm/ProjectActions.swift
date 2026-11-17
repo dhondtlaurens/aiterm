@@ -242,10 +242,6 @@ final class ProjectActions {
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
-    /// Folds or opens the live broadcast's group, kept with the workspace as a project's fold is
-    /// (`AppState.foldedRuns`).
-
-
     /// Stores `layout`'s collapsed states — Focus View's or List View's, a broadcast's group's by its
     /// id among them — in one change to the workspace, which saves only if one changed. Whether it was
     /// stored: not in a locked workspace.

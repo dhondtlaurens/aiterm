@@ -165,7 +165,7 @@ import Testing
 
     /// Archive keeps Remove's record: its own archive that git refused halfway, the folder since gone
     /// from git's list, is cleaned up on a retry without asking.
-    @Test func shelvesOwnHalfFinishedArchiveIsCleanedUpOnARetry() async throws {
+    @Test func anArchiveThatStoppedHalfwayIsCleanedUpOnARetry() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())

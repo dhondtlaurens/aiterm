@@ -17,9 +17,8 @@ public enum AgentCommand {
         s.range(of: "^[A-Za-z0-9_@%+:,./-][A-Za-z0-9_@%+=:,./-]*$", options: .regularExpression) != nil ? s : shellQuote(s)
     }
 
-    /// The invocation without its prompt argument — shared by `build` and `previewCommand` so the
-    /// footer preview can never drift from the command that is actually run. Every word goes
-    /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
+    /// The invocation without its prompt argument. Model and reasoning words are shell-quoted
+    /// because they come from catalogues the app does not write.
     static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false, readOnly: Bool = false, publishing: Bool = false, resuming: String? = nil) -> [String] {
         let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: readOnly, publishing: publishing)
             : agent.harness.launchWords(model: model, reasoning: reasoning)
@@ -85,18 +84,6 @@ public enum AgentCommand {
     public static func resume(agent: AgentKind, conversation id: String, model: String?, reasoning: String?) -> String {
         let model = model.nonEmpty
         return agent.harness.resumeWords(conversation: id, model: model, reasoning: reasoning).map(shellWord).joined(separator: " ")
-    }
-
-    /// The exact command a task would launch, built without touching the disk: a prompt that goes
-    /// through the file shows the `$(command cat …)` form the real build would produce, instead of
-    /// pretending the prompt is inline. For the New Task footer (spec 4.4), where no worktree exists yet.
-    public static func previewCommand(agent: AgentKind, model: String, reasoning: String?, prompt: String?,
-                                      operated: Bool = false) -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
-        if let prompt = prompt.map(normalized), !prompt.isEmpty {
-            parts.append(readsFromFile(prompt, after: parts) ? "\"$(command cat .aiterm/first-prompt.md)\"" : shellQuote(prompt))
-        }
-        return parts.joined(separator: " ")
     }
 
     /// `operated`: the Operator drives the task, and its worker launches with `workerWords`; false for a

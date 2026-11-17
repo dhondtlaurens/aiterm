@@ -22,14 +22,4 @@ import Testing
         #expect(BranchType(issueType: "") == .feat)
     }
 
-    /// A branch typed or pasted whole splits into its type and the rest; an unknown prefix is not a
-    /// type, so nothing splits and the caller keeps the text as the name.
-    @Test func testABranchSplitsOnlyOnAKnownType() {
-        #expect(BranchType.split("fix/shop-12-broken-link")! == (.fix, "shop-12-broken-link"))
-        #expect(BranchType.split("chore/a/b")! == (.chore, "a/b"))
-        #expect(BranchType.split("release/x") == nil)
-        #expect(BranchType.split("refactor/x") == nil, "only feat, fix and chore are types")
-        #expect(BranchType.split("feature-x") == nil)
-        #expect(BranchType.split("FIX/x") == nil, "git branches are case-sensitive; FIX is not fix")
-    }
 }

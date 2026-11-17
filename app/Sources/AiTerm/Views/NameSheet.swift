@@ -14,7 +14,7 @@ import AiTermCore
 /// where *this app* puts a sheet's nav, content and actions.
 struct NameSheet: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
     let fieldLabel: String
     let placeholder: String
     let help: String?
@@ -26,7 +26,7 @@ struct NameSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
 
-    init(title: String, subtitle: String, fieldLabel: String, placeholder: String, help: String? = nil,
+    init(title: String, subtitle: String? = nil, fieldLabel: String, placeholder: String, help: String? = nil,
          destination: Destination? = nil, closing: ((String) -> String)? = nil, confirmLabel: String, initialName: String, canSubmit: Bool,
          submit: @escaping (String) -> Void) {
         self.title = title; self.subtitle = subtitle; self.fieldLabel = fieldLabel; self.placeholder = placeholder
@@ -39,12 +39,11 @@ struct NameSheet: View {
 
     var body: some View {
         SheetLayout(title: title, height: .fitting(upTo: Sheet.height)) {
-            if closing == nil { SheetSubtitle(subtitle) }
+            if let subtitle { SheetSubtitle(subtitle) }
         } content: {
             FormField(fieldLabel) {
                 Input(placeholder: placeholder, text: $name)
                 if let help { HelpText(help) }
-                if closing == nil, let destination { DestinationLine(destination) }
             }
             if let closing {
                 CreationClosingBlock {
@@ -70,7 +69,7 @@ struct NameSheet: View {
 extension NameSheet {
     /// Add divider, as the sidebar and the snapshots both build it.
     static func newDivider(canSubmit: Bool, submit: @escaping (String) -> Void) -> NameSheet {
-        NameSheet(title: "Add divider", subtitle: "Groups the projects under it in the sidebar.",
+        NameSheet(title: "Add divider",
                   fieldLabel: "Name (optional)", placeholder: "Heading for the projects under it", help: "Empty: a plain line.",
                   closing: { $0.isEmpty ? "Adds a plain line between projects." : "Adds a heading over the projects under it." },
                   confirmLabel: "Add Divider", initialName: "", canSubmit: canSubmit, submit: submit)
@@ -96,7 +95,7 @@ extension NameSheet {
     /// not in a worktree, so there is nothing to derive it from but the repo.
     static func newTerminal(project: Project, suggestedName: String, branch: String, canCreate: Bool,
                             createTerminal: @escaping (String) -> Void) -> NameSheet {
-        NameSheet(title: "New terminal in \(project.name)", subtitle: "Opens a shell in the project folder.",
+        NameSheet(title: "New terminal in \(project.name)",
                   fieldLabel: "Name", placeholder: TerminalItem.defaultName,
                   destination: .projectFolder(project, branch: branch), closing: { _ in "Opens a shell in iTerm2. No agent starts." }, confirmLabel: "Create Terminal",
                   initialName: suggestedName, canSubmit: canCreate,

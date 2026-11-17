@@ -104,8 +104,6 @@ protocol CreationKind {
     associatedtype Item: Equatable & Sendable
     /// The worktree directory `draft` would get, before `BranchNaming.unused` makes it one not taken.
     func slug(for draft: Draft) -> String
-    /// The first prompt the command carries, from `text`, the prompt as typed.
-    func composedPrompt(_ text: String, draft: Draft) -> String?
     /// Told after anything in the draft but its prompt changed, with what the draft was before.
     func draftChanged(from old: Draft, in model: CreationModel<Self>)
     /// Told after the branch list was read.
@@ -121,13 +119,9 @@ protocol CreationKind {
 
 extension CreationKind {
     /// New Task and New Review: three steps — what and where from, the prompt, the agent — the
-    /// destination and command summed up only on the last.
+    /// destination summed up only on the last.
     static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 3, promptSteps: [2], summarizesOnlyOnLast: true) }
 
-    /// The person's text, trimmed. New Task appends its ticket.
-    func composedPrompt(_ text: String, draft: Draft) -> String? {
-        AgentCommand.composePrompt(userText: text, ticket: nil, appendTicket: false)
-    }
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
     func branchesChanged(in model: CreationModel<Self>) {}
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
@@ -137,24 +131,16 @@ extension CreationKind {
     func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool { false }
 }
 
-/// What a creation sheet's steps decide about its frame, in one place: the footer's buttons, where
-/// the destination line and the command preview are drawn, and which steps are prompt editors. New
-/// Task and New Review have three steps, the agent last (`CreationKind`'s defaults); New Broadcast
-/// has five, its Agents list third and no agent step (`broadcast`). The last step creates; the first
-/// has Cancel, every other Back.
+/// A creation sheet's step count, footer actions, destination summary and prompt editors.
+/// The last step creates; the first offers Cancel and the others Back.
 struct CreationSteps: Equatable {
     let count: Int
     /// The step that picks the agent and its model; nil for a sheet that starts no agent of its own.
     let agentStep: Int?
-    /// New Broadcast's Agents step: the rows the Operator may start workers on, which starts no agent of the sheet's
-    /// own and is no prompt editor.
+    /// New Signal's Agents step lists permitted worker choices and has no prompt editor.
     var agentsListStep: Int? = nil
     var promptSteps: Set<Int>? = nil
     var summarizesOnlyOnLast = false
-
-    /// Broadcast · Prompt · Agents · Task · Done: the Operator chooses each task's agent from the Agents rows, so no
-    /// step starts one.
-    static let broadcast = CreationSteps(count: 5, agentStep: nil, agentsListStep: 3)
 
     func creates(onStep step: Int) -> Bool { step == count }
     func primaryTitle(onStep step: Int, createLabel: String) -> String { creates(onStep: step) ? createLabel : "Continue" }
@@ -162,8 +148,6 @@ struct CreationSteps: Equatable {
     /// Step 1, which names where the window opens, and the last, which opens it. Never the agent's
     /// step, so nothing works the line out there (finding the unused worktree slug looks at the disk).
     func showsDestination(onStep step: Int) -> Bool { summarizesOnlyOnLast ? step == count : step == 1 || step == count }
-    /// The command preview, under every step past the first of a sheet that starts an agent.
-    func showsCommand(onStep step: Int) -> Bool { agentStep != nil && (summarizesOnlyOnLast ? step == count : step > 1) }
     /// Why no agent can run, on the create step of a sheet that starts one.
     func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
     /// The steps past the first that are not the agent's or the Agents list's: a prompt editor, whose completion popup
@@ -323,15 +307,6 @@ final class CreationModel<Kind: CreationKind> {
         let unused = BranchNaming.unused(slug, in: project.path, reserved: context.reservedSlugs)
         unusedSlugMemo = (slug, unused)
         return unused
-    }
-
-    /// The first prompt the command carries.
-    var composedPrompt: String? { kind.composedPrompt(promptText, draft: draft) }
-
-    /// Spec 4.4's "exact command", built without touching disk (`previewCommand`, not `build`): the
-    /// sheet shows it on one line and truncates, the tooltip carries the whole thing.
-    var previewCommand: String {
-        AgentCommand.previewCommand(agent: draft.agent, model: draft.model, reasoning: draft.reasoning, prompt: composedPrompt)
     }
 
     var selectedModelIsCurrent: Bool {

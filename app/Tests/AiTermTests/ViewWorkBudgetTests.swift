@@ -9,18 +9,13 @@ import AiTermUI
 
 @MainActor @Suite(.serialized) struct ViewWorkBudgetTests {
 
-
-
-
-
-
-    private func archivedRow(_ title: String, id: UUID = UUID(), at: Date) -> ShelfRow {
+    private func archivedRow(_ title: String, id: UUID = UUID(), at: Date) -> ArchiveSearch.Entry {
         let project = Project.make(id: UUID(uuidString: "E7A1C0DE-0000-4000-8000-000000000001")!, name: "Shop")
         let task = TaskItem.make(id: id, project: project.id, title: title)
-        return .task(.init(archived: ArchivedTask(task: task, archivedAt: at), projectName: project.name, provider: .git))
+        return .init(archived: ArchivedTask(task: task, archivedAt: at), projectName: project.name, provider: .git)
     }
 
-    @Test func movingTheShelfHighlightDoesNotRankAgain() {
+    @Test func movingTheArchiveHighlightDoesNotRankAgain() {
         let rows = (0..<3).map { archivedRow("Task \($0)", at: Snapshots.clock.now.addingTimeInterval(-Double($0))) }
         let model = ArchiveSheetModel(entries: { rows }, restore: { _ in }, remove: { _ in })
         let meter = WorkMeter()
@@ -33,16 +28,16 @@ import AiTermUI
         #expect(model.projection.highlighted?.id == rows[2].id)
     }
 
-    @Observable final class ShelfSource {
-        var rows: [ShelfRow]
-        init(_ rows: [ShelfRow]) { self.rows = rows }
+    @Observable final class ArchiveSource {
+        var rows: [ArchiveSearch.Entry]
+        init(_ rows: [ArchiveSearch.Entry]) { self.rows = rows }
     }
 
-    @Test func theShelfRankingFollowsLiveReplacementRemovalAndQueryChanges() {
+    @Test func theArchiveRankingFollowsLiveReplacementRemovalAndQueryChanges() {
         let id = UUID(), now = Snapshots.clock.now
         let old = archivedRow("Old", id: id, at: now)
         let renamed = archivedRow("Renamed", id: id, at: now)
-        let source = ShelfSource([old])
+        let source = ArchiveSource([old])
         let model = ArchiveSheetModel(entries: { source.rows }, restore: { _ in }, remove: { _ in })
         #expect(model.projection.rows == [old])
         #expect(invalidates({ _ = model.projection }, by: { source.rows = [renamed] }), "a cache hit still observes the source")
@@ -56,20 +51,13 @@ import AiTermUI
         #expect(model.projection.rows == [old])
     }
 
-
-
-
-
-
-
-
-    @Test func theShelfMaterializesItsViewportAndKeepsHighlightScrolling() throws {
+    @Test func theArchiveMaterializesItsViewportAndKeepsHighlightScrolling() throws {
         let project = Project.make()
-        let rows: [ShelfRow] = (0..<100).map { index in
+        let rows: [ArchiveSearch.Entry] = (0..<100).map { index in
             let date = Snapshots.clock.now.addingTimeInterval(-Double(index) * 60)
 
             let task = TaskItem.make(project: project.id, title: "Task \(index)")
-            return .task(.init(archived: ArchivedTask(task: task, archivedAt: date), projectName: project.name, provider: .git))
+            return .init(archived: ArchivedTask(task: task, archivedAt: date), projectName: project.name, provider: .git)
         }
         let model = ArchiveSheetModel(entries: { rows }, restore: { _ in }, remove: { _ in })
         model.now = { Snapshots.clock.now }

@@ -27,8 +27,8 @@ enum SheetHeight: Equatable {
 ///
 /// The header is the title row — the title in `Typography.title`, cut in the middle, and an optional
 /// trailing `accessory` (a stepped sheet's `SheetStepper`) that never gives way to it — then the optional
-/// `header` content `Space.tight` under it: a `SheetSubtitle`, the Shelf's search field, the board's
-/// lines and tabs, Settings' tabs. It is `Space.section` from the top and `Space.margin` from the sides,
+/// `header` content `Space.tight` under it: a `SheetSubtitle`, the Archive's search field or
+/// Settings' tabs. It is `Space.section` from the top and `Space.margin` from the sides,
 /// and `Space.block` from its rule, except when its last line is a `TabBar` (`headerEndsInTabs`): then the
 /// tabs stand on the rule and the selected one's underline covers it.
 struct SheetLayout<Accessory: View, Header: View, Content: View, Footer: View>: View {
@@ -484,61 +484,5 @@ private extension View {
     func ring() -> some View {
         frame(width: Size.chip, height: Size.chip)
             .overlay(Circle().strokeBorder(Palette.borderStrong, lineWidth: 1))
-    }
-}
-
-/// Claude Code / Codex, with the vendor marks. An agent whose CLI is not on the login shell's
-/// `PATH` cannot be picked, and says so.
-struct AgentSegmented: View {
-    let agents: [AgentKind]
-    let available: Set<AgentKind>
-    @Binding var selection: AgentKind
-
-    /// Only an installed CLI can be picked. With none installed every segment is disabled: each
-    /// would open a window that prints "command not found". An unknown answer — the login shell
-    /// failed — arrives here as every agent, never as none (`AgentIntegrations.availableAgents`).
-    static func isSelectable(_ agent: AgentKind, available: Set<AgentKind>) -> Bool { available.contains(agent) }
-
-    var body: some View {
-        SegmentedControl(values: agents, selection: $selection,
-                       isSelectable: { Self.isSelectable($0, available: available) },
-                       help: { Self.isSelectable($0, available: available)
-                           ? nil : "\($0.displayName) isn’t installed. Install it in Settings › Agents." }) { agent, on in
-            AgentSegmentLabel(agent: agent, on: on)
-        }
-    }
-}
-
-/// An agent's segment: its vendor mark and name, the name in the emphasised weight while selected.
-struct AgentSegmentLabel: View {
-    let agent: AgentKind
-    let on: Bool
-
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            VendorMark(agent: agent.session, size: Size.vendorMark)
-            Text(agent.displayName).font(on ? Typography.bodyEmphasis : Typography.body)
-        }
-    }
-}
-
-/// The exact command the task will run, on one line, with the whole thing in the tooltip.
-struct CommandBlock: View {
-    let caption: String
-    let command: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            HelpText(caption, fixedVerticalSize: false).lineLimit(1).truncationMode(.middle)
-            HStack(spacing: Space.snug) {
-                Text("$").font(Typography.monoCode).foregroundStyle(Palette.green)
-                Text(String(command.prefix(300))).font(Typography.monoCode).foregroundStyle(Palette.text)
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Space.inset).padding(.vertical, Space.base)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.codeBackground))
-            .help(command)
-        }
     }
 }

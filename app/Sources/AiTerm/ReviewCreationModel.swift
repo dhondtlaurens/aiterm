@@ -93,11 +93,6 @@ final class ReviewCreation: CreationKind {
         ticketSearch = DebouncedSearch(superseding: .typedSearchOnly) { try await tickets.search($0) }
     }
 
-    /// The reviewer's prompt carries the ticket too, when step 3's checkbox was kept.
-    func composedPrompt(_ text: String, draft: ReviewDraft) -> String? {
-        AgentCommand.composePrompt(userText: text, ticket: draft.ticket, appendTicket: draft.appendTicket, request: draft.mr, appendRequest: draft.appendRequest)
-    }
-
     func slug(for draft: ReviewDraft) -> String { BranchNaming.reviewSlug(branch: draft.branch) }
 
     func draftChanged(from old: ReviewDraft, in model: ReviewCreationModel) {

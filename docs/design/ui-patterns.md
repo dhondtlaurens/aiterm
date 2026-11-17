@@ -76,8 +76,8 @@ its file-copy explanation. Optional fields end their label with “(optional)”
 
 ## Pickers and prompt editing
 
-`SearchPicker`, `DropdownList`, `PickerResultRow`, `ChipsPicker`, `PickChip`, `ChipFlow` and
-`ProjectResultRow` share results, navigation and overhang. A single picked ticket/request/branch
+`ChipsPicker`, `DropdownList`, `PickerResultRow`, `PickChip` and `ChipFlow`
+share results, navigation and overhang. A single picked ticket/request/branch
 uses a chip in the field. `DropdownKeys` owns arrows/Return/Escape only while open.
 `PickerClearButton` uses its tooltip as its accessibility label. Native selection/menu seams stay
 in `NativeRowHighlight` and `RowMenuAnchor`.

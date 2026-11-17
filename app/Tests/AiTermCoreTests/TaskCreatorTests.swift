@@ -42,13 +42,36 @@ import Foundation
         #expect(again.task.worktreePath == made.task.worktreePath)
     }
 
+    @Test func aWholeBranchFollowsAutomaticNamingUntilEdited() {
+        var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "opus", reasoning: nil)
+        #expect(draft.branch == "feat/")
+        #expect(draft.worktreeSlug.isEmpty)
+        draft.setFullBranch(draft.branch)
+        draft.setTitle("First title")
+        #expect(draft.branch == "feat/first-title")
+        draft.apply(ticket: JiraTicket(key: "SHOP-12", summary: "Broken link", description: nil, issueType: "Bug", status: nil, url: "u"))
+        #expect(draft.branch == "fix/shop-12-broken-link")
+        draft.setTitle("Repair link")
+        #expect(draft.branch == "fix/shop-12-repair-link")
+        draft.apply(ticket: nil)
+        #expect(draft.branch == "fix/repair-link", "clearing keeps the automatic prefix")
+        draft.setFullBranch("release/custom")
+        draft.setTitle("Another title")
+        draft.apply(ticket: JiraTicket(key: "SHOP-13", summary: "Feature", description: nil, issueType: "Story", status: nil, url: "u"))
+        draft.apply(ticket: nil)
+        #expect(draft.branch == "release/custom")
+        #expect(draft.worktreeSlug == BranchNaming.worktreeSlug(branch: "release/custom"))
+        draft.setFullBranch("  ")
+        #expect(draft.worktreeSlug.isEmpty)
+    }
+
     @Test func testDraftFollowsTicketUntilEdited() {
         var state = AppState.empty; state.lastAgentByProject[project.id] = .codex; state.lastModelByAgent[.codex] = "gpt-5.6"
         var d = TaskDraft.initial(project: project, state: state, git: git, home: bareHome, defaults: defaults)
         #expect(d.agent == .codex); #expect(d.model == "gpt-5.6"); #expect(d.baseBranch == "main")
         d.apply(ticket: JiraTicket(key: "WEB-5447", summary: "Add graceful SIGTERM", description: nil, issueType: "Task", status: nil, url: "u"))
         #expect(d.title == "Add graceful SIGTERM"); #expect(d.branch == "feat/web-5447-add-graceful-sigterm")
-        d.setBranch("feat/custom")
+        d.setFullBranch("feat/custom")
         d.apply(ticket: JiraTicket(key: "SHOP-1", summary: "Other", description: nil, issueType: "Bug", status: nil, url: "u"))
         #expect(d.title == "Other", "title still follows"); #expect(d.branch == "feat/custom", "edited branch is kept")
     }
@@ -67,58 +90,28 @@ import Foundation
     }
 
     /// SwiftUI hands a `TextField`'s value back through its binding when editing begins and ends,
-    /// not only when the text changes — so `setBranch` and `setTitle` are called with what they
+    /// not only when the text changes — so `setFullBranch` and `setTitle` are called with what they
     /// already hold merely because the user clicked another field. A write of the same value must
     /// not count as an edit, or the branch stops following the task name after a stray click.
     @Test func testAWriteOfTheSameValueIsNotAnEdit() {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("First name")
         #expect(d.branch == "feat/first-name")
-        d.setBranch(d.branch)
+        d.setFullBranch(d.branch)
         d.setTitle(d.title)
         d.setTitle("Second Name Here")
         #expect(d.title == "Second Name Here")
         #expect(d.branch == "feat/second-name-here", "the branch still follows the task name")
     }
 
-    /// The branch type follows the ticket's issue type, like the task name does, until it is picked
-    /// by hand; then a new ticket leaves it alone.
-    @Test func testTheBranchTypeFollowsTheTicketUntilPicked() {
+    /// An automatic branch follows the ticket's issue type and summary.
+    @Test func testTheBranchPrefixFollowsTheTicket() {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        #expect(d.branchType == .feat)
+        #expect(d.branch == "feat/")
         d.apply(ticket: JiraTicket(key: "SHOP-12", summary: "Broken link", description: nil, issueType: "Bug", status: nil, url: "u"))
-        #expect(d.branchType == .fix); #expect(d.branch == "fix/shop-12-broken-link")
+        #expect(d.branch == "fix/shop-12-broken-link")
         d.apply(ticket: JiraTicket(key: "SHOP-13", summary: "Tidy", description: nil, issueType: "Task", status: nil, url: "u"))
-        #expect(d.branchType == .feat, "still following")
-        d.setBranchType(.chore)
-        d.apply(ticket: JiraTicket(key: "SHOP-14", summary: "Crash", description: nil, issueType: "Bug", status: nil, url: "u"))
-        #expect(d.branch == "chore/shop-14-crash", "a picked type survives a new ticket")
-        d.apply(ticket: nil)
-        #expect(d.branchType == .chore)
-    }
-
-    /// The type and the name are separate edits: a hand-typed name still takes a new type, and the
-    /// name the field shows is the part after the type.
-    @Test func testAnEditedNameStillTakesANewType() {
-        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        d.setBranch("my-own-name")
-        #expect(d.branchName == "my-own-name"); #expect(d.branch == "feat/my-own-name")
-        d.setBranchType(.chore)
-        #expect(d.branch == "chore/my-own-name")
-        d.setTitle("Something else")
-        #expect(d.branch == "chore/my-own-name", "the edited name is kept")
-    }
-
-    /// Typing or pasting a whole branch with a known type moves the type into the select; an
-    /// unknown prefix is part of the name.
-    @Test func testATypedPrefixMovesIntoTheType() {
-        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        d.setBranch("fix/shop-12-broken-link")
-        #expect(d.branchType == .fix); #expect(d.branchName == "shop-12-broken-link")
-        d.apply(ticket: JiraTicket(key: "SHOP-1", summary: "Story", description: nil, issueType: "Story", status: nil, url: "u"))
-        #expect(d.branch == "fix/shop-12-broken-link", "a typed type counts as picked")
-        d.setBranch("release/x")
-        #expect(d.branch == "fix/release/x")
+        #expect(d.branch == "feat/shop-13-tidy")
     }
 
     /// The branch a typed task name produces is that name lowercased, with everything that is not a
@@ -136,7 +129,7 @@ import Foundation
         #expect(d.worktreeSlug == "")
         d.setTitle("Broken link")
         #expect(d.worktreeSlug == "broken-link")
-        d.setBranch("")
+        d.setFullBranch("")
         #expect(d.worktreeSlug == "")
     }
 
@@ -215,7 +208,7 @@ import Foundation
 
     @Test func testBranchWithoutAsciiStillGetsItsOwnWorktreeDirectory() throws {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        d.setTitle("x"); d.setBranch("feat/日本語")
+        d.setTitle("x"); d.setFullBranch("feat/日本語")
         let task = try TaskCreator.create(draft: d, project: project, git: .hermetic()).task
         let worktreesDir = repo + "/.worktrees/"
         #expect(task.worktreePath.hasPrefix(worktreesDir))
@@ -229,7 +222,7 @@ import Foundation
         var paths: [String] = []
         for type in ["feat", "fix", "chore"] {
             var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-            d.setTitle("Login"); d.setBranch("\(type)/login")
+            d.setTitle("Login"); d.setFullBranch("\(type)/login")
             paths.append(try TaskCreator.create(draft: d, project: project, git: .hermetic()).task.worktreePath)
         }
         #expect(paths == ["login", "login-2", "login-3"].map { repo + "/.worktrees/" + $0 })
@@ -239,10 +232,10 @@ import Foundation
     /// new worktree at that path until the record is cleared, so the folder counts as taken.
     @Test func aFolderGitStillListsIsTakenAfterItWasDeletedOutsideAiTerm() throws {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        d.setTitle("Login"); d.setBranch("feat/login")
+        d.setTitle("Login"); d.setFullBranch("feat/login")
         let first = try TaskCreator.create(draft: d, project: project, git: git).task
         try FileManager.default.removeItem(atPath: first.worktreePath)
-        d.setBranch("fix/login")
+        d.setFullBranch("fix/login")
         let second = try TaskCreator.create(draft: d, project: project, git: git).task
         #expect(second.worktreePath == repo + "/.worktrees/login-2")
         #expect(try Repository(repo, git: git).registeredWorktreeFolders() == ["login", "login-2"])
@@ -333,7 +326,7 @@ import Foundation
 
     @Test func testInvalidBranchIsRejectedBeforeTouchingGit() {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        d.setTitle("x"); d.setBranch("bad..name")
+        d.setTitle("x"); d.setFullBranch("feat/bad..name")
         let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project, git: .hermetic()) }
         #expect(e as? TaskCreator.Failure == .invalidBranch("feat/bad..name"))
     }

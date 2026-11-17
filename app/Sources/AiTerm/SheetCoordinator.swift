@@ -14,15 +14,7 @@ import AiTermCore
 final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
-    var sheet: SheetKind? {
-        didSet {
-            if sheet?.id != oldValue?.id { onChange?() }
-            if sheet == nil { onDismiss?() }
-        }
-    }
-    /// Told when what the slot holds changed: the rows derive the board while its sheet shows.
-    @ObservationIgnored var onChange: (@MainActor () -> Void)?
-    @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
+    var sheet: SheetKind?
     /// New Review's Fix for a project: the controller's `fixPipeline`, the banner's too.
     @ObservationIgnored private let fixPipeline: @MainActor (Project) -> FixPipeline
     /// The preparation on its way to the slot, if any; tests await it.
@@ -137,8 +129,6 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
-
-
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘B and the footer's Mac rows reach it while one may be up, and it refuses rather than
     /// take that sheet's place, as Settings does.
@@ -177,9 +167,6 @@ final class SheetCoordinator {
             sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: agent == nil ? tab : .agents, agent: agent)
         }
     }
-
-    /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
-
 
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
     /// terminal opens in the project folder and starts no agent. The branch the destination line

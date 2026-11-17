@@ -80,12 +80,6 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// task you made yourself or took over. That line is the Operator's alone: a test run on a task of your own is
     /// not drawn as one (29 Oct 2026); it shows only as background work, on the row's mark and its card.
     public var operatorLine: OperatorLine? = nil
-    /// The task is driven by a broadcast that has not ended: its menu leads with the Operator's items.
-    /// False for a task you made yourself, and for every task of an ended broadcast, handed to you.
-    /// A task the Operator has planned and not started (`TaskItem.isQueuedByOperator`): drawn last in the
-    /// broadcast's group, its planned agent as its avatar, its title in secondary ink and the pause sign as its
-    /// mark. Selectable, but nothing opens: it has no window yet.
-    public var queued = false
     /// The pause sign with idle status during your pause: a working task whose workers stopped, or an idle task
     /// in people's review. The review task keeps its review line rather than replacing it with `paused`.
     public var paused = false
@@ -125,13 +119,8 @@ public struct StatusCount: Equatable, Sendable {
 public struct ProjectSection: Equatable, Identifiable, Sendable {
     public var id: UUID { project.id }; public var project: Project, tasks: [TaskRow], terminals: [TerminalRow]
     public var canMoveUp = false, canMoveDown = false
-    /// How many of the project's tasks the live broadcast holds: moved out of the project into the
-    /// broadcast's group, and counted on the header's badge.
-    public var operatorTasks = 0
-    /// How many of those have a worktree yet, as the header's tooltip and Remove Project's question say it.
-    public var operatorWorktrees = 0
     /// No task and no terminal of its own: nothing to disclose. A project left with only the Operator's
-    /// tasks is empty too: they are drawn under the broadcast.
+    /// tasks is empty too: they are drawn under their signals.
     public var isEmpty: Bool { tasks.isEmpty && terminals.isEmpty }
     /// Whether the section draws collapsed. An empty project always does, whatever it stored, and
     /// returns to its stored state once a row lands in it — so nothing is written for it.
@@ -338,25 +327,6 @@ public enum SidebarModel {
         collapsedStates(sections) { !$0.needsAttention }
     }
 
-    /// The rows Focus View steps through: every done (and so unseen — a seen one is idle) or
-    /// needs-input row, terminals included, in the order the sidebar draws them: the broadcast's
-    /// group first (`BroadcastSection.needingAttention`: only what needs you), then projects top to
-    /// bottom, and within one its terminals above its tasks. `skippingTasks` are passed over — the
-    /// app's, for tasks on their way out. Focus View goes to the first; the Dock badge counts them.
-    public static func needingAttention(_ sections: [ProjectSection],
-                                        skippingTasks: Set<UUID> = []) -> [RowID] {
-        sections.flatMap { section in
-                section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
-                    + section.tasks.filter { $0.status.needsAttention && !skippingTasks.contains($0.id) }.map { RowID.task($0.id) }
-            }
-    }
-
-    /// The first of `needingAttention`: where Focus View goes.
-    public static func firstNeedingAttention(_ sections: [ProjectSection],
-                                             skippingTasks: Set<UUID> = []) -> RowID? {
-        needingAttention(sections, skippingTasks: skippingTasks).first
-    }
-
     /// List View (⌘L): every project with rows open, and so the broadcast's section folded into OPERATOR, since the
     /// two are open one at a time. Empty ones are left out, as in `focusView`.
     public static func listView(_ sections: [ProjectSection]) -> [UUID: Bool] {
@@ -436,9 +406,8 @@ public enum SidebarModel {
         // Grouped once for every row, rather than filtered per task and per terminal — and the
         // rows by project once, rather than filtered again for every project.
         let tabs = Tabs(sessions)
-        // The live broadcast's tasks are drawn under it (`broadcastSection`), out of their projects, which count them.
         let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
-                        terminals: Dictionary(grouping: state.terminals, by: \.projectId), held: [:])
+                        terminals: Dictionary(grouping: state.terminals, by: \.projectId))
         // A row only a newer build can draw is skipped, and does not count as an end to move towards.
         let drawn = state.items.indices.filter { state.items[$0].isDrawn }
         let first = drawn.first ?? 0, last = drawn.last ?? 0
@@ -463,13 +432,8 @@ public enum SidebarModel {
             byTask = Dictionary(grouping: sessions, by: \.taskUUID); byWindow = Dictionary(grouping: sessions, by: \.windowId)
         }
     }
-    /// The workspace's tasks and terminals by project, each list in the workspace's order; `held` the live
-    /// broadcast's tasks, which the projects only count.
-    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]], held: [UUID: [TaskItem]] }
-
-    /// The runs, tasks and requests a driven task's row reads, built once per derivation, and left empty,
-    /// at no cost, while no task is driven. `acting` is what the Operator is doing to each task.
-
+    /// The workspace's tasks and terminals by project, in workspace order.
+    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]] }
 
     /// The project-only view of `entries`, for the callers that never draw a divider.
     public static func sections(state: AppState, sessions: [SessionInfo],
@@ -499,32 +463,21 @@ public enum SidebarModel {
                                avatars: own.isEmpty ? AvatarGroup(marks: [.shell], overflow: 0) : avatars(for: own),
                                status: aggregate(tabs: own), background: displayJobs(of: own))
         }
-        let held = rows.held[project.id] ?? []
-        return ProjectSection(project: project, tasks: tasks, terminals: terminals,
-                              operatorTasks: held.count, operatorWorktrees: held.filter(\.hasCheckout).count)
+        return ProjectSection(project: project, tasks: tasks, terminals: terminals)
     }
 
     /// One task's row: its tabs' agents, branch and status. A driven task's line and status are `SignalSidebar`'s to
-    /// set over these. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
+    /// set over these.
     static func taskRow(_ task: TaskItem, tabs: Tabs, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
-        let line: OperatorLine? = nil
-        let facts = RowFacts(avatars: avatars(for: own), status: aggregate(tabs: own), queued: false, paused: false)
         var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
-                       avatars: facts.avatars, status: facts.status,
-                       diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                       queued: facts.queued, paused: facts.paused,
+                       avatars: avatars(for: own), status: aggregate(tabs: own),
+                       diff: baseDiff(task: task, stat: diffByTask[task.id]),
                        background: displayJobs(of: own))
         row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
         return row
-    }
-
-    /// What a task's row draws beside its words: its avatars, its status, and whether the pause sign stands in for its
-    /// mark. One derivation for the sidebar's row and for the task's row on its broadcast's sheet (`BroadcastBoard.Card`).
-    struct RowFacts: Equatable {
-        var avatars: AvatarGroup, status: TaskStatus, queued: Bool, paused: Bool
     }
 
     /// Only a diff with something in it extends the badge; no base, no answer yet, or nothing

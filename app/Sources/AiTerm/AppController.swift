@@ -242,7 +242,6 @@ final class AppController {
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         signalController.onChange { [weak self] in self?.refreshRows() }
-        sheets.onChange = { [weak self] in self?.refreshRows() }
         refreshRows()
         // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
         // controller's to reopen, in front.
@@ -259,10 +258,6 @@ final class AppController {
             }
             return Task { await self.signalController.reopenWorker(id) }
         }
-        // A notification's click on a waiting plan, a done or a blocked broadcast opens its board:
-        // D7 records the request on the operator controller; this presents it, and any made before now.
-
-
     }
 
     // -- lifecycle ------------------------------------------------------------------
@@ -333,9 +328,7 @@ final class AppController {
     /// moved — a section changed, a removal started or ended — and the label almost never changes.
     /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let count = rows.projectsNeedingAttention.filter { row in
-            if case .task(let id) = row { return !remover.leavingTasks.contains(id) }; return true
-        }.count
+        let count = rows.needingAttention(skipping: remover.leavingTasks).count
         let label = count == 0 ? nil : String(count)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
@@ -350,8 +343,7 @@ final class AppController {
     /// that has rows to open and no broadcast.
     var canShowListView: Bool { canApplyView(signalLayout(focus: false)) }
 
-    /// ⌘F: opens every project with a done or needs-input row, and the broadcast's group while something
-    /// in it needs you, and folds the rest — all of them when nothing is waiting — in one save, then peeks
+    /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
     /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
     /// and a task still unseen. With nothing waiting the selection stays. The peek is returned, when there
     /// is one.
@@ -360,9 +352,7 @@ final class AppController {
         guard applyView(signalLayout(focus: true)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = rows.projectsNeedingAttention.first(where: { row in
-            if case .task(let id) = row { return !remover.leavingTasks.contains(id) }; return true
-        })
+        guard let first = rows.needingAttention(skipping: remover.leavingTasks).first
         else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
@@ -394,17 +384,17 @@ final class AppController {
     var canPresentSettings: Bool { sheets.canPresentSettings }
     var canPresentArchive: Bool { sheets.canPresentArchive }
 
-    /// The Shelf, reading the archive and the ended broadcasts as they are whenever it draws.
+    /// The Archive, reading the current archived tasks and reviews whenever it draws.
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
-            entries: { [weak self] in self?.state.shelfRows ?? [] },
+            entries: { [weak self] in self?.state.archiveEntries ?? [] },
             restore: { [weak self] in self?.archiver.restore($0) },
             // A turn later, never inside the key handler that asked (`Prompter`).
-            remove: { [weak self] id in Task { await self?.removeFromShelf(id) } }))
+            remove: { [weak self] id in Task { await self?.removeFromArchive(id) } }))
     }
 
-    /// Remove on the Shelf: an ended broadcast's own question, or a shelved task's or review's.
-    func removeFromShelf(_ id: UUID) async {
+    /// Asks before removing an archived task or review.
+    func removeFromArchive(_ id: UUID) async {
         await archiver.confirmRemove(archived: id)
     }
 
@@ -472,35 +462,8 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// What a notification's click opens (spec §10.3): a broadcast's board — the sidebar presents
-    /// what `presentBoard` names — at a question's block under Waiting on you when it is about one, or for a note an older
-    /// AiTerm posted, the task whose prompt waits on you, its tab that asks in front (`choose(task:)`).
-    func openNote(_ target: OperatorNote.Target) {
-        switch target {
-        case .operatorWindow: focus.select(.operation(OperatorSession.rowID))
-        case .task(let id): choose(task: id)
-        }
-    }
-
-    /// The board of `run`, presented if it isn't up, at the block of its question `key` (`BoardFocus`).
-
-
-    /// A prompt's block's Open its window: its own tab in front, by its key, as a tab line on a card brings it; with that
-    /// tab not listed, the task as its row's click chooses it.
-    @discardableResult
-    func choose(task id: UUID, tab key: String) -> Task<Void, Never>? {
-        if let task = state.task(id: id),
-           let session = task.workerTabs(in: live.sessions).first(where: { $0.reference.name == key })?.session {
-            return bringTab(task: id, sessionId: session.sessionId)
-        }
-        return choose(task: id)
-    }
-
-    /// ↩ on the list: a header folds or opens its project; any other row
-    /// goes to its window, the Operator's row to the Operator's or the question it waits on (`chooseOperatorRow`), a driven task's to its tab that asks
-    /// (`choose(task:)`), and a queued task's to none. An empty
-    /// project has nothing to fold, so its header opens its context menu — its first items are the ones
-    /// that give it a row.
+    /// Return folds a populated project or signal; an empty project's header opens its menu.
+    /// Other rows open their window through the managed focus path.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if case .signal(let id) = focus.selection, let section = rows.signalSections.first(where: { $0.id == id }) {
@@ -526,19 +489,13 @@ final class AppController {
         }
     }
 
-    /// A row chosen, by its click or ↩: the one owner of what that does. A task's row goes through `choose(task:)` — a
-    /// driven one brings the tab that asks — the live broadcast's Operator's row through `chooseOperatorRow` — a
-    /// question it waits on opens the board at its block — and every other row to `RowFocus.select`, which raises its
-    /// window or has it restored.
+    /// A task selects its asking tab; other rows go through the managed focus path.
     @discardableResult
     func choose(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
         case .task(let id):
             return choose(task: id)
-        case .operation(let id):
-            if id == OperatorSession.rowID { return focus.select(.operation(id)) }
-            return focus.select(row)
-        case .terminal, .project, .signal:
+        case .operation, .terminal, .project, .signal:
             return focus.select(row)
         }
     }

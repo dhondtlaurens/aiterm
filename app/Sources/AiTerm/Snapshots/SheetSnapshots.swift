@@ -153,10 +153,7 @@ enum SheetSnapshots {
             .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
     }
 
-    /// The Archive sheet with the proposal's five rows, a search that finds one by its merge request,
-    /// nothing archived, a search that finds nothing, and an ended broadcast among the rows, highlighted
-    /// so the footer reads Open. Drawn last: an added image goes after the
-    /// ones before it (`Snapshots.regressionSet`).
+    /// The Archive with five rows, one matching request, no archived tasks, and no matching tasks.
     private static var archiveSheets: [Snapshot] {
         [
             Snapshot("archive.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "")) },
@@ -376,7 +373,7 @@ enum SheetSnapshots {
 @MainActor enum ArchiveSnapshots {
     static let now = Date(timeIntervalSince1970: 1_791_800_000)
 
-    static func model(entries: [ShelfRow]? = nil, query: String) -> ArchiveSheetModel {
+    static func model(entries: [ArchiveSearch.Entry]? = nil, query: String) -> ArchiveSheetModel {
         let shown = entries ?? rows
         let model = ArchiveSheetModel(entries: { shown }, restore: { _ in }, remove: { _ in })
         model.query = query
@@ -384,18 +381,15 @@ enum SheetSnapshots {
         return model
     }
 
-    /// An ended broadcast, two days ago: between the review shelved yesterday and the task three days ago.
-
-
-    static var rows: [ShelfRow] {
+    static var rows: [ArchiveSearch.Entry] {
         func row(_ title: String, _ agent: AgentKind, jira: String? = nil, mr: Int? = nil, branch: String, project: String,
-                 ago: TimeInterval) -> ShelfRow {
+                 ago: TimeInterval) -> ArchiveSearch.Entry {
             let task = TaskItem(id: UUID(), projectId: UUID(), title: title, branch: branch, worktreePath: "/w", baseBranch: "main",
                                 jira: jira.map { JiraRef(key: $0, summary: title, url: "") }, kind: mr == nil ? .task : .review,
                                 mr: mr.map { MergeRequestRef(iid: $0, title: title, url: "") }, agent: agent, model: "m", reasoning: nil,
                                 firstPrompt: nil, appendTicket: false, createdAt: now, windowId: nil)
-            return .task(.init(archived: ArchivedTask(task: task, archivedAt: now.addingTimeInterval(-ago)), projectName: project,
-                               provider: .gitlab))
+            return .init(archived: ArchivedTask(task: task, archivedAt: now.addingTimeInterval(-ago)), projectName: project,
+                         provider: .gitlab)
         }
         return [row("Login flow", .claude, jira: "SHOP-123", branch: "feat/SHOP-123-login", project: "acme-storefront", ago: 7_200),
                 row("Header refactor", .claude, mr: 482, branch: "feat/header-refactor", project: "acme-storefront", ago: 86_400),

@@ -123,11 +123,15 @@ import Synchronization
         let m = model()
         m.pickTicket(ticket)
         m.promptText = "Review this"
-        #expect(m.composedPrompt?.hasPrefix("Review this") == true)
-        #expect(m.composedPrompt?.contains("## Acceptance") == true)
-        #expect(m.composedPrompt?.contains("JVS-5793") == false)
+        func prompt() -> String? {
+            AgentCommand.composePrompt(userText: m.draft.promptText, ticket: m.draft.ticket, appendTicket: m.draft.appendTicket,
+                                       request: m.draft.mr, appendRequest: m.draft.appendRequest)
+        }
+        #expect(prompt()?.hasPrefix("Review this") == true)
+        #expect(prompt()?.contains("## Acceptance") == true)
+        #expect(prompt()?.contains("JVS-5793") == false)
         m.draft.appendTicket = false
-        #expect(m.composedPrompt == "Review this")
+        #expect(prompt() == "Review this")
     }
 
     // -- the sidebar's badges -------------------------------------------------------------------
