@@ -3,7 +3,8 @@ import AiTermCore
 
 /// The Operator proposes an agent row (and project) for a stage or a work tab; the Oracle agrees or
 /// critiques, at most three rounds. The choice never reaches the person: with the Oracle off or
-/// unavailable the proposal applies, and three disagreeing rounds fall back to the first row.
+/// unavailable the proposal applies, and three disagreeing rounds fall back to the first row, which
+/// moves to the other agent when its own is at its weekly limit. Every agent-row decision is made here.
 @MainActor final class AgentChoiceRounds {
     enum Scope: String, Sendable { case stage = "choose_agent", tab = "open_tab" }
     struct Proposal: Equatable, Sendable {
@@ -11,6 +12,8 @@ import AiTermCore
         var text: String { "\(row.label)" + (project.map { " in project \($0.uuidString)" } ?? "") + ". " + reason }
     }
     enum Outcome: Equatable { case decided(AgentChoiceRecord), reply(JSONValue) }
+    /// A work tab's row: open on `row` for `reason`, with the record when a round decided it, or reply.
+    enum TabOutcome: Equatable { case open(AgentChoice, reason: String, record: AgentChoiceRecord?), reply(JSONValue) }
     struct Ports {
         var weeklyUsage: @MainActor () -> [AgentKind: Int]
         var installedAgents: @MainActor () -> Set<AgentKind>
@@ -27,6 +30,17 @@ import AiTermCore
         self.workspace = workspace; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects; self.activity = activity
     }
 
+    /// A work tab's row. With several choosable rows the Oracle checks the proposal against the tab's
+    /// `prompt`; with one or none the proposal opens as given. A tab's row never switches at launch.
+    func workTab(task: TaskItem, proposal: Proposal, challenge: String?, prompt: String) async throws -> TabOutcome {
+        let need = AgentChoiceNeed.decide(permitted: task.signalTask?.current.configuration.agents ?? [], projects: nil, conversationAgent: nil)
+        guard case .choose(let rows, _) = need, rows.count > 1 else { return .open(proposal.row, reason: proposal.reason, record: nil) }
+        switch try await decide(task: task, scope: .tab, rows: rows, projects: nil, proposal: proposal, challenge: challenge, work: prompt) {
+        case .reply(let reply): return .reply(reply)
+        case .decided(let record): return .open(record.row, reason: record.reason, record: record)
+        }
+    }
+
     /// Settles one call. The caller validated `proposal` against `rows` and `projects`. A
     /// critique returns `challenged` with its `challengeId`; the next proposal names it. The round holds
     /// the task and releases it before it returns, so the caller's launch or tab can claim it.
@@ -35,9 +49,10 @@ import AiTermCore
         guard workspace.state.operatorSession?.lifecycle.isChanging == false, let claim = SignalClaim(task), claim.allows(in: workspace) else {
             throw ActionUnavailable("The Operator cannot choose right now.")
         }
-        func decided(_ how: AgentChoiceRecord.Decided, row: AgentChoice? = nil, reason: String? = nil, round: Int? = nil, note: String? = nil) -> Outcome {
+        func decided(_ how: AgentChoiceRecord.Decided, row: AgentChoice? = nil, reason: String? = nil, round: Int? = nil, note: String? = nil,
+                     launchSwitch: AgentChoice? = nil) -> Outcome {
             .decided(AgentChoiceRecord(row: row ?? proposal.row, project: proposal.project, reason: reason ?? proposal.reason,
-                                       decided: how, round: round, note: note, at: now()))
+                                       decided: how, round: round, note: note, at: now(), launchSwitch: launchSwitch))
         }
         // One project and one row: only the project was open, and the Operator decides it alone.
         if rows.count == 1 { return decided(.operatorAlone) }
@@ -75,7 +90,8 @@ import AiTermCore
             return .reply(["status": "challenged", "challengeId": .string(challengeID), "round": .int(round), "critique": .string(text),
                            "next": "Revise the proposal, pass this challengeId and use a new key."])
         case .critique(let text, let round, nil):
-            return decided(.disagreed, row: rows[0], reason: "The Operator proposed \(proposal.row.label): \(proposal.reason)", round: round, note: text)
+            return decided(.disagreed, row: rows[0], reason: "The Operator proposed \(proposal.row.label): \(proposal.reason)", round: round, note: text,
+                           launchSwitch: launchSwitch(task: task, scope: scope, fallback: rows[0], rows: rows))
         case .unavailable(.off):
             return decided(.oracleOff)
         case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
@@ -83,6 +99,13 @@ import AiTermCore
         case .retry:
             return .reply(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId."])
         }
+    }
+    /// A stage's fallback row moves to the first row on the other agent when its own agent is at
+    /// its weekly limit and the other has room. A saved conversation keeps its agent.
+    private func launchSwitch(task: TaskItem, scope: Scope, fallback: AgentChoice, rows: [AgentChoice]) -> AgentChoice? {
+        guard scope == .stage, task.firstWorkerConversation == nil else { return nil }
+        let row = ModelChoice.launchChoice(planned: fallback, pinned: false, weekly: ports.weeklyUsage(), installed: ports.installedAgents(), rows: rows)
+        return row == fallback ? nil : row
     }
     nonisolated static func json(_ value: JSONValue) throws -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys

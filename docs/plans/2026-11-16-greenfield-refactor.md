@@ -382,7 +382,7 @@ TS tests-scripts.
 - [x] 5f. **Opus.** The chat's lifecycle is one saved state with its generation; the three flags
   and four memory flags go; one idle rule (RT F8, OC F2). A row's current activity is runtime-only
   and leaves the saved task and the task line of `run_status` (RT F9).
-- [ ] 5g. **Opus.** The tool handler's ledger is the only ledger of calls: `answer_worker`'s second
+- [x] 5g. **Opus.** The tool handler's ledger is the only ledger of calls: `answer_worker`'s second
   ledger entry and its own running set go, and the wake acknowledgement moves into the handler.
   The uniqueness rules on records stay with their owners, because those records outlive the
   ledger: a question id is recorded once, a resolved question keeps its answer, a snag key and a
@@ -1140,3 +1140,17 @@ left.
   here: for 9c. Behaviour notes: retirement also waits for tracked acts, an unread wake and a window
   holding one tab (the one idle rule); an open chat closed before its conversation was recorded no
   longer reopens by itself.
+- 5g: the tool handler's ledger is the only ledger of calls: `answer_worker`'s second ledger entry and
+  its running set went; the wake acknowledgement (a scoped `run_status` refused while a wake is unread,
+  a global one acknowledging it) moved into the handler; the controller routes `gate_command` to the
+  shell gate and everything else to the handler. The record rules stay with their owners. The
+  launch-time agent switch at the weekly limit and `open_tab`'s choice of rows moved to
+  `AgentChoiceRounds` (decided at choice time, never for a tab or a stage with a saved conversation).
+  Changed refusal texts: reusing an `answer_worker` key with other arguments now says "This key already
+  names a different call. Use the original arguments to retry." (was "This key was already used for a
+  different answer."); a failed save of its result says "The tool result couldn’t be saved." (was "The
+  answer couldn’t be saved."). Tests deleted: `SignalQuestionRoundsTests.agreementAnswersOnceAndTheSavedKeySurvivesARestart`
+  (survivor `SignalToolHandlerTests.anAgreedWorkerAnswerReplaysAfterARestartFromTheHandlersLedgerAlone`),
+  `SignalWorkerIOTests.onlyAFallbackRowMovesOffAnAgentAtItsWeeklyLimit` (survivor of the same name in
+  `SignalAgentChoiceTests`); added `onlyAGlobalStatusAcknowledgesAnUnreadWake`. No fixture changed.
+  Noticed and left: `OracleRound.askedArguments` is written and never read.

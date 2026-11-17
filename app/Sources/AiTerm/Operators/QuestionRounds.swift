@@ -26,29 +26,23 @@ import AiTermCore
     private let effects: OperatorInFlight
     /// Where a round shows as its task's act.
     private let activity: OperatorActivityTracker
-    private var running: Set<String> = []
     var changed: () -> Void = {}
     init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports,
          effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
         self.workspace = workspace; self.journal = journal; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects
         self.activity = activity
     }
-    func answer(task id: UUID, key: String, proposal: String, tab: String = "main", challenge: String? = nil,
+    /// One `answer_worker` call. The tool handler makes it idempotent by its key; this owner saves
+    /// only the Oracle rounds and the agreed round that makes a restart ask the person.
+    func answer(task id: UUID, proposal: String, tab: String = "main", challenge: String? = nil,
                 fromQuestion: String? = nil, person: Bool = false) async throws -> JSONValue {
-        guard workspace.canChangeWorkspace, !key.isEmpty, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        guard workspace.canChangeWorkspace, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               workspace.state.operatorSession?.lifecycle.isChanging == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
         let operatorID = workspace.state.operatorSession?.id, operatorGeneration = workspace.state.operatorSession?.generation
-        let ledgerKey = "answer_worker:" + key
+        // What an Oracle round saves as the call it checked.
         let arguments = try Self.json(["task": .string(id.uuidString), "tab": .string(tab), "proposal": .string(proposal),
                                        "challenge": challenge.map(JSONValue.string) ?? .null,
                                        "fromQuestion": fromQuestion.map(JSONValue.string) ?? .null, "person": .bool(person)])
-        if let cached = workspace.state.operatorSession?.ledger.first(where: { $0.key == ledgerKey }) {
-            guard cached.arguments == arguments else { throw ActionUnavailable("This key was already used for a different answer.") }
-            var result: JSONValue?
-            workspace.mutate { result = $0.operatorSession?.cached(key: ledgerKey, at: now()) }
-            if let result { return result }
-        }
-        guard !running.contains(ledgerKey) else { return ["status": "pending"] }
         guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), task.signalTask?.phase == .working,
               let question = ports.question(id, tab) else { throw ActionUnavailable("This worker has no current unanswered question.") }
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
@@ -61,8 +55,7 @@ import AiTermCore
         }
         // The round holds the task from its start through delivering the agreed answer.
         guard effects.claim(id) else { return ["status": "pending"] }
-        running.insert(ledgerKey)
-        defer { running.remove(ledgerKey); effects.release(id) }
+        defer { effects.release(id) }
         var humanAnswer = false
         if let fromQuestion {
             guard let asked = workspace.state.operatorSession?.questions.first(where: { $0.id == fromQuestion }),
@@ -82,27 +75,27 @@ import AiTermCore
                 $0.task == id && $0.stage == claim.stage && $0.ownership == claim.ownership && $0.tab == tab
                     && $0.workerBinding == binding && $0.resolvedAt == nil
             }) {
-                return try remember(["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
-                                     "next": "Wait for the person's answer in your chat."], key: ledgerKey, arguments: arguments)
+                return ["status": "ask_you", "question": .string(asked.text), "questionKey": .string(asked.id),
+                        "next": "Wait for the person's answer in your chat."]
             }
             if let open = oracle.saved(tool: Self.tool, key: binding) {
                 if open.stage == .unanswered {
-                    return try remember(askPerson(question, reason: open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds."), key: ledgerKey, arguments: arguments)
+                    return askPerson(question, reason: open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds.")
                 }
                 if open.stage == .ready {
                     markPerson("The earlier attempt was interrupted; check the worker before answering again.", replacing: open)
-                    return try remember(askPerson(question, reason: "The earlier attempt was interrupted; check the worker before answering again."), key: ledgerKey, arguments: arguments)
+                    return askPerson(question, reason: "The earlier attempt was interrupted; check the worker before answering again.")
                 }
                 guard challenge == open.id else {
-                    return try remember(["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
-                                         "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")], key: ledgerKey, arguments: arguments)
+                    return ["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
+                            "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")]
                 }
                 previous = open
             } else if challenge != nil { throw ActionUnavailable("That Oracle round does not belong to this worker's current question.") }
             if person || !oracle.isOn {
                 let reason = person ? "The Operator says this is your decision." : "The Oracle is off."
                 markPerson(reason, replacing: previous)
-                return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+                return askPerson(question, reason: reason)
             }
         }
         if previous == nil, let challenge { oracle.clear(challenge) }
@@ -140,22 +133,22 @@ import AiTermCore
                         }
                     }
                     oracle.clear(readyID)
-                    return try remember(["status": "answered"], key: ledgerKey, arguments: arguments)
+                    return ["status": "answered"]
                 }
             case .critique(let text, let number, let challengeID?):
-                return try remember(["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text)], key: ledgerKey, arguments: arguments)
+                return ["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text)]
             case .critique(let text, _, nil):
                 let reason = "The Operator and Oracle still disagree after three rounds. " + text
                 markPerson(reason)
-                return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+                return askPerson(question, reason: reason)
             case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
                 markPerson(reason)
-                return try remember(askPerson(question, reason: reason), key: ledgerKey, arguments: arguments)
+                return askPerson(question, reason: reason)
             case .unavailable(.off):
                 markPerson("The Oracle is off.")
-                return try remember(askPerson(question, reason: "The Oracle is off."), key: ledgerKey, arguments: arguments)
+                return askPerson(question, reason: "The Oracle is off.")
             case .retry:
-                return try remember(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key."], key: ledgerKey, arguments: arguments)
+                return ["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key."]
             }
         }
     }
@@ -204,11 +197,6 @@ import AiTermCore
         }
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
         changed()
-    }
-    private func remember(_ result: JSONValue, key: String, arguments: String) throws -> JSONValue {
-        workspace.mutate { $0.operatorSession?.remember(key: key, result: result, at: now(), arguments: arguments) }
-        guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
-        return result
     }
     private func askPerson(_ question: Question, reason: String) -> JSONValue {
         ["status": "ask_you", "question": .string(question.text), "reason": .string(reason),

@@ -19,6 +19,10 @@ import AiTermCore
         var usage: @MainActor () -> UsageSnapshot = { .empty }
         var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
         var issues: @MainActor () -> [OperatorIssues.Issue] = { [] }
+        /// Whether a wake is outstanding: only a global `run_status` reads it.
+        var wakeUnread: @MainActor () -> Bool = { false }
+        /// A global `run_status` read every outstanding wake.
+        var acknowledgeWake: @MainActor () -> Void = {}
     }
     let workspace: WorkspaceStore
     let stages: StageRunner
@@ -49,6 +53,10 @@ import AiTermCore
         guard let tool = OperatorTool(rawValue: request.tool) else { throw ToolRefusal("Unknown Operator tool: \(request.tool).") }
         try requireSession(request, mutating: tool.mutating)
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
+        // A wake may coalesce several tasks, so only a global read can acknowledge it.
+        if tool == .runStatus, call.optionalString("task") != nil, ports.wakeUnread() {
+            throw ToolRefusal("A wake may include updates for other tasks. Call run_status without task first.")
+        }
         let key = tool.requiresKey ? try call.string("key") : nil
         let ledgerKey = key.map { "tool:\(tool.rawValue):" + $0 }
         let arguments = try request.arguments.canonicalJSON()
@@ -101,6 +109,7 @@ import AiTermCore
             throw ToolRefusal("The task changed while this call ran.")
         }
         if let ledgerKey, result["status"] != "pending" { try remember(result, key: ledgerKey, arguments: arguments) }
+        if tool == .runStatus, task == nil { ports.acknowledgeWake() }
         if tool.mutating { changed() }
         return result
     }

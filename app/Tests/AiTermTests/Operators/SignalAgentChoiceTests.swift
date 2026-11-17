@@ -35,8 +35,10 @@ import Testing
             },
             launch: { [unowned self] task, _ in self.launched.append((task.id, task.agent, task.model)); return "window-" + task.id.uuidString },
             restore: { $0 }))
+        /// Weekly usage per agent, in percent, as the choice reads it.
+        var weekly: [AgentKind: Int] = [:]
         lazy var choices = AgentChoiceRounds(workspace: h.workspace, now: { [world] in world.now }, oracle: oracle.consult, ports: .init(
-            weeklyUsage: { [:] }, installedAgents: { [.claude, .codex] }))
+            weeklyUsage: { [unowned self] in self.weekly }, installedAgents: { [.claude, .codex] }))
         lazy var handler: SignalOperatorToolHandler = {
             let off = ScriptedOracle(h.workspace, folder: h.folder, now: { [world] in world.now }, on: false)
             let questions = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { [world] in world.now }, oracle: off.consult, ports: .init(
@@ -130,6 +132,27 @@ import Testing
         #expect(r.launched.map(\.1) == [.claude])
         #expect(try r.journal(id).contains { $0.contains("disagreed for three rounds, so the first permitted row applies") })
         #expect(r.h.workspace.state.operatorSession?.questions.isEmpty == true, "The choice never comes to the person.")
+    }
+
+    /// A chosen row launches as chosen even at the weekly limit; only a three-round fallback row moves
+    /// to the other permitted agent, and the switch is recorded on the choice and journaled after it.
+    @Test(arguments: [false, true]) func onlyAFallbackRowMovesOffAnAgentAtItsWeeklyLimit(disagreed: Bool) async throws {
+        let (r, signal) = try rig(); defer { r.h.cleanUp() }
+        r.weekly = [.claude: 80, .codex: 20]
+        let id = try #require(r.route(signal).first)
+        if disagreed {
+            r.answers = [.critique("NO 1"), .critique("NO 2"), .critique("NO 3")]
+            var challenge: String?
+            for round in 1...3 { challenge = await r.choose(id, key: "c\(round)", row: Self.codex, challenge: challenge).value?["challengeId"]?.stringValue }
+        } else {
+            #expect(await r.choose(id, key: "c1", row: SignalWorld.agent, reason: "Planning suits Opus.").value?["status"] == "chosen")
+        }
+        #expect(r.record(id)?.choice?.decided == (disagreed ? .disagreed : .oracleAgreed) && r.record(id)?.choice?.row == SignalWorld.agent)
+        #expect(r.record(id)?.choice?.launchSwitch == (disagreed ? Self.codex : nil))
+        #expect(r.launched.map(\.1) == [disagreed ? .codex : .claude] && r.launched.map(\.2) == [disagreed ? Self.codex.model : SignalWorld.agent.model])
+        let journal = try r.journal(id), row = try #require(journal.firstIndex { $0.hasPrefix("Agent row:") })
+        let switchLine = AgentChoiceRecord.switchLine(Self.codex)
+        #expect(disagreed ? journal[row + 1] == switchLine : !journal.contains(switchLine))
     }
 
     @Test(arguments: [false, true]) func withTheOracleOffOrUnavailableTheProposalApplies(unavailable: Bool) async throws {

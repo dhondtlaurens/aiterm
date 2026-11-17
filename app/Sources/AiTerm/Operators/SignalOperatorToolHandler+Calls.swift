@@ -27,16 +27,13 @@ extension SignalOperatorToolHandler {
             let task = try requireTask(task), proposed = try choice(call, task: task)
             guard task.hasCheckout, task.windowId != nil else { throw ToolRefusal("A work tab needs the task's open window and checkout.") }
             let prompt = try call.string("prompt"), why = try call.string("why")
-            let rows = AgentChoiceNeed.decide(permitted: task.signalTask?.current.configuration.agents ?? [],
-                                              projects: nil, conversationAgent: nil)
-            var row = proposed, reason = why
-            if case .choose(let choosable, _) = rows, choosable.count > 1 {
-                // Several permitted rows: the tab's row is a choice the Oracle checks first.
-                switch try await choices.decide(task: task, scope: .tab, rows: choosable, projects: nil,
-                                                proposal: .init(row: proposed, project: nil, reason: why), challenge: call.optionalString("challengeId"), work: prompt) {
-                case .reply(let reply): return reply
-                case .decided(let record):
-                    row = record.row; reason = record.reason
+            let row: AgentChoice, reason: String
+            switch try await choices.workTab(task: task, proposal: .init(row: proposed, project: nil, reason: why),
+                                             challenge: call.optionalString("challengeId"), prompt: prompt) {
+            case .reply(let reply): return reply
+            case .open(let decided, let because, let record):
+                row = decided; reason = because
+                if let record {
                     try await journal.append(.ours("Work tab \(key!): " + record.journalLine), task: task.id)
                     guard allowed() else { throw ToolRefusal("The task changed before its work tab opened.") }
                 }
@@ -94,7 +91,7 @@ extension SignalOperatorToolHandler {
             try await journal.note(try call.string("text"), key: key!, task: task.id)
             return ["status": "recorded"]
         case .answerWorker:
-            return try await questions.answer(task: try requireTask(task).id, key: key!, proposal: try call.string("proposal"),
+            return try await questions.answer(task: try requireTask(task).id, proposal: try call.string("proposal"),
                 tab: call.optionalString("tab") ?? "main", challenge: call.optionalString("challengeId"),
                 fromQuestion: call.optionalString("fromQuestion"), person: call.optionalBool("person") ?? false)
         case .askOracle:

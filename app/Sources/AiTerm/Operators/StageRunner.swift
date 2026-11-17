@@ -107,8 +107,9 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The resume intent couldn’t be saved.") }
         await run(id)
     }
-    /// Applies a decided row and project to a choosing stage, or to a blocked stage that resumes on
-    /// a new row, journals the choice and starts the stage. The caller validated the choice.
+    /// Applies a decided row (or its weekly-usage switch) and project to a choosing stage, or to a
+    /// blocked stage that resumes on a new row, journals the choice and starts the stage. The caller
+    /// validated the choice.
     func choose(_ id: UUID, choice: AgentChoiceRecord) async throws {
         guard !atWork(id), !isStopped,
               let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
@@ -123,10 +124,12 @@ import AiTermCore
         workspace.mutate { $0.updateSignalItem(id) { task in
             task.signalTask = next; task.signalTask?.candidateProjects = nil; task.signalTask?.choice = choice
             if let project = choice.project { task.projectId = project }
-            task.agent = choice.row.agent; task.model = choice.row.model; task.reasoning = choice.row.reasoning
+            let row = choice.launchSwitch ?? choice.row
+            task.agent = row.agent; task.model = row.model; task.reasoning = row.reasoning
         } }
         guard workspace.flush() else { throw ActionUnavailable("The agent choice couldn’t be saved.") }
         try await journal.append(.ours(choice.journalLine), task: id)
+        if let row = choice.launchSwitch { try await journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
         changed(id, "The Operator chose its agent.")
         await run(id)
     }

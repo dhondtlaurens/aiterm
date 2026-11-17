@@ -150,7 +150,8 @@ import AiTermCore
             }, actionsAllowed: { [weak self] in self?.isStopped == false },
             sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.currentInstructions }, usage: { [weak self] in self?.live.usage ?? .empty },
             installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] },
-            issues: { [weak self] in self?.log.issues.current ?? [] }), effects: effects)
+            issues: { [weak self] in self?.log.issues.current ?? [] },
+            wakeUnread: { [weak self] in self?.waker.unread == true }, acknowledgeWake: { [weak self] in self?.waker.acknowledge() }), effects: effects)
     }
     @ObservationIgnored lazy var gate = SignalShellGate(workspace: workspace, folder: OperatorLaunch.folder(home: ports.home),
         now: ports.now, validate: { [weak self] request in
@@ -190,7 +191,6 @@ import AiTermCore
             self.log.succeed(.wake); self.log.succeed(.reply)
             self.activity.pulse()
         }
-        native.recordSwitch = { [weak self] id, row in try await self?.journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
         router.changed = { [weak self] id, event in
             guard let self else { return }
             self.log.record(tool: "signal_match", task: self.workspace.state.signalItem(id: id)?.id,
@@ -352,19 +352,7 @@ import AiTermCore
                 try await daemon.replyToOperator(requestId: request.requestId, result: result, error: nil)
             }
             else {
-                let answer: ToolAnswer
-                if request.tool == "run_status", request.arguments["task"]?.stringValue != nil, waker.unread {
-                    // Refuse before producing/logging a partial digest. Only a global read can
-                    // acknowledge a wake that may coalesce several tasks.
-                    do {
-                        try tools.requireSession(request, mutating: false)
-                        answer = .error("A wake may include updates for other tasks. Call run_status without task first.")
-                    } catch let refusal as ToolRefusal { answer = .error(refusal.message) }
-                    catch { answer = .error(OperationIssue.reason(of: error)) }
-                    tools.recorded(request, answer)
-                } else { answer = await tools.respond(request) }
-                if request.tool == "run_status", request.arguments["task"]?.stringValue == nil, case .result = answer { waker.acknowledge() }
-                switch answer {
+                switch await tools.respond(request) {
                 case .result(let value): try await daemon.replyToOperator(requestId: request.requestId, result: value, error: nil)
                 case .error(let reason): try await daemon.replyToOperator(requestId: request.requestId, result: nil, error: reason)
                 }

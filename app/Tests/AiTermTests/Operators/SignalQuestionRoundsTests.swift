@@ -18,29 +18,9 @@ import Testing
         try rounds.resolveQuestion(key: "scope", answer: "Use the payment ID.")
         if newSession { current.session = "replacement-session" } else { current.message += " A different tail beyond the caption." }
         await #expect(throws: (any Error).self) {
-            try await rounds.answer(task: task, key: "answer", proposal: "Use the payment ID.", fromQuestion: "scope")
+            try await rounds.answer(task: task, proposal: "Use the payment ID.", fromQuestion: "scope")
         }
         #expect(deliveries == 0)
-    }
-
-    @Test func agreementAnswersOnceAndTheSavedKeySurvivesARestart() async throws {
-        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
-        let h = try SignalHarness(world); defer { h.cleanUp() }
-        var deliveries: [String] = []
-        let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }) { _ in .critique("YES. That key is stable across retries.") }
-        let ports = QuestionRounds.Ports(question: { _, _ in question }, deliver: { _, _, answer in deliveries.append(answer) })
-        let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: ports)
-        let first = try await rounds.answer(task: task, key: "a1", proposal: "Use the payment ID.")
-        #expect(first["status"] == "answered")
-        let quoted = try oracle.quoted(0)
-        #expect(quoted["question"]?.stringValue == question.text && quoted["proposal"] == "Use the payment ID.")
-        try h.workspace.load()
-        let restarted = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: ports)
-        let replay = try await restarted.answer(task: task, key: "a1", proposal: "Use the payment ID.")
-        #expect(replay == first)
-        #expect(oracle.prompts.count == 1 && deliveries == ["Use the payment ID."])
-        #expect(h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
-        #expect(try h.file.load().operatorSession?.ledger.count == 1)
     }
 
     @Test func disagreementStopsAfterThreeRoundsAndOnlyARecordedChatQuestionCounts() async throws {
@@ -53,13 +33,13 @@ import Testing
             question: { _, _ in question }, deliver: { _, _, _ in deliveries += 1 }))
         var challenge: String?
         for number in 1...3 {
-            let result = try await rounds.answer(task: task, key: "a\(number)", proposal: "Proposal \(number)", challenge: challenge)
+            let result = try await rounds.answer(task: task, proposal: "Proposal \(number)", challenge: challenge)
             if number < 3 {
                 #expect(result["status"] == "challenged")
                 challenge = result["challengeId"]?.stringValue
             } else { #expect(result["status"] == "ask_you") }
         }
-        let repeated = try await rounds.answer(task: task, key: "a4", proposal: "Try a different key.")
+        let repeated = try await rounds.answer(task: task, proposal: "Try a different key.")
         #expect(repeated["status"] == "ask_you")
         #expect(calls == 3 && deliveries == 0)
         #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
@@ -68,7 +48,7 @@ import Testing
         #expect(h.workspace.state.operatorSession?.waitingOnYou == 1)
         try rounds.resolveQuestion(key: "person", answer: "Use the payment ID.")
         #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
-        let answer = try await rounds.answer(task: task, key: "person-answer", proposal: "Use the payment ID.", fromQuestion: "person")
+        let answer = try await rounds.answer(task: task, proposal: "Use the payment ID.", fromQuestion: "person")
         #expect(answer["status"] == "answered" && calls == 3 && deliveries == 1)
         #expect(h.workspace.state.operatorSession?.questions.first?.deliveredAt != nil)
         #expect(OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true).questions.isEmpty)
@@ -81,7 +61,7 @@ import Testing
         let oracle = ScriptedOracle(h.workspace, folder: h.folder, now: { world.now }, on: oracleOn) { _ in .critique("PERSON This is a product decision.") }
         let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
             question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
-        let result = try await rounds.answer(task: task, key: "q", proposal: "Choose A.")
+        let result = try await rounds.answer(task: task, proposal: "Choose A.")
         #expect(result["status"] == "ask_you" && !delivered && oracle.prompts.count == (oracleOn ? 1 : 0))
         #expect(result["reason"]?.stringValue == (oracleOn ? "PERSON This is a product decision." : "The Oracle is off."))
     }
@@ -98,9 +78,9 @@ import Testing
         }
         let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
             question: { _, _ in question }, deliver: { _, _, _ in deliveries += 1 }))
-        let first = Task { try await rounds.answer(task: task, key: "first", proposal: "Use A.") }
+        let first = Task { try await rounds.answer(task: task, proposal: "Use A.") }
         await entered.wait()
-        let second = try await rounds.answer(task: task, key: "second", proposal: "Use B.")
+        let second = try await rounds.answer(task: task, proposal: "Use B.")
         #expect(second["status"] == "pending")
         release.signal(); _ = try await first.value
         #expect(calls == 1 && deliveries == 1)
@@ -116,7 +96,7 @@ import Testing
         }
         let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
             question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
-        await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, key: "old-session", proposal: "Answer.") }
+        await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, proposal: "Answer.") }
         #expect(!delivered)
     }
 
@@ -130,7 +110,7 @@ import Testing
         }
         let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
             question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
-        await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, key: "q", proposal: "Answer.") }
+        await #expect(throws: ActionUnavailable.self) { try await rounds.answer(task: task, proposal: "Answer.") }
         #expect(!delivered && h.workspace.state.operatorSession?.waitingOnYou == 0)
     }
 
@@ -144,11 +124,11 @@ import Testing
         oracle.answer = { [unowned oracle] _ in oracle.settings.instructions = "Ask before any merge."; return .critique("YES. Fine.") }
         let rounds = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { world.now }, oracle: oracle.consult, ports: .init(
             question: { _, _ in question }, deliver: { _, _, _ in delivered = true }))
-        let result = try await rounds.answer(task: task, key: "q", proposal: "Answer.")
+        let result = try await rounds.answer(task: task, proposal: "Answer.")
         #expect(result["status"] == "retry")
         #expect(result["next"] == "The Oracle's settings or the standing instructions changed during its check. Call run_status and propose again without challengeId, with a new key.")
         #expect(!delivered && h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
         oracle.answer = { _ in .critique("YES. Fine.") }
-        #expect(try await rounds.answer(task: task, key: "q2", proposal: "Answer.")["status"] == "answered" && delivered)
+        #expect(try await rounds.answer(task: task, proposal: "Answer.")["status"] == "answered" && delivered)
     }
 }
