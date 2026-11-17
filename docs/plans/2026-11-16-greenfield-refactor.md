@@ -1350,3 +1350,7 @@ left.
 - Review round 1: one Minor, about this Record: the 7c entry said approvals came from the request's one fetch,
   but they come from their own listing. The entry is corrected. No code finding, verdict "ready with fixes", so no
   second round.
+- Plain `scripts/test.sh all` green on `f700a7c4`. `main` had only the refactor's own merges; merged to `main`
+  (`ec98214f`). No check is owed to the maintainer for phase 7.
+
+### Phase 8
