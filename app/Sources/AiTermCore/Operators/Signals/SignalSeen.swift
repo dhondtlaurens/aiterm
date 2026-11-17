@@ -2,11 +2,10 @@ import Foundation
 
 public struct SignalSeen: Codable, Equatable, Sendable {
     public enum Disposition: Codable, Hashable, Sendable, RawRepresentable {
-        case baseline, started, skipped
+        case started, skipped
         case unknown(String)
         public init?(rawValue: String) {
             switch rawValue {
-            case "baseline": self = .baseline
             case "started": self = .started
             case "skipped": self = .skipped
             default: self = .unknown(rawValue)
@@ -14,7 +13,6 @@ public struct SignalSeen: Codable, Equatable, Sendable {
         }
         public var rawValue: String {
             switch self {
-            case .baseline: "baseline"
             case .started: "started"
             case .skipped: "skipped"
             case .unknown(let value): value

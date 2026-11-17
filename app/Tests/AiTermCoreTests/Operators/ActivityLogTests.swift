@@ -9,7 +9,7 @@ import Foundation
 
     private func entry(_ n: Int = 0, tool: String = "note") -> ActivityEntry {
         ActivityEntry(id: UUID(), at: Date(timeIntervalSince1970: 1_800_000_000 + Double(n)), tool: tool, task: nil,
-                      taskLabel: nil, arguments: ["n": .int(n)], outcome: .ok, result: "done \(n)", line: "Line \(n)", reason: nil)
+                      arguments: ["n": .int(n)], outcome: .ok, result: "done \(n)", line: "Line \(n)", reason: nil)
     }
 
     private func write(_ text: String, in folder: URL) throws {
@@ -25,26 +25,6 @@ import Foundation
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return String(decoding: try encoder.encode(entry), as: UTF8.self)
-    }
-
-    /// Activity lists what changed until Show everything: a call that only looked and went through waits, a status
-    /// check, a read, a shell command; a call that did not go through always shows, whatever it was.
-    @Test func whatOnlyLookedWaitsBehindShowEverything() {
-        func shows(_ tool: String, _ outcome: ActivityEntry.Outcome = .ok) -> Bool {
-            var entry = entry(tool: tool)
-            entry.outcome = outcome
-            return entry.showsAmongChanges
-        }
-        for tool in SignalOperatorTool.allCases.filter(\.mutating).map(\.rawValue) {
-            #expect(shows(tool), "\(tool) changes something")
-        }
-        for tool in ["run_status", "read_task", "jira_search", "shell_read", "shell"] {
-            #expect(!shows(tool), "\(tool) only looks")
-            #expect(!shows(tool, .repeated))
-            for outcome in [ActivityEntry.Outcome.refused, .challenged, .failed] {
-                #expect(shows(tool, outcome), "\(tool) \(outcome.rawValue): what did not go through always shows")
-            }
-        }
     }
 
     @Test func appendsAndReadsInOrder() throws {
@@ -94,9 +74,8 @@ import Foundation
 
     @Test func aResultIsTrimmedToItsLimit() {
         let long = String(repeating: "x", count: ActivityEntry.resultLimit + 50)
-        let made = ActivityEntry(id: UUID(), at: Date(), tool: "run_status", task: nil, taskLabel: nil, arguments: .null,
+        let made = ActivityEntry(id: UUID(), at: Date(), tool: "run_status", task: nil, arguments: .null,
                                  outcome: .ok, result: long, line: "", reason: nil)
         #expect(made.result.count == ActivityEntry.resultLimit)
-        #expect(made.isRead)
     }
 }

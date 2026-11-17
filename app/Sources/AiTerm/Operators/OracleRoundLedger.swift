@@ -42,7 +42,6 @@ import AiTermCore
         workspace.mutate { state in
             if let index = state.operatorSession?.oracleRounds.firstIndex(where: { $0.id == id }) {
                 state.operatorSession?.oracleRounds[index].stage = .ready
-                state.operatorSession?.oracleRounds[index].approved = true
             }
         }
     }

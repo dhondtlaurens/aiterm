@@ -80,20 +80,6 @@ public extension WorkerTab {
     var reference: TabReference { TabReference(key) }
 }
 
-/// An immutable view for one observation pass. Parse each session's task tag once, retaining daemon order.
-/// Build it again for the next pass; it carries no cache invalidation or mutable session ownership.
-public struct WorkerSessions: Sendable {
-    private var byTask: [UUID: [SessionInfo]] = [:]
-
-    public init(_ sessions: [SessionInfo]) {
-        for session in sessions {
-            if let task = session.taskUUID { byTask[task, default: []].append(session) }
-        }
-    }
-
-    public func sessions(for task: UUID) -> [SessionInfo] { byTask[task] ?? [] }
-}
-
 public extension TaskItem {
     /// Its first worker as `sessions` list it: the first tab tagged with the task that runs an agent and is none of the
     /// Operator's extra tabs.
@@ -117,17 +103,6 @@ public extension TaskItem {
         case .extra(let key): return tabs.first { $0.key == key }
         }
     }
-
-    /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them as of `now`: working,
-    /// and every worker ended its turn with nothing left running in the background (`RunStatus.isReadyForAcceptance`). A
-    /// first worker still launching is at work (`workerTabs(in:now:)`), as `run_status` counts it. A question it waits on
-    /// you for (`waitingOnYou`) holds it too, as `run_status` says, and so does a worker whose turn an API error ended
-    /// (`SessionInfo.stoppedOn`): it did not finish.
-
-
-    /// `isReadyForAcceptance(in:now:)` from its worker tabs as of a time (`workerTabs(in:now:)`), for a caller that has
-    /// them already.
-
 
     /// The tab a click on its row brings forward (P5 A, 21 Oct 2026), its tabs as `sessions` list them: the worker tab
     /// that asks, a request of `requests` naming it (`BroadcastRequest.tab`) or its tab at a prompt not recorded yet;
@@ -155,12 +130,6 @@ public extension TaskItem {
             return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
                              conversation: session?.conversationId ?? tab.conversation)
         }
-    }
-
-    /// A shared per-pass session view for callers observing several tasks: given `now`, the pass's one live projection
-    /// of the task, which run_status (`TaskLiveFacts.of`) and the turn reader read.
-    func workerTabs(in sessions: WorkerSessions, now: Date? = nil) -> [WorkerTab] {
-        workerTabs(in: sessions.sessions(for: id), now: now)
     }
 
     /// Whether its first worker's launch is under way at `now`: a working task whose window was seen, else asked for, less

@@ -69,6 +69,5 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         }
         let closed = questions.filter { !pending($0) }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
         questions = questions.filter(pending) + closed
-        oracleRounds.removeAll { $0.stage == .acted }
     }
 }

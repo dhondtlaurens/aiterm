@@ -6,10 +6,6 @@ public struct ActivityEntry: Codable, Equatable, Sendable, Identifiable {
     public enum Outcome: String, Codable, Sendable {
         /// The call went through.
         case ok
-        /// The same call was made again and answered from the first.
-        case repeated
-        /// The Oracle questioned it and it did not go through.
-        case challenged
         /// AiTerm refused it, with a reason the Operator could act on.
         case refused
         /// It went wrong on AiTerm's side.
@@ -19,9 +15,8 @@ public struct ActivityEntry: Codable, Equatable, Sendable, Identifiable {
     public var id: UUID
     public var at: Date
     public var tool: String
-    /// The task the call was about, and the label it had when it was made: its Jira key, else its operated key.
+    /// The task the call was about.
     public var task: UUID?
-    public var taskLabel: String?
     public var arguments: JSONValue
     public var outcome: Outcome
     /// What AiTerm answered, trimmed to `resultLimit`.
@@ -33,23 +28,11 @@ public struct ActivityEntry: Codable, Equatable, Sendable, Identifiable {
     /// The most of an answer a line of the log keeps.
     public static let resultLimit = 4096
 
-    public init(id: UUID = UUID(), at: Date, tool: String, task: UUID?, taskLabel: String?, arguments: JSONValue,
+    public init(id: UUID = UUID(), at: Date, tool: String, task: UUID?, arguments: JSONValue,
                 outcome: Outcome, result: String, line: String, reason: String?) {
-        self.id = id; self.at = at; self.tool = tool; self.task = task; self.taskLabel = taskLabel
+        self.id = id; self.at = at; self.tool = tool; self.task = task
         self.arguments = arguments; self.outcome = outcome; self.line = line; self.reason = reason
         self.result = String(result.prefix(Self.resultLimit))
-    }
-
-    /// Whether the call only looked: the Activity tab reads its line muted.
-    public var isRead: Bool { SignalOperatorTool(rawValue: tool)?.mutating == false || tool == "shell_read" }
-
-    /// Whether Activity lists it before Show everything (14 Nov 2026): a call that changed something, and any call that
-    /// did not go through. What only looked and went through waits: a status check, a read, a shell command.
-    public var showsAmongChanges: Bool {
-        switch outcome {
-        case .refused, .challenged, .failed: true
-        case .ok, .repeated: !isRead && tool != "shell"
-        }
     }
 }
 

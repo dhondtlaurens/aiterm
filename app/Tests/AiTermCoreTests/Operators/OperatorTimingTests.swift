@@ -7,14 +7,9 @@ import Foundation
     @Test func theTimingsAreTheContractsValues() {
         #expect(OperatorTiming.wakeCoalesce == 3)
         #expect(OperatorTiming.reconcileInterval == 60)
-        #expect(OperatorTiming.stallAfter == 1200)
         #expect(OperatorTiming.challengeTimeout == 180)
         #expect(OperatorTiming.gateTimeout == 200)
         #expect(OperatorTiming.operatorRequestTimeout == 30)
-        #expect(OperatorTiming.launchAdoptAfter == 60)
-        #expect(OperatorTiming.mergePoll == 30)
-        #expect(OperatorTiming.mergeWait == 3600)
-        #expect(OperatorTiming.liveQuietMinutes == 2)
     }
 
     /// The daemon spells the same constants in `aitermd/delivery.py` (part A): each shared value

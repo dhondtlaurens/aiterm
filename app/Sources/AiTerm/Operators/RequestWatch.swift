@@ -93,8 +93,8 @@ import AiTermCore
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
         if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
             let roundID = UUID().uuidString, generation = workspace.state.operatorSession?.generation
-            let round = ChallengeRecord(id: roundID, tool: "merge_when_ready", kind: .veto,
-                                        askedSHA: snapshot.head, askedAt: Date(), askedEvidence: task.id.uuidString)
+            let round = ChallengeRecord(id: roundID, tool: "merge_when_ready",
+                                        askedAt: Date(), askedEvidence: task.id.uuidString)
             workspace.mutate { state in
                 state.operatorSession?.oracleRounds.removeAll { $0.tool == "merge_when_ready" && $0.askedEvidence == task.id.uuidString }
                 state.operatorSession?.oracleRounds.append(round)

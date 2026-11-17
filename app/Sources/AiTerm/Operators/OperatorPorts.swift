@@ -25,8 +25,6 @@ struct OperatorPorts {
     /// How long a challenged call waits for its critique before answering that it is still coming: well
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
     var challengeReplyBudget: Duration = .seconds(20)
-    /// How long after a `finish_task` reached the app it answers, its publication done or not (`OperatorTiming.finishReplyBudget`).
-    var finishReplyBudget: Duration = .seconds(OperatorTiming.finishReplyBudget)
     var clock = OperatorClock()
     var now: @Sendable () -> Date { clock.now }
     /// What every owner starts its work through, so that a test waits for all of it at once (`OperatorWork.settled`).

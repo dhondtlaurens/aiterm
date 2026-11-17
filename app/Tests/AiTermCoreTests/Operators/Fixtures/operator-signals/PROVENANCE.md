@@ -85,3 +85,9 @@ These scenarios verify the role contract;
 
 On 16 Nov 2026 greenfield step 1a deleted the historical broadcast fixtures and the retired-keys
 fixture. The live eval compares the current contract only. No current fixture bytes changed.
+
+## Core Operator leftovers
+
+On 16 Nov 2026 greenfield step 1d re-recorded `state.json` with `AITERM_RECORD_SIGNAL_STATE=1`.
+The Operator's saved records lost the dead fields `agentPinned` (extra tab) and `kind` (Oracle round).
+No key was added; no brief or tool bytes changed. `brief.md` and `tools.json` were not touched.

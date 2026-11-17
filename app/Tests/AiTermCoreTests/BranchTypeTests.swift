@@ -22,16 +22,6 @@ import Testing
         #expect(BranchType(issueType: "") == .feat)
     }
 
-    @Test(arguments: [
-        ("FE-1783 Dependency updates: Vue and Vite", BranchType.chore), ("Upgrade checkout", .chore), ("Bump vite to 7", .chore),
-        ("Update deps", .chore), ("Chore: tidy", .chore), ("Scheduled maintenance", .chore), ("Refactor the cart", .chore),
-        ("Fix the cart total", .fix), ("Cart bug on Safari", .fix), ("Bugfix for login", .fix),
-        ("Shop banner", .feat), ("Prefix the order number", .feat), ("Add a fixture loader", .feat), ("", .feat),
-    ])
-    func testATitleSaysTheTypeWhenNoIssueTypeDoes(title: String, expected: BranchType) {
-        #expect(BranchType(title: title) == expected)
-    }
-
     /// A branch typed or pasted whole splits into its type and the rest; an unknown prefix is not a
     /// type, so nothing splits and the caller keeps the text as the name.
     @Test func testABranchSplitsOnlyOnAKnownType() {

@@ -11,7 +11,6 @@ public enum ItemProjectMapper {
                 project.jiraProjects.contains { $0.key.uppercased() == key && JiraConfig.normalizedSiteURL($0.siteURL) == JiraConfig.normalizedSiteURL(site) }
             }
         case .mergeRequest(let request): return matching(remote: request.remote, projects: projects)
-        case .branch(let branch): return matching(remote: branch.remote, projects: projects)
         case .unknown: return []
         }
     }

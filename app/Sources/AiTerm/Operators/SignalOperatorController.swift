@@ -314,7 +314,7 @@ import AiTermCore
     private func recordActivity(tool: String, task: UUID?, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String, line: String,
                                 at: Date? = nil) {
         activity.pulse()
-        writeActivity(ActivityEntry(at: at ?? ports.now(), tool: tool, task: task, taskLabel: nil, arguments: arguments,
+        writeActivity(ActivityEntry(at: at ?? ports.now(), tool: tool, task: task, arguments: arguments,
                                     outcome: outcome, result: result, line: line, reason: outcome == .ok ? nil : result))
     }
     /// Writes the entries a failed write kept, in order and with their own times, then `entry`.
@@ -349,10 +349,10 @@ import AiTermCore
         let entry: ActivityEntry
         switch transition {
         case .started(let issue), .changed(let issue):
-            entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, taskLabel: nil, arguments: ["source": .string(issue.source.rawValue)],
+            entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, arguments: ["source": .string(issue.source.rawValue)],
                                   outcome: .failed, result: issue.text, line: issue.source.label + " failed.", reason: issue.text)
         case .recovered(let issue):
-            entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, taskLabel: nil, arguments: ["source": .string(issue.source.rawValue)],
+            entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, arguments: ["source": .string(issue.source.rawValue)],
                                   outcome: .ok, result: "Recovered after \(issue.attempts) failed \(issue.attempts == 1 ? "attempt" : "attempts") since \(issue.since.formatted(.iso8601)).",
                                   line: issue.source.label + " recovered.", reason: nil)
         }

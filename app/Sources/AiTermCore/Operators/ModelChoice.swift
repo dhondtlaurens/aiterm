@@ -11,12 +11,6 @@ public enum ModelChoice {
     /// The two agents the Operator chooses between. An agent outside them never switches.
     public static let pair: [AgentKind] = [.claude, .codex]
 
-    /// Omitted fields take the first matching Agents row, in the person's list order.
-    public static func row(agent: AgentKind, model: String?, reasoning: String?, in rows: [AgentChoice]) -> AgentChoice? {
-        rows.first { $0.agent == agent && (model == nil || $0.model == model)
-            && (reasoning == nil || $0.reasoning == reasoning) }
-    }
-
     /// The weekly-use switch takes the first row on the other agent, or stays put.
     public static func launchChoice(planned: AgentChoice, pinned: Bool, weekly: [AgentKind: Int],
                                     installed: Set<AgentKind>, rows: [AgentChoice]) -> AgentChoice {

@@ -90,7 +90,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         installedAgents = AgentCommand.operatedAgents.filter(installed.contains); appIssues = issues
         weeklyUsage = Dictionary(uniqueKeysWithValues: SidebarModel.weeklyUsage(usage, now: at).map { ($0.key.rawValue, $0.value) })
         snags = Array((state.operatorSession?.snags ?? []).suffix(100))
-        oracleRounds = (state.operatorSession?.oracleRounds ?? []).filter { $0.stage != .acted }
+        oracleRounds = state.operatorSession?.oracleRounds ?? []
         skipped = state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching && state.signal(id: $0.signal) != nil }
         sourceFailures = state.operatorSession?.sourceFailures ?? [:]
         generation = state.operatorSession?.generation; paused = state.operatorSession?.paused == true

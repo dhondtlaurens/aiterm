@@ -48,7 +48,7 @@ import AiTermCore
             || (task.signalTask?.phase == .working && tabs.contains { $0.session?.stoppedOn != nil })
             || (task.signalTask?.phase == .working && tabs.contains { tab in
                 tab.status?.turnEnded == true && replies[id]?[tab.reference.name].map {
-                    WorkerTurn.ending(lastMessage: $0.text, commitsAhead: nil) == .asks
+                    WorkerTurn.endsWithQuestion($0.text)
                 } == true
             })
     }
@@ -59,7 +59,7 @@ import AiTermCore
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard !inFlight.contains(id), workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
-              let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.ending(lastMessage: reply.text, commitsAhead: nil) == .asks else { return nil }
+              let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.endsWithQuestion(reply.text) else { return nil }
         return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text, conversation: worker.conversation, fingerprint: reply.fingerprint)
     }
     /// A saved intent may already have opened its worker before a reply was lost. Its private

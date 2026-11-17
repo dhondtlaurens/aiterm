@@ -12,5 +12,3 @@ public struct AgentChoice: Codable, Equatable, Hashable, Sendable {
     /// The row as the brief and the tool refusals name it: "Agent · model · reasoning".
     public var label: String { [agent.displayName, model, reasoning].compactMap { $0 }.joined(separator: " · ") }
 }
-
-public enum TabRole: String, Codable, Sendable { case work, review }

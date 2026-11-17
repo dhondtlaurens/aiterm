@@ -165,7 +165,6 @@
         "askedAt" : "2026-11-14T12:00:00Z",
         "askedEvidence" : "question-bound",
         "id" : "round",
-        "kind" : "critique",
         "round" : 1,
         "stage" : "running",
         "tool" : "answer_worker"
@@ -374,7 +373,6 @@
         "extraTabs" : [
           {
             "agent" : "codex",
-            "agentPinned" : false,
             "brief" : "Inspect the retry boundary.",
             "key" : "inspect",
             "launch" : {

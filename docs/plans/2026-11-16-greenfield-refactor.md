@@ -244,7 +244,7 @@ TS tests-scripts.
   the `CommitId` wrapper (its one rule moves beside the worker guard with `sameLocation`,
   `shortBranch` and `folded`), `pushReason`, `saidAsWritten`, `LoginShellLocator.refresh`, the dead
   error case and the six unnoted `WorkMeter` cases (CG F1 to F3).
-- [ ] 1d. **Codex.** Core Operator leftovers: the dead Oracle prompts, `DiffDigest`, the acceptance
+- [x] 1d. **Codex.** Core Operator leftovers: the dead Oracle prompts, `DiffDigest`, the acceptance
   half of `WorkerTurn`, the `AgentDelivery` struct, `OperatedBranch`, `TaskKeyReference`,
   `StallWatch` (its one live rule moves into the transcript reader), unread `OperatorTiming`
   constants, dead `OperatorModels`, `OperatorLine`, `WorkerTabs` and `ActivityLog` members, the
@@ -604,3 +604,21 @@ left.
   spelling tests), `WorkerGuardRulesTests.twoUrlsAreTheSamePlaceWhenHostAndPathAre` (moved table) and
   `WorkerGuardNamesTests.aFullCommitIdIsFortyOrSixtyFourAsciiHexDigits` (for `onlyACommitIdIsPushed`).
   `CommitIdTests` held two tests, not three.
+- 1d: Core Operator leftovers went (`DiffDigest`, `OperatedBranch`, `TaskKeyReference`,
+  `SavedDefaults`, `SignalBranchRef`, the `AgentDelivery` struct, the acceptance half of
+  `WorkerTurn`, dead Oracle prompts, eighteen unread `OperatorTiming` constants, dead `OperatorModels`,
+  `OperatorLine`, `WorkerTabs` and `ActivityLog` members, the branch item and `baseline` seen state,
+  `peopleReview`, `agentPinned`, `role`, the dead Oracle round fields). `gateInstructions` is
+  byte-identical. Fixture re-recorded: `operator-signals/state.json` with `AITERM_RECORD_SIGNAL_STATE=1`,
+  exactly two lines removed (`"kind" : "critique"`, `"agentPinned" : false`), provenance section
+  added; the committed fixture was first loaded through `StateStore` with its task and archived
+  task intact. Tests deleted with their behaviour: `DiffDigestTests`, `OperatedBranchTests`,
+  `TaskKeyReferenceTests`, `SavedDefaultsTests`, `AgentDeliveryTests` (version rules survive in
+  `DeliveryCheckTests`), six dead-prompt `ChallengeLaunchTests` (the parser survives as
+  `theOraclesAnswerIsReadByItsFirstWord`; four gate tests stay), three `WorkerTurnTests`
+  acceptance tests, `ModelChoiceTests.rowsMatchAgentModelAndReasoningInListOrder`,
+  `BranchTypeTests.testATitleSaysTheTypeWhenNoIssueTypeDoes`, `ActivityLogTests.whatOnlyLookedWaitsBehindShowEverything`;
+  `identityContinuesOrdinaryTaskByTicketRequestOrProjectBranch` is now
+  `identityContinuesOrdinaryTaskByTicketOrRequest`. The Done-when symbol grep matches the required
+  provenance line naming `agentPinned`; no code names any of the symbols. Left for 1j: a
+  `WorkerTabs.tabToBring` comment that names `BroadcastRequest`.

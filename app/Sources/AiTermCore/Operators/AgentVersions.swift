@@ -1,49 +1,6 @@
 import Foundation
 import Synchronization
 
-/// Whether the Operator can message an agent's workers (`message_task`), as `run_status` says it before
-/// anything is planned on that agent: the delivery check's verdict (`DeliveryVerdict`) held against the
-/// version installed. The daemon types into a session only while its CLI runs a version the check's pass
-/// covers, the same major and minor (`DeliveryCheck.covers`), so an agent that moved to a new minor since
-/// gets nothing, and the Operator would otherwise find out only when its first steer is refused, with the
-/// task already started.
-public struct AgentDelivery: Encodable, Equatable, Sendable {
-    /// `auto` delivers, `pasteOnly` pastes and leaves the Enter to the person, `off` types nothing.
-    public var messaging: DeliveryPolicy
-    /// What the agent's `--version` says here; nil when it couldn't be read.
-    public var installedVersion: String?
-    /// The version the delivery check vouches for; nil when it passed none.
-    public var checkedVersion: String?
-    /// Why, when it isn't plain `auto`.
-    public var note: String?
-
-    public init(messaging: DeliveryPolicy, installedVersion: String?, checkedVersion: String?, note: String?) {
-        self.messaging = messaging; self.installedVersion = installedVersion; self.checkedVersion = checkedVersion; self.note = note
-    }
-
-    /// `agent`'s delivery, from the daemon's `verdict` (nil: it named none) and the `installed` version.
-    public static func of(_ agent: AgentKind, verdict: DeliveryVerdict?, installed: String?) -> AgentDelivery {
-        let name = agent.harness.displayName, named = installed.map { "\(name) \($0)" } ?? name
-        guard let verdict, let checked = verdict.version else {
-            return AgentDelivery(messaging: .off, installedVersion: installed, checkedVersion: nil,
-                                 note: "AiTerm's delivery check hasn't passed \(named).")
-        }
-        func delivery(_ messaging: DeliveryPolicy, _ note: String?) -> AgentDelivery {
-            AgentDelivery(messaging: messaging, installedVersion: installed, checkedVersion: checked, note: note)
-        }
-        if verdict.policy == .off { return delivery(.off, "AiTerm's delivery check didn't pass \(name) \(checked).") }
-        let line = DeliveryCheck.versionLine(checked).map { "\($0).x" } ?? checked
-        guard let installed else {
-            return delivery(verdict.policy, "AiTerm couldn't read which \(name) version is installed: its workers can be messaged only while it is \(line).")
-        }
-        if !DeliveryCheck.covers(checked: checked, installed: installed) {
-            return delivery(.off, "\(name) \(installed) is installed, but AiTerm's delivery check covers \(line) only.")
-        }
-        return delivery(verdict.policy, verdict.policy == .pasteOnly
-                        ? "Messages to its workers are pasted without Enter: the person presses Enter to send each one." : nil)
-    }
-}
-
 /// The version each agent CLI installed on this Mac reports: its `--version`, asked in the login shell,
 /// which has the `PATH` a Node-run CLI needs, the way the delivery check reads it
 /// (`daemon/tools/delivery_check.py`). One shell asks every agent at once, and is asked again only once

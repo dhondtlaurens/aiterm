@@ -22,22 +22,6 @@ import Foundation
 }
 
 extension ModelChoiceTests {
-    @Test func rowsMatchAgentModelAndReasoningInListOrder() {
-        let rows = [
-            AgentChoice(agent: .claude, model: "opus", reasoning: "high"),
-            AgentChoice(agent: .codex, model: "mini", reasoning: nil),
-            AgentChoice(agent: .codex, model: "astra", reasoning: "high"),
-            AgentChoice(agent: .codex, model: "astra", reasoning: "low")
-        ]
-        #expect(ModelChoice.row(agent: .codex, model: nil, reasoning: nil, in: rows) == rows[1])
-        #expect(ModelChoice.row(agent: .codex, model: "astra", reasoning: nil, in: rows) == rows[2])
-        #expect(ModelChoice.row(agent: .codex, model: "astra", reasoning: "low", in: rows) == rows[3])
-        #expect(ModelChoice.row(agent: .claude, model: "astra", reasoning: nil, in: rows) == nil)
-        #expect(ModelChoice.row(agent: .codex, model: "astra", reasoning: "medium", in: rows) == nil)
-        #expect(ModelChoice.row(agent: .codex, model: "unknown", reasoning: nil, in: rows) == nil)
-        #expect(ModelChoice.row(agent: .codex, model: nil, reasoning: nil, in: []) == nil)
-    }
-
     @Test func rowLaunchSwitchTakesFirstOtherAgentRow() {
         let planned = AgentChoice(agent: .claude, model: "opus", reasoning: "high")
         let other = AgentChoice(agent: .codex, model: "mini", reasoning: "low")
