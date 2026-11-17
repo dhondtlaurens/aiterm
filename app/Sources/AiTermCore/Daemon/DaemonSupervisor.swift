@@ -8,8 +8,9 @@ import Darwin
 /// actions run on it), which keeps launches, exits and probes in order; what that work changes is
 /// in `state`, so the compiler, not that convention, keeps every access under its lock.
 public final class DaemonSupervisor: Sendable {
-    /// `.running` is a spawned child; `.listening` is that child once its socket accepts
-    /// connections, which is when the app connects. The app only ever talks to a helper it started.
+    /// `.running` is a spawned child; `.listening` is that child once the socket accepts
+    /// connections and the kernel names it as the listener, which is when the app connects. The
+    /// app only ever talks to a helper it started.
     public enum State: Equatable, Sendable {
         case stopped, starting, running(pid: Int32), listening(pid: Int32), failed(attempt: Int, message: String)
     }
@@ -191,11 +192,15 @@ public final class DaemonSupervisor: Sendable {
     /// first few seconds a child that is still not listening is asked less often, and one that is
     /// not listening by `bindDeadline` is a failed launch. A child that exits first is
     /// `exited(_:)`'s, which cancels the probe.
+    ///
+    /// Only the child's own listener counts: a stale helper still serving the socket accepts too,
+    /// while the child is importing and before it exits as already running, and the app must not
+    /// be told to connect to it.
     private func awaitListening(_ child: Process, since spawn: Date = Date()) {
         let elapsed = Date().timeIntervalSince(spawn)
         schedule(after: elapsed < 5 ? 0.02 : 0.5) { supervisor in
             guard supervisor.state.withLock({ child === $0.process }) else { return }
-            if SocketProbe.isLive(path: supervisor.socketPath) { supervisor.onStateChange(.listening(pid: child.processIdentifier)) }
+            if SocketProbe.listenerPid(path: supervisor.socketPath) == child.processIdentifier { supervisor.onStateChange(.listening(pid: child.processIdentifier)) }
             else if Date().timeIntervalSince(spawn) >= supervisor.bindDeadline { supervisor.abandon(child) }
             else { supervisor.awaitListening(child, since: spawn) }
         }

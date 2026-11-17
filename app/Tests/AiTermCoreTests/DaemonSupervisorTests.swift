@@ -303,6 +303,56 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(!standIn.isRunning)
     }
 
+    // A stale helper that still serves the socket accepts the supervisor's readiness probe while the
+    // new child is still importing, before that child exits as already running. Reporting
+    // `.listening` then connected the app to the stale helper, maybe another build. Only the child's
+    // own listener counts, so the app is told to connect once, to the child that replaced it.
+    @Test func testAStaleHelperServingTheSocketIsNeverReportedAsTheChildListening() async throws {
+        let socketPath = NSTemporaryDirectory() + "orphan \(UUID().uuidString.prefix(8)).sock"
+        defer { try? FileManager.default.removeItem(atPath: socketPath) }
+        let orphan = Process()
+        orphan.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        orphan.arguments = ["-c", "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[-1]);s.listen()\nheld=[]\nwhile True: held.append(s.accept()[0])",
+                            "aitermd", "run", "--socket", socketPath]
+        orphan.standardOutput = FileHandle.nullDevice; orphan.standardError = FileHandle.nullDevice
+        try orphan.run()
+        defer { if orphan.isRunning { kill(orphan.processIdentifier, SIGKILL) } }
+        await eventually(describing: "the stale helper to listen") { SocketProbe.listenerPid(path: socketPath) == orphan.processIdentifier }
+
+        // The child does what the daemon does: a moment of importing, then exit 3 if the socket
+        // accepts, otherwise it clears the leftover file, binds and listens.
+        let script = """
+        import os,socket,sys,time
+        time.sleep(0.3)
+        try:
+            socket.socket(socket.AF_UNIX).connect(sys.argv[1]); sys.exit(\(DaemonSupervisor.alreadyRunningExitStatus))
+        except OSError: pass
+        try: os.unlink(sys.argv[1])
+        except OSError: pass
+        s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen()
+        time.sleep(30)
+        """
+        let box = StateBox()
+        let listenersWhenReported = Mutex<[Int32?]>([])
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/usr/bin/python3"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: socketPath,
+                                   arguments: ["-c", script, socketPath], logURL: logURL, backoff: { _ in 3600 }) { state in
+            if case .listening = state { listenersWhenReported.withLock { $0.append(SocketProbe.listenerPid(path: socketPath)) } }
+            box.append(state)
+        }
+        sup.start()
+        func running() -> [Int32] { box.states.compactMap { if case .running(let pid) = $0 { pid } else { nil } } }
+        func listening() -> [Int32] { box.states.compactMap { if case .listening(let pid) = $0 { pid } else { nil } } }
+        await eventually(describing: "the replacing child to be reported listening") { running().count >= 2 && !listening().isEmpty }
+        sup.stop()
+
+        #expect(running().count == 2, "got \(box.states)")
+        #expect(listening() == Array(running().dropFirst()), "only the child that replaced the stale helper listens, got \(box.states)")
+        #expect(listenersWhenReported.withLock { $0 } == listening().map(Optional.some),
+                "each `.listening` must name the socket's actual listener (stale helper \(orphan.processIdentifier))")
+        await eventually(describing: "the stale helper to be ended") { !orphan.isRunning }
+        #expect(!orphan.isRunning)
+    }
+
     // A socket held with no helper of this socket to end (or none that could be signalled) is a
     // failed launch, retried through the backoff, so the loop cannot spin.
     @Test func testAHeldSocketWithNoStaleHelperIsAFailedLaunchRetriedThroughTheBackoff() async {
