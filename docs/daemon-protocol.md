@@ -45,7 +45,7 @@ effect in the order it was sent.
 | `iterm.auth_failed` | iTerm2 is running but refused the API cookie; a Notice explains the Automation fix, with the reason in its tooltip. Retries back off to once a minute, and the snapshot's `itermAuthError` carries the reason for an app that attaches later |
 | `iterm.cookieRequested` | the daemon needs a cookie for its next connect; the app asks iTerm2 with an Apple event and answers with `iterm.provideCookie`. An attached app that stays silent for 120 s is asked again, under a new id; time with no app attached does not count |
 | `window.activated` | aligns the sidebar selection when iTerm2 is raised from outside — e.g. by clicking an agent's notification |
-| `window.closed` | the row owed that window is windowless at once, and the app decides what follows: a task window the person closed on its own is followed, a second later, by Remove's question, Archive its third answer, a terminal's lone close takes its row, any other close is restored once iTerm2 is quiet; a close during a removal only clears its window |
+| `window.closed` | the row whose window it was (a task, a terminal, or the Operator's chat outside a handover) has no window; nothing else follows |
 | `session.opened` / `.changed` | a new tab, a new agent, a new state, a new conversation (`conversationId`, which the task saves for its restore); a tab tagged with a row's id in a window the row lacks hands the row that window |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |

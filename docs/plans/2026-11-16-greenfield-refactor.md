@@ -333,7 +333,7 @@ TS tests-scripts.
 - [x] 3d. **Codex.** The iTerm2 banner says what a person can act on: iTerm2 isn't running (with
   Open iTerm2), iTerm2 refused AiTerm, AiTerm's helper isn't working; nothing while starting or
   connected (WD F7).
-- [ ] 3e. **Opus.** `docs/windows.md` rewritten for the closed view; the alert line in
+- [x] 3e. **Opus.** `docs/windows.md` rewritten for the closed view; the alert line in
   `docs/keyboard.md` and the "No window open" paragraph in `docs/status-model.md` follow.
 
 ### Phase 4. One task lifecycle (after 3)
@@ -909,3 +909,13 @@ left.
   small `NSHostingView` with no safe-area regions (`SidebarListViewport`). Keyboard, redraw-budget and
   snapshot tests are unchanged and green; the wrapper rebuilds an `AnyView` on each update, which the
   phase review should weigh.
+- 3e: `docs/windows.md` rewritten for the closed view in the brief's nine sections; the alert lines
+  in `docs/keyboard.md`, the "No window open" paragraph in `docs/status-model.md`, the `window.closed`
+  row in `docs/daemon-protocol.md` and the window paragraph in `docs/architecture.md` follow.
+  Differences, the code being the truth: a row chosen while iTerm2 isn't connected opens and comes
+  forward by itself once iTerm2 connects if it is still selected (the brief said choose it again);
+  a failed open's banner names the row only for a terminal. The brief's grep still matches one
+  `docs/status-model.md` sentence about the Codex rollout read's one-second bound (not about windows).
+  Left for 4b: `TaskRemoval.swift:9` mentions a "Couldn’t reopen" caption that no longer exists. One
+  of the implementer's plain gate runs failed once in `HTTPJSONTests.aCancelledRequestStaysCancellationThroughMapping`
+  (30 seconds, load average near 5); it passed alone and in the orchestrator's next plain run.

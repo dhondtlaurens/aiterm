@@ -90,9 +90,9 @@ answer left/right. Settings stages ordinary changes until Save; explicit integra
 interface-size preview retain their immediate behavior.
 
 An alert's default button answers Return, Escape its safe choice. Destructive Remove/Delete Branch
-is the default only when the alert says so. A lone task-window close offers Remove, Archive and
-Cancel; Cancel brings the window back. iTerm2 quitting/crashing asks nothing. Unsaved changes default
-to Keep Task/Keep Review. Restore failures and other one-button alerts use OK.
+is the default only when the alert says so. Closing a row's iTerm2 window asks nothing; the row stays
+and Return opens it again. Unsaved changes default to Keep Task/Keep Review. Restore failures and
+other one-button alerts use OK.
 
 `AlertPrompt.escapeButton`/`ModalPrompter` preserve Escape even when the safe choice is also the
 default. Alerts are awaited outside the SwiftUI key handler so native controls render correctly.
