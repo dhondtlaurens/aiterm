@@ -469,7 +469,7 @@ TS tests-scripts.
   A task that was taken over keeps that fact: before its `signalTask` goes, the command sets the
   task's `takenOver` mark from it, so no signal reclaims it. Other driven tasks become ordinary
   tasks and the Operator chat starts fresh. The command uses only what macOS ships.
-- [ ] 9c. **Opus.** Full gate, bundle check, snapshots compared with `build/refactor-before` for
+- [x] 9c. **Opus.** Full gate, bundle check, snapshots compared with `build/refactor-before` for
   every unlisted difference, the upgrade rehearsal, the whole change reviewed adversarially, and
   Record completed.
 
@@ -1600,7 +1600,26 @@ left.
     through `#filePath` must be named in `scripts/test-routes.tsv`. For that run only, the suite was added to the
     `# opt-in, reads outside its target:` line. That line and the test file were then removed; neither is
     committed.
-- Review: run by the orchestrator, see below.
+- Review of the whole change `d9e9ccaa..HEAD`, by Codex through the adversarial-review script (it also serves as
+  phase 9's review), three rounds:
+  - Round 1, two Important, both confirmed:
+    - Remove and Archive force-closed every window holding one of the task's tabs, so a tab dragged into another
+      task's window ended that task's agents. Decision: no single-tab close (it would change the wire); teardown
+      refuses before anything changes when a window it would close holds other work. That means another row's tab in
+      the row's own window, or anything but the task's tabs in another window. The refusal reads "One of its tabs
+      shares an iTerm2 window with other work. Move that tab to its own window or close it, then try again."
+    - The Operator's `open_tab` saved a tab whose command was never typed (`commandError`) as opened, and reopening
+      a window ignored it for later conversations. Now `open_tab` refuses as the other launch paths do, and the
+      reopen reports it and stops.
+    Fixed by an Opus implementer (`9478f179`), with three Remove tests, an `open_tab` test and a reopen test, and
+    `docs/windows.md` updated.
+  - Round 2, one Important, confirmed: the automatic close of a task whose checkout is gone (a worker can delete
+    its own worktree) still force-closed the row's own window holding another row's tab. Now it does nothing while
+    that holds, and the row stays saying Worktree missing until the tab leaves. Fixed by the same implementer
+    (`3e44b389`), with one shared check and a checkout-cleanup test.
+  - Round 3: no findings, "ready based on the static checks performed".
+  Left open, Minor: `docs/status-model.md`'s sentence on a turn that removes its own checkout does not mention the
+  shared-window wait.
 - Still owed by hand, by the maintainer (the Record shows none of them done):
   - `scripts/compat-check.sh` after phases 1 and 2: the Claude driver lost `PostModelSwitch` and `compat/launch.json`
     lost the fixer entries (1g, 1i); the Codex config editor changed (2d).
