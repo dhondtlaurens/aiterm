@@ -1631,3 +1631,7 @@ left.
   - Also noted in the Record, outside the plan's owed list: the opt-in `WorkerGuardCodexTests` probe after 2g, and
     the hosted-only Operator snapshot poses above.
   - Every phase from 0 to 9 has a Record entry.
+- Phase 9: plain `scripts/test.sh all` green on `fa534615`, and the bundle check passed there (after the review
+  fixes). `main` had only the refactor's own merges; merged to `main` (`ad73ebb7`). Owed to the maintainer after
+  phase 9: the smoke run through `scripts/run-dev.sh` (listed above with the other owed checks). This entry is
+  committed on the branch after that merge.
