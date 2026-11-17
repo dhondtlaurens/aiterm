@@ -20,10 +20,6 @@ struct OperatorPorts {
     let work = OperatorWork()
     /// How often the session reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
-    /// How long the host's view of a task's request is waited for (`OperatorTiming.hostReadTimeout`) and kept (`hostReadCache`):
-    /// what `run_status` and `read_task` show of each request.
-    var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)
-    var hostCache: TimeInterval = OperatorTiming.hostReadCache
     /// The agents the login shell found, which a task may run: the app's `AgentIntegrations.availableAgents`.
     var installedAgents: @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) }
     /// An agent's model list in Settings › Agents (`ModelCatalogue.models(for:)`). Blocking: read through `BackgroundWork`.

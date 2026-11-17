@@ -301,7 +301,7 @@ TS tests-scripts.
   version, tail for the last boundary and token count, an unparsable line skipped); the subagent
   quiet window, the iTerm2 batched-read fallback and the resolver's root-change retry go
   (DM F3, F9, F10). The compat captures stay the proof.
-- [ ] 2f. **Codex.** Operator repair paths: the activity write queue, the Take Over repair loop,
+- [x] 2f. **Codex.** Operator repair paths: the activity write queue, the Take Over repair loop,
   the mirrored source errors, the details cache reduced to a short cache by task and claim, launch
   recovery reduced to "a tagged tab with the planned agent, else block" (RT F10). The checkout save
   after a Take Over during a request checkout stays: without it the taken-over task has no folder
@@ -804,3 +804,13 @@ left.
   `test_context_is_not_reparsed_until_its_rollout_changes` and the tick budgets), four quiet-window
   tests in `test_status.py`, two fallback tests in `test_iterm_bridge.py`; a live-test assertion on
   `_batched_reads` went too. Added the unparsable-line test (written first).
+- 2f: Operator repair paths went: the activity write queue (a failed write is reported and the next
+  written entry clears it), the Take Over repair loop, the mirrored source errors, the details
+  read's flights and own timeout (now a short cache by task and claim), and launch recovery's scope
+  file (a tagged tab running the planned agent is adopted). The checkout save after a Take Over
+  during a request checkout is byte-for-byte unchanged and now has its own test. Tests deleted or
+  replaced: `aStatusReadHasItsOwnBudgetAndNeverCachesATimedOutAnswer` (timeout deleted; caching
+  survives in `repeatedStatusDetailsReuseTheHostReadButAChangedAuthorityDoesNot`), the replay,
+  repair and scope-matching tests, replaced by `aFailedActivityWriteIsReportedAndTheNextWrittenEntryClearsIt`,
+  `aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce` and
+  `anInterruptedLaunchAdoptsItsTaggedWorkerWithoutRepeatingThePrompt`.

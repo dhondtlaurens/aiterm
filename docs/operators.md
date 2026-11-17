@@ -136,9 +136,10 @@ log, its session, opening its window, reopening a worker, Take Over) and clears 
 source next succeeds. A failure AiTerm retries by itself shows only after three failed attempts in
 a row; one from something you clicked shows at once until that action succeeds. Hover the row for
 the source and reason. Every failure and recovery is written to the Operator's activity log with
-its time and source, and `run_status` lists the current ones under `appIssues`, so you can ask the
-Operator why. A wake held because you are typing in its chat waits without counting; one pasted
-but not sent, or text left unsent in its chat, asks you to send or clear it there.
+its time and source, except a failure to write the log itself: only its recovery is written.
+`run_status` lists the current ones under `appIssues`, so you can ask the Operator why. A wake held
+because you are typing in its chat waits without counting; one pasted but not sent, or text left
+unsent in its chat, asks you to send or clear it there.
 
 Only the Operator row’s activity caption decodes. Each event retriggers it, even when the words
 repeat, and the words settle after half a second. Its title stays steady. Tasks keep their normal

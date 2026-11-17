@@ -18,8 +18,6 @@ public enum OperatorTiming {
     /// App only: seconds after its window was seen, else asked for, that a first worker which has named no conversation yet
     /// still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
     public static let firstWorkerOpening: TimeInterval = 180
-    /// App only: seconds `run_status` and `read_task` wait for a code host to say what it thinks of a task's request before
-    /// they answer without it, and how long that reading is kept per request.
-    public static let hostReadTimeout: TimeInterval = 8
+    /// How long `read_task` keeps a task's source descriptions.
     public static let hostReadCache: TimeInterval = 30
 }

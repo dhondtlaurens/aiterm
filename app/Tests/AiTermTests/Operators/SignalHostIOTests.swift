@@ -107,18 +107,6 @@ import Testing
         _ = try await io.details(try #require(h.workspace.state.task(id: id)))
         #expect(stub.requests.count == 2)
     }
-    @Test func aStatusReadHasItsOwnBudgetAndNeverCachesATimedOutAnswer() async throws {
-        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
-        world.state.tasks[0].jira = world.ticket().ticket.map(JiraRef.init)
-        let h = try SignalHarness(world); defer { h.cleanUp() }
-        let stub = StubSession { _ in
-            Thread.sleep(forTimeInterval: 0.2)
-            return (200, Data(#"{"issues":[],"isLast":true}"#.utf8))
-        }
-        let links = SignalConnections(jira: JiraConfig(siteURL: URL(string: "https://jira.example")!, email: "fake", token: "fake"), session: stub.session)
-        let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.hostTimeout = .milliseconds(10)
-        await #expect(throws: (any Error).self) { try await io.details(try #require(h.workspace.state.task(id: id))) }
-    }
     @Test func mergingRechecksTheLocalHeadAtTheNativeEffectBoundary() async throws {
         var world = SignalWorld(); let signal = world.signal(done: .approved)
         world.state.signals[0].finish.mergesWhenReady = true
