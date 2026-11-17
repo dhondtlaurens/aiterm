@@ -104,9 +104,8 @@ public enum ModelFiles {
     /// Codex keeps its real catalogue in `~/.codex/models_cache.json`: the display names, the
     /// reasoning levels each model supports and its default level. Models marked `hide` are the
     /// CLI's internal ones (auto-review, reserve) and are not offered. When the cache is missing or
-    /// empty — a fresh install, or a network the CLI could not reach — the profiles in
-    /// `config.toml` are the fallback, and `gpt-5.6` the last resort.
-    public static func codexModels(modelsCacheJSON: Data?, configTOML: String?) -> [AgentModel] {
+    /// empty (a fresh install, or a network the CLI could not reach), `gpt-5.6` alone is offered.
+    public static func codexModels(modelsCacheJSON: Data?) -> [AgentModel] {
         if let data = modelsCacheJSON, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let raw = obj["models"] as? [[String: Any]] {
             let models: [AgentModel] = raw.compactMap { entry in
@@ -119,34 +118,16 @@ public enum ModelFiles {
             }
             if !models.isEmpty { return models }
         }
-        return codexConfigModels(configTOML: configTOML)
+        return [AgentModel(id: "gpt-5.6", label: "gpt-5.6", detail: nil, efforts: codexEfforts, defaultEffort: Harness.codex.defaultEffort)]
     }
 
     /// Codex's models as `home` keeps them, read now.
     static func codexModels(home: URL) -> [AgentModel] {
-        codexModels(modelsCacheJSON: try? Data(contentsOf: home.appendingPathComponent(".codex/models_cache.json")),
-                    configTOML: try? String(contentsOf: home.appendingPathComponent(".codex/config.toml"), encoding: .utf8))
+        codexModels(modelsCacheJSON: try? Data(contentsOf: home.appendingPathComponent(".codex/models_cache.json")))
     }
 
-    /// The files `codexModels(home:)` reads.
+    /// The file `codexModels(home:)` reads.
     static func codexSources(home: URL) -> [String] {
-        [home.appendingPathComponent(".codex/models_cache.json").path, home.appendingPathComponent(".codex/config.toml").path]
-    }
-
-    /// The root `model` and each `profiles.<name>.model`, in file order, by the key's full path:
-    /// a header or dotted key names them alike, and a `model = …` line inside a multi-line string
-    /// is not one.
-    static func codexConfigModels(configTOML: String?) -> [AgentModel] {
-        var ids: [String] = []
-        for table in TOMLStatements.tables(configTOML ?? "") where !table.array {
-            for statement in table.statements {
-                guard let key = statement.keyPath, let value = statement.value, !value.isEmpty else { continue }
-                let path = table.path + key
-                guard path == ["model"] || (path.count == 3 && path[0] == "profiles" && path[2] == "model") else { continue }
-                if !ids.contains(value) { ids.append(value) }
-            }
-        }
-        if ids.isEmpty { ids = ["gpt-5.6"] }
-        return ids.map { AgentModel(id: $0, label: $0, detail: nil, efforts: codexEfforts, defaultEffort: Harness.codex.defaultEffort) }
+        [home.appendingPathComponent(".codex/models_cache.json").path]
     }
 }

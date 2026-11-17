@@ -12,15 +12,14 @@ import Testing
 
     private func scan(_ project: Project, git: any GitRunning, resolvers: Resolvers) -> WorkspaceScan {
         WorkspaceScan.run(cwds: [], projects: [project], tasks: [], branches: resolvers.branches, remotes: resolvers.remotes,
-                          diffs: DiffStatResolver(git: git), defaultBranches: resolvers.defaultBranches)
+                          diffs: DiffStatResolver(git: git))
     }
 
     private struct Resolvers {
-        let branches: BranchResolver, remotes: RemoteResolver, defaultBranches: DefaultBranchResolver
+        let branches: BranchResolver, remotes: RemoteResolver
         init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init) {
             let probe = RepositoryProbe(git: git, now: now)
             branches = BranchResolver(git: git, now: now, probe: probe); remotes = RemoteResolver(git: git, now: now, probe: probe)
-            defaultBranches = DefaultBranchResolver(git: git, now: now, probe: probe)
         }
     }
 
@@ -34,7 +33,7 @@ import Testing
         let planned = TaskItem.make(project: project.id, title: "t", branch: "feat/t", baseBranch: "", createdAt: Date())
         let git = GitRunner.hermetic(), resolvers = Resolvers(git: git)
         let scan = WorkspaceScan.run(cwds: [], projects: [project], tasks: [planned], branches: resolvers.branches, remotes: resolvers.remotes,
-                                     diffs: DiffStatResolver(git: git), defaultBranches: resolvers.defaultBranches)
+                                     diffs: DiffStatResolver(git: git))
         #expect(scan.missingCheckouts.isEmpty)
         #expect(scan.removedTasks.isEmpty)
     }
@@ -47,12 +46,10 @@ import Testing
         flaky.failing = true
         let failed = scan(project, git: flaky, resolvers: resolvers)
         #expect(failed.remotes.isEmpty)
-        #expect(failed.defaultBranch.isEmpty)
         flaky.failing = false
         clock.advance(by: TimedOut.backoff)
         let recovered = scan(project, git: flaky, resolvers: resolvers)
         #expect(recovered.remotes[project.id]?.url == url)
-        #expect(recovered.defaultBranch[project.id] == "main")
     }
 
     /// And once a remote is known, a later failure leaves it as it was.
@@ -81,7 +78,7 @@ import Testing
         let diffs = DiffStatResolver(git: recording)
         func pass(_ cwds: [String]) {
             _ = WorkspaceScan.run(cwds: cwds, projects: [project], tasks: [], branches: resolvers.branches, remotes: resolvers.remotes,
-                                  diffs: diffs, defaultBranches: resolvers.defaultBranches)
+                                  diffs: diffs)
         }
         pass([elsewhere])
         let known = recording.calls.count

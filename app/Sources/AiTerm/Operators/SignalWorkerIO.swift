@@ -62,21 +62,16 @@ import AiTermCore
               let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.endsWithQuestion(reply.text) else { return nil }
         return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text, conversation: worker.conversation, fingerprint: reply.fingerprint)
     }
-    /// A saved intent may already have opened its worker before a reply was lost. Its private
-    /// launch scope binds the observed process to this stage; observing it never repeats work.
-    func recoverLaunches() async {
+    /// A saved intent may already have opened its worker before a reply was lost. A tagged tab
+    /// running the planned agent is adopted without repeating its prompt.
+    func recoverLaunches() {
         guard enabled(), workspace.canChangeWorkspace else { return }
         for task in workspace.state.tasks {
-            guard recoveryAllowed(task.id), !inFlight.contains(task.id), let claim = SignalClaim(task),
+            guard recoveryAllowed(task.id), !inFlight.contains(task.id), SignalClaim(task) != nil,
                   let record = task.signalTask, let launch = record.launch, launch.workerPending == true,
                   launch.openedAt == nil, record.phase == .launching || record.phase == .blocked,
                   live.sessions.contains(where: { $0.taskUUID == task.id }) else { continue }
-            let home = ports.home, id = task.id
-            let scope = await BackgroundWork.run { WorkerGuardLaunch.recordedScope(task: id, home: home) }
-            guard enabled(), recoveryAllowed(task.id), claim.holds(in: workspace.state), !Task.isCancelled else { continue }
-            if let worker = task.firstWorker(in: live.sessions), worker.agent.agentKind == task.agent,
-               scope?.task == task.id, scope?.ownership == record.ownership, scope?.stage == record.stage,
-               scope?.worktree == task.worktreePath, scope?.branch == task.branch {
+            if let worker = task.firstWorker(in: live.sessions), worker.agent.agentKind == task.agent {
                 workspace.mutate { $0.updateSignalItem(task.id) { value in
                     value.windowId = worker.windowId
                     value.signalTask?.edges.append(SignalEdge(from: record.phase, to: .working, stage: record.stage, at: ports.now()))

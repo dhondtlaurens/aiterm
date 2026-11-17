@@ -39,7 +39,7 @@ import Testing
         // The chevron opens the list in the app; seeding it is the same `State` the button writes,
         // as `NewReviewSheetTests` does for the branch picker.
         let preparation = ProjectPreparation(project: .make(name: "aiterm", jiraProjects: linked))
-        let model = ProjectSheetModel(preparation: preparation, editing: true, canChange: { true }, inspect: { _ in preparation },
+        let model = ProjectSheetModel(preparation: preparation, editing: true, git: .hermetic(), canChange: { true }, inspect: { _ in preparation },
                                       chooseFolder: { nil }, loadProjects: { Self.projects }, commit: { _, links, _ in submissions.calls.append(links) })
         if seedProjects { model.seedProjects(Self.projects) }
         let sheet = ProjectSheet(model: model).seeded(open: listOpen)

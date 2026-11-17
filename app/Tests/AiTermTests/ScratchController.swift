@@ -47,9 +47,8 @@ extension AppController {
     ///
     /// Questions go to a ``ScriptedPrompter`` that answers none, so one a test did not expect fails
     /// it ("Unexpected prompt") rather than opening a modal `NSAlert` that blocks the run. A test
-    /// that expects one passes its own. The lookups come last, after `scan` and `confirmsRemoval`. Every port
-    /// lands in one `AppPorts` and every wait in one `AppTimings`, the designated initializer's two groups; a Fix
-    /// pipeline named here stands in for the live one.
+    /// that expects one passes its own. The lookups come last, after `scan` and `operatorPorts`. Every port
+    /// lands in one `AppPorts` and every wait in one `AppTimings`, the designated initializer's two groups.
     convenience init(store: StateStore? = nil, preferences: InterfacePreferences,
                      harnessHome: URL = ScratchHome.bare, claudeConfig: ClaudeConfig = ClaudeConfig(),
                      bundledResourcesURL: URL? = nil,
@@ -66,9 +65,8 @@ extension AppController {
                      closedWindowHold: Duration = .zero, now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
                      git: any GitRunning = GitRunner.hermetic(),
                      scan: @escaping CheckoutMonitor.Scanner = {
-                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
+                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
                      },
-                     confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
                      operatorPorts: OperatorPorts? = nil,
                      locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { nil },
                      findPython: @escaping @Sendable () -> URL? = { nil },
@@ -82,7 +80,7 @@ extension AppController {
                              prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm,
                              itermRunning: itermRunning, bringForward: bringForward, backpackPorts: backpackPorts,
                              backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor,
-                             git: git, scan: scan, confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch())
+                             git: git, scan: scan, operatorPorts: operatorPorts ?? .scratch())
         self.init(preferences: preferences, ports: ports,
                   timings: AppTimings(peekDelay: peekDelay, checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime,
                                       closedWindowHold: closedWindowHold, now: now))

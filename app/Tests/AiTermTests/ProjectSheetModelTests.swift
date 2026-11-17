@@ -9,7 +9,7 @@ import Testing
         let prepared = ProjectPreparation(project: .make(path: "/projects/a"))
         let link = JiraProjectRef(id: "1", key: "PAY", name: "Payments", siteURL: URL(string: "https://jira.example")!)
         var saved: [JiraProjectRef] = []
-        let model = ProjectSheetModel(preparation: prepared, editing: false, canChange: { true },
+        let model = ProjectSheetModel(preparation: prepared, editing: false, git: .hermetic(), canChange: { true },
                                       inspect: { _ in prepared }, chooseFolder: { nil }, loadProjects: { [link] },
                                       commit: { _, links, _ in saved = links })
         await model.loadProjects()
@@ -23,7 +23,7 @@ import Testing
         let first = ProjectPreparation(project: .make(path: "/projects/a"))
         let last = ProjectPreparation(project: .make(path: "/projects/b"))
         let entered = TestLatch(), release = TestLatch()
-        let model = ProjectSheetModel(preparation: first, editing: false, canChange: { true },
+        let model = ProjectSheetModel(preparation: first, editing: false, git: .hermetic(), canChange: { true },
                                       inspect: { path in
                                           if path == "/projects/slow" { entered.signal(); await release.wait(); return first }
                                           return last
@@ -40,7 +40,7 @@ import Testing
     @Test func aLockedWorkspaceOrFailedInspectionCannotSaveAPreviousFolder() async {
         let prepared = ProjectPreparation(project: .make(path: "/projects/a"))
         var saved = false
-        let model = ProjectSheetModel(preparation: prepared, editing: false, canChange: { true },
+        let model = ProjectSheetModel(preparation: prepared, editing: false, git: .hermetic(), canChange: { true },
                                       inspect: { _ in throw ActionUnavailable("Missing folder") }, chooseFolder: { nil }, loadProjects: { [] },
                                       commit: { _, _, _ in saved = true })
         model.folder = "/missing"
@@ -51,7 +51,7 @@ import Testing
         model.folder = prepared.project.path
         await model.inspectFolder()
         #expect(model.canSave)
-        let locked = ProjectSheetModel(preparation: prepared, editing: true, canChange: { false }, inspect: { _ in prepared },
+        let locked = ProjectSheetModel(preparation: prepared, editing: true, git: .hermetic(), canChange: { false }, inspect: { _ in prepared },
                                        chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in saved = true })
         #expect(!(await locked.save()) && !saved)
     }
@@ -59,7 +59,7 @@ import Testing
     @Test func aFailedSaveCanBeRetriedWithoutChangingTheFolder() async {
         let prepared = ProjectPreparation(project: .make(path: "/projects/a"))
         var failing = true
-        let model = ProjectSheetModel(preparation: prepared, editing: false, canChange: { true }, inspect: { _ in prepared },
+        let model = ProjectSheetModel(preparation: prepared, editing: false, git: .hermetic(), canChange: { true }, inspect: { _ in prepared },
                                       chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in
                                           if failing { throw ActionUnavailable("Save failed") }
                                       })

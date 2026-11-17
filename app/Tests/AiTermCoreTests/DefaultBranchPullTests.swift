@@ -24,6 +24,22 @@ import Darwin
     }
     deinit { for root in roots { try? FileManager.default.removeItem(atPath: root) } }
 
+    @Test func namesOriginsDefaultBranch() throws {
+        var roots: [String] = []
+        defer { for root in roots { try? FileManager.default.removeItem(atPath: root) } }
+        let checkout = try Self.clones(defaultBranch: "develop", git: git, into: &roots).other
+        #expect(try Repository(checkout, git: git).detectDefaultBranch() == "develop")
+    }
+
+    @Test func resolvesALinkedWorktreeToTheRepositorysDefault() throws {
+        var roots: [String] = []
+        defer { for root in roots { try? FileManager.default.removeItem(atPath: root) } }
+        let checkout = try Self.clones(defaultBranch: "develop", git: git, into: &roots).other
+        let worktree = checkout + "/.worktrees/feat"
+        try git.run(["worktree", "add", "-q", "-b", "feat/y", worktree], in: checkout)
+        #expect(try Repository(worktree, git: git).detectDefaultBranch() == "develop")
+    }
+
     @Test func testFastForwardsTheBranchWhereItIsCheckedOut() throws {
         try push(2, from: other)
         #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 2))
@@ -166,23 +182,6 @@ import Darwin
         let log = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
         #expect(!log.contains("hook 0000000000000000000000000000000000000000"), "no hook for the new checkout")
         #expect(log.split(separator: "\n").first == "smudge 1", "the new checkout's files are not smudged")
-    }
-
-    /// A rebase's checkout the app died before removing still has the branch checked out, which
-    /// makes every `git checkout` of it fail and would have the next pull merge there. The next pull
-    /// or rebase removes it first.
-    @Test(arguments: [false, true]) func testRemovesTheCheckoutOfARebaseThatNeverFinished(rebase: Bool) throws {
-        let stale = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-rebase-\(UUID().uuidString)").path
-        defer { try? FileManager.default.removeItem(atPath: stale) }
-        if rebase { try change("file.txt", to: "mine\n", in: repo) }
-        _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
-        _ = try git.run(["worktree", "add", "-q", stale, "main"], in: repo)
-        try push(1, from: other)
-
-        if rebase { #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1)) }
-        else { #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1)) }
-        #expect(try Repository(repo, git: git).worktrees().count == 1)
-        #expect(!FileManager.default.fileExists(atPath: stale))
     }
 
     /// A rebase in its own checkout that git refuses for a reason other than a conflict — here a

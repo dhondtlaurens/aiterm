@@ -91,8 +91,9 @@ A missing or revoked Operator token always refuses the gated call.
 Workers run the requested skills, including their own adversarial review and publication. They
 may commit, push their own task branch, open a draft request and perform host actions authorised
 through Operator/Oracle judgment. AiTerm's worker guard refuses force pushes, `--no-verify`, another
-branch, the default/protected branch and worker-initiated merges, for Claude and Codex. It preserves
-the project's own pre-push hook. These are cooperative CLI guards, not an operating-system sandbox.
+branch, the default/protected branch and worker-initiated merges of a request on the host, for Claude
+and Codex. A worker may merge branches locally. The guard preserves the project's own pre-push hook.
+These are cooperative CLI guards, not an operating-system sandbox.
 
 AiTerm finds the request from the branch and adds its ordinary clickable badge. Done conditions
 fit the source: Operator judgment, a reviewer, approval, resolved threads, merged, a Jira status,
@@ -136,9 +137,10 @@ log, its session, opening its window, reopening a worker, Take Over) and clears 
 source next succeeds. A failure AiTerm retries by itself shows only after three failed attempts in
 a row; one from something you clicked shows at once until that action succeeds. Hover the row for
 the source and reason. Every failure and recovery is written to the Operator's activity log with
-its time and source, and `run_status` lists the current ones under `appIssues`, so you can ask the
-Operator why. A wake held because you are typing in its chat waits without counting; one pasted
-but not sent, or text left unsent in its chat, asks you to send or clear it there.
+its time and source, except a failure to write the log itself: only its recovery is written.
+`run_status` lists the current ones under `appIssues`, so you can ask the Operator why. A wake held
+because you are typing in its chat waits without counting; one pasted but not sent, or text left
+unsent in its chat, asks you to send or clear it there.
 
 Only the Operator row’s activity caption decodes. Each event retriggers it, even when the words
 repeat, and the words settle after half a second. Its title stays steady. Tasks keep their normal

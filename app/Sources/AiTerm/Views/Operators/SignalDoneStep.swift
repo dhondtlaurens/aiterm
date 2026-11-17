@@ -9,7 +9,7 @@ struct SignalDoneStep: View {
             HStack(alignment: .top, spacing: Space.gap) {
                 Select(values: Array(model.doneChoices.indices), selection: Binding(get: {
                     model.doneChoices.firstIndex(of: model.done) ?? 0
-                }, set: { index in if model.doneChoices.indices.contains(index) { model.done = model.doneChoices[index] } }),
+                }, set: { index in model.done = model.doneChoices[index] }),
                        label: { Self.label(model.doneChoices[$0]) })
                 if case .ticketStatus = model.done {
                     if statusChoices.isEmpty { Input(placeholder: "Status in Jira", text: $model.status) }

@@ -193,6 +193,7 @@ struct ProjectHeaderRow: View {
         .modifier(RowPill(selected: selected))
         // ↩ on an empty header opens this menu, which it has in place of a fold.
         .background(RowMenuAnchor(id: project.id))
+        .task(id: project.id) { await controller.projects.loadDefaultBranchName(of: project) }
         .contextMenu {
             // The "+" menu's items lead, greyed as they are there: the whole "+" is disabled while
             // the workspace is locked, which a context menu can only say item by item.
@@ -204,9 +205,9 @@ struct ProjectHeaderRow: View {
             Button("Edit Project…") { controller.sheets.presentJiraProjects(for: project) }
                 .disabled(!controller.canChangeWorkspace)
             Divider()
-            // The git operations, a group of their own. The branch is named once a pass has read it.
+            // The git operations, a group of their own. The branch is named once git has answered.
             if project.provider == .gitlab || project.provider == .github {
-                Button("Pull \(controller.checkouts.defaultBranch[project.id] ?? "Default Branch")") {
+                Button("Pull \(controller.projects.defaultBranchName(project.id) ?? "Default Branch")") {
                     controller.projects.pullDefault(project: project)
                 }
                 .disabled(controller.projects.isChangingDefaultBranch(project.id))

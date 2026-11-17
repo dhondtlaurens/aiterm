@@ -16,17 +16,19 @@ import AiTermCore
     private(set) var validating = false
     private var validatedFolder: String
     private var inspection = UUID()
+    private let git: any GitRunning
     private let canChange: @MainActor () -> Bool
     private let inspect: @MainActor (String) async throws -> ProjectPreparation
     private let choose: @MainActor () async -> URL?
     private let load: @MainActor () async throws -> [JiraProjectRef]
     private let commit: @MainActor (ProjectPreparation, [JiraProjectRef], Bool) async throws -> Void
 
-    init(preparation: ProjectPreparation, editing: Bool, canChange: @escaping @MainActor () -> Bool,
+    init(preparation: ProjectPreparation, editing: Bool, git: any GitRunning, canChange: @escaping @MainActor () -> Bool,
          inspect: @escaping @MainActor (String) async throws -> ProjectPreparation,
          chooseFolder: @escaping @MainActor () async -> URL?, loadProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
          commit: @escaping @MainActor (ProjectPreparation, [JiraProjectRef], Bool) async throws -> Void) {
         self.preparation = preparation; self.editing = editing; self.canChange = canChange
+        self.git = git
         self.inspect = inspect; self.choose = chooseFolder; self.load = loadProjects; self.commit = commit
         folder = preparation.project.path; validatedFolder = preparation.project.path; linked = preparation.project.jiraProjects
         importWorktrees = preparation.canImport
@@ -40,8 +42,17 @@ import AiTermCore
         return "Adds \(preparation.project.name) under Projects\(imports). Nothing in the folder changes."
     }
     func matches(_ query: String) -> [JiraProjectRef] { JiraProjectSearch.rank(projects, query: query, excluding: linked) }
+    func loadDefaultBranchName() async {
+        guard editing else { return }
+        let git = git, path = preparation.project.path
+        do {
+            let name = try await BackgroundWork.run { try Repository(path, git: git).detectDefaultBranch() }
+            guard !Task.isCancelled else { return }
+            preparation.defaultBranch = name
+        } catch {}
+    }
     func chooseFolder() async {
-        guard !editing, let url = await choose(), !Task.isCancelled else { return }
+        guard let url = await choose(), !Task.isCancelled else { return }
         folder = url.path
     }
     func loadProjects() async {

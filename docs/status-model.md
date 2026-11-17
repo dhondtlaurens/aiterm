@@ -119,10 +119,11 @@ tick, and each of those would have been a `session.changed` that the app decodes
 daemon keeps the newest title in its registry, where the status engine reads it, and every
 `session.changed` and snapshot still carries it, so an older app that decodes the field keeps working.
 
-A Codex rollout grows without bound and is read on every tick it changes (context fill, rate
-limits), so it is read on a worker thread, as the subagent checks are, and only the lines
-that contain a `token_count` are parsed. A read that does not answer within a second costs that
-tick its Codex numbers, not the daemon its hook acks.
+Each tracked Codex rollout is followed from where the last read stopped. On first sight only its
+first line and its last 8 MiB are read. Only lines naming a session start, a turn boundary or a token
+count are parsed; a line that cannot be parsed is skipped. Rollouts and account rate limits are read
+on a worker thread, as the subagent checks are. A read that does not answer within a second costs
+that tick its Codex numbers, not the daemon its hook acks.
 
 A tick publishes what it changed even if a step of it raises, and each corroborating step (a
 session's file, the subagent transcripts) is guarded on its own: one that fails is
@@ -193,15 +194,7 @@ under way or ended (`StatusEngine.release_dead_subagents`), and counts the child
   user]`), or the attachment of a `SubagentStop` hook, written — by the time the record gives —
   after the child's latest `SubagentStart`, unless the last message before that attachment is a
   prompt the child has yet to answer (the hand-back reminder below), since Claude then runs the
-  child on; or
-- its transcript has not changed for `SUBAGENT_QUIET_SECONDS` (45 minutes) since its parent's ended
-  turn first waited on it or its `SubagentStop` came, timed on the monotonic clock from the later of
-  that moment and the first tick that saw it unchanged: quiet while its parent still worked does not
-  count, nor does a session file that says on every tick that the turn ended begin the window again.
-  A child of a turn still under way is left to that turn's `Stop`, which says what still runs. That
-  clock stops while the Mac sleeps. The window is long because live children have gone 28 minutes
-  without writing, during a long generation or a stream retry. It only catches a child that died
-  without writing anything: every watchdog kill observed left the interruption.
+  child on.
 
 A transcript that does not exist yet proves nothing, so that child stays counted until its
 `SubagentStop`. A gone child is dropped exactly as its `SubagentStop` would have dropped it, so the
@@ -231,7 +224,7 @@ next. The cost: a Claude child's end lands with the first tick that finds its st
 usually the next poll, 2 s after the hook, sometimes the one after, rather than with the hook. It
 relies on Claude Code writing each `SubagentStop` hook's attachment to the child's transcript, as
 every version seen does (2.1.283 to 2.1.308); without it, a stopped child would stay counted until
-its parent's next `Stop` drops it, or the quiet window does.
+its parent's next `Stop` drops it.
 
 `SubagentStart` carries only the session's `transcript_path`, `<dir>/<session>.jsonl`. The child's
 transcript sits beside it at `<dir>/<session>/subagents/agent-<id>.jsonl`, or one directory further
@@ -276,8 +269,8 @@ and the daemon has no rule for a vanished directory. A harness added later needs
 transport that survives one.
 
 The app waits on the same fact before closing a removed task's window: `forgetRemovedCheckouts`
-keeps its confirmed-removal check, and also waits while any of the task's sessions is still
-`working` or `needsInput`. It closes the window on the first pass after they have all settled, so
+waits while any of the task's sessions is still `working` or `needsInput`. It closes the window
+on the first pass after they have all settled, so
 an agent whose worktree just vanished finishes its final message before the window disappears.
 
 ## Why the branch is not iTerm2's to tell

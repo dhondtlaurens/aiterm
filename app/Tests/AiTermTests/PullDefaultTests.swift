@@ -19,6 +19,7 @@ import Testing
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "upstream"], in: other)
         try fixture.git.run(["push", "-q", "origin", "main"], in: other)
 
+        #expect(fixture.controller.projects.defaultBranchName(fixture.project.id) == nil)
         let pull = fixture.controller.projects.pullDefault(project: fixture.project)
         #expect(fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
         #expect(fixture.controller.projects.pullDefault(project: fixture.project) == nil, "one pull at a time")
@@ -27,6 +28,7 @@ import Testing
         #expect(fixture.controller.toastState.toast?.message == "main updated with 1 new commit.")
         #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
         #expect(fixture.controller.issue == nil)
+        #expect(fixture.controller.projects.defaultBranchName(fixture.project.id) == "main")
         #expect(try fixture.git.run(["rev-parse", "main"], in: fixture.repo.path) == fixture.git.run(["rev-parse", "main"], in: other))
     }
 

@@ -80,7 +80,7 @@ final class SheetCoordinator {
     /// The sheet that edits the project's linked Jira projects, opened on the list as it is now.
     func presentJiraProjects(for project: Project) {
         guard canChangeWorkspace, let current = state.project(id: project.id) else { return }
-        present(.project(projects.makeProjectSheet(ProjectPreparation(project: current, defaultBranch: checkouts.defaultBranch[current.id]), editing: true)))
+        present(.project(projects.makeProjectSheet(ProjectPreparation(project: current), editing: true)))
     }
 
     func presentAddProject(path: String? = nil) {
@@ -192,11 +192,10 @@ final class SheetCoordinator {
     /// a sheet's root view on every state change of the presenting view, and a draft costs a read of
     /// the agent's model catalogue.
     func presentNewTask(project: Project) {
-        // The monitor reads each project's default branch on every pass: nothing to ask git for.
         nonisolated(unsafe) let defaults = defaults
-        let git = self.git, known = checkouts.defaultBranch[project.id]
+        let git = self.git
         let jira = jiraSettings, gitLab = gitLabSettings
-        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known, defaults: defaults) },
+        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaults: defaults) },
                      search: { (jira: jira(), gitLab: gitLab(),
                                 remote: ProviderDetector.detect(remoteUrl: project.remoteUrl, repoPath: project.path)) }) { [unowned self] in
             .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2,

@@ -268,11 +268,6 @@ import Darwin
         #expect(left?.lockReason == Worktree.taskLockReason)
     }
 
-    @Test func testRefusesSymlinkedWorktreesDir() throws {
-        try FileManager.default.createSymbolicLink(atPath: repo + "/.worktrees", withDestinationPath: "/tmp")
-        #expect(throws: (any Error).self) { try Repository(repo, git: git).addTaskWorktree(slug: "x", branch: "feat/x", base: "main") }
-    }
-
     /// `GitRunner.run` used to read stdout to EOF, then stderr to EOF,
     /// then `waitUntilExit()`. A pipe's kernel buffer is ~64 KB; a child that writes more than
     /// that to stderr while `run` is still blocked draining stdout would fill the stderr pipe,

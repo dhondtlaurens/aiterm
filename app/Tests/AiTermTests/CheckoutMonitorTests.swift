@@ -17,7 +17,7 @@ struct CheckoutMonitorTests {
 
     private func scanning(_ passes: [WorkspaceScan]) -> CheckoutMonitor.Scanner {
         let script = Script(passes)
-        return { _, _, _, _, _, _, _ in script.next() }
+        return { _, _, _, _, _, _ in script.next() }
     }
 
     /// What a pass finds for the saved workspace goes back to it: the remotes, the tasks whose
@@ -30,8 +30,7 @@ struct CheckoutMonitorTests {
         let tab = SessionInfo.make(window: "w", task: removed.id, cwd: "/repo")
         let remote = WorkspaceScan.Remote(provider: .gitlab, url: "git@gitlab.example/repo.git")
         let found = WorkspaceScan(branchByCwd: ["/repo": "main"], projectBranch: [project.id: "main"],
-                                  missingCheckouts: [removed.id], removedTasks: [removed], remotes: [project.id: remote],
-                                  defaultBranch: [project.id: "develop"])
+                                  missingCheckouts: [removed.id], removedTasks: [removed], remotes: [project.id: remote])
         var remotes: [[UUID: WorkspaceScan.Remote]] = [], removedTasks: [[TaskItem]] = []
         var titles: [[SessionTitle]] = []
         let workspace = WorkspaceStore.holding(state)
@@ -49,7 +48,6 @@ struct CheckoutMonitorTests {
 
         #expect(monitor.branchByCwd == ["/repo": "main"] && monitor.projectBranch == [project.id: "main"])
         #expect(monitor.missingCheckouts == [removed.id])
-        #expect(monitor.defaultBranch == [project.id: "develop"])
         #expect(remotes == [[project.id: remote]])
         #expect(removedTasks == [[removed]])
         #expect(titles == [[SessionTitle(sessionId: "s", title: "main")]])
@@ -238,7 +236,7 @@ struct CheckoutMonitorTests {
         let release = DispatchSemaphore(value: 0)
         let workspace = WorkspaceStore.holding(state)
         let live = LiveSessions(workspace: workspace)
-        let monitor = CheckoutMonitor(live: live, scan: { _, _, _, _, _, _, _ in _ = release.wait(timeout: .now() + 10); return found },
+        let monitor = CheckoutMonitor(live: live, scan: { _, _, _, _, _, _ in _ = release.wait(timeout: .now() + 10); return found },
                                       git: .hermetic(), workspace: workspace, onTitles: { _ in })
 
         let stopped = monitor.refresh()
@@ -286,7 +284,7 @@ extension CheckoutMonitorTests {
         let release = DispatchSemaphore(value: 0)
         let scans = Mutex(0)
         let gone = task("gone")
-        let scan: CheckoutMonitor.Scanner = { _, _, tasks, _, _, _, _ in
+        let scan: CheckoutMonitor.Scanner = { _, _, tasks, _, _, _ in
             if scans.withLock({ $0 += 1; return $0 }) == 1 {
                 entered.signal()
                 _ = release.wait(timeout: .now() + TestDeadline.seconds)
@@ -380,7 +378,7 @@ private final class ScanLog: @unchecked Sendable {
 
     func scanner(_ passes: [WorkspaceScan]) -> CheckoutMonitor.Scanner {
         lock.lock(); results = passes; lock.unlock()
-        return { [self] _, _, _, _, _, _, _ in
+        return { [self] _, _, _, _, _, _ in
             let pass = begin()
             if holding, pass == 0 { _ = gate.wait(timeout: .now() + 10) }
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }

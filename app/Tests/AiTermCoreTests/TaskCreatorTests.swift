@@ -76,14 +76,8 @@ import Foundation
         #expect(d.title == "Other", "title still follows"); #expect(d.branch == "feat/custom", "edited branch is kept")
     }
 
-    /// The checkout monitor already holds each project's default branch, so a sheet opened with it
-    /// does not ask git again; without one, git is asked.
-    @Test func aDraftTakesTheDefaultBranchItIsGivenWithoutAskingGit() {
+    @Test func aDraftAsksGitForTheDefaultBranch() {
         let recording = RecordingGitRunner(forwardingTo: git)
-        let given = TaskDraft.initial(project: project, state: .empty, git: recording, agent: .claude, catalog: [],
-                                      defaultBranch: "develop", defaults: defaults)
-        #expect(given.baseBranch == "develop")
-        #expect(recording.calls.isEmpty)
         let asked = TaskDraft.initial(project: project, state: .empty, git: recording, agent: .claude, catalog: [], defaults: defaults)
         #expect(asked.baseBranch == "main")
         #expect(recording.calls.count == 1)

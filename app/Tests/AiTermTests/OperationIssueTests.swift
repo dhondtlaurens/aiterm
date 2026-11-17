@@ -298,7 +298,7 @@ import Testing
         let prompter = ScriptedPrompter(answering: "Remove")
         prompter.checksTheCheckbox = true
         // The checkout monitor has not read the worktree gone yet: its pass is up to two seconds away.
-        let fixture = try await RaceFixture(prompter: prompter, scan: { _, _, _, _, _, _, _ in
+        let fixture = try await RaceFixture(prompter: prompter, scan: { _, _, _, _, _, _ in
             WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
         })
         let server = RecordingDaemon()

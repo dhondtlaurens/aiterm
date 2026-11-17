@@ -107,7 +107,7 @@ final class AppController {
         let launchIterm = ports.launchIterm, itermRunning = ports.itermRunning, bringForward = ports.bringForward
         let backpackPorts = ports.backpackPorts, backpackSecrets = ports.backpackSecrets
         let openLocationSettings = ports.openLocationSettings, machineSensor = ports.machineSensor, git = ports.git
-        let scan = ports.scan, confirmsRemoval = ports.confirmsRemoval
+        let scan = ports.scan
         let peekDelay = timings.peekDelay, checkoutPollInterval = timings.checkoutPollInterval
         let toastLifetime = timings.toastLifetime, closedWindowHold = timings.closedWindowHold, now = timings.now
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
@@ -122,7 +122,7 @@ final class AppController {
                                         onTitles: { await helper.sendTitles($0) })
         let teardown = WorktreeTeardown(workspace: workspace, work: work, workflow: workflow, prompter: prompter, daemon: daemon)
         let remover = TaskRemover(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
-                                  teardown: teardown, checkouts: checkouts, live: live, daemon: daemon, confirmsRemoval: confirmsRemoval)
+                                  teardown: teardown, checkouts: checkouts, live: live, daemon: daemon)
         let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
                              activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
@@ -510,7 +510,7 @@ extension AppController {
                      backpackPorts: BackpackPorts = .live(),
                      machineSensor: any MachineSensor = LiveMachineSensor(),
                      scan: @escaping CheckoutMonitor.Scanner = {
-                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
+                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
                      }) -> AppController {
         // git with the login shell's PATH, so the hooks it runs (a lefthook pre-push) find Homebrew's node.
         let git = GitRunner(searchPath: { LoginShellLocator.shared.knownPath })
@@ -524,7 +524,7 @@ extension AppController {
                              openLocationSettings: {
                                  NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                              },
-                             machineSensor: machineSensor, git: git, scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
+                             machineSensor: machineSensor, git: git, scan: scan,
                              operatorPorts: nil)
         return AppController(preferences: preferences, ports: ports, timings: .live)
     }

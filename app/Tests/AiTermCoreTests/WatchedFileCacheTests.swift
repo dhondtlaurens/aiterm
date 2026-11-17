@@ -102,38 +102,19 @@ import Testing
         #expect(calls.read == 3, "a forgotten one is resolved again")
     }
 
-    /// A git that ran out of time is left alone for the backoff, not asked on every pass; the first
-    /// call after it asks again. The pause is not an answer: nothing is stored.
-    @Test func aTimeoutIsNotAskedAgainUntilItsBackoffIsOver() throws {
-        let dir = try directory(), calls = Calls(), clock = TestClock()
-        let cache = WatchedFileCache<Int>(now: { clock.now }, negativeTTL: 30)
-        func failing() throws -> Int? { try value(cache, dir.path, dir.file, calls, locate: { throw timeout() }) }
-        #expect(throws: GitError.self) { try failing() }
-        #expect(calls.locate == 1)
-        clock.advance(by: TimedOut.backoff - 1)
-        #expect(throws: GitError.self) { try failing() }
-        #expect(calls.locate == 1, "within the backoff git is not asked")
-        clock.advance(by: 1)
-        #expect(try value(cache, dir.path, dir.file, calls) == 7)
-        #expect(calls.locate == 2, "after it, it is")
-    }
-
-    /// While git is being left alone the value already known stands, a changed file or not; the
-    /// change is read once the backoff is over.
-    @Test func theKnownValueStandsThroughTheBackoff() throws {
+    /// A failed read leaves the known value standing; the next call retries the changed file.
+    @Test func theKnownValueStandsAfterAFailedReadAndIsRetried() throws {
         let dir = try directory(), calls = Calls(), clock = TestClock()
         let cache = WatchedFileCache<Int>(now: { clock.now }, negativeTTL: 30)
         #expect(try value(cache, dir.path, dir.file, calls) == 7)
         try "changed, and longer".write(toFile: dir.file, atomically: true, encoding: .utf8)
         #expect(try value(cache, dir.path, dir.file, calls, read: { throw timeout() }) == 7)
         #expect(calls.read == 2)
-        #expect(try value(cache, dir.path, dir.file, calls, read: { 9 }) == 7)
-        #expect(calls.read == 2, "git is left alone")
-        clock.advance(by: TimedOut.backoff)
         #expect(try value(cache, dir.path, dir.file, calls, read: { 9 }) == 9)
+        #expect(calls.read == 3)
     }
 
-    /// Only running out of time is held back: any other failure costs what a retry costs, and is retried.
+    /// A failure is not stored: the next call asks again.
     @Test func aFailureThatIsNotATimeoutIsAskedAgainAtOnce() throws {
         let dir = try directory(), calls = Calls()
         let cache = WatchedFileCache<Int>(now: { Date(timeIntervalSince1970: 0) }, negativeTTL: 30)

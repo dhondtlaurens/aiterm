@@ -17,26 +17,15 @@ CLAUDE_FILE_STATUS: dict[str, State | None] = {
     "waiting": "needsInput", "idle": None, "shell": None,
 }
 
-# How long a Claude subagent's transcript may go unwritten, once its parent's ended turn waits on it or its
-# SubagentStop came, before the child counts as dead. A child of a turn still under way is left to the turn's Stop,
-# which says what still runs. Claude's stream watchdog kills a child after 600 s without progress, but
-# that leaves an interruption in the transcript, which ends the child at once. Live children have gone
-# 28 minutes without a write -- a long generation, a stream retry -- so this only catches one that died
-# writing nothing at all.
-SUBAGENT_QUIET_SECONDS = 45 * 60.0
-
 
 @dataclass(slots=True)
 class _Child:
     """A running subagent. `transcript` is where a Claude child writes (None for the other
-    harnesses), `started_at` the wall clock at its latest SubagentStart. `stamp` is its transcript's
-    (mtime, size) as last seen, and `quiet_since` when that stamp was first seen, on the monotonic clock;
-    `stopped_at` is when the latest SubagentStop since
-    that start came, on the monotonic clock, None while none has: the transcript says whether it ended the run."""
+    harnesses), `started_at` the wall clock at its latest SubagentStart. `stopped_at` is when
+    its latest SubagentStop came, on the monotonic clock, None while none has: the transcript
+    says whether it ended the child."""
     transcript: str | None
     started_at: float
-    stamp: tuple[int, int] | None = None
-    quiet_since: float = 0.0
     stopped_at: float | None = None
     label: str = "Subagent"
     conversation: str | None = None
@@ -57,10 +46,8 @@ class Turn:
     # The subagents running, by id.
     children: dict[str, _Child] = field(default_factory=dict)
     # A hook, title or session file said the foreground turn ended while a child still runs: the
-    # last child to stop finishes the change. `deferred_since` is when one first said so, on the
-    # monotonic clock.
+    # last child to stop finishes the change.
     deferred_done: bool = False
-    deferred_since: float = 0.0
     # The state an open PI prompt interrupted: closing the last prompt puts it back. PI can open a
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
@@ -82,8 +69,7 @@ class StatusEngine:
                  monotonic: Callable[[], float] = time.monotonic):
         self.reg = registry
         # `clock` is the wall clock, which a hook's stamp must share with a session file's mtime;
-        # `monotonic` times how long a subagent's transcript stays quiet, which an NTP step must
-        # not shorten.
+        # `monotonic` orders SubagentStop against the transcript read's start.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
         self._generation = 0
@@ -297,8 +283,8 @@ class StatusEngine:
         if s is None or not subagent_id:
             return []
         turn = self._turn(session_id)
-        # A resumed child starts again under the same id, and its quiet window with it.
-        turn.children[subagent_id] = _Child(transcript, self._clock(), None, self._monotonic(),
+        # A resumed child starts again under the same id with fresh completion evidence.
+        turn.children[subagent_id] = _Child(transcript, self._clock(),
                                           label=label or "Subagent", conversation=s.conversation_id)
         shown = self._show_children(session_id)
         # An input request must stay visible; every other state means the
@@ -319,10 +305,8 @@ class StatusEngine:
         return self._subagent_ended(session_id, subagent_id)
 
     def _defer_done(self, turn: Turn) -> None:
-        """The turn ended while its children run: the last to stop lands its done. A session file or a
-        title says so again on every tick, which leaves when it was first said."""
-        if not turn.deferred_done:
-            turn.deferred_done, turn.deferred_since = True, self._monotonic()
+        """The turn ended while its children work: the last to stop lands its done."""
+        turn.deferred_done = True
 
     def _subagent_ended(self, session_id: str, subagent_id: str | None) -> list[str]:
         s = self.reg.get(session_id)
@@ -391,15 +375,13 @@ class StatusEngine:
         return [session_id] if changed else []
 
     def release_dead_subagents(self, tails: Mapping[str, TranscriptTail | None]) -> list[str]:
-        """Notes when each counted child's transcript was last written, and drops each child whose
-        transcript proves its run over: it ends in an interruption or a SubagentStop that left the
-        child nothing to answer, written since its latest SubagentStart, or it has not changed for
-        SUBAGENT_QUIET_SECONDS since its parent's ended turn began to wait on it or its SubagentStop came.
+        """Drops each child whose transcript ends in an interruption or a SubagentStop that left
+        it nothing to answer, written since its latest SubagentStart.
         `tails` is what the read asked for last (subagent_transcripts) found of each transcript: None
         for one not there yet, which proves nothing, except that a SubagentStop that came before the
         read began stands. A transcript it holds nothing for -- not asked for, or the read did not
         answer -- proves nothing."""
-        now, changed = self._monotonic(), []
+        changed = []
         for sid, turn in list(self._turns.items()):
             for child_id, child in list(turn.children.items()):
                 if child.transcript is None or child.transcript not in tails:
@@ -408,16 +390,10 @@ class StatusEngine:
                     stood = child.stopped_at is not None and child.stopped_at <= self._asked_at
                     changed += self._subagent_ended(sid, child_id) if stood else []
                     continue
-                if tail.stamp != child.stamp:
-                    child.stamp, child.quiet_since = tail.stamp, now
-                # A verdict from before a resume speaks for the run that ended, not this one. Told by the time the
-                # record gives: Claude can write it to the file after the resume's SubagentStart.
+                # An ending from before a resume belongs to the earlier turn. Claude can write
+                # it to the file after the resume's SubagentStart, so use the record's time.
                 ended = tail.ended_at is not None and tail.ended_at > child.started_at
-                # Quiet counts only since the child was first waited on: its parent's ended turn deferred its done, or
-                # its SubagentStop came.
-                waited = [t for t in (turn.deferred_since if turn.deferred_done else None, child.stopped_at) if t is not None]
-                quiet = bool(waited) and now - max(child.quiet_since, min(waited)) >= SUBAGENT_QUIET_SECONDS
-                if ended or quiet:
+                if ended:
                     changed += self._subagent_ended(sid, child_id)
             changed += [sid] if self._show_children(sid) else []
         return list(dict.fromkeys(changed))

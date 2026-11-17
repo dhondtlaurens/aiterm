@@ -56,13 +56,13 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
         var dismissed = 0
     }
 
-    fileprivate func controller(_ prompter: ScriptedPrompter, source: FakeSource? = nil, sourceError: UpdateError? = nil,
+    fileprivate func controller(_ prompter: ScriptedPrompter, source: FakeSource? = nil,
                     version: String? = "0.2.0", channel: BuildChannel = .release, bundle: String = "/Applications/AiTerm.app",
                     stageError: UpdateError? = nil, replaceError: UpdateError? = nil, log: Log) -> UpdateController {
         let stagedURL = updates.appendingPathComponent("0.3.0/AiTerm.app")
         return UpdateController(
             prompter: prompter, currentVersion: version, channel: channel, bundleURL: URL(fileURLWithPath: bundle), updatesDirectory: updates,
-            makeSource: { if let sourceError { throw sourceError }; return source! },
+            makeSource: { source! },
             checkReplaceable: { if let replaceError { throw replaceError } },
             stage: { image, version in
                 if let stageError { throw stageError }
@@ -193,9 +193,9 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
         #expect(prompter.asked.map(\.message) == ["GitHub is limiting update checks from this network. Try again later."])
     }
 
-    @Test func aBuildWithoutAnUpdateSourceSaysSo() async {
+    @Test func aBuildWithoutAVersionSaysSo() async {
         let prompter = ScriptedPrompter(answering: "OK"), log = Log()
-        await controller(prompter, sourceError: .noFeed, log: log).checkForUpdates()
+        await controller(prompter, version: nil, log: log).checkForUpdates()
         #expect(prompter.asked.map(\.message) == ["This build of AiTerm has no update source."])
     }
 

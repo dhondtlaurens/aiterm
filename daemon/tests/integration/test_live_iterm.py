@@ -41,10 +41,6 @@ async def test_window_roundtrip(tmp_path):
 
         snap = await _wait_until(_first_session_ready)
         assert snap and snap[0].cwd == str(tmp_path) and snap[0].user_vars == {"aiterm_task": "live"}
-        # The session has no `aiterm_project`: the batched read must answer an unset name too, or
-        # every tick falls back to six requests per tab.
-        assert bridge._batched_reads, "iTerm2 would not read a session's variables in one request"
-
         sid = await bridge.create_tab(wid, {"aiterm_task": "live"})
 
         async def _second_session_ready():

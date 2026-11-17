@@ -26,9 +26,9 @@ enum GitFixture {
     }
 
     /// A repository in `folder`, on `branch`, with one empty commit.
-    static func initRepo(at folder: String, branch: String = "main", refFormat: String? = nil) throws {
-        guard branch == "main", refFormat == nil else {
-            return try initRepo(at: folder, branch: branch, refFormat: refFormat, git: GitRunner.hermetic())
+    static func initRepo(at folder: String, branch: String = "main") throws {
+        guard branch == "main" else {
+            return try initRepo(at: folder, branch: branch, git: GitRunner.hermetic())
         }
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let seed = try template.path {
@@ -40,23 +40,23 @@ enum GitFixture {
     }
 
     /// An explicit runner keeps owning setup too, for tests of a git fault or a spawn count.
-    static func initRepo(at folder: String, branch: String = "main", refFormat: String? = nil,
+    static func initRepo(at folder: String, branch: String = "main",
                          git: any GitRunning) throws {
-        try git.run(["init", "--initial-branch=\(branch)", "-q"] + (refFormat.map { ["--ref-format=\($0)"] } ?? []) + [folder], in: "/")
+        try git.run(["init", "--initial-branch=\(branch)", "-q", folder], in: "/")
         try git.run(["commit", "--allow-empty", "-q", "-m", "init"], in: folder)
     }
 
     /// `initRepo` in a fresh folder of its own.
-    static func makeRepo(prefix: String, branch: String = "main", refFormat: String? = nil) throws -> String {
+    static func makeRepo(prefix: String, branch: String = "main") throws -> String {
         let repo = try folder(prefix)
-        try initRepo(at: repo, branch: branch, refFormat: refFormat)
+        try initRepo(at: repo, branch: branch)
         return repo
     }
 
-    static func makeRepo(prefix: String, branch: String = "main", refFormat: String? = nil,
+    static func makeRepo(prefix: String, branch: String = "main",
                          git: any GitRunning) throws -> String {
         let repo = try folder(prefix)
-        try initRepo(at: repo, branch: branch, refFormat: refFormat, git: git)
+        try initRepo(at: repo, branch: branch, git: git)
         return repo
     }
 

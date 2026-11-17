@@ -27,7 +27,7 @@ public final class BackpackMode: Sendable {
 
     /// The waits between rejoin attempts: a 5 s check that scanned every time would keep the Wi-Fi
     /// busy for as long as the hotspot is gone.
-    static let rejoinDelays: [TimeInterval] = [5, 10, 20, 30]
+    public static let rejoinDelays: [TimeInterval] = [5, 10, 20, 30]
 
     public init(ports: BackpackPorts, settings: BackpackSettings, now: @escaping @Sendable () -> Date = Date.init) {
         self.ports = ports

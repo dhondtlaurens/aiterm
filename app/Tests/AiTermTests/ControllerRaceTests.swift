@@ -522,7 +522,7 @@ import Testing
         let project = Project.make(name: "Repo", path: root.path, addedAt: Date())
         // The monitor's answer differs from git's, so the sheet says which one it took.
         let seen = WorkspaceScan(branchByCwd: [:], projectBranch: [project.id: "feat/seen"], missingCheckouts: [], removedTasks: [], remotes: [:])
-        let controller = AppController(preferences: .scratch(), git: git, scan: { _, _, _, _, _, _, _ in seen })
+        let controller = AppController(preferences: .scratch(), git: git, scan: { _, _, _, _, _, _ in seen })
         defer { controller.shutdown() }
         try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }

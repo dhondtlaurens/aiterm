@@ -87,7 +87,7 @@ import Foundation
            "supported_reasoning_levels":[{"effort":"high"},{"effort":"xhigh"}]}
         ]}
         """#.utf8)
-        let models = ModelFiles.codexModels(modelsCacheJSON: cache, configTOML: nil)
+        let models = ModelFiles.codexModels(modelsCacheJSON: cache)
         #expect(models.map(\.id) == ["gpt-5.6-sol", "gpt-5.5"], "a model marked hide is not offered")
         #expect(models[0].label == "GPT-5.6-Sol")
         #expect(models[0].detail == "Everyday workhorse.")
@@ -97,51 +97,13 @@ import Foundation
         #expect(models[1].defaultEffort == "xhigh")
     }
 
-    @Test func testCodexModelsFallBackToConfigProfiles() {
-        let toml = """
-        model = "gpt-5.6"
-        model_reasoning_effort = "high"
-        [profiles.fast]
-        model = "gpt-5.6-mini"
-        [profiles.deep]
-        model = "gpt-5.6"
-        [tui]
-        theme = "dark"
-        model = "should-not-appear"
-        """
-        #expect(ModelFiles.codexModels(modelsCacheJSON: nil, configTOML: toml).map(\.id) == ["gpt-5.6", "gpt-5.6-mini"])
-        #expect(ModelFiles.codexModels(modelsCacheJSON: nil, configTOML: nil).map(\.id) == ["gpt-5.6"])
-        #expect(ModelFiles.codexModels(modelsCacheJSON: Data("{}".utf8), configTOML: toml).map(\.id) == ["gpt-5.6", "gpt-5.6-mini"],
-                "an empty cache is not an answer; fall through to the config")
-    }
-
-    /// TOML allows a comment after a value, and after a header; neither is part of the model id.
-    /// An unquoted value is not TOML at all, so Codex would not load the file: it names no model.
-    @Test func testCodexConfigModelIdsStopAtTheirQuotes() {
-        let toml = """
-        model = "gpt-5.6" # the default
-        [profiles.fast] # quick
-        model='gpt-5.6-mini'   # quick
-        [profiles.bare]
-        model = gpt-bare # unquoted
-        """
-        #expect(ModelFiles.codexConfigModels(configTOML: toml).map(\.id) == ["gpt-5.6", "gpt-5.6-mini"])
-    }
-
-    /// Read by each key's full path, not line by line: a dotted profile key counts, and a line that
-    /// only looks like `model = …` inside a multi-line string, or a `model` in another table, does not.
-    @Test func testCodexConfigModelsAreReadByKeyPath() {
-        let toml = """
-        notes = \"\"\"
-        model = "from-a-string"
-        \"\"\"
-        profiles.dotted.model = "gpt-dotted"
-        [profiles.deep.extra]
-        model = "too-deep"
-        ["profiles".'quoted']
-        model = "gpt-quoted"
-        """
-        #expect(ModelFiles.codexConfigModels(configTOML: toml).map(\.id) == ["gpt-dotted", "gpt-quoted"])
+    @Test func noCacheOrAnEmptyOneOffersGPT56Alone() {
+        for cache in [nil, Data("{}".utf8), Data(#"{"models":[]}"#.utf8)] {
+            let models = ModelFiles.codexModels(modelsCacheJSON: cache)
+            #expect(models.map(\.id) == ["gpt-5.6"])
+            #expect(models.first?.efforts == ModelFiles.codexEfforts)
+            #expect(models.first?.defaultEffort == Harness.codex.defaultEffort)
+        }
     }
 
     /// The reasoning list the sheet shows follows the picked model; the agent's own list stands in

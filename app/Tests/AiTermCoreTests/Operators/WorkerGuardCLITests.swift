@@ -37,17 +37,6 @@ import Testing
         #expect(result.status != 0)
     }
 
-    @Test func graphqlQueriesReadFromFilesStillRefuseMerge() async throws {
-        let folder = try ScratchFolder.make("aiterm-worker-graphql-")
-        let config = folder.appendingPathComponent("scope.json"), query = folder.appendingPathComponent("query.graphql")
-        let scope = WorkerGuard.Scope(task: UUID(), worktree: folder.path, branch: "feat/pay-1", remote: "https://git.example/shop/web", allowsPush: true)
-        try JSONEncoder().encode(scope).write(to: config)
-        try "mutation { mergePullRequest(input: {}) { clientMutationId } }".write(to: query, atomically: true, encoding: .utf8)
-        let result = await WorkerGuardCLI.run(["argv", config.path, "gh", "api", "graphql", "-F", "query=@" + query.path],
-            dependencies: .init(git: .hermetic(), fence: { _ in .init(defaultBranch: "main", protection: .unprotected) }))
-        #expect(result.status != 0)
-    }
-
     @Test func scratchRepositoryChecksObserveHostAuthorityAgainAfterItsRead() async throws {
         let branch = "feat/pay-1", git = GitRunner.hermetic()
         let repo = try await BackgroundWork.run { try GitFixture.withOrigin(branch: branch) }

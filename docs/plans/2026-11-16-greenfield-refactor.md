@@ -285,34 +285,34 @@ TS tests-scripts.
 
 ### Phase 2. Delete speculative handling (after 1)
 
-- [ ] 2a. **Codex.** Git: the per-key timeout back-off in the three resolvers (the project-level
+- [x] 2a. **Codex.** Git: the per-key timeout back-off in the three resolvers (the project-level
   stall guard and "never store a failure" stay), reftable handling, the abandoned rebase scratch
   cleanup, the `.worktrees` symlink refusal (CG F4, F6, F9).
-- [ ] 2b. **Codex.** The default branch is asked from git when it is needed (when a project's
+- [x] 2b. **Codex.** The default branch is asked from git when it is needed (when a project's
   heading appears, after a pull, when a sheet opens); `DefaultBranchResolver`, its map and its
   poll go (CG F5).
-- [ ] 2c. **Codex.** The checkout cleanup trusts the scan's confirmation; the second disk check,
+- [x] 2c. **Codex.** The checkout cleanup trusts the scan's confirmation; the second disk check,
   its port and its dictionary go (TL F6).
-- [ ] 2d. **Opus.** The Codex config editor writes its marked block, refuses on a conflicting
+- [x] 2d. **Opus.** The Codex config editor writes its marked block, refuses on a conflicting
   table and removes its own entries by marker; the four-form string parser, the moved-hook
   reconciliation and the config-file model fallback go (PL F4). The refusal tests for unbalanced
   and conflicting files stay.
-- [ ] 2e. **Codex.** Daemon: the Codex rollout reader becomes one cursor (first record for the
+- [x] 2e. **Codex.** Daemon: the Codex rollout reader becomes one cursor (first record for the
   version, tail for the last boundary and token count, an unparsable line skipped); the subagent
   quiet window, the iTerm2 batched-read fallback and the resolver's root-change retry go
   (DM F3, F9, F10). The compat captures stay the proof.
-- [ ] 2f. **Codex.** Operator repair paths: the activity write queue, the Take Over repair loop,
+- [x] 2f. **Codex.** Operator repair paths: the activity write queue, the Take Over repair loop,
   the mirrored source errors, the details cache reduced to a short cache by task and claim, launch
   recovery reduced to "a tagged tab with the planned agent, else block" (RT F10). The checkout save
   after a Take Over during a request checkout stays: without it the taken-over task has no folder
   and its next checkout is refused.
-- [ ] 2g. **Codex.** Worker guard: local `git merge` allowed, one argument table and one "this API
+- [x] 2g. **Codex.** Worker guard: local `git merge` allowed, one argument table and one "this API
   call writes" rule shared with the shell gate, the GraphQL-file and deep alias paths go (OC F9).
-- [ ] 2h. **Codex.** Small ones: New Review's "press again" recheck, the profile save that cannot
+- [x] 2h. **Codex.** Small ones: New Review's "press again" recheck, the profile save that cannot
   fail, guards behind controls that cannot send the input, one paging helper for the hosts, the
   duplicate Backpack rejoin delays and turn-off block, the release feed as constants
   (SS F16, HO F5 item 3, PL F6, F8).
-- [ ] 2i. **Codex.** The workspace backup is a plain second write; git-spawn budgets become
+- [x] 2i. **Codex.** The workspace backup is a plain second write; git-spawn budgets become
   ceilings; the two notes no test reads go (TL F8, TS F5).
 
 ### Phase 3. Windows (after 2)
@@ -742,3 +742,108 @@ left.
   `PostModelSwitch` hook, `compat/launch.json` lost the fixer entries) and the live Operator eval
   (`AITERM_LIVE_OPERATOR=1`: the gate's refusals and Oracle prompt and the reasons changed in 1j,
   the eval runs the current brief only since 1a).
+
+### Phase 2
+
+- 2a: the per-key timeout back-off in `WatchedFileCache`, `RepositoryProbe` and `DiffStatResolver`,
+  reftable handling, the abandoned rebase scratch cleanup and the `.worktrees` symlink refusal went;
+  "never store a failure" stays in every resolver and `StallGuardedGit` stays the one guard.
+  `GitSpawnCountTests` numbers unchanged. Tests deleted: `WatchedFileCacheTests.aTimeoutIsNotAskedAgainUntilItsBackoffIsOver`
+  (survivors `StallGuardedGitTests.theProjectIsAskedAgainOnceTheBackoffIsOver`,
+  `GitSpawnCountTests.aHungMountCostsOneTimeoutAndHoldsUpNoOtherProject`),
+  `BranchResolverTests.aFailedReadKeepsTheLastBranchAndIsRetried` (survivors
+  `WatchedFileCacheTests.theKnownValueStandsAfterAFailedReadAndIsRetried`,
+  `RemoteResolverTests.aFailedReReadKeepsTheLastAnswerAndIsRetried`), and with their behaviour the
+  reftable tests in `BranchResolverTests`, `DiffStatResolverTests`, `DefaultBranchResolverTests`,
+  `WorktreesTests.testRefusesSymlinkedWorktreesDir` and
+  `DefaultBranchPullTests.testRemovesTheCheckoutOfARebaseThatNeverFinished` (the brief did not
+  list the last two; they tested the deleted behaviour).
+- 2b: `DefaultBranchResolver`, the scan's default-branch map and its poll went; `RepositoryProbe`
+  no longer asks for the common directory. `ProjectActions` reads a project's default branch when
+  its heading row appears and after each pull or rebase (a failed read leaves the last name), and
+  the Edit Project sheet reads it when it opens (the header shows the folder alone until git
+  answers: the accepted visible change). `GitSpawnCountTests` first pass: 45 to 43 spawns, no
+  default-branch query per pass (2i turns the numbers into ceilings). Tests deleted with the cache:
+  six `DefaultBranchResolverTests` (failure handling survives in the new `DefaultBranchNameTests`;
+  `namesOriginsDefaultBranch` and `resolvesALinkedWorktreeToTheRepositorysDefault` moved to
+  `DefaultBranchPullTests`), `UnbornRepositoryTests.theCachedDefaultFollowsAnUnbornBranchRename`
+  (survivor `theUnbornBranchIsOfferedAsTheBase`); `TaskCreatorTests.aDraftTakesTheDefaultBranchItIsGivenWithoutAskingGit`
+  is now `aDraftAsksGitForTheDefaultBranch`. Added `DefaultBranchNameTests`. A worker guard test
+  named `defaultBranches...` was renamed `defaultBranchNames...` (behaviour unchanged).
+- 2c: the checkout cleanup trusts the scan's confirmation; the second disk look, its port and its
+  dictionary went, and `waitForRemoval` joins the record cleanup and the removal. Tests deleted with
+  their behaviour: `CheckoutCleanupTests.aCheckoutThatCameBackBeforeTheCleanupActsIsNotForgotten`
+  (survivor `aCheckoutThatComesBackStopsClosing`), `aConfirmationThatNeverAnswersLeavesTheMainActorFree`,
+  `thePersonsRemoveRunsWhileAConfirmationHangs` (survivors `removingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed`
+  and the new `checkoutCleanupLeavesATaskAloneWhileRemoveIsInProgress`). Difference: a
+  `RestoringRowTests` case expected the row to read as missing after the pass; with the cleanup now
+  acting in the same turn the task is already forgotten, so it joins the removal and expects the task
+  gone (a consequence of the step, not a weakened check).
+- 2d: the Codex config editor writes its marked block in place when the span holds only AiTerm
+  tables and blanks, and otherwise rebuilds (markers dropped, AiTerm tables dropped, every other
+  table kept byte for byte, block appended); `hasAiTermEntries` replaces `containsOwnedTables`.
+  `TOMLStatements` reads structure only. Codex models come from `models_cache.json` alone, else
+  `gpt-5.6`. The block's bytes and `compat/` are unchanged; every guarantee test the brief lists
+  passed unedited. Tests deleted with their behaviour: `codexRepairKeepsForeignChildrenAfterInterveningTables`,
+  `stringReadsEveryTOMLForm`, `stringRejectsWhatIsNotOneTOMLString`, `keyIsNilForADottedKeyButValueStillReadsIt`,
+  `testCodexConfigModelIdsStopAtTheirQuotes`, `testCodexConfigModelsAreReadByKeyPath`. Added
+  `aStaleBlockIsReplacedInPlace` (failed first) and `aServerAddedBetweenTheMarkersIsKeptAndTheBlockIsStillReplacedOnce`
+  (passed on the old code too; it guards the new one). Difference: two `ModelCatalogueTests` the brief
+  did not name used `config.toml` as the Codex model source; their fixtures moved to
+  `models_cache.json` with the same checks (stamping through a symlink, a file appearing, an in-place
+  rewrite). Noticed and left: on the rebuild path a CRLF file still gets an extra `\n` after its
+  last line, as before.
+- 2e: the Codex rollout reader is one cursor (line 1 for the version on first sight, the tail for
+  the last boundary and token count, later `session_meta` for the thread followed, an unparsable
+  line skipped and logged once); the subagent quiet window, the iTerm2 per-name fallback and the
+  resolver's root-change retry went. Compat captures and tick budgets unchanged. Four large-rollout
+  cases changed their expectation exactly as the brief's decisions say (a boundary more than 8 MiB
+  back reads as no turn; a `session_meta` outside line 1 and the first-sight tail is not seen).
+  Tests deleted with their behaviour: three short-read and rewrite tests and four parser-isolation
+  tests in `test_codex_sessions.py` (unchanged-file I/O survives in
+  `test_context_is_not_reparsed_until_its_rollout_changes` and the tick budgets), four quiet-window
+  tests in `test_status.py`, two fallback tests in `test_iterm_bridge.py`; a live-test assertion on
+  `_batched_reads` went too. Added the unparsable-line test (written first).
+- 2f: Operator repair paths went: the activity write queue (a failed write is reported and the next
+  written entry clears it), the Take Over repair loop, the mirrored source errors, the details
+  read's flights and own timeout (now a short cache by task and claim), and launch recovery's scope
+  file (a tagged tab running the planned agent is adopted). The checkout save after a Take Over
+  during a request checkout is byte-for-byte unchanged and now has its own test. Tests deleted or
+  replaced: `aStatusReadHasItsOwnBudgetAndNeverCachesATimedOutAnswer` (timeout deleted; caching
+  survives in `repeatedStatusDetailsReuseTheHostReadButAChangedAuthorityDoesNot`), the replay,
+  repair and scope-matching tests, replaced by `aFailedActivityWriteIsReportedAndTheNextWrittenEntryClearsIt`,
+  `aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce` and
+  `anInterruptedLaunchAdoptsItsTaggedWorkerWithoutRepeatingThePrompt`.
+- 2g: workers may run `git merge` locally (the publishing denial list and the guard's refusal
+  dropped it; review workers still deny it); the guard and the shell gate share `gitValued`,
+  `hostValued`, `hostPositionals` and `sendsToTheAPI`; the GraphQL-file inspection and the deep
+  alias chain went (one configured alias lookup stays). Host-side merges stay refused. Tests deleted
+  with their behaviour: `WorkerGuardCLITests.graphqlQueriesReadFromFilesStillRefuseMerge` and the
+  `git merge main` refusal cases; `workerCanCommitAndPublishItsOwnBranch` now checks local merges are
+  allowed. `WorkerGuardCodexTests` is opt-in and was not run (a live probe; not in the plan's owed list).
+- 2h: small guards went: New Review's destination re-check ("press again"), the profile save that
+  could not fail (now non-throwing), guards behind controls that cannot send the input, the hosts'
+  separate paging loops (one helper in `HTTPJSON`), the duplicated Backpack rejoin delays and
+  turn-off block, and the release feed parser and its `Info.plist` key (one `GitHubReleaseSource.aiTerm`
+  constant). Tests deleted: `theSheetRefusesADestinationThatMovedSinceItWasShown` (survivors
+  `aReviewOfTheBranchADriftedTaskLeftGetsAWorktreeOfItsOwn`, `aReviewOfTheBranchADriftedTaskMovedToOpensInThatTask`),
+  `aSecondPressDuringTheDestinationCheckIsRefused` (survivor `duplicateSubmissionIsBlockedAndFailureKeepsDraft`;
+  the brief did not name it), and `ReleaseFeedTests` (anonymous requests survive in
+  `GitHubReleaseSourceTests`; a missing version in `aBuildWithoutAVersionSaysSo`). The bundle check
+  no longer looks for the feed key.
+- 2i: the workspace backup is a plain atomic second write of the validated previous bytes (the
+  clone, staging and `copyfile` path went); files written per save is back to 2, on purpose.
+  `WorkMeter.workerTabs` and `stateSave` and the `WorkerTabs` note went. Spawn budgets in
+  `WorkBudgetTests` and `GitSpawnCountTests` are ceilings at the measured counts: archive 8, restore
+  4, remove 7 (worktree listings 4, 1, 3); first checkout pass 43, path probes 9; expired pass 12,
+  diffs 6, untracked listings 6. No test deleted. `docs/testing.md` says ceilings and names the
+  four budget suites that exist.
+- Phase close: plain `scripts/test.sh all` green on `a7c5999d` (daemon suite and lint, 1045 app and
+  1367 core Swift tests, snapshots). Snapshots in `build/refactor-phase2`: against
+  `build/refactor-phase1` only `marks.png` differs (known variant); against `build/refactor-before`
+  only `settings-agents.png` (phase 1's planned change) besides phase 1's swapped Find a Fix images.
+  Bundle: `scripts/make-app.sh` and `scripts/test-app-bundle.sh build/AiTerm.app` passed. Codex
+  adversarial review of `main..HEAD`: no findings, "ready". `main` had only the refactor's own merges;
+  merged to `main`.
+- Owed to the maintainer for phase 2: `scripts/compat-check.sh` (the Codex config editor changed in
+  2d). The opt-in `WorkerGuardCodexTests` probe (2g changed the worker guard) was not run either.

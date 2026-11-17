@@ -128,7 +128,7 @@ import Testing
         #expect(r.root.statusIssue?.hasPrefix("Answering the Operator:") == true, "Three failed replies across calls need the person.")
     }
 
-    @Test func anUnwrittenActivityEntryLandsLaterWithItsOwnTimeAndTheWriteFailureIsLogged() async throws {
+    @Test func aFailedActivityWriteIsReportedAndTheNextWrittenEntryClearsIt() async throws {
         let r = try await Rig(); defer { r.cleanUp() }
         let log = OperatorLaunch.folder(home: r.ports.home).appendingPathComponent(ActivityLog.file)
         try? FileManager.default.removeItem(at: log)
@@ -138,17 +138,19 @@ import Testing
         await r.pass()
         #expect(r.root.issues.current.map(\.source).contains(.activity))
         try FileManager.default.removeItem(at: log)
-        await r.pass()
-        let kept = r.activity.filter { $0.tool == "app_issue" }.map(\.line)
-        #expect(kept.first == "Waking the Operator failed.", "The next pass writes the kept entries by itself, in order.")
-        #expect(kept.contains("The Operator's activity log failed.") && kept.contains("The Operator's activity log recovered."))
+        await r.request("run_status")
+        let logged = r.activity.filter { $0.tool == "app_issue" }.map(\.line)
+        #expect(r.activity.contains { $0.tool == "run_status" })
+        #expect(logged.contains("The Operator's activity log recovered."))
+        #expect(!logged.contains("The Operator's activity log failed."))
+        #expect(!logged.contains("Waking the Operator failed."), "The failed entry is dropped.")
         #expect(!r.root.issues.current.map(\.source).contains(.activity))
         r.daemon.failing = [:]
         await r.pass()
         #expect(r.activity.contains { $0.line == "Waking the Operator recovered." })
     }
 
-    @Test func aTakeOverWhoseJournalCannotBeWrittenShowsAtOnceAndIsRepairedOnTheNextPass() async throws {
+    @Test func aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce() async throws {
         let r = try await Rig(); defer { r.cleanUp() }
         let journals = OperatorLaunch.folder(home: r.ports.home).appendingPathComponent("journals")
         try? FileManager.default.removeItem(at: journals)
@@ -157,11 +159,11 @@ import Testing
         await r.root.takeOver(r.task); await r.ports.work.settled()
         #expect(r.root.statusIssue?.hasPrefix("Take Over:") == true)
         await r.root.openOperator()
-        #expect(r.daemon.requests("window.createTask").isEmpty, "A repair issue without work must not start a throwaway chat.")
+        #expect(r.daemon.requests("window.createTask").isEmpty, "A Take Over issue without work must not start a throwaway chat.")
         try FileManager.default.removeItem(at: journals)
         await r.pass()
-        #expect(r.root.statusIssue == nil)
-        #expect(try TaskJournal.read(task: r.task, folder: journals).contains { $0.text == .ours("The person took over this task.") })
+        #expect(r.root.statusIssue?.hasPrefix("Take Over:") == true)
+        #expect(try !TaskJournal.read(task: r.task, folder: journals).contains { $0.text == .ours("The person took over this task.") })
     }
 
     @Test func aRetiredChatDoesNotKeepItsOldReplyFailureOrReappearFromAStaleSnapshot() async throws {

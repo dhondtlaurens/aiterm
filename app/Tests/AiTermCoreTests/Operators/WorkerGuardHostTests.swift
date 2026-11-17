@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite struct WorkerGuardHostTests {
-    @Test func defaultBranchesComeFromFreshHostReads() async throws {
+    @Test func defaultBranchNamesComeFromFreshHostReads() async throws {
         let stub = StubSession { request in
             #expect(request.httpMethod == "GET")
             return (200, Data(#"{"default_branch":"trunk"}"#.utf8))

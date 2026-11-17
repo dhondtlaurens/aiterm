@@ -1087,11 +1087,10 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let scans = ScanCounter()
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
-                                       scan: { cwds, projects, tasks, branches, remotes, diffs, defaultBranches in
+                                       scan: { cwds, projects, tasks, branches, remotes, diffs in
                                            scans.increment()
                                            return WorkspaceScan.run(cwds: cwds, projects: projects, tasks: tasks,
-                                                                    branches: branches, remotes: remotes, diffs: diffs,
-                                                                    defaultBranches: defaultBranches)
+                                                                    branches: branches, remotes: remotes, diffs: diffs)
                                        })
         try controller.workspace.load()
         let task = UUID(), project = UUID()
@@ -1200,7 +1199,7 @@ import Testing
         // A bundle, so the helper looks for Python, through a lookup that runs no login shell.
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
                                        harnessHome: dir, bundledResourcesURL: dir,
-                                       scan: { _, _, _, _, _, _, _ in
+                                       scan: { _, _, _, _, _, _ in
                                            scans.increment()
                                            return WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
                                                                 removedTasks: [], remotes: [:])
@@ -1322,7 +1321,7 @@ extension ControllerLifecycleTests {
                                             harnessHome: home, claudeConfig: ClaudeConfig("~/profile"), bundledResourcesURL: nil,
                                             locateAgents: { nil }, setBadge: { _ in }, activateIterm: {}, launchIterm: {},
                                             itermRunning: { true }, backpackPorts: .inert, machineSensor: InertMachineSensor(),
-                                            scan: { _, _, _, _, _, _, _ in scan })
+                                            scan: { _, _, _, _, _, _ in scan })
         #expect(controller.signalController.ports.claudeConfig.directory(home: home) == home.appendingPathComponent("profile"))
     }
 }

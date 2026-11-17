@@ -189,7 +189,7 @@ extension ShellGate {
     // MARK: git
 
     /// git's options before its subcommand that take the next word as their value.
-    private static let gitValued: Set<String> = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"]
+    static let gitValued: Set<String> = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"]
 
     /// `git` with any of its options before the subcommand (`-C <dir>`, `-c k=v`, `--no-pager`, `--git-dir=…`).
     private static func gitDenial(_ args: [String], depth: Int, check: ((String, [String]) -> String?)?) -> String? {
@@ -225,23 +225,29 @@ extension ShellGate {
     private static let glabVerbs: Set<String> = ["merge", "accept", "close", "reopen", "approve", "revoke", "unapprove", "update", "note",
                                                  "comment", "create", "new", "rebase", "delete"]
     /// gh's and glab's options that take the next word as their value, wherever they stand.
-    private static let hostValued: Set<String> = ["-R", "--repo", "--hostname", "-X", "--method", "-f", "-F", "--field", "--raw-field",
+    static let hostValued: Set<String> = ["-R", "--repo", "--hostname", "-X", "--method", "-f", "-F", "--field", "--raw-field",
                                                   "-H", "--header", "--input", "-q", "--jq", "-t", "--template", "-p", "--preview", "--cache"]
 
-    private static func requestDenial(tool: String, _ args: [String], group: String, verbs: Set<String>) -> String? {
+    /// The leading command and subcommand or endpoint, skipping options and their values.
+    static func hostPositionals(_ args: [String]) -> [String] {
         var positionals: [String] = [], i = 0
         while i < args.count, positionals.count < 2 {
             let word = args[i]
             if word.hasPrefix("-") { i += hostValued.contains(word) ? 2 : 1 } else { positionals.append(word); i += 1 }
         }
-        if positionals.first == "api" { return sendsToTheAPI(args) ? apiDenial(tool) : nil }
+        return positionals
+    }
+
+    private static func requestDenial(tool: String, _ args: [String], group: String, verbs: Set<String>) -> String? {
+        let positionals = ShellGate.hostPositionals(args)
+        if positionals.first == "api" { return ShellGate.sendsToTheAPI(args) ? apiDenial(tool) : nil }
         guard positionals.count == 2, positionals[0] == group, verbs.contains(positionals[1]) else { return nil }
         return hostDenial("\(tool) \(group) \(positionals[1])")
     }
 
     /// Whether an `api` call's method is not GET: one named (`-X PUT`, `-XPUT`, `--method=PUT`, `-iXPUT`), or, with none
     /// named, fields or a body, which gh and glab send as a POST.
-    private static func sendsToTheAPI(_ args: [String]) -> Bool {
+    static func sendsToTheAPI(_ args: [String]) -> Bool {
         var method: String?, sends = false, i = 0
         while i < args.count {
             let word = args[i]

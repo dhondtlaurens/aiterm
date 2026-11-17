@@ -21,9 +21,10 @@ public enum OperatorProfileStore {
         return profile
     }
 
-    /// Writes `profile`; an encoding failure throws and leaves what was saved before.
-    public static func save(_ profile: OperatorProfile, _ defaults: UserDefaults = .standard) throws {
-        let data = try JSONEncoder().encode(profile)
+    /// Writes `profile` and notifies its readers.
+    public static func save(_ profile: OperatorProfile, _ defaults: UserDefaults = .standard) {
+        // The profile is plain strings and bools.
+        let data = try! JSONEncoder().encode(profile)
         if saved(defaults)?.oracle != profile.oracle {
             defaults.set(oracleRevision(defaults) + 1, forKey: oracleRevisionKey)
         }

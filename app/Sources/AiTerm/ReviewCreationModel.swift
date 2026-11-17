@@ -105,24 +105,6 @@ final class ReviewCreation: CreationKind {
     func branchesChanged(in model: ReviewCreationModel) { model.filterBranches() }
 
     func recover(_ recovery: CreationFailure.Recovery) async throws { try await fix(recovery) }
-
-    /// The sheet names where the review opens before anything is created, so it re-reads git first:
-    /// if the branch has moved since — onto a task's worktree, or off one — it shows the new
-    /// destination and waits for another press rather than opening somewhere it did not say.
-    func confirmBeforeSubmit(_ model: ReviewCreationModel) async -> Bool {
-        let shown = owningTask
-        await model.loadCheckouts()
-        guard owningTask?.id == shown?.id else {
-            let branch = model.draft.branch
-            if let now = owningTask {
-                model.refuse("\(branch) is now checked out in “\(now.title)”, so the review opens there. Press again to continue.")
-            } else {
-                model.refuse("“\(shown?.title ?? "The task")” no longer has \(branch) checked out, so the review gets a worktree of its own. Press again to continue.")
-            }
-            return false
-        }
-        return true
-    }
 }
 
 /// The New Review sheet's state.

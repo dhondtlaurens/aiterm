@@ -6,8 +6,6 @@ import AiTermCore
 @MainActor final class SignalHostIO {
     let workspace: WorkspaceStore
     let git: any GitRunning
-    var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)
-    var hostCache: TimeInterval = OperatorTiming.hostReadCache
     var enabled: () -> Bool = { true }
     var connections: @MainActor () async -> SignalConnections
     var remote: @MainActor (Project, TaskItem) async throws -> String
@@ -113,56 +111,18 @@ import AiTermCore
               workspace.state.operatorSession?.paused != true, claim.canAct(in: workspace.state), !Task.isCancelled else { throw ActionUnavailable("The task changed before merging.") }
         _ = try await host.merge(reference.number, at: head)
     }
-    private struct DetailBasis: Equatable {
-        var claim: SignalClaim?
-        var jira: JiraRef?
-        var request: MergeRequestRef?
-        var watched: SignalRequestRef?
-        var branch: String
-        var remote: String?
-        var jiraAccount: JiraConfig?
-        var gitLab: GitLabConfig?
-        var gitHub: GitHubConfig?
-        var session: ObjectIdentifier
-    }
-    private struct DetailCache { var basis: DetailBasis; var value: JSONValue; var at: Date }
-    private struct DetailFlight { var basis: DetailBasis; var nonce: UUID; var task: Task<JSONValue, Error> }
-    private var detailsCache: [UUID: DetailCache] = [:]
-    private var detailFlights: [UUID: DetailFlight] = [:]
+    private var detailsCache: [UUID: (claim: SignalClaim?, value: JSONValue, at: Date)] = [:]
     var now: () -> Date = Date.init
-    func cancelReads() {
-        for flight in detailFlights.values { flight.task.cancel() }
-        detailFlights.removeAll(); detailsCache.removeAll()
-    }
     func details(_ task: TaskItem) async throws -> JSONValue {
-        let links = await connections()
-        let basis = DetailBasis(claim: SignalClaim(task), jira: task.jira, request: task.mr, watched: task.signalTask?.watchedRequest,
-            branch: task.branch, remote: workspace.state.project(id: task.projectId)?.remoteUrl,
-            jiraAccount: links.jira, gitLab: links.gitLab, gitHub: links.gitHub, session: ObjectIdentifier(links.session))
+        let claim = SignalClaim(task)
         let ids = Set(workspace.state.allSignalTasks.map(\.id))
-        detailsCache = detailsCache.filter { ids.contains($0.key) && now().timeIntervalSince($0.value.at) < hostCache }
-        if let cached = detailsCache[task.id], cached.basis == basis { return cached.value }
-        if let flight = detailFlights[task.id], flight.basis == basis { return try await flight.task.value }
-        let nonce = UUID(), budget = hostTimeout
-        let read: @MainActor @Sendable () async throws -> JSONValue = { [self] in try await uncachedDetails(task, links: links) }
-        let job = Task { @MainActor in
-            try await withThrowingTaskGroup(of: JSONValue.self) { group in
-                group.addTask { try await read() }
-                group.addTask {
-                    try await Task.sleep(for: budget)
-                    throw ActionUnavailable("The source status read timed out.")
-                }
-                defer { group.cancelAll() }
-                guard let value = try await group.next() else { throw CancellationError() }
-                return value
-            }
-        }
-        detailFlights[task.id] = DetailFlight(basis: basis, nonce: nonce, task: job)
-        defer { if detailFlights[task.id]?.nonce == nonce { detailFlights[task.id] = nil } }
-        let value = try await job.value
-        guard enabled(), !Task.isCancelled, basis.claim?.holds(in: workspace.state) != false,
-              workspace.state.project(id: task.projectId)?.remoteUrl == basis.remote else { throw ActionUnavailable("The task changed while its source was read.") }
-        detailsCache[task.id] = DetailCache(basis: basis, value: value, at: now())
+        detailsCache = detailsCache.filter { ids.contains($0.key) }
+        if let cached = detailsCache[task.id], cached.claim == claim,
+           now().timeIntervalSince(cached.at) < OperatorTiming.hostReadCache { return cached.value }
+        let links = await connections()
+        let value = try await uncachedDetails(task, links: links)
+        guard claim?.holds(in: workspace.state) != false else { throw ActionUnavailable("The task changed while its source was read.") }
+        detailsCache[task.id] = (claim: claim, value: value, at: now())
         return value
     }
     private func uncachedDetails(_ task: TaskItem, links: SignalConnections) async throws -> JSONValue {

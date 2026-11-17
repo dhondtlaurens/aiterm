@@ -1057,15 +1057,12 @@ async def test_a_refresh_overlapping_another_still_fetches_the_hierarchy(monkeyp
 
 def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: AbstractSet[str] = frozenset(),
                       error: Exception | None = None, refused: dict[str, str] | None = None,
-                      multi_get_refusal: str | None = None, unset_omitted: bool = False,
                       app: iterm2.App | None = None,
                       session_values: dict[str, dict] | None = None) -> tuple[ItermBridge, list[tuple[str, list[str]]]]:
     """A bridge over real `iterm2.Session`s, laid out as {window: [[session, ...] per tab]} or as
     `app` has them, with
     only the variable RPC faked. A session in `closed` answers SESSION_NOT_FOUND, as one closed
-    mid-snapshot does; one in `refused` answers the status named there; `multi_get_refusal`, when
-    set, is the status every request for more than one name gets; `unset_omitted` leaves a name
-    with no value out of an OK answer for several; `error` is raised by every read.
+    mid-snapshot does; one in `refused` answers the status named there; `error` is raised by every read.
     Each request is recorded, and the most requests in flight at once is kept as
     `bridge.max_in_flight`."""
     requests: list[tuple[str, list[str]]] = []
@@ -1082,16 +1079,13 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
             raise error
         reply = iterm2.api_pb2.ServerOriginatedMessage()
         status = status_of.get(session_id, "OK")
-        if status == "OK" and multi_get_refusal and len(gets) > 1:
-            status = multi_get_refusal
         reply.variable_response.status = iterm2.api_pb2.VariableResponse.Status.Value(status)
         if status == "OK":
             values = {"commandLine": "-zsh", "jobPid": 123, "autoName": session_id, "path": "/x",
                       "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None,
                       "user.aiterm_tab": None, "user.aiterm_codex_thread": None}
             values.update((session_values or {}).get(session_id, {}))
-            answered = [name for name in gets if not (unset_omitted and len(gets) > 1 and values[name] is None)]
-            reply.variable_response.values.extend(json.dumps(values[name]) for name in answered)
+            reply.variable_response.values.extend(json.dumps(values[name]) for name in gets)
         return reply
 
     monkeypatch.setattr(iterm2.rpc, "async_variable", variable)
@@ -1253,34 +1247,6 @@ async def test_a_snapshot_recovers_the_codex_thread_saved_on_its_process(monkeyp
     registry = SessionRegistry()
     registry.apply_snapshot(await bridge.snapshot())
     assert registry.get("s1").conversation_id == "worker-thread"
-
-
-@pytest.mark.parametrize("refusal", ["MULTI_GET_DISALLOWED", "INVALID_NAME"])
-async def test_an_iterm_that_refuses_a_batched_read_is_read_a_name_at_a_time(monkeypatch, refusal):
-    bridge, requests = _variables_bridge(monkeypatch, {"w1": [["s1"], ["s2"]]}, multi_get_refusal=refusal)
-
-    out = await bridge.snapshot()
-    assert [s.session_id for s in out] == ["s1", "s2"]
-    assert out[0].user_vars == {"aiterm_task": "t1"} and out[0].job_pid == 123 and out[0].title == "s1"
-
-    requests.clear()
-    assert (await bridge.session_info("s2")).title == "s2"
-    assert requests == [("s2", [name]) for name in VARIABLES], "the refusal is remembered: no batched attempt"
-
-
-async def test_a_batched_answer_short_of_a_value_is_read_a_name_at_a_time(monkeypatch):
-    """An OK answer with fewer values than names asked cannot be matched to them: every snapshot
-    would fail, and the sidebar would freeze."""
-    bridge, requests = _variables_bridge(monkeypatch, {"w1": [["s1"], ["s2"]]}, unset_omitted=True)
-
-    out = await bridge.snapshot()
-    assert [s.session_id for s in out] == ["s1", "s2"]
-    assert out[0].user_vars == {"aiterm_task": "t1"} and out[0].job_pid == 123 and out[0].title == "s1"
-    assert not bridge._batched_reads
-
-    requests.clear()
-    await bridge.session_info("s2")
-    assert requests == [("s2", [name]) for name in VARIABLES], "remembered, as a refusal is"
 
 
 async def test_only_a_session_iterm_no_longer_has_is_left_out(monkeypatch):

@@ -36,7 +36,7 @@ public enum AgentCommand {
     /// What a Claude review tab may never do on top of `workerClaudeDenials`, which deny its push already: write a
     /// file, or write through git, so the commit it reviews is the one it reads. Each git command is denied in the
     /// three forms the push is: plain, after `-C <dir>`, and after any other option.
-    public static let publishingClaudeDenials = ["AskUserQuestion", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(glab mr accept:*)", "Bash(git merge:*)"]
+    public static let publishingClaudeDenials = ["AskUserQuestion", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(glab mr accept:*)"]
 
     public static let reviewClaudeDenials = ["Edit", "Write", "NotebookEdit"]
         + ["commit", "checkout", "switch", "reset", "rebase", "merge", "stash", "add"].flatMap { command in

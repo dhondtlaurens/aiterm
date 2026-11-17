@@ -33,13 +33,13 @@ final class OperatorSettingsModel {
     /// The profile as loaded, so Save writes only a change.
     @ObservationIgnored private var original: OperatorProfile?
     @ObservationIgnored private let read: @Sendable () -> Loaded
-    @ObservationIgnored private let write: @MainActor (OperatorProfile) throws -> Void
+    @ObservationIgnored private let write: @MainActor (OperatorProfile) -> Void
     /// The agent CLIs this machine has, read live (`AgentIntegrations.availableAgents`), so the
     /// Oracle's Agent follows a probe or an install landing while Settings is open.
     @ObservationIgnored private let installed: @MainActor () -> Set<AgentKind>
 
     init(installed: @escaping @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) },
-         load: @escaping @Sendable () -> Loaded, save: @escaping @MainActor (OperatorProfile) throws -> Void) {
+         load: @escaping @Sendable () -> Loaded, save: @escaping @MainActor (OperatorProfile) -> Void) {
         self.installed = installed
         read = load
         write = save
@@ -98,8 +98,7 @@ final class OperatorSettingsModel {
                                           model: original.oracle.model, reasoning: original.oracle.reasoning)
         }
         guard saving != original else { return }
-        // One that could not be written is still a change to save.
-        guard (try? write(saving)) != nil else { return }
+        write(saving)
         self.original = saving
     }
 
@@ -112,10 +111,10 @@ final class OperatorSettingsModel {
 
     func select(reasoning picked: String) { reasoning = picked }
 
-    /// Takes the agent's default model at its reasoning; the Oracle stays on or off as it was. An
-    /// agent not offered, or with no model to take, is no pick.
+    /// Takes the agent's default model at its reasoning; the Oracle stays on or off as it was.
+    /// An agent with no model to take is no pick.
     func select(oracleAgent agent: AgentKind) {
-        guard agent != oracle.agent, oracleAgentChoices.contains(agent) else { return }
+        guard agent != oracle.agent else { return }
         let choice = defaultChoice(for: agent)
         guard !choice.model.isEmpty else { return }
         oracle = OracleSetting(isOn: oracle.isOn, agent: agent, model: choice.model, reasoning: choice.reasoning)
@@ -182,6 +181,6 @@ extension OperatorSettingsModel {
             agentDefaults[.claude] = ModelPreference(model: claude.model, reasoning: claude.reasoning)
             return Loaded(profile: OperatorProfileStore.load(store, claudeDefault: claude, installed: installedNow), models: models,
                           agentDefaults: agentDefaults, skills: OperatorSkills.listed(at: [nil]) { agent, _ in skills(agent) })
-        }, save: { try OperatorProfileStore.save($0, store) })
+        }, save: { OperatorProfileStore.save($0, store) })
     }
 }

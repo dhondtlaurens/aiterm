@@ -37,7 +37,7 @@ import AiTermUI
         case .linkedProject:
             let project = JiraProjectRef(id: "1", key: "PAY", name: "Payments", siteURL: URL(string: "https://example.atlassian.net")!)
             let preparation = ProjectPreparation(project: .make(name: "Shop", jiraProjects: [project]))
-            let model = ProjectSheetModel(preparation: preparation, editing: true, canChange: { true }, inspect: { _ in preparation },
+            let model = ProjectSheetModel(preparation: preparation, editing: true, git: .hermetic(), canChange: { true }, inspect: { _ in preparation },
                                           chooseFolder: { nil }, loadProjects: { [] }, commit: { _, _, _ in })
             return (AnyView(ProjectSheet(model: model)), "Remove PAY · Payments")
         case .chip:

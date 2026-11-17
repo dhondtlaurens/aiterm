@@ -179,16 +179,10 @@ import Foundation
         #expect(ClaudeDriver(home: home, daemonPort: 9999, shimPath: "s").state == .current)
     }
 
-    @Test func codexRepairFindsMovedHooksAndPreservesApprovalRecords() throws {
-        let moved = """
-        [[hooks.SessionStart]]
-        matcher = ""
-        [[hooks.SessionStart.hooks]]
-        type = "command"
-        command = 'curl -s -m 2 -X POST -H "X-AiTerm-Hook: 1" --data-binary @- http://127.0.0.1:1/hook/codex'
-        [[hooks.SessionStart.hooks]]
-        type = "command"
-        command = 'keep-me'
+    /// Codex writes its approval records before the file's trailing comment, AiTerm's end marker.
+    /// A repair keeps the record, moved out of the span ahead of the new block, byte for byte.
+    @Test func anApprovalRecordBetweenTheMarkersSurvivesARepair() throws {
+        let input = """
         # >>> aiterm hooks >>>
         [mcp_servers.aiterm_hooks]
         url = "http://127.0.0.1:1/mcp"
@@ -201,11 +195,10 @@ import Foundation
         tool = "post_codex_hook"
         # <<< aiterm hooks <<<
         """
-        let result = CodexHookConfig.merge(moved, hookURL: "http://127.0.0.1:47821")
-        #expect(!result.contains(":1/hook/codex"))
-        #expect(result.contains("command = 'keep-me'"))
-        #expect(result.contains("[hooks.state.\"config:session_start:0:1\"]\ntrusted_hash = \"sha256:keep-me\""))
-        #expect(result.components(separatedBy: "[[hooks.SessionStart]]").count - 1 == 2)
+        let record = "[hooks.state.\"config:session_start:0:1\"]\ntrusted_hash = \"sha256:keep-me\"\n"
+        let result = CodexHookConfig.merge(input, hookURL: "http://127.0.0.1:47821")
+        #expect(result.contains(record))
+        #expect(result.hasSuffix(record + "\n" + CodexHookConfig.block(hookURL: "http://127.0.0.1:47821") + "\n"))
         #expect(result.components(separatedBy: "[[hooks.Stop]]").count - 1 == 1)
         #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
     }
@@ -214,8 +207,7 @@ import Foundation
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let config = home.appendingPathComponent(".codex/config.toml")
         let block = CodexHookConfig.merge(nil, hookURL: "http://127.0.0.1:47821")
-        for input in [block + block, block.replacingOccurrences(of: CodexHookConfig.end, with: ""),
-                      block.replacingOccurrences(of: CodexHookConfig.begin, with: "")] {
+        for input in [block + block, block.replacingOccurrences(of: CodexHookConfig.end, with: "")] {
             try input.write(to: config, atomically: true, encoding: .utf8)
             #expect(CodexDriver(home: home, daemonPort: 47821).state != .current)
             try CodexDriver(home: home, daemonPort: 47821).install()
@@ -261,31 +253,30 @@ import Foundation
         }
     }
 
-    @Test func codexRepairKeepsForeignChildrenAfterInterveningTables() {
-        let input = """
-        [[hooks.Stop]]
-        matcher = "keep-matcher"
-        [[hooks.Stop.hooks]]
-        type = "mcp_tool"
-        server = "aiterm_hooks"
-        tool = "post_codex_hook"
-        [hooks.Stop.hooks.input]
-        session_id = "old-input"
-        # Keep this profile explanation.
-        [profiles.fast]
-        model = "keep-model"
-        [[hooks.Stop.hooks]]
-        type = "command"
-        command = "keep-command"
-        """
+    /// Codex adds a table at the end of the file, before its trailing comment, which is AiTerm's end
+    /// marker: a server added with `codex mcp add` lands between the markers and is the person's.
+    @Test func aServerAddedBetweenTheMarkersIsKeptAndTheBlockIsStillReplacedOnce() {
+        let server = "[mcp_servers.other]\nurl = \"http://127.0.0.1:1/other\"\n"
+        let installed = CodexHookConfig.merge("model = \"gpt-5.6\"\n", hookURL: "http://127.0.0.1:1")
+        let input = installed.replacingOccurrences(of: CodexHookConfig.end, with: server + CodexHookConfig.end)
         let result = CodexHookConfig.merge(input, hookURL: "http://127.0.0.1:47821")
-        #expect(result.contains("[[hooks.Stop]]\nmatcher = \"keep-matcher\""))
-        #expect(result.contains("command = \"keep-command\""))
-        #expect(result.contains("[profiles.fast]\nmodel = \"keep-model\""))
-        #expect(result.contains("# Keep this profile explanation."))
-        #expect(!result.contains("old-input"))
-        #expect(result.components(separatedBy: "[[hooks.Stop]]").count - 1 == 2)
+        #expect(result.contains(server))
+        #expect(result.components(separatedBy: CodexHookConfig.begin).count - 1 == 1)
+        #expect(result.components(separatedBy: "[mcp_servers.aiterm_hooks]").count - 1 == 1)
+        #expect(result.components(separatedBy: "[[hooks.Stop]]").count - 1 == 1)
+        #expect(!result.contains(":1/mcp"))
         #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
+    }
+
+    @Test func aStaleBlockIsReplacedInPlace() throws {
+        let current = CodexHookConfig.block(hookURL: "http://127.0.0.1:1")
+        let start = try #require(current.range(of: "[[hooks.SubagentStart]]")).lowerBound
+        let next = try #require(current.range(of: "[[hooks.SubagentStop]]")).lowerBound
+        var stale = current
+        stale.removeSubrange(start..<next)
+        let before = "model = \"gpt-5.6\"\n\n", after = "\n[profiles.fast]\nmodel = \"gpt-5.6-mini\"\n"
+        let result = CodexHookConfig.merge(before + stale + after, hookURL: "http://127.0.0.1:47821")
+        #expect(result == before + CodexHookConfig.block(hookURL: "http://127.0.0.1:47821") + after)
     }
 
     // MARK: - An unreadable/non-object settings.json must never be silently replaced

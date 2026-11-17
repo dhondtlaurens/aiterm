@@ -289,7 +289,7 @@ swift_test() {
 # question nobody scripted — so no test needs a pass of its own for that. (AiTermTestSupport is a
 # library, not a test target: it adds no host.)
 # A run filtered to selectors (^<Target>\. for a target, ^<Target>\.<Suite>/ for a suite: Swift
-# Testing's IDs read AiTermCoreTests.ReleaseFeedTests/missingFeedIsNoFeed()) reports only the hosts
+# Testing's IDs read AiTermCoreTests.UpdateCheckTests/everyErrorHasItsExactLine()) reports only the hosts
 # its filters reach. Measured on Swift 6.4: a host the filters match nothing in prints no "Test run
 # with" line at all, not one with 0 tests, so filters on a Core and a UI suite printed two, none for
 # AiTermTests. Every selector names a target with tests in it, so the run must report exactly one

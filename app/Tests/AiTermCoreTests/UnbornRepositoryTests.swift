@@ -41,15 +41,6 @@ import Testing
         #expect(error?.branch == branch)
     }
 
-    @Test func theCachedDefaultFollowsAnUnbornBranchRename() throws {
-        let path = try unborn("master")
-        defer { try? FileManager.default.removeItem(atPath: path) }
-        let resolver = DefaultBranchResolver(git: git)
-        #expect(resolver.defaultBranch(for: path) == "master")
-        try git.run(["symbolic-ref", "HEAD", "refs/heads/team/trunk"], in: path)
-        #expect(resolver.defaultBranch(for: path) == "team/trunk")
-    }
-
     @Test func initializationPreservesTheIndexAndEveryUncommittedFile() throws {
         let path = try unborn()
         defer { try? FileManager.default.removeItem(atPath: path) }

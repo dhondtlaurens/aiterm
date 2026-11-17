@@ -7,6 +7,8 @@ import AiTermCore
         let words = AgentCommand.workerWords(agent: .claude, model: "test", reasoning: nil, publishing: true)
         #expect(words.contains("AskUserQuestion"))
         #expect(words.contains("Bash(gh pr merge:*)"))
+        #expect(!words.contains("Bash(git merge:*)"))
+        #expect(AgentCommand.workerWords(agent: .claude, model: "test", reasoning: nil, readOnly: true).contains("Bash(git merge:*)"))
         #expect(!words.contains("Bash(git push:*)"))
         #expect(!words.contains("Bash(gh pr create:*)"))
         #expect(OperatorLaunch.shellDenials.contains("Bash(git push:*)"))

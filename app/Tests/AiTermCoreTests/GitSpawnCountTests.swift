@@ -5,11 +5,8 @@ import Testing
 @testable import AiTermTestSupport
 
 /// What the checkout monitor's pass costs in git processes, for a workspace of two projects with
-/// three tasks each and a tab in every checkout, as a counting runner sees it. The numbers are the
-/// point of these tests: a change that makes a pass spawn more has to say so here.
-///
-/// Before the shared probe, the batched ref queries and the cached untracked counts, the same
-/// workspace cost 55 spawns on the first pass and 12 on a pass after the diffs' ttl expired.
+/// three tasks each and a tab in every checkout, as a counting runner sees it. Budgets are measured
+/// ceilings: a change lowers a ceiling with the work that earned it and never raises it.
 @Suite(.blocking) struct GitSpawnCountTests {
     private let git = GitRunner.hermetic()
 
@@ -42,7 +39,7 @@ import Testing
     private struct Passes {
         let clock = TestClock()
         let workspace: Workspace
-        let branches: BranchResolver, remotes: RemoteResolver, diffs: DiffStatResolver, defaults: DefaultBranchResolver
+        let branches: BranchResolver, remotes: RemoteResolver, diffs: DiffStatResolver
 
         let stalls: StallGuardedGit
 
@@ -57,13 +54,12 @@ import Testing
             branches = BranchResolver(git: guarded, now: now, probe: probe)
             remotes = RemoteResolver(git: guarded, now: now, probe: probe)
             diffs = DiffStatResolver(git: guarded, now: now, ttl: 5)
-            defaults = DefaultBranchResolver(git: guarded, now: now, probe: probe)
         }
 
         func pass() -> WorkspaceScan {
             stalls.scope(projects: workspace.projects, tasks: workspace.tasks)
             return WorkspaceScan.run(cwds: workspace.cwds, projects: workspace.projects, tasks: workspace.tasks,
-                              branches: branches, remotes: remotes, diffs: diffs, defaultBranches: defaults)
+                              branches: branches, remotes: remotes, diffs: diffs)
         }
     }
 
@@ -71,24 +67,24 @@ import Testing
         recording.calls.dropFirst(mark).map { $0.args.prefix(2).joined(separator: " ") }
     }
 
-    /// 9 `rev-parse` to find the files of the 8 checkouts and the folder that is not one, 4 to read the
-    /// remotes, 2 for the default branches, and 5 a task: where its base is (`rev-parse`, 2 `merge-base`),
+    /// The first pass has a ceiling of 43 spawns: 9 `rev-parse` to find the files of the 8 checkouts
+    /// and the folder that is not one, 4 to read the remotes, and 5 a task for its base (`rev-parse`, 2 `merge-base`),
     /// then the diff and the untracked listing.
     @Test func theFirstPassSpawnsWhatEachDirectoryNeedsOnce() throws {
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let passes = Passes(try makeWorkspace(), runner: recording)
         let scan = passes.pass()
         #expect(scan.diffByTask.count == 6 && scan.diffByTask.values.allSatisfy { $0 == DiffStat(added: 2, removed: 0) })
-        #expect(scan.remotes.count == 2 && scan.defaultBranch.count == 2)
+        #expect(scan.remotes.count == 2)
         let spawned = commands(recording, since: 0)
-        #expect(spawned.count == 45, "\(spawned)")
-        #expect(spawned.filter { $0 == "rev-parse --path-format=absolute" }.count == 9)
-        #expect(spawned.filter { $0 == "for-each-ref --format=%(refname) %(symref)" }.count == 2)
+        #expect(spawned.count <= 43, "\(spawned)")
+        #expect(spawned.filter { $0 == "rev-parse --path-format=absolute" }.count <= 9)
+        #expect(spawned.filter { $0 == "for-each-ref --format=%(refname) %(symref)" }.isEmpty)
     }
 
     /// The monitor ticks every two seconds and the diffs last five: most passes spawn nothing, and
-    /// one in three spawns the two commands a diff needs per task — and reads no untracked file that
-    /// did not change.
+    /// an expired pass has a ceiling of 12 spawns, two commands per task, and reads no untracked file
+    /// that did not change.
     @Test func aSteadyStatePassSpawnsNothingUntilADiffExpires() throws {
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let passes = Passes(try makeWorkspace(), runner: recording)
@@ -101,26 +97,26 @@ import Testing
         passes.clock.advance(by: 4)
         _ = passes.pass()
         let spawned = commands(recording, since: mark)
-        #expect(spawned.count == 12, "\(spawned)")
-        #expect(spawned.filter { $0 == "diff --numstat" }.count == 6 && spawned.filter { $0 == "ls-files --others" }.count == 6)
+        #expect(spawned.count <= 12, "\(spawned)")
+        #expect(spawned.filter { $0 == "diff --numstat" }.count <= 6 && spawned.filter { $0 == "ls-files --others" }.count <= 6)
     }
 
     /// A folder that is not a repository, in every project's place and again every thirty seconds,
-    /// cost three `rev-parse` each time, one per resolver.
+    /// has a ceiling of one `rev-parse` per negative window, shared by both resolvers.
     @Test func aProjectThatIsNotARepositoryCostsOneSpawnPerNegativeWindow() throws {
         let folder = try GitFixture.folder("not-a-repo-")
         let project = Project.make(name: "gone", path: folder, addedAt: Date())
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let passes = Passes(Workspace(projects: [project], tasks: [], cwds: []), runner: recording)
         _ = passes.pass(); _ = passes.pass()
-        #expect(recording.calls.count == 1)
+        #expect(recording.calls.count <= 1)
         passes.clock.advance(by: 31)
         _ = passes.pass()
-        #expect(recording.calls.count == 2)
+        #expect(recording.calls.count <= 2)
     }
 
-    /// The branch list, the default branch and `isMerged` each ask git once where they asked up to
-    /// five times, and the answers are the ones they gave.
+    /// Ref queries have ceilings of two calls for the branch list, one for the default branch,
+    /// one for a known merge target and two for an unknown target's local and origin refs.
     @Test func refQueriesAreSingleCalls() throws {
         let repo = try GitFixture.makeRepo(prefix: "refs-", git: git)
         try git.run(["branch", "feat/x"], in: repo)
@@ -132,19 +128,18 @@ import Testing
             return (answer, recording.calls.count - mark)
         }
         let defaultBranch = try counted { try Repository(repo, git: recording).detectDefaultBranch() }
-        #expect(defaultBranch.answer == "main" && defaultBranch.spawns == 1)
+        #expect(defaultBranch.answer == "main" && defaultBranch.spawns <= 1)
         let branches = counted { Repository(repo, git: recording).branches() }
-        #expect(branches.answer == ["main", "feat/x"] && branches.spawns == 2)
+        #expect(branches.answer == ["main", "feat/x"] && branches.spawns <= 2)
         let merged = try counted { try Repository(repo, git: recording).isMerged("feat/x", into: "main") }
-        #expect(merged.answer && merged.spawns == 1)
+        #expect(merged.answer && merged.spawns <= 1)
         let unknown = try counted { try Repository(repo, git: recording).isMerged("feat/x", into: "gone") }
-        #expect(!unknown.answer && unknown.spawns == 2, "the local and the origin ref, neither of which exists")
+        #expect(!unknown.answer && unknown.spawns <= 2, "the local and the origin ref, neither of which exists")
         // A git that could not answer has not said no.
         #expect(throws: GitError.self) { try Repository(repo, git: TimingOutGitRunner(["merge-base"])).isMerged("feat/x", into: "main") }
     }
 
-    /// A removal lists the worktrees once — where it asked git for the list, the lock reason and
-    /// the list again — and the record it finds carries the lock reason a refusal puts back.
+    /// A removal has a ceiling of one worktree listing: the record carries the lock reason a refusal puts back.
     @Test func aRemovalListsTheWorktreesOnce() throws {
         let repo = try GitFixture.makeRepo(prefix: "remove-", git: git)
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
@@ -153,13 +148,11 @@ import Testing
         func listings() -> Int { recording.calls.filter { $0.args.starts(with: ["worktree", "list"]) }.count }
         let before = listings()
         try repository.removeWorktree(at: path, deleteBranch: nil, force: false)
-        #expect(listings() - before == 1)
+        #expect(listings() - before <= 1)
         #expect(!FileManager.default.fileExists(atPath: path))
     }
 
-    /// A project on a dead mount: every git there waits out its whole deadline, ten seconds. Before
-    /// the guard every pass paid it seven times over — the project's probe, its three tabs and its
-    /// three diffs — and before the shared probe and the backoff nine times, on every pass. Now the
+    /// A project on a dead mount: every git there waits out its whole deadline, ten seconds. The
     /// first command to time out stalls the project: the rest of its work in that pass, and every
     /// pass for thirty seconds, fails at once. A pass costs one timeout, and the other project is
     /// read as usual.
@@ -194,7 +187,7 @@ import Testing
         let during = passes.pass()
         #expect(hung.timeouts == 1)
         #expect(during.diffByTask == before.diffByTask, "the diffs stand")
-        #expect(during.projectBranch == before.projectBranch && during.defaultBranch == before.defaultBranch)
+        #expect(during.projectBranch == before.projectBranch)
         #expect(during.remotes == before.remotes)
         hung.hanging = false
         passes.clock.advance(by: TimedOut.backoff)

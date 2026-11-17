@@ -12,7 +12,6 @@ import AiTermCore
     let activity = OperatorActivityTracker()
     var tabsKnown = false
     private(set) var profile = OperatorProfile(model: "", reasoning: nil)
-    private(set) var sourceErrors: [UUID: String] = [:]
     /// One issue per source; each clears only on its own source's next success (`OperatorIssues`).
     private(set) var issues = OperatorIssues() { didSet { if oldValue != issues { changed() } } }
     /// What the Operator row shows as "needs you": an issue that needs the person, then the session's own.
@@ -43,12 +42,8 @@ import AiTermCore
     @ObservationIgnored private var waking = false
     @ObservationIgnored private var opened: (window: String, generation: Int, at: Date)?
     @ObservationIgnored private var lastActivity: Task<Void, Never>?
-    @ObservationIgnored private var unwrittenActivity: [ActivityEntry] = []
     /// After a partial wake, the Operator's unsent input is that wake line, not the person typing.
     @ObservationIgnored private var wakeLeftUnsent = false
-    /// Take Over steps that failed after the task became the person's, retried on each reconcile.
-    @ObservationIgnored private var takeOverRepairs: [UUID: TakeOverRepair] = [:]
-    private struct TakeOverRepair { var guardScope = false, journal = false }
     @ObservationIgnored private var activeTools = 0
     @ObservationIgnored private var oracleJobs: Set<UUID> = []
     @ObservationIgnored private var hooks: [() -> Void] = []
@@ -226,15 +221,12 @@ import AiTermCore
         host = SignalHostIO(workspace: workspace, git: ports.git, connections: { SignalConnections() })
         journal = SignalJournal(workspace: workspace, folder: OperatorLaunch.folder(home: ports.home).appendingPathComponent("journals"), now: ports.now)
         poller = SignalPoller(work: ports.work, automatic: automatic, now: ports.now)
-        sourceErrors = Dictionary((workspace.state.operatorSession?.sourceFailures ?? [:]).compactMap { key, value in
-            UUID(uuidString: key).map { ($0, value) }
-        }, uniquingKeysWith: { first, _ in first })
         poller.canPoll = { [weak self] in self.map { !$0.isStopped && $0.workspace.state.operatorSession?.paused != true } ?? false }
         native.enabled = { [weak self] in self?.isStopped == false }
         native.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
         native.additionalContext = { [weak self] task in try await self?.host.additionalContext(task) ?? "" }
         host.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
-        host.hostTimeout = ports.hostTimeout; host.hostCache = ports.hostCache; host.now = ports.now
+        host.now = ports.now
         host.enabled = { [weak self] in self?.isStopped == false }
         native.recoveryAllowed = { [weak self] id in self.map { !$0.stages.isRunning(id) } ?? false }
         native.onBlocked = { [weak self] id in self?.wake(.taskBlocked, id: id) }
@@ -246,8 +238,8 @@ import AiTermCore
         keeper.finished = { [weak self] in
             guard let self else { return }
             self.opened = nil; self.wakeLeftUnsent = false
-            // These failures belonged to the retired chat. Other sources still recover through
-            // their own next success, including outstanding log writes and Take Over repairs.
+            // These failures belonged to the retired chat. Other sources still clear only on
+            // their own next success.
             self.succeed(.wake); self.succeed(.reply); self.succeed(.openWindow)
             self.activity.pulse()
         }
@@ -280,7 +272,6 @@ import AiTermCore
         poller.onPass = { [weak self] observations in
             guard let self, !self.isStopped, self.workspace.state.operatorSession?.paused != true else { return }
             for observation in observations { for id in observation.signals {
-                self.sourceErrors[id] = nil
                 if self.workspace.state.operatorSession?.sourceFailures?[id.uuidString] != nil {
                     self.workspace.mutate { $0.operatorSession?.sourceFailures?[id.uuidString] = nil }
                 }
@@ -291,8 +282,7 @@ import AiTermCore
         }
         poller.onFailure = { [weak self] ids, reason in
             guard let self, !self.isStopped else { return }
-            for id in ids where self.sourceErrors[id] != reason {
-                self.sourceErrors[id] = reason
+            for id in ids where self.workspace.state.operatorSession?.sourceFailures?[id.uuidString] != reason {
                 self.workspace.mutate { state in
                     if state.operatorSession == nil { state.operatorSession = OperatorSession(createdAt: self.ports.now()) }
                     if state.operatorSession?.sourceFailures == nil { state.operatorSession?.sourceFailures = [:] }
@@ -317,38 +307,33 @@ import AiTermCore
         writeActivity(ActivityEntry(at: at ?? ports.now(), tool: tool, task: task, arguments: arguments,
                                     outcome: outcome, result: result, line: line, reason: outcome == .ok ? nil : result))
     }
-    /// Writes the entries a failed write kept, in order and with their own times, then `entry`.
-    private func writeActivity(_ entry: ActivityEntry?) {
+    /// Attempts each entry once, in the order it was recorded; a failed entry is dropped.
+    private func writeActivity(_ entry: ActivityEntry) {
         let previous = lastActivity, folder = OperatorLaunch.folder(home: ports.home)
         lastActivity = ports.work.start { [weak self] in
             await previous?.value
             guard let self else { return }
-            let batch = self.unwrittenActivity + (entry.map { [$0] } ?? [])
-            guard !batch.isEmpty else { return }
-            let (written, failure) = await BackgroundWork.run { () -> (Int, String?) in
+            let failure = await BackgroundWork.run { () -> String? in
                 do {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                } catch { return (0, OperationIssue.reason(of: error)) }
-                for (index, item) in batch.enumerated() {
-                    do { try ActivityLog.append(item, folder: folder) } catch { return (index, OperationIssue.reason(of: error)) }
-                }
-                return (batch.count, nil)
+                    try ActivityLog.append(entry, folder: folder)
+                    return nil
+                } catch { return OperationIssue.reason(of: error) }
             }
-            self.unwrittenActivity = Array(batch.dropFirst(written).suffix(Self.unwrittenActivityLimit))
             guard !self.isStopped else { return }
             if let failure { self.fail(.activity, "Its activity could not be saved: " + failure) } else { self.succeed(.activity) }
         }
     }
-    static let unwrittenActivityLimit = 200
     private func fail(_ source: OperatorIssues.Source, _ text: String) { record(issues.fail(source, text, at: ports.now())) }
     private func succeed(_ source: OperatorIssues.Source) { record(issues.succeed(source, at: ports.now())) }
-    /// An issue's start, changed reason and recovery go to the activity log. The activity log's own
-    /// failure waits in the kept entries, since writing it now would fail too.
+    /// Logs each issue's start, changed reason and recovery, except the activity log's own failure:
+    /// that write would fail too, so only its recovery is logged.
     private func record(_ transition: OperatorIssues.Transition?) {
         guard let transition else { return }
         let entry: ActivityEntry
         switch transition {
         case .started(let issue), .changed(let issue):
+            guard issue.source != .activity else { return }
             entry = ActivityEntry(at: ports.now(), tool: "app_issue", task: nil, arguments: ["source": .string(issue.source.rawValue)],
                                   outcome: .failed, result: issue.text, line: issue.source.label + " failed.", reason: issue.text)
         case .recovered(let issue):
@@ -356,10 +341,7 @@ import AiTermCore
                                   outcome: .ok, result: "Recovered after \(issue.attempts) failed \(issue.attempts == 1 ? "attempt" : "attempts") since \(issue.since.formatted(.iso8601)).",
                                   line: issue.source.label + " recovered.", reason: nil)
         }
-        if case .recovered = transition { writeActivity(entry) }
-        else if entry.arguments["source"] == .string(OperatorIssues.Source.activity.rawValue) {
-            unwrittenActivity = Array((unwrittenActivity + [entry]).suffix(Self.unwrittenActivityLimit))
-        } else { writeActivity(entry) }
+        writeActivity(entry)
     }
     private func changed() {
         if !isStopped {
@@ -401,7 +383,7 @@ import AiTermCore
         }
     }
     func stop() {
-        isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); keeper.stop(); host.cancelReads()
+        isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); keeper.stop()
         for job in jobs.values { job.cancel() }; jobs.removeAll()
         if let savedObserver { NotificationCenter.default.removeObserver(savedObserver); self.savedObserver = nil }
     }
@@ -512,9 +494,7 @@ import AiTermCore
         if workspace.state.operatorHasWork { await keeper.ensure() }
         guard !isStopped else { return }
         rememberOperator()
-        for id in Array(takeOverRepairs.keys) { await repairTakeOver(id) }
-        if !unwrittenActivity.isEmpty { writeActivity(nil) }
-        await native.recoverLaunches()
+        native.recoverLaunches()
         await native.refreshTurns()
         await pause.reconcile()
         guard !isStopped else { return }
@@ -579,7 +559,6 @@ import AiTermCore
         let liveItems = Set(records.values.flatMap { record in
             ([record.item] + record.pendingStages.map(\.item) + (record.watchedRequest.map { [ItemRef.mergeRequest($0)] } ?? [])).compactMap(\.identity)
         })
-        sourceErrors = sourceErrors.filter { activeSignals.contains($0.key) }
         workspace.mutate { state in
             state.signalSeen = SignalSeen.pruned(state.signalSeen, liveItems: liveItems, now: at)
             state.operatorSession?.questions.removeAll { question in
@@ -741,19 +720,8 @@ import AiTermCore
                 state.operatorSession?.pausedWorkers?.removeAll { $0.task == id }
             }
             guard workspace.flush() else { return }
-            takeOverRepairs[id] = TakeOverRepair(guardScope: true, journal: true)
-            await repairTakeOver(id)
-            changed()
-        }
-    }
-    /// The task is already the person's; its guard refresh and journal entry are retried until done.
-    private func repairTakeOver(_ id: UUID) async {
-        guard var repair = takeOverRepairs[id] else { return }
-        guard let task = workspace.state.signalItem(id: id), let record = task.signalTask, record.takenOver else {
-            takeOverRepairs[id] = nil; if takeOverRepairs.isEmpty { succeed(.takeOver) }; return
-        }
-        if repair.guardScope {
-            let home = ports.home, executable = ports.workerGuardExecutable, slots = ["main"] + record.extraTabs.map(\.key), ownership = record.ownership
+            let home = ports.home, executable = ports.workerGuardExecutable, slots = ["main"] + record.extraTabs.map(\.key), ownership = record.ownership + 1
+            var succeeded = true
             do {
                 try await BackgroundWork.run {
                     for slot in slots {
@@ -763,15 +731,18 @@ import AiTermCore
                         }
                     }
                 }
-                repair.guardScope = false
-            } catch { fail(.takeOver, "The task is yours, but its branch guard could not be refreshed: " + OperationIssue.reason(of: error)) }
+            } catch {
+                succeeded = false
+                fail(.takeOver, "The task is yours, but its branch guard could not be refreshed: " + OperationIssue.reason(of: error))
+            }
+            do { try await journal.append(.ours("The person took over this task."), task: id) }
+            catch {
+                succeeded = false
+                fail(.takeOver, "The task is yours, but its journal entry could not be saved: " + OperationIssue.reason(of: error))
+            }
+            if succeeded { succeed(.takeOver) }
+            changed()
         }
-        if repair.journal {
-            do { try await journal.append(.ours("The person took over this task."), task: id); repair.journal = false }
-            catch { fail(.takeOver, "The task is yours, but its journal entry could not be saved: " + OperationIssue.reason(of: error)) }
-        }
-        takeOverRepairs[id] = repair.guardScope || repair.journal ? repair : nil
-        if takeOverRepairs.isEmpty { succeed(.takeOver) }
     }
     func openOperator() async {
         if workspace.state.operatorHasWork { await keeper.ensure(allowPaused: true) }

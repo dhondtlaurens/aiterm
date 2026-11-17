@@ -2,7 +2,6 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import os
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
@@ -32,11 +31,6 @@ CODEX_READ = "the Codex rollout read"
 READ_BYTES = 8 * 1024 * 1024
 
 
-class _LocatedRollout(NamedTuple):
-    path: Path | None
-    after_cached_miss: bool = False
-
-
 class CodexReading(NamedTuple):
     context: int | None
     version: str | None
@@ -46,47 +40,41 @@ class CodexReading(NamedTuple):
 @dataclass(slots=True)
 class _RolloutCursor(JsonlCursor):
     version: str | None = None
-    latest: tuple[State, float] | None = None
-    boundary_seen: bool = False
-    stamp: tuple[int, int, int, int, int] | None = None
-    version_error: Exception | None = None
-    turn_error: Exception | None = None
+    turn: tuple[State, float] | None = None
+    context: int | None = None
+    # Whether the first clipped tail line still needs dropping once it is complete.
+    clipped: bool = False
 
-    def consume(self, lines: list[bytes], thread_id: str, *, version: bool = True, turn: bool = True) -> None:
+    def consume(self, lines: list[bytes], thread_id: str) -> None:
         for line in lines:
-            if not any(marker in line for marker in (_SESSION_META, b'"task_started"', b'"task_complete"', b'"turn_aborted"')):
-                continue
-            meta = version and self.version_error is None and _SESSION_META in line
-            boundary = (turn and self.turn_error is None
-                        and any(marker in line for marker in (b'"task_started"', b'"task_complete"', b'"turn_aborted"')))
-            if not meta and not boundary:
+            if not any(marker in line for marker in (_SESSION_META, b'"task_started"', b'"task_complete"',
+                                                     b'"turn_aborted"', _TOKEN_COUNT)):
                 continue
             try:
                 record = json.loads(line)
-            except (UnicodeDecodeError, ValueError):
-                continue
-            except Exception as error:  # noqa: BLE001 - each field reports its own parser failure
-                if meta:
-                    self.version_error = error
-                if boundary:
-                    self.turn_error = error
+            except ValueError:
+                logging.getLogger(__name__).warning("skipping an unparsable Codex rollout line for thread %s", thread_id)
                 continue
             if not isinstance(record, dict) or not isinstance(payload := record.get("payload"), dict):
                 continue
-            if meta and record.get("type") == "session_meta" and payload.get("id") == thread_id:
-                if (found_version := nonempty_string(payload.get("cli_version"))) is not None:
-                    self.version = found_version
-            if not boundary or record.get("type") != "event_msg":
+            if record.get("type") == "session_meta" and payload.get("id") == thread_id:
+                if (version := nonempty_string(payload.get("cli_version"))) is not None:
+                    self.version = version
+            if record.get("type") != "event_msg":
                 continue
             kind = payload.get("type")
             if kind in ("turn_aborted", "task_started", "task_complete"):
-                self.boundary_seen = True
                 at = iso_seconds(record.get("timestamp"))
-                self.latest = (("working" if kind == "task_started" else "done", at)
-                               if kind != "turn_aborted" and at is not None else None)
-
-
-Stamp = tuple[Path, int, int, int, int]  # path, target inode, ctime, mtime, size
+                self.turn = (("working" if kind == "task_started" else "done", at)
+                             if kind != "turn_aborted" and at is not None else None)
+            elif kind == "token_count":
+                info = payload.get("info")
+                last = info.get("last_token_usage") if isinstance(info, dict) else None
+                total = finite_number(last.get("total_tokens")) if isinstance(last, dict) else None
+                window = finite_number(info.get("model_context_window")) if isinstance(info, dict) else None
+                if total is not None and window is not None and window > 0:
+                    if (percent := clamped_percent(total / window * 100)) is not None:
+                        self.context = percent
 
 
 class CodexSessionFiles:
@@ -100,9 +88,7 @@ class CodexSessionFiles:
         self._batch_listing = False
         self._tree: list[Path] | None = None
         self._recent: list[Path] = []
-        # Thread id -> the rollout as last parsed, and the fill it gave.
-        self._context: dict[str, tuple[Stamp, int | None]] = {}
-        # Rollout -> the shared version/boundary cursor and the target stamp it consumed.
+        # Rollout -> the version, turn and context followed from its last read.
         self._rollouts: dict[Path, _RolloutCursor] = {}
         # The rollouts `rate_limits()` last consulted, by (path, mtime), and what they said: the
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
@@ -115,158 +101,42 @@ class CodexSessionFiles:
 
     def retain(self, session_ids: set[str]) -> None:
         """Drops what is cached for threads no tab is running any more."""
-        for cache in (self._paths, self._missed, self._context):
+        for cache in (self._paths, self._missed):
             for session_id in cache.keys() - session_ids:
                 del cache[session_id]
         for path in self._rollouts.keys() - set(self._paths.values()):
             del self._rollouts[path]
 
-
-    def _context_at(self, session_id: str, path: Path) -> int | None:
-        try:
-            st = path.stat()
-        except OSError:
-            return None
-        stamp = (path, st.st_ino, st.st_ctime_ns, st.st_mtime_ns, st.st_size)
-        cached = self._context.get(session_id)
-        if cached is not None and cached[0] == stamp:
-            return cached[1]
-        try:
-            percent = self._read_context(path)
-        except OSError:
-            return None
-        self._context[session_id] = (stamp, percent)
-        return percent
-
-    def _previous_version(self, path: Path, stat: os.stat_result) -> str | None:
-        previous = self._rollouts.get(path)
-        return previous.version if previous is not None and not previous.rewritten(stat.st_ino, stat.st_size) else None
-
-    def _turn_at(self, path: Path, thread_id: str) -> tuple[State, float] | None:
-        try:
-            cursor = self._rollout(path, thread_id, path.stat())
-        except OSError:
-            return None
-        error, cursor.turn_error = cursor.turn_error, None
-        if error is not None:
-            raise error
-        return cursor.latest
-
     def reading(self, thread_id: str) -> CodexReading:
-        """One discovery with version/boundary sharing a pass; failures remain field-specific."""
-        located = self._path_for(thread_id)
-        path = located.path
-        if path is None:
-            return CodexReading(None, None, None)
-        log = logging.getLogger("aitermd.service")
+        """Follow one rollout for the thread's version, last turn boundary and context fill."""
         try:
-            context = None if located.after_cached_miss else self._context_at(thread_id, path)
-        except Exception:  # context failure must not discard version or boundary evidence
-            log.exception("reading the Codex context of thread %s failed", thread_id)
-            context = None
-        version = None
-        try:
+            if (path := self._path_for(thread_id)) is None:
+                return CodexReading(None, None, None)
             stat = path.stat()
+            old = self._rollouts.get(path)
+            first = b""
+            if old is None or old.rewritten(stat.st_ino, stat.st_size):
+                cursor = _RolloutCursor(stat.st_ino)
+                if stat.st_size > READ_BYTES:
+                    with path.open("rb") as stream:
+                        first = stream.readline(READ_BYTES)
+                    cursor.offset = stat.st_size - READ_BYTES
+                    cursor.clipped = True
+            else:
+                if old.offset == stat.st_size:
+                    return CodexReading(old.context, old.version, old.turn)
+                cursor = replace(old)
+            lines = cursor.read_lines(path, stat.st_size)
         except OSError:
-            cursor = None
-        else:
-            try:
-                cursor = self._rollout(path, thread_id, stat)
-            except OSError:
-                version, cursor = self._previous_version(path, stat), None
-            except Exception:  # a failed shared read must not discard context
-                log.exception("reading the Codex rollout of thread %s failed", thread_id)
-                cursor = None
-        if cursor is None:
-            # Main attempted the boundary independently after a failed version read. Keep that
-            # recovery opportunity, using the already-discovered path rather than rediscovering it.
-            try:
-                turn = self._turn_at(path, thread_id)
-            except Exception:  # each field has the same isolation boundary as before consolidation
-                log.exception("reading the Codex turn boundary of thread %s failed", thread_id)
-                turn = None
-            return CodexReading(context, version, turn)
-        version_error, turn_error = cursor.version_error, cursor.turn_error
-        cursor.version_error = cursor.turn_error = None
-        if version_error is not None:
-            log.error("reading the Codex version of thread %s failed", thread_id, exc_info=version_error)
-        if turn_error is not None:
-            log.error("reading the Codex turn boundary of thread %s failed", thread_id, exc_info=turn_error)
-        return CodexReading(context, cursor.version if version_error is None else None,
-                            cursor.latest if turn_error is None else None)
-
-    def _rollout(self, path: Path, thread_id: str, st: os.stat_result) -> _RolloutCursor:
-        stamp = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size)
-        old = self._rollouts.get(path)
-        if old is not None and old.stamp == stamp:
-            return old
-        fresh = (old is None or old.rewritten(st.st_ino, st.st_size)
-                 or (old.offset == st.st_size and old.stamp != stamp))
-        cursor = _RolloutCursor(st.st_ino) if fresh or old is None else replace(old)
-        with path.open("rb") as stream:
-            actual = os.fstat(stream.fileno())
-            if (actual.st_dev, actual.st_ino) != (st.st_dev, st.st_ino):
-                raise OSError("rollout replaced before its read")
-            start = max(0, st.st_size - READ_BYTES) if fresh else cursor.offset
-            stream.seek(start)
-            chunk = stream.read(st.st_size - start)
-            short = len(chunk) != st.st_size - start
-            if short and fresh and start:
-                # An incomplete tail cannot establish the missing head's facts. Main read from
-                # the beginning on first sight; recover that same complete-record prefix.
-                cursor = _RolloutCursor(st.st_ino)
-                start = 0
-                stream.seek(0)
-                chunk = stream.read(st.st_size)
-                short = len(chunk) != st.st_size
-            offset = start + len(chunk)
-            clipped = b""
-            if fresh and start:
-                end = chunk.find(b"\n")
-                clipped, chunk = (chunk, b"") if end < 0 else (chunk[:end + 1], chunk[end + 1:])
-            *lines, cursor.partial = (cursor.partial + chunk).split(b"\n")
-            cursor.consume(lines, thread_id)
-            if fresh and start and (cursor.version is None or not cursor.boundary_seen):
-                # The tail cannot erase an older answer. Read the head once for both missing
-                # facts, including the complete line that straddles the window's edge.
-                stream.seek(0)
-                prefix = stream.read(start)
-                if len(prefix) != start:
-                    # The read is incomplete: use only the contiguous complete records from
-                    # the start, with no complete-stamp cache hit until a later read catches up.
-                    short, offset = True, len(prefix)
-                    cursor = _RolloutCursor(st.st_ino)
-                    clipped, chunk = b"", b""
-
-                *head_lines, partial = (prefix + clipped).split(b"\n")
-                need_version, need_turn = cursor.version is None, not cursor.boundary_seen
-                head = _RolloutCursor(st.st_ino)
-                head.consume(head_lines, thread_id, version=need_version, turn=need_turn)
-                if need_version:
-                    cursor.version = head.version
-                    cursor.version_error = cursor.version_error or head.version_error
-                if need_turn:
-                    cursor.latest, cursor.boundary_seen = head.latest, head.boundary_seen
-                    cursor.turn_error = cursor.turn_error or head.turn_error
-                if not chunk:
-                    cursor.partial = partial
-        cursor.offset, cursor.stamp = offset, None if short else stamp
-        # Main advances through the complete batch before parsing it. A decoder failure
-        # reports once, then exposes only the facts parsed before it until more bytes arrive.
+            return CodexReading(None, None, None)
+        if first.endswith(b"\n"):
+            cursor.consume([first], thread_id)
+        if cursor.clipped and lines:
+            lines = lines[1:]
+            cursor.clipped = False
+        cursor.consume(lines, thread_id)
         self._rollouts[path] = cursor
-        return cursor
-
-    def _read_context(self, path: Path) -> int | None:
-        for _, payload in self._token_counts(path):
-            info = payload.get("info")
-            last = info.get("last_token_usage") if isinstance(info, dict) else None
-            total = finite_number(last.get("total_tokens")) if isinstance(last, dict) else None
-            window = finite_number(info.get("model_context_window")) if isinstance(info, dict) else None
-            if total is None or window is None or window <= 0:
-                continue
-            if (percent := clamped_percent(total / window * 100)) is not None:
-                return percent
-        return None
+        return CodexReading(cursor.context, cursor.version, cursor.turn)
 
     def rate_limits(self) -> tuple[dict[str, Any], int | None] | None:
         """The newest `rate_limits` block any Codex session has written, with the record's own
@@ -305,10 +175,10 @@ class CodexSessionFiles:
         self._recent = [path for path, _ in stamped[:RECENT_KEPT]]
         return tuple(stamped[:count])
 
-    def _path_for(self, session_id: str) -> _LocatedRollout:
+    def _path_for(self, session_id: str) -> Path | None:
         cached = self._paths.get(session_id)
         if cached is not None and cached.is_file():
-            return _LocatedRollout(cached)
+            return cached
         # A thread whose rollout is nowhere is looked for across the whole tree once per
         # LIST_SECONDS; in between only under today's date, where a new thread's rollout appears.
         missed = self._missed.get(session_id)
@@ -317,20 +187,18 @@ class CodexSessionFiles:
         shared_tree = full and self._tree is not None
         matches = [path for path in (self._list_all() if full else self._list_today()) if path.name.endswith(suffix)]
         path = max(matches, key=lambda item: _mtime(item) or -1, default=None)
-        recovered = False
         if path is None and shared_tree:
             # The shared tree is a snapshot. A new rollout may already exist under today's
-            # date, where main's second lookup discovered it in the same tick.
+            # date, even when the tree was listed earlier in this tick.
             today = [candidate for candidate in self._list_today() if candidate.name.endswith(suffix)]
             path = max(today, key=lambda item: _mtime(item) or -1, default=None)
-            recovered = path is not None
         if path is None:
             if full:
                 self._missed[session_id] = self._clock()
-            return _LocatedRollout(None)
+            return None
         self._missed.pop(session_id, None)
         self._paths[session_id] = path
-        return _LocatedRollout(path, recovered)
+        return path
 
     def _list_all(self) -> list[Path]:
         if self._tree is not None:

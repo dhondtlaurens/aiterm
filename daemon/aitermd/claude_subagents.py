@@ -18,9 +18,7 @@ INTERRUPTED = "[Request interrupted by user"
 
 @dataclass(frozen=True, slots=True)
 class TranscriptTail:
-    """What the end of a subagent's transcript says. `stamp` is (st_mtime_ns, st_size), which
-    changes whenever Claude appends; `written_at` is the st_mtime, in the wall clock's seconds."""
-    stamp: tuple[int, int]
+    """What the end of a subagent's transcript says; `written_at` is its wall-clock mtime."""
     written_at: float
     # When the last record ends the child's run -- an interruption, or a SubagentStop hook that ran with no prompt before
     # it for the child to answer -- the time that record gives, or `written_at` when it gives none. Claude writes in
@@ -103,15 +101,14 @@ class SubagentTranscripts:
         if (st := self._stat(path)) is None:
             return None
         real, stat = st
-        stamp = (stat.st_mtime_ns, stat.st_size)
-        identity = (real, stat.st_ino, stat.st_ctime_ns, *stamp)
+        identity = (real, stat.st_ino, stat.st_ctime_ns, stat.st_mtime_ns, stat.st_size)
         if (cached := self._cache.get(path)) is not None and cached[0] == identity:
             return cached[1]
         try:
             ending = _ending(records_newest_first(Path(real), TAIL_BYTES, discard_boundary=True))
         except OSError:
             return None
-        tail = TranscriptTail(stamp, stat.st_mtime, None if ending is None else iso_seconds(ending.get("timestamp")) or stat.st_mtime)
+        tail = TranscriptTail(stat.st_mtime, None if ending is None else iso_seconds(ending.get("timestamp")) or stat.st_mtime)
         self._cache[path] = (identity, tail)
         return tail
 

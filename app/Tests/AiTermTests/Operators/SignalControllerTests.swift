@@ -37,6 +37,38 @@ import Testing
         #expect(launches == 1)
         root.stop()
     }
+    @Test func aSourceFailureIsSavedLoggedAndWokenOnlyWhenItsReasonChangesAndAPassClearsIt() async throws {
+        var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
+        var session = OperatorSession(createdAt: world.now); session.window = "operator-window"
+        world.state.operatorSession = session
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("operator", window: "operator-window", tag: session.id, state: .done, conversation: "op")]
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        defer { root.stop() }
+        func entries() -> [ActivityEntry] {
+            ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries.filter { $0.tool == "signal_read" }
+        }
+        for _ in 0..<2 {
+            root.poller.onFailure([signal], "The source is unavailable.")
+            await root.reconcile(); await ports.work.settled()
+        }
+        #expect(h.workspace.state.operatorSession?.sourceFailures?[signal.uuidString] == "The source is unavailable.")
+        #expect(entries().map(\.result) == ["The source is unavailable."])
+        #expect(daemon.requests("session.deliver").count == 1)
+        root.poller.onFailure([signal], "The connection was refused.")
+        await root.reconcile(); await ports.work.settled()
+        #expect(h.workspace.state.operatorSession?.sourceFailures?[signal.uuidString] == "The connection was refused.")
+        #expect(entries().map(\.result) == ["The source is unavailable.", "The connection was refused."])
+        #expect(daemon.requests("session.deliver").count == 2)
+        root.poller.onPass([SignalObservation(signals: [signal], read: SignalRead(items: [], complete: true))])
+        #expect(h.workspace.state.operatorSession?.sourceFailures?[signal.uuidString] == nil)
+        await root.reconcile(); await ports.work.settled()
+        #expect(entries().count == 2 && daemon.requests("session.deliver").count == 2)
+    }
     @Test func unsupportedPersistedSettingsCannotBeCreatedThroughTheSignalSaveBoundary() async throws {
         var world = SignalWorld(); _ = world.signal()
         let h = try SignalHarness(world); defer { h.cleanUp() }

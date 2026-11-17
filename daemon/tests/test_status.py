@@ -478,7 +478,7 @@ TRANSCRIPT = "/p/sess/subagents/agent-c1.jsonl"
 
 def _claude_engine(monotonic):
     """A Claude tab whose turn ended while child `c1` runs in the background: its Stop is deferred.
-    The child started at wall-clock 100; its transcript quiet window runs on `monotonic`."""
+    The child started at wall-clock 100; Stop and read ordering uses `monotonic`."""
     reg = SessionRegistry()
     reg.apply_snapshot([RawSession("s1", "w1", 0, "claude", 1, "", "/x", {"aiterm_task": "t1"})])
     wall = Clock()
@@ -490,10 +490,10 @@ def _claude_engine(monotonic):
     return eng, reg, wall
 
 
-def _tail(ended=False, written_at=200.0, size=10, ended_at=None):
+def _tail(ended=False, written_at=200.0, ended_at=None):
     """A transcript as read: its end, by default, written at `written_at`."""
     ended_at = ended_at if ended_at is not None else written_at if ended else None
-    return TranscriptTail(stamp=(int(written_at * 1e9), size), written_at=written_at, ended_at=ended_at)
+    return TranscriptTail(written_at=written_at, ended_at=ended_at)
 
 
 def test_every_counted_childs_transcript_is_read(clock):
@@ -513,69 +513,20 @@ def test_a_child_whose_transcript_ends_interrupted_releases_the_deferred_done(cl
     assert eng.subagent_transcripts() == set()
 
 
-def test_a_quiet_child_past_the_window_releases_it(clock):
-    eng, reg, _ = _claude_engine(clock)
-    eng.release_dead_subagents({TRANSCRIPT: _tail()})     # first seen: the window starts
-    clock.now += status.SUBAGENT_QUIET_SECONDS - 1
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
-    clock.now += 1
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == ["s1"]
-    assert reg.get("s1").state == "done"
-
-
 def test_a_quiet_child_of_a_turn_under_way_is_left_to_the_turns_stop(clock):
     # Neither deferred nor stopped: the turn's Stop says whether it still runs.
     eng, reg, _ = _claude_engine(clock)
     eng.apply_event("s1", hook("working"))
     eng.release_dead_subagents({TRANSCRIPT: _tail()})
-    clock.now += 10 * status.SUBAGENT_QUIET_SECONDS
+    clock.now += 60 * 60
     assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
     assert eng.turn("s1").children and reg.get("s1").state == "working"
-    # Stopped, with nothing in its transcript to show the run over: quiet as long after its stop, it is taken for dead.
-    eng.apply_event("s1", hook("subagentStop", "c1"))
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
-    clock.now += status.SUBAGENT_QUIET_SECONDS
-    eng.release_dead_subagents({TRANSCRIPT: _tail()})
-    assert not eng.turn("s1").children
-
-
-def test_a_childs_quiet_counts_from_the_stop_that_leaves_the_turn_waiting_on_it(clock):
-    # Quiet while its parent worked is no sign of its death; nor does the session file, saying on every tick that the
-    # turn ended, begin the window again.
-    eng, reg, _ = _claude_engine(clock)
-    eng.apply_event("s1", hook("working"))
-    eng.release_dead_subagents({TRANSCRIPT: _tail()})
-    clock.now += 10 * status.SUBAGENT_QUIET_SECONDS
-    eng.apply_event("s1", hook("done", running_subagents=frozenset({"c1"})))
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
-    clock.now += status.SUBAGENT_QUIET_SECONDS - 1
-    eng.apply_claude_file_status("s1", "idle", FRESH)
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
-    clock.now += 1
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == ["s1"]
-    assert reg.get("s1").state == "done"
-
-
-def test_the_quiet_window_ignores_the_wall_clock(clock):
-    # A laptop that slept, or an NTP step, must not make a live child look quiet.
-    eng, reg, wall = _claude_engine(clock)
-    eng.release_dead_subagents({TRANSCRIPT: _tail()})
-    wall.now += 10 * status.SUBAGENT_QUIET_SECONDS
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail()}) == []
-
-
-def test_a_child_still_being_written_keeps_the_row_working(clock):
-    eng, reg, _ = _claude_engine(clock)
-    for size in range(1, 5):
-        eng.release_dead_subagents({TRANSCRIPT: _tail(size=size)})
-        clock.now += status.SUBAGENT_QUIET_SECONDS - 1
-    assert reg.get("s1").state == "working"
 
 
 def test_a_missing_transcript_keeps_it_working(clock):
     eng, reg, _ = _claude_engine(clock)
     assert eng.release_dead_subagents({}) == []
-    clock.now += 10 * status.SUBAGENT_QUIET_SECONDS
+    clock.now += 60 * 60
     assert eng.release_dead_subagents({}) == []
     assert reg.get("s1").state == "working"
 
@@ -600,7 +551,7 @@ def test_a_resent_subagent_start_re_adds_the_child(clock):
     # Its transcript still ends in the interruption from before the resume: that verdict is stale.
     eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=200.0)})
     assert reg.get("s1").state == "working"
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=301.0, size=20)}) == ["s1"]
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=301.0)}) == ["s1"]
 
 
 def test_a_dead_child_waits_for_its_live_siblings(clock):
@@ -610,7 +561,7 @@ def test_a_dead_child_waits_for_its_live_siblings(clock):
     eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True), other: _tail()})
     assert reg.get("s1").state == "working" and eng.subagent_transcripts() == {other}
     eng.apply_event("s1", hook("subagentStop", "c2"))
-    assert eng.release_dead_subagents({other: _tail(ended=True, size=20)}) == ["s1"]
+    assert eng.release_dead_subagents({other: _tail(ended=True)}) == ["s1"]
 
 
 def test_a_child_without_a_transcript_is_never_released(clock):
@@ -679,9 +630,9 @@ def test_a_claude_childs_subagent_stop_ends_it_at_the_tick_that_reads_the_stop(c
     eng, reg, _ = _claude_engine(clock)
     assert eng.apply_event("s1", hook("subagentStop", "c1")) == []
     # Claude writes the stop's record a moment after the hook: a tick before then reads the child's last message.
-    eng.release_dead_subagents({TRANSCRIPT: _tail(size=20)})
+    eng.release_dead_subagents({TRANSCRIPT: _tail()})
     assert reg.get("s1").state == "working"
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, size=30)}) == ["s1"]
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True)}) == ["s1"]
     assert reg.get("s1").state == "done"
 
 
@@ -689,11 +640,11 @@ def test_a_claude_child_run_on_after_its_subagent_stop_keeps_the_row_working(clo
     eng, reg, _ = _claude_engine(clock)
     eng.apply_event("s1", hook("subagentStop", "c1"))
     # The reminder and the stop's record, then the child answering it: nothing that ends it.
-    for size in (20, 30):
-        eng.release_dead_subagents({TRANSCRIPT: _tail(size=size)})
+    for _ in range(2):
+        eng.release_dead_subagents({TRANSCRIPT: _tail()})
     assert reg.get("s1").state == "working"
     assert eng.apply_event("s1", hook("subagentStop", "c1")) == []
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, size=40)}) == ["s1"]
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True)}) == ["s1"]
     assert reg.get("s1").state == "done"
 
 
@@ -769,7 +720,7 @@ def test_a_resumed_childs_stop_is_not_ended_by_its_earlier_runs_record(clock):
     # Read before the resumed run's records reach the file: the earlier run's end, written at 200.
     eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True)})
     assert reg.get("s1").state == "working"
-    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=301.0, size=20)}) == ["s1"]
+    assert eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=301.0)}) == ["s1"]
 
 
 # -- what a turn that ended on its subagents waits on ---------------------------------------------
@@ -832,9 +783,9 @@ def test_counted_children_keep_working_until_their_transcripts_end(clock):
     assert reg.get("s1").state == "working"
     assert eng.release_dead_subagents({}) == [], "a read that did not answer changes nothing"
     eng.apply_event("s1", hook("subagentStop", "c2"))
-    eng.release_dead_subagents({TRANSCRIPT: _tail(written_at=210.0), OTHER: _tail(ended=True, written_at=240.0, size=20)})
+    eng.release_dead_subagents({TRANSCRIPT: _tail(written_at=210.0), OTHER: _tail(ended=True, written_at=240.0)})
     eng.apply_event("s1", hook("subagentStop", "c1"))
-    eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=250.0, size=20)})
+    eng.release_dead_subagents({TRANSCRIPT: _tail(ended=True, written_at=250.0)})
     assert eng.subagent_transcripts() == set()
 
 

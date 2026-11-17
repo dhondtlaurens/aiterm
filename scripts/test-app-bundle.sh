@@ -58,7 +58,5 @@ for requirement in dependencies:
     assert installed.get(name.lower().replace("_", "-")) == expected, requirement
 PYCODE
 cmp -s "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE" || { echo "bundled LICENSE is missing or differs from the repo's" >&2; exit 1; }
-feed="$(/usr/libexec/PlistBuddy -c 'Print :AiTermUpdateFeed' "$APP/Contents/Info.plist" 2>/dev/null || true)"
-[[ "$feed" == github:dhondtlaurens/aiterm ]] || { echo "expected AiTermUpdateFeed=github:dhondtlaurens/aiterm, got ${feed:-<missing>}" >&2; exit 1; }
 codesign --verify --deep --strict "$APP"
 echo "verified executable, resources, pinned helper dependencies, and signature in $APP"

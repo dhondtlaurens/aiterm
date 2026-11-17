@@ -46,15 +46,14 @@ class ClaudeSessionFiles:
 
     def known_pid(self, session_id: str) -> int | None:
         """Last successful index evidence, without I/O while the resolver's worker is unavailable."""
-        return next((cached.pid for path, (_, cached) in tuple(self._index.items())
-                     if path.parent == self.root and cached is not None and cached.session_id == session_id), None)
+        return next((cached.pid for _, cached in tuple(self._index.values())
+                     if cached is not None and cached.session_id == session_id), None)
 
     def indexed_pid(self, session_id: str) -> int | None:
         """The pid of a conversation already read by a tick or an earlier post, with just that one
         file checked again: most posts name one. None for a renamed, removed or unknown one."""
-        root = self.root
-        for path, (_, cached) in tuple(self._index.items()):
-            if path.parent == root and cached and cached.session_id == session_id:
+        for _, cached in tuple(self._index.values()):
+            if cached and cached.session_id == session_id:
                 if (current := self.read(cached.pid)) and current.session_id == session_id:
                     return current.pid
         return None
@@ -65,10 +64,7 @@ class ClaudeSessionFiles:
             return pid
         root = self.root
         index = {path: entry for path in root.glob("*.json") if (entry := self._load(path)) is not None}
-        # `configure` can move the root while a scan runs on a worker thread: an index of the old
-        # root must not replace the new one's.
-        if root == self.root:
-            self._index = index
+        self._index = index
         return next((f.pid for _, f in index.values() if f and f.session_id == session_id), None)
 
     def _load(self, path: Path) -> _Entry | None:

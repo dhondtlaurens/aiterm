@@ -21,7 +21,7 @@ public final class BranchResolver: Sendable {
     /// that answer standing until the next lookup.
     public func branch(for cwd: String) -> String? {
         do {
-            switch try resolver.answer(for: cwd, locate: { [Self.locate($0)] }, read: { try Self.read($0, head: $1[0], git: $2) }) {
+            switch try resolver.answer(for: cwd, locate: { [$0.head] }, read: { try Self.read($0, head: $1[0], git: $2) }) {
             case .notARepository: return nil
             case .found(let branch): return branch
             }
@@ -45,20 +45,6 @@ public final class BranchResolver: Sendable {
         resolver.probe.retain(only: live)
     }
 
-    /// The file a checkout rewrites: `HEAD`, or in a reftable repository the list of the stack
-    /// that holds HEAD — there the `HEAD` file is a stub no checkout touches, and every ref update
-    /// adds a table and rewrites that list instead. Its content says nothing `parseHead` reads, so
-    /// such a repository's answer comes from git.
-    private static func locate(_ found: RepositoryProbe.Locations) -> String {
-        guard (try? String(contentsOfFile: found.head, encoding: .utf8)).map(isReftableStub) == true else { return found.head }
-        return found.reftableList
-    }
-
-    /// What a reftable repository keeps in its `HEAD` file, for tools that look for one.
-    static func isReftableStub(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines) == "ref: refs/heads/.invalid"
-    }
-
     /// The branch name, or the short sha when HEAD is detached — a rebase or `git checkout <sha>`
     /// must not blank the row. The cache already found the `HEAD` file, and every checkout rewrites
     /// it, so it is read directly; only what `parseHead` cannot answer costs a git call. `nil` is
@@ -72,11 +58,10 @@ public final class BranchResolver: Sendable {
     }
 
     /// `ref: refs/heads/<name>` is a branch; forty hex digits are a detached HEAD, shown as the
-    /// seven-digit short sha. Anything else — a HEAD outside `refs/heads`, a SHA-256 repository, a
-    /// reftable repository's stub — is left to git.
+    /// seven-digit short sha. Anything else, including a HEAD outside `refs/heads` or a SHA-256
+    /// hash, is left to git.
     static func parseHead(_ text: String) -> String? {
         let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isReftableStub(line) { return nil }
         if line.hasPrefix("ref: refs/heads/") {
             let name = line.dropFirst("ref: refs/heads/".count)
             return name.isEmpty ? nil : String(name)

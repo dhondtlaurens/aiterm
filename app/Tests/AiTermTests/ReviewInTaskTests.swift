@@ -124,31 +124,6 @@ import Testing
         #expect(fixture.controller.state.tasks.map(\.id) == [fixture.task.id])
     }
 
-    /// The sheet names the destination before anything is created. If the branch moves off the
-    /// task it named, the press that would have opened it elsewhere stops and says where it goes now.
-    @Test func theSheetRefusesADestinationThatMovedSinceItWasShown() async throws {
-        let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
-        defer { fixture.cleanUp() }
-        var submitted = false
-        let controller = fixture.controller, projectId = fixture.project.id
-        let model = ReviewCreationModel(project: fixture.project, draft: fixture.draft,
-                                        context: .scratch(catalogue: { _ in [AgentModel(id: "sonnet", label: "Sonnet", detail: nil, efforts: [], defaultEffort: nil)] }),
-                                        owningTask: { branch, checkouts in controller.state.task(checkingOut: branch, in: projectId, worktrees: checkouts) },
-                                        searchMergeRequests: { _ in [] }, createReview: { _ in submitted = true }, recover: { _ in })
-        await model.loadAgentCatalogue()
-        await model.loadCheckouts()
-        #expect(model.owningTask?.id == fixture.task.id)
-        try fixture.git.run(["switch", "-q", "-c", "feat/other"], in: fixture.task.worktreePath)
-
-        #expect(await model.create() == false)
-        #expect(!submitted)
-        #expect(model.owningTask == nil, "the sheet now shows a worktree of its own")
-        #expect(model.error?.reason.contains("no longer has feat/work checked out") == true)
-        // Nothing moved since: the next press goes ahead, to the destination now shown.
-        #expect(await model.create() == true)
-        #expect(submitted)
-    }
-
     /// Nothing has been created when this fails, so it is the sheet's error and the draft survives
     /// for a retry — unlike a new worktree, whose recovery the workspace owns.
     @Test func aReviewInATaskWhileDisconnectedFailsWithoutTouchingTheTask() async throws {

@@ -188,6 +188,43 @@ import Testing
         await #expect(throws: (any Error).self) { try await io.launch(stale, prompt: "Run.") }
         #expect(daemon.requests("window.createTask").isEmpty)
     }
+    @Test(.blocking) func takeOverDuringARequestCheckoutKeepsItsFolderAndBaseBranchWithoutLaunchingAWorker() async throws {
+        let repo = try await GitFixture.makeRepoOffMain(prefix: "signal-checkout-")
+        defer { try? FileManager.default.removeItem(atPath: repo) }
+        let git = CheckoutHeldGit()
+        try await BackgroundWork.run { _ = try GitRunner.hermetic().run(["branch", "work"], in: repo) }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateProject(id: world.project.id) { $0.path = repo }
+        world.state.updateSignalItem(id) {
+            $0.branch = "work"; $0.worktreePath = ""; $0.baseBranch = ""; $0.windowId = nil
+            $0.mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+            $0.signalTask?.phase = .launching
+        }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch(git: git)
+        defer { git.release(); try? FileManager.default.removeItem(at: ports.home) }
+        let stub = StubSession { _ in
+            (200, Data(#"[{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","source_project_id":1,"target_project_id":1}]"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let root = SignalOperatorController(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
+        defer { root.stop() }
+        root.native.connections = { links }
+        let checkout = Task { await root.stages.run(id) }
+        await git.entered.wait()
+        await root.takeOver(id)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.takenOver == true)
+        #expect(h.workspace.state.task(id: id)?.hasCheckout == false)
+        git.release(); await checkout.value
+        let task = try #require(h.workspace.state.task(id: id))
+        #expect(task.worktreePath == repo + "/.worktrees/review-work")
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(task.baseBranch == "main")
+        #expect(task.signalTask?.takenOver == true && task.signalTask?.ownership == 1)
+        #expect(daemon.requests.isEmpty, "The finished checkout cannot launch a worker after Take Over.")
+    }
     @Test func extraWorkTabPersistsItsKeyAndARepeatedOpenAdoptsIt() async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
@@ -237,7 +274,7 @@ import Testing
         #expect(daemon.requests("window.createTask").isEmpty)
         try? FileManager.default.removeItem(at: ports.home)
     }
-    @Test(arguments: [false, true]) func anInterruptedLaunchAdoptsItsGuardedWorkerWithoutRepeatingThePrompt(invalidScope: Bool) async throws {
+    @Test(arguments: [false, true]) func anInterruptedLaunchAdoptsItsTaggedWorkerWithoutRepeatingThePrompt(plannedAgent: Bool) async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         h.workspace.mutate { $0.updateSignalItem(id) {
@@ -246,16 +283,29 @@ import Testing
         } }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
         defer { try? FileManager.default.removeItem(at: ports.home) }
-        let task = try #require(h.workspace.state.task(id: id))
-        var scope = WorkerGuard.Scope(task: id, worktree: task.worktreePath, branch: task.branch, remote: world.project.remoteUrl!, allowsPush: true)
-        scope.stage = task.signalTask?.stage; scope.ownership = invalidScope ? 99 : task.signalTask!.ownership
-        _ = try WorkerGuardLaunch.prepare(scope: scope, home: ports.home, executable: ports.workerGuardExecutable)
-        live.sessions = [OperatorServiceFixtures.session("already-started", window: "existing-window", tag: id, state: .working, conversation: "existing-conversation")]
+        live.sessions = [OperatorServiceFixtures.session("already-started", window: "existing-window", tag: id,
+            agent: plannedAgent ? .claude : .codex, state: .working, conversation: "existing-conversation")]
         let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
                                 daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
-        await io.recoverLaunches()
-        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == (invalidScope ? .blocked : .working))
-        if !invalidScope { #expect(h.workspace.state.task(id: id)?.windowId == "existing-window") }
+        io.recoverLaunches()
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == (plannedAgent ? .working : .blocked))
+        if plannedAgent { #expect(h.workspace.state.task(id: id)?.windowId == "existing-window") }
         #expect(daemon.requests.isEmpty, "Recovery observes the tagged worker; it never sends another prompt or closes it")
+    }
+}
+
+private final class CheckoutHeldGit: GitRunning {
+    let entered = TestLatch()
+    private let gate = DispatchSemaphore(value: 0)
+    private let inner = GitRunner.hermetic()
+    func release() { gate.signal() }
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.starts(with: ["worktree", "add"]) {
+            entered.signal()
+            guard gate.wait(timeout: .now() + TestDeadline.seconds) == .success else {
+                throw ActionUnavailable("Timed out waiting for Take Over during checkout.")
+            }
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

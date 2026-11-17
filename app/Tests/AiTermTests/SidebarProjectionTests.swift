@@ -20,7 +20,7 @@ import Testing
         SessionInfo.make(window: "w", task: Self.taskId, state: state, cwd: "/repo/a")
     }
 
-    private func controller(scan: @escaping CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
+    private func controller(scan: @escaping CheckoutMonitor.Scanner = { _, _, _, _, _, _ in
         WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
     }) throws -> AppController {
         let controller = AppController(preferences: .scratch(), scan: scan)
@@ -188,7 +188,7 @@ import Testing
     /// The rows are the list's whole model: what `SidebarModel.entries` makes of the workspace,
     /// the tabs as the rows read them and the checkouts on disk, kept as each of them changes.
     @Test func theRowsFollowTheWorkspaceTheTabsAndTheCheckouts() async throws {
-        let controller = try controller(scan: { _, _, _, _, _, _, _ in
+        let controller = try controller(scan: { _, _, _, _, _, _ in
             WorkspaceScan(branchByCwd: ["/repo/a": "feat/moved"], projectBranch: [:], missingCheckouts: [],
                           removedTasks: [], remotes: [:], diffByTask: [Self.taskId: DiffStat(added: 3, removed: 1)])
         })

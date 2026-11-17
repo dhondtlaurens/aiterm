@@ -1,8 +1,9 @@
 import Foundation
 
 /// A lossless view of TOML text as top-level statements, split only at newlines outside strings,
-/// arrays and inline tables. Comments stay in `text`, out of `code`. Used to edit one table of a
-/// user's file while every other byte, comment and table is kept exactly.
+/// arrays and inline tables. Comments stay in `text`, out of `code`. It reads structure only (headers,
+/// key paths, statement boundaries), never values, so one table of a user's file can be edited while
+/// every other byte, comment and table is kept exactly.
 enum TOMLStatements {
     struct Statement {
         var text: String
@@ -19,21 +20,6 @@ enum TOMLStatements {
             guard header == nil, let equals = Self.equals(in: code) else { return nil }
             return Self.path(String(code[..<equals]))
         }
-        /// The string an assignment holds, in any of TOML's four string forms; `nil` for any
-        /// other value, and for a string TOML itself would reject.
-        var value: String? {
-            guard header == nil, let equals = Self.equals(in: code) else { return nil }
-            return Self.string(String(code[code.index(after: equals)...]))
-        }
-        /// The name an assignment gives, whatever its value: `padding = 2` names `padding` even
-        /// though `assignment` only reads string values. `nil` for dotted keys, headers, comments
-        /// and blank lines.
-        var key: String? { keyPath.flatMap { $0.count == 1 ? $0[0] : nil } }
-        var assignment: (String, String)? {
-            guard let key, let value else { return nil }
-            return (key, value)
-        }
-
         /// The `=` that ends a key: the first outside a quoted key such as `"a=b"`.
         private static func equals(in code: String) -> String.Index? {
             var quote: Character?, escaped = false
@@ -49,71 +35,8 @@ enum TOMLStatements {
             return nil
         }
 
-        /// A TOML string's value: basic (`"…"`, with escapes), literal (`'…'`, none), and the
-        /// multi-line `"""…"""` and `'''…'''`, whose newline right after the opening quotes
-        /// is not part of the value and which may end in up to two quotes of their own. `nil`
-        /// for anything else, or anything left over after the closing quote.
-        static func string(_ raw: String) -> String? {
-            let chars = Array(raw.trimmingCharacters(in: .whitespacesAndNewlines))
-            guard let quote = chars.first, quote == "\"" || quote == "'" else { return nil }
-            let multiline = chars.count >= 3 && chars[1] == quote && chars[2] == quote
-            let basic = quote == "\""
-            var i = multiline ? 3 : 1, out = ""
-            if multiline, i < chars.count, chars[i].isNewline { i += 1 }
-            while i < chars.count {
-                let c = chars[i]
-                if c == quote {
-                    guard multiline else { return i == chars.count - 1 ? out : nil }
-                    var run = 0
-                    while i + run < chars.count, chars[i + run] == quote { run += 1 }
-                    if run >= 3 {
-                        guard run <= 5, i + run == chars.count else { return nil }
-                        return out + String(repeating: String(quote), count: run - 3)
-                    }
-                    out += String(repeating: String(quote), count: run); i += run
-                } else if basic, c == "\\" {
-                    if multiline, let next = lineEndingBackslash(chars, at: i) { i = next; continue }
-                    guard let (escaped, next) = escape(chars, at: i) else { return nil }
-                    out.unicodeScalars.append(escaped); i = next
-                } else {
-                    guard multiline || !c.isNewline else { return nil }
-                    out.append(c); i += 1
-                }
-            }
-            return nil
-        }
-
-        /// A backslash that ends a line of a multi-line basic string swallows the newline and
-        /// every space, tab and newline after it: the index of the next character kept.
-        private static func lineEndingBackslash(_ chars: [Character], at i: Int) -> Int? {
-            var j = i + 1
-            while j < chars.count, chars[j] == " " || chars[j] == "\t" { j += 1 }
-            guard j < chars.count, chars[j].isNewline else { return nil }
-            while j < chars.count, chars[j].isWhitespace { j += 1 }
-            return j
-        }
-
-        /// The escape at `chars[i]`, a backslash: what it stands for and the index after it.
-        /// `\e` and `\xHH` are TOML 1.1's.
-        private static func escape(_ chars: [Character], at i: Int) -> (Unicode.Scalar, Int)? {
-            guard i + 1 < chars.count else { return nil }
-            let simple: [Character: Unicode.Scalar] = ["b": "\u{8}", "t": "\t", "n": "\n", "f": "\u{C}",
-                                                       "r": "\r", "e": "\u{1B}", "\"": "\"", "\\": "\\"]
-            if let scalar = simple[chars[i + 1]] { return (scalar, i + 2) }
-            let digits: Int
-            switch chars[i + 1] {
-            case "x": digits = 2
-            case "u": digits = 4
-            case "U": digits = 8
-            default: return nil
-            }
-            guard i + 2 + digits <= chars.count else { return nil }
-            let hex = String(chars[(i + 2)..<(i + 2 + digits)])
-            guard hex.allSatisfy(\.isHexDigit), let value = UInt32(hex, radix: 16),
-                  let scalar = Unicode.Scalar(value) else { return nil }
-            return (scalar, i + 2 + digits)
-        }
-
+        /// A dotted key split at its dots outside quotes. A part wrapped in matching quotes loses
+        /// them, with no escape decoding; other parts are trimmed of spaces.
         static func path(_ raw: String) -> [String] {
             var parts: [String] = [], part = "", quote: Character?, escaped = false
             for c in raw {
@@ -127,7 +50,11 @@ enum TOMLStatements {
                 else { part.append(c) }
             }
             parts.append(part)
-            return parts.map { string($0) ?? $0.trimmingCharacters(in: .whitespaces) }
+            return parts.map { raw in
+                let part = raw.trimmingCharacters(in: .whitespaces)
+                guard part.count >= 2, let quote = part.first, quote == "\"" || quote == "'", part.last == quote else { return part }
+                return String(part.dropFirst().dropLast())
+            }
         }
     }
 
@@ -135,13 +62,6 @@ enum TOMLStatements {
         var statements: [Statement]
         var path: [String] { statements.first?.header?.path ?? [] }
         var array: Bool { statements.first?.header?.array ?? false }
-        var values: [String: String] {
-            var result: [String: String] = [:]
-            for statement in statements {
-                if let (key, value) = statement.assignment { result[key] = value }
-            }
-            return result
-        }
         var text: String { statements.map(\.text).joined() }
     }
 

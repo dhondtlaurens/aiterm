@@ -95,7 +95,6 @@ def test_the_tail_is_stamped_with_the_files_mtime_and_size(tmp_path):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT)
     os.utime(path, ns=(5_000_000_000, 5_000_000_000))
     tail = SubagentTranscripts().read(path)
-    assert tail.stamp == (5_000_000_000, os.path.getsize(path))
     assert tail.written_at == 5.0
 
 

@@ -23,6 +23,7 @@ final class ProjectActions {
     /// Whether each project's default branch is being pulled or rebased, observed row by row: the
     /// project's Pull greys while either runs.
     private let defaultBranchRows: PerRow<Bool>
+    private let defaultBranchNames: PerRow<String?>
 
     init(workspace: WorkspaceStore, work: WorkInFlight, notices: Notices, prompter: Prompter, checkouts: CheckoutMonitor,
          agents: AgentIntegrations, git: any GitRunning, workflow: TaskWorkflow,
@@ -38,6 +39,7 @@ final class ProjectActions {
         self.jiraSettings = jiraSettings
         let defaultBranchRows = PerRow<Bool>(default: false, workspace: workspace)
         self.defaultBranchRows = defaultBranchRows
+        defaultBranchNames = PerRow(default: nil, workspace: workspace)
         // Unowned: the ledger holds the hook.
         work.onChange { [unowned work] subject in
             if case .project(let id) = subject { defaultBranchRows[id] = work.isRunning(.changingDefaultBranch, onProject: id) }
@@ -101,7 +103,7 @@ final class ProjectActions {
         } else { notices.report(OperationIssue(title: "Couldn’t add the project.", error: error)) }
     }
     func makeProjectSheet(_ preparation: ProjectPreparation, editing: Bool) -> ProjectSheetModel {
-        ProjectSheetModel(preparation: preparation, editing: editing,
+        ProjectSheetModel(preparation: preparation, editing: editing, git: git,
                           canChange: { [weak self] in
                               guard let self else { return false }
                               return self.canChangeWorkspace && (!editing || self.state.project(id: preparation.project.id) != nil)
@@ -178,6 +180,19 @@ final class ProjectActions {
     /// Whether the project's default branch is being pulled or rebased, as its menu reads it.
     func isChangingDefaultBranch(_ projectId: UUID) -> Bool { defaultBranchRows[projectId] }
 
+    func defaultBranchName(_ projectId: UUID) -> String? { defaultBranchNames[projectId] }
+
+    /// Reads afresh when the heading appears or its pull or rebase finishes. A failed read leaves
+    /// the last name standing; only a git that answered without a name gets the fallback.
+    func loadDefaultBranchName(of project: Project) async {
+        let git = git
+        do {
+            let name = try await BackgroundWork.run { try Repository(project.path, git: git).detectDefaultBranch() }
+            guard state.project(id: project.id) != nil else { return }
+            defaultBranchNames[project.id] = name ?? Repository.fallbackDefaultBranch
+        } catch {}
+    }
+
     /// "Pull main": the project's default branch brought to origin's, fast-forward only. Git's
     /// own state, not the workspace's, so a locked workspace does not stop it.
     @discardableResult
@@ -211,6 +226,7 @@ final class ProjectActions {
                 guard state.project(id: project.id) != nil else { return }
                 notices.report(failure(error))
             }
+            await loadDefaultBranchName(of: project)
         }
     }
 

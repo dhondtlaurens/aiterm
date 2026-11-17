@@ -33,7 +33,7 @@ extension GitHubClient: SignalHostReading {
     }
     private func signalPages<Value: Decodable>(_ path: String) async throws -> [Value] {
         let api = Self.api(config, session: session, notFound: .repoNotFound(repo))
-        let read = try await HTTPJSON.shortPages(perPage: 100, pages: 100) { page in
+        let read = try await HTTPJSON.pages(perPage: 100, limit: 100, ending: .shortPage) { page in
             try await api.get([Value].self, path: path, query: [URLQueryItem(name: "per_page", value: "100"),
                                                               URLQueryItem(name: "page", value: String(page))])
         }

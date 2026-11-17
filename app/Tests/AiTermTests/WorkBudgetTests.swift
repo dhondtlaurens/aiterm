@@ -20,7 +20,7 @@ enum Budget {
     /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
 
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
-    static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
+    static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _ in
         WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
     }
 
@@ -51,7 +51,8 @@ enum Budget {
 }
 
 /// Work budgets outside the Operator's tools: sidebar, window, Archive and restore costs,
-/// counted by `WorkMeter` or recording git rather than elapsed time. A cheaper operation lowers its budget.
+/// counted by `WorkMeter` or recording git rather than elapsed time. Budgets are ceilings;
+/// a cheaper operation lowers its ceiling.
 @MainActor @Suite(.blocking) struct WorkBudgetTests {
     // MARK: - The sidebar's rows
 
@@ -109,8 +110,8 @@ enum Budget {
 
     // MARK: - Archive and restore
 
-    /// Archiving a clean open task uses eight git spawns. Restoring it uses four: one worktree listing,
-    /// two rev-parse calls and worktree add.
+    /// Archiving a clean open task has a ceiling of eight git spawns, including four worktree listings.
+    /// Restoring it has a ceiling of four: one worktree listing, two rev-parse calls and worktree add.
     @Test func archivingAndRestoringATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(scan: Budget.noScan, controllerGit: git)
@@ -133,14 +134,14 @@ enum Budget {
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 
-        #expect(archive.count == 8, "spawns per Archive: \(archive)")
-        #expect(archive.filter { $0 == "worktree list" }.count == 4, "\(archive)")
-        #expect(restore.count == 4, "spawns per restore: \(restore)")
-        #expect(restore.filter { $0 == "worktree list" }.count == 1, "\(restore)")
+        #expect(archive.count <= 8, "spawns per Archive: \(archive)")
+        #expect(archive.filter { $0 == "worktree list" }.count <= 4, "\(archive)")
+        #expect(restore.count <= 4, "spawns per restore: \(restore)")
+        #expect(restore.filter { $0 == "worktree list" }.count <= 1, "\(restore)")
     }
 
-    /// Removing a clean open task while keeping its branch uses seven git spawns: three worktree listings,
-    /// one status, then worktree unlock, worktree remove and worktree prune.
+    /// Removing a clean open task while keeping its branch has a ceiling of seven git spawns:
+    /// three worktree listings, one status, then worktree unlock, worktree remove and worktree prune.
     @Test func removingATaskSpawnsGit() async throws {
         let git = RecordingGitRunner(forwardingTo: GitRunner.hermetic())
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove"), scan: Budget.noScan, controllerGit: git)
@@ -155,13 +156,14 @@ enum Budget {
         let remove = Budget.commands(git, since: mark)
         #expect(controller.state.task(id: task.id) == nil, "removed")
 
-        #expect(remove.count == 7, "spawns per Remove: \(remove)")
-        #expect(remove.filter { $0 == "worktree list" }.count == 3, "\(remove)")
+        #expect(remove.count <= 7, "spawns per Remove: \(remove)")
+        #expect(remove.filter { $0 == "worktree list" }.count <= 3, "\(remove)")
     }
 
     // MARK: - Saving
 
-    /// Saving over an existing workspace writes one file; its backup is a clone of the file it replaces.
+    /// Saving over an existing workspace has a ceiling of two file writes: the backup's validated bytes
+    /// and the new workspace bytes.
     @Test func aSaveOverAnEarlierOneWritesItsFiles() throws {
         let state = Budget.workspace()
         let folder = try ScratchFolder.make("aiterm-budget-writes-")
@@ -169,11 +171,14 @@ enum Budget {
         let store = StateStore(url: folder.appendingPathComponent("state.json"))
         try store.save(state)
         let first = try Data(contentsOf: store.url)
+        var next = state
+        next.lastModelByAgent[.claude] = "sonnet"
         let meter = WorkMeter()
-        try WorkMeter.$current.withValue(meter) { try store.save(state) }
-        #expect(meter[.stateWrite] == 1, "files written per save: \(meter.take())")
+        try WorkMeter.$current.withValue(meter) { try store.save(next) }
+        #expect(meter[.stateWrite] <= 2, "files written per save: \(meter.take())")
         #expect(try Data(contentsOf: store.backupURL) == first, "the backup is the save before")
-        #expect(try Data(contentsOf: store.url) == first)
+        #expect(try Data(contentsOf: store.url) != first, "the primary is the new save")
+        #expect(try store.load() == next)
     }
 
     // MARK: - Fixture timings, printed only

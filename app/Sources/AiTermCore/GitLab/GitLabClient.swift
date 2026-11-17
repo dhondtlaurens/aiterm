@@ -144,7 +144,7 @@ public struct GitLabClient: HostRepository {
     /// recently updated first, and whether that was all of them: a page that came back short is
     /// the last one.
     func openMergeRequests(perPage: Int = 100, pages: Int = 5) async throws -> (requests: [MergeRequest], complete: Bool) {
-        let result = try await HTTPJSON.shortPages(perPage: perPage, pages: pages) { page in
+        let result = try await HTTPJSON.pages(perPage: perPage, limit: pages, ending: .shortPage) { page in
             let query = [URLQueryItem(name: "state", value: "opened"), URLQueryItem(name: "order_by", value: "updated_at"),
                          URLQueryItem(name: "per_page", value: String(perPage)), URLQueryItem(name: "page", value: String(page))]
             return try await get([Lenient<MergeRequestPayload>].self, path: boundPath + "/merge_requests", query: query,
@@ -199,15 +199,18 @@ public struct GitLabClient: HostRepository {
     /// existingRequest remains open-only. Forks never become this task's own request.
     public func signalRequest(from source: String) async throws -> MergeRequest? {
         if let open = try await existingRequest(from: source) { return open }
-        for page in 1...100 {
+        let matches: (MergeRequestPayload) -> Bool = {
+            $0.sourceBranch == source && ($0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId)
+        }
+        let read = try await HTTPJSON.pages(perPage: 100, limit: 100, ending: .shortPage,
+                                           stopWhen: { $0.contains(where: matches) }) { page in
             let query = [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "source_branch", value: source),
                          URLQueryItem(name: "order_by", value: "created_at"), URLQueryItem(name: "sort", value: "desc"),
                          URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
-            let values = try await get([MergeRequestPayload].self, path: boundPath + "/merge_requests", query: query, notFound: .projectNotFound(project))
-            if let own = values.first(where: { $0.sourceBranch == source && ($0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId) }) { return own.mergeRequest }
-            if values.count < 100 { return nil }
+            return try await get([MergeRequestPayload].self, path: boundPath + "/merge_requests", query: query, notFound: .projectNotFound(project))
         }
-        throw IncompleteRead("branch requests")
+        guard read.complete else { throw IncompleteRead("branch requests") }
+        return read.items.first(where: matches)?.mergeRequest
     }
 
     /// Whether GitLab would merge it now: its pipeline first — a merge end waits for green whatever
@@ -264,20 +267,18 @@ public struct GitLabClient: HostRepository {
     }
 
     /// Badges stop on a short page or at their bound; publication requires the terminal empty page.
-    /// Project binding, requests and per-page validation are shared without making a partial read complete.
+    /// Project binding and requests are shared without making a partial read complete.
     private func readDiscussions<Item>(iid: Int, complete: Bool,
                                        items: ([Lenient<DiscussionPayload>]) throws -> [Item]) async throws -> [Item] {
-        var result: [Item] = []
-        for page in 1...(complete ? Self.threadPagesRead : Self.discussionPages) {
-            let discussions = try await get([Lenient<DiscussionPayload>].self, path: boundPath + "/merge_requests/\(iid)/discussions",
+        let read = try await HTTPJSON.pages(perPage: Self.discussionsPerPage,
+                                            limit: complete ? Self.threadPagesRead : Self.discussionPages,
+                                            ending: complete ? .emptyPage : .shortPage) { page in
+            try await get([Lenient<DiscussionPayload>].self, path: boundPath + "/merge_requests/\(iid)/discussions",
                 query: [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)), URLQueryItem(name: "page", value: String(page))],
                 notFound: .projectNotFound(project))
-            if discussions.isEmpty { return result }
-            result += try items(discussions)
-            if !complete && discussions.count < Self.discussionsPerPage { return result }
         }
-        if complete { throw IncompleteRead("review threads") }
-        return result
+        if complete && !read.complete { throw IncompleteRead("review threads") }
+        return try items(read.items)
     }
 
     /// Who approved it, by username.
@@ -307,12 +308,14 @@ public struct GitLabClient: HostRepository {
     /// page is "no rules" when `noneIfMissing` (a group listing); anywhere else it is an error.
     private func protectedRules(path: String, notFound: GitLabError, noneIfMissing: Bool) async throws -> [String] {
         struct Protected: Decodable { var name: String }
-        return try await HTTPJSON.pagesUntilEmpty(limit: Self.protectedPages, exhausted: ProtectionUnknown.tooManyRules(Self.protectedPages * 100)) { page in
+        let read = try await HTTPJSON.pages(perPage: 100, limit: Self.protectedPages, ending: .emptyPage) { page in
             do {
                 return try await get([Protected].self, path: path,
                     query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))], notFound: notFound)
             } catch GitLabError.projectNotFound where noneIfMissing && page == 1 { return [] }
-        } items: { $0.map(\.name) }
+        }
+        guard read.complete else { throw ProtectionUnknown.tooManyRules(Self.protectedPages * 100) }
+        return read.items.map(\.name)
     }
 
     /// The rules of the top-level group `group`, as GitLab's group-level protected branches (Premium and up).

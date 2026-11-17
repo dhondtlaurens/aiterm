@@ -109,7 +109,7 @@ check "Operator tools select both language contracts" daemon suite:AiTermCoreTes
 check "core runs every swift target" target:AiTermCoreTests target:AiTermTests target:AiTermUITests -- app/Sources/AiTermCore/Models.swift
 check "app code adds the design rules" suite:AiTermUITests.DesignRulesTests target:AiTermTests -- app/Sources/AiTerm/AppController.swift
 check "a suite inside a selected target is dropped" target:AiTermTests target:AiTermUITests -- app/Sources/AiTerm/AppController.swift app/Tests/AiTermUITests/SelectTests.swift
-check "the plist adds the release feed" suite:AiTermCoreTests.ReleaseFeedTests suite:AiTermUITests.DesignRulesTests target:AiTermTests -- app/Sources/AiTerm/Resources/Info.plist
+check "the plist selects app and design tests" suite:AiTermUITests.DesignRulesTests target:AiTermTests -- app/Sources/AiTerm/Resources/Info.plist
 check "hooks run the daemon and the shim" daemon suite:AiTermCoreTests.StatusLineShimTests -- hooks/claude-statusline-shim.sh
 check "the toolchain runs everything" everything toolchain -- .swift-version
 check "the manifest runs the toolchain guard and every swift target" target:AiTermCoreTests target:AiTermTests target:AiTermUITests toolchain -- app/Package.swift

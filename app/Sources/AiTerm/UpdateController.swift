@@ -13,7 +13,7 @@ final class UpdateController {
     private let channel: BuildChannel
     private let bundleURL: URL
     private let updatesDirectory: URL
-    private let makeSource: () throws -> any ReleaseSource
+    private let makeSource: () -> any ReleaseSource
     private let checkReplaceable: () throws -> Void
     private let stage: @Sendable (URL, ReleaseVersion) throws -> URL
     private let install: (URL) throws -> Void
@@ -26,7 +26,7 @@ final class UpdateController {
     private(set) var isBusy = false
 
     init(prompter: Prompter, currentVersion: String?, channel: BuildChannel = .release, bundleURL: URL, updatesDirectory: URL,
-         makeSource: @escaping () throws -> any ReleaseSource,
+         makeSource: @escaping () -> any ReleaseSource,
          checkReplaceable: @escaping () throws -> Void,
          stage: @escaping @Sendable (URL, ReleaseVersion) throws -> URL,
          install: @escaping (URL) throws -> Void,
@@ -50,8 +50,7 @@ final class UpdateController {
         // A translocated copy is read-only, so no helper could replace it.
         if BundleLocation.isTranslocated(bundleURL.path) { return await report(UpdateError.translocated) }
         guard let current = currentVersion.flatMap(ReleaseVersion.init) else { return await report(UpdateError.noFeed) }
-        let source: any ReleaseSource
-        do { source = try makeSource() } catch { return await report(error) }
+        let source = makeSource()
 
         switch await UpdateCheck.run(source: source, current: current) {
         case .current(let version):
@@ -106,18 +105,18 @@ final class UpdateController {
 }
 
 extension UpdateController {
-    /// The real wiring: the running bundle's version, feed and signature, the updates folder in Caches, and `NSApp.terminate` — whose normal quit path saves state first.
+    /// The running bundle's version and signature, AiTerm's public releases and the updates folder
+    /// in Caches. `NSApp.terminate` follows the normal quit path, which saves state first.
     static func live(prompter: Prompter) -> UpdateController {
         let bundle = Bundle.main
         let bundleURL = bundle.bundleURL, identifier = bundle.bundleIdentifier ?? ""
-        let feed = bundle.object(forInfoDictionaryKey: "AiTermUpdateFeed") as? String
         let updates = AiTermPaths.updatesDirectory
         return UpdateController(
             prompter: prompter,
             currentVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             channel: BuildChannel(infoDictionary: bundle.infoDictionary),
             bundleURL: bundleURL, updatesDirectory: updates,
-            makeSource: { try ReleaseFeed.source(for: feed) },
+            makeSource: { GitHubReleaseSource.aiTerm },
             checkReplaceable: { try UpdateInstaller.checkReplaceable(bundleURL) },
             stage: { image, version in
                 let requirement = try UpdateStager.designatedRequirement(of: bundleURL)

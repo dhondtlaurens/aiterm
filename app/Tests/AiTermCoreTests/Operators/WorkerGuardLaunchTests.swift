@@ -24,8 +24,8 @@ import Testing
         let line = try String(contentsOf: f.folder.appendingPathComponent("project-input"), encoding: .utf8)
         #expect(line.contains(f.sha) && line.contains("refs/heads/feat/pay-1"))
     }
-    @Test(arguments: ["git push --no-verify origin HEAD", "git push --force-with-lease origin HEAD", "git push origin HEAD:main", "git merge main"])
-    func theLaunchEnvironmentRefusesBypassesAndMerges(command: String) throws {
+    @Test(arguments: ["git push --no-verify origin HEAD", "git push --force-with-lease origin HEAD", "git push origin HEAD:main"])
+    func theLaunchEnvironmentRefusesBypasses(command: String) throws {
         let f = try Fixture()
         let before = try f.git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: f.origin)
         let result = try f.run("#!/bin/sh\n" + command + "\n")
