@@ -54,7 +54,7 @@ struct SectionFold: Equatable {
     }
     /// The rows under OPERATOR waiting on you: its own row, then its signals' tasks.
     var operatorNeedingAttention: [RowID] {
-        (signalOperator.shown && signalOperator.status == .needsInput ? [.operation(OperatorSession.rowID)] : [])
+        (signalOperator.shown && signalOperator.status == .needsInput ? [.operatorChat] : [])
             + signalSections.flatMap { $0.tasks.filter { $0.status == .needsInput }.map { RowID.task($0.id) } }
     }
     /// The rows under PROJECTS waiting on you.
@@ -67,7 +67,7 @@ struct SectionFold: Equatable {
     /// The rows under OPERATOR in the order the arrow keys walk them: its row, then each signal's heading
     /// and, unfolded, its tasks. Worked out whether or not the section is open.
     var operatorPath: [RowSelection] {
-        (signalOperator.shown ? [.operation(OperatorSession.rowID)] : [])
+        (signalOperator.shown ? [.operatorChat] : [])
             + signalSections.flatMap { section in [.signal(section.id)] + (section.collapsed ? [] : section.tasks.map { .task($0.id) }) }
     }
     /// Where an arrow key crosses the fold between the sections: ↓ on the Operator's last row reaches the first
@@ -137,8 +137,8 @@ struct SectionFold: Equatable {
         case .terminal(let id):
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts)
-        case .operation(let id):
-            guard id == OperatorSession.rowID, let session = workspace.state.operatorSession else { return nil }
+        case .operatorChat:
+            guard let session = workspace.state.operatorSession else { return nil }
             return SidebarModel.usageTaskRow(taskId: session.id, agent: .claude, sessions: live.rowSessions, contexts: contexts)
         case .project, .signal, nil: return nil
         }

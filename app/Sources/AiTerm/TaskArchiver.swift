@@ -6,8 +6,8 @@ import AiTermCore
 /// Archive puts the worktree away; the branch is never touched. The row is saved into the archive
 /// before git removes the worktree, so a crash in between leaves an archived row whose worktree still
 /// exists — which restore adopts — rather than a task whose checkout the cleanup would forget. Restore
-/// recreates the worktree and puts the row back owed its window: the window lock reopens it and
-/// resumes its conversations, as after a restart.
+/// recreates the worktree and puts the row back; choosing it, which opens its window with its
+/// conversations resumed, is `AppController.restoreFromArchive`'s.
 @MainActor
 final class TaskArchiver {
     private let workspace: WorkspaceStore
@@ -17,15 +17,14 @@ final class TaskArchiver {
     private let prompter: Prompter
     private let checkouts: CheckoutMonitor
     private let remover: TaskRemover
-    private let focus: RowFocus
     private let teardown: WorktreeTeardown
     private let now: @MainActor () -> Date
 
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
-         checkouts: CheckoutMonitor, remover: TaskRemover, focus: RowFocus, teardown: WorktreeTeardown,
+         checkouts: CheckoutMonitor, remover: TaskRemover, teardown: WorktreeTeardown,
          now: @escaping @MainActor () -> Date) {
         self.workspace = workspace; self.work = work; self.workflow = workflow; self.notices = notices
-        self.prompter = prompter; self.checkouts = checkouts; self.remover = remover; self.focus = focus
+        self.prompter = prompter; self.checkouts = checkouts; self.remover = remover
         self.teardown = teardown; self.now = now
     }
 
@@ -48,12 +47,12 @@ final class TaskArchiver {
         // put away, and starting would clear the outcome that holds it.
         guard workspace.canChangeWorkspace, let shown = state.task(id: task.id), let project = state.project(id: shown.projectId),
               remover.removals[task.id]?.awaitsRetry != true,
-              let token = work.begin(.archiving(windowLetGo: false), onTask: task.id) else { return nil }
+              let token = work.begin(.archiving, onTask: task.id) else { return nil }
         remover.clearOutcome(of: task.id)
         let id = task.id, kind = shown.kindName
         return Task {
             defer { work.end(token) }
-            do { try await archive(shown, in: project, holding: token) }
+            do { try await archive(shown, in: project) }
             catch Stop.kept {}
             catch Stop.keptLate { remover.recordStop(of: id, note: "Not archived") }
             catch Stop.detached {
@@ -78,7 +77,7 @@ final class TaskArchiver {
         }
     }
 
-    private func archive(_ task: TaskItem, in project: Project, holding token: WorkInFlight.Token) async throws {
+    private func archive(_ task: TaskItem, in project: Project) async throws {
         // A detached worktree is refused before anything is asked or closed. Read again once the
         // window is closed (below): until then its agent can still move it. Remove's question about a
         // folder git no longer lists comes next, and Keep keeps it, unarchived.
@@ -86,10 +85,10 @@ final class TaskArchiver {
             if $0.head == .detached { throw Stop.detached }
         }) else { throw Stop.kept }
         let task = prepared.task, head = prepared.head
-        try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true, operation: { .archiving(windowLetGo: $0) })
+        try await teardown.closeWindow(of: task, requiringDaemon: true)
         // The branch it is on now — a task's worktree can have moved since it was created, or while
         // the question was up and its window closing. Detached by now, its commits would go with the
-        // worktree: refused, and the row stays a task owed its window, which the window lock reopens.
+        // worktree: refused, and the row stays a task without a window until it is chosen.
         // A folder gone by now is archived as it was before the window closed.
         let branch: String
         switch try await workflow.head(of: task, in: project) {
@@ -102,7 +101,7 @@ final class TaskArchiver {
         guard workspace.flush() else {
             // Not on disk, so the worktree stays: deleted now, a crash before a save holds would bring
             // back a task whose checkout is gone, which the cleanup forgets. The row is a task again,
-            // owed its window; the store is failing, so it is not flushed again.
+            // without a window; the store is failing, so it is not flushed again.
             workspace.mutate { $0.moveFromArchive(id: task.id) }
             throw ActionUnavailable("Its place on the archive couldn’t be saved, so nothing was deleted.")
         }
@@ -113,7 +112,7 @@ final class TaskArchiver {
             }
             guard archived != nil else { throw Stop.keptLate }
         } catch {
-            // Back in the sidebar, owed its window, which the window lock brings back.
+            // Back in the sidebar, without a window until it is chosen.
             workspace.mutate { $0.moveFromArchive(id: task.id) }
             workspace.flush()
             throw error
@@ -130,7 +129,7 @@ final class TaskArchiver {
         guard workspace.canChangeWorkspace, workspace.state.task(id: task.id) == task,
               let project = workspace.state.project(id: task.projectId),
               remover.removals[task.id]?.awaitsRetry != true,
-              let token = work.begin(.archiving(windowLetGo: false), onTask: task.id) else {
+              let token = work.begin(.archiving, onTask: task.id) else {
             throw ActionUnavailable("The task changed or is busy.")
         }
         defer { work.end(token) }
@@ -149,7 +148,7 @@ final class TaskArchiver {
         guard allowed() else { throw ActionUnavailable("The stage changed while its worktree was checked.") }
         try remover.requireIdleForAutomaticCleanup(task)
         do {
-            try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true, operation: { .archiving(windowLetGo: $0) })
+            try await teardown.closeWindow(of: task, requiringDaemon: true)
         } catch TeardownStop.noDaemon { throw ClosingWait.helper }
         guard allowed() else { throw ActionUnavailable("The stage changed while its window closed.") }
         let head = try await workflow.head(of: task, in: project)
@@ -170,18 +169,15 @@ final class TaskArchiver {
 
     // -- restore ------------------------------------------------------------------------
     /// Archived row `id`'s worktree back at its own path, then the row back in the sidebar — saved —
-    /// its project opened, and the row chosen as a click chooses it: the window lock reopens its
-    /// window, resuming its conversations, and raises it. A refusal before the worktree is back says
-    /// why and leaves the row archived; a window that then fails is the sidebar's "Couldn’t reopen".
-    /// Nil when nothing started.
+    /// and its project opened; the row's work ends with the task. A refusal before the worktree is
+    /// back says why and leaves the row archived. Nil when nothing started.
     @discardableResult
     func restore(_ id: UUID) -> Task<Void, Never>? {
         let state = workspace.state
         guard workspace.canChangeWorkspace, let entry = state.archived(id: id), let project = state.project(id: entry.task.projectId),
               let token = work.begin(.restoring, onTask: id) else { return nil }
         return Task {
-            var holding: WorkInFlight.Token? = token
-            defer { if let holding { work.end(holding) } }
+            defer { work.end(token) }
             let made: TaskCreator.Made
             do { made = try await workflow.restore(entry.task, project: project) }
             catch {
@@ -201,10 +197,6 @@ final class TaskArchiver {
             checkouts.refresh()
             workspace.flush()
             TaskLauncher.report(made.worktreeInclude, of: made.task, to: notices)
-            // Free before it is chosen: the window lock leaves a busy row alone.
-            work.end(token)
-            holding = nil
-            focus.select(.task(id))
             if workspace.persistenceError == nil { notices.showToast("\(entry.task.kindName) restored.", symbol: "tray.and.arrow.up") }
         }
     }
@@ -224,7 +216,7 @@ final class TaskArchiver {
         // As in Remove: what the answer finds is decided on the row as it is once the alert is gone.
         guard answer.confirmed, workspace.canChangeWorkspace, let task = workspace.state.archived(id: id)?.task,
               let project = workspace.state.project(id: task.projectId),
-              let token = work.begin(.removing(windowLetGo: false), onTask: id) else { return nil }
+              let token = work.begin(.removing, onTask: id) else { return nil }
         return Task {
             defer { work.end(token) }
             do {

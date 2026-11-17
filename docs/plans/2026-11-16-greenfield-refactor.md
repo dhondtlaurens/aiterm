@@ -317,23 +317,23 @@ TS tests-scripts.
 
 ### Phase 3. Windows (after 2)
 
-- [ ] 3a. **Opus.** Closed view. A closed window clears the row's window and nothing else. The
+- [x] 3a. **Opus.** Closed view. A closed window clears the row's window and nothing else. The
   close heuristic, the question and its Archive variant, the hold, eager restore and its triggers,
   and bringing AiTerm forward go. The window plan only adopts tagged windows. Choosing a row
   without a window opens it and reports a failure on the click. Terminals follow the same rule
   (WD F1, F3 moot, F6 moot; TL F5 moot).
-- [ ] 3b. **Opus.** One owner for "this row has or needs a window" for every row kind: manual task,
+- [x] 3b. **Opus.** One owner for "this row has or needs a window" for every row kind: manual task,
   driven task, terminal and the Operator chat, each adopted by its tag, with one `open(row)` that
   picks the opener. `RowFocus` keeps selection, peek and raising; its three opener slots, the five
   copies of "a signal task is not restored here" and the Operator's 180-second "opened" grace go.
   What choosing a row does is decided in `AppController.choose` alone (WD F2, SB F7).
-- [ ] 3c. **Codex.** The Operator row has one fixed id and a payload-free selection case; the
+- [x] 3c. **Codex.** The Operator row has one fixed id and a payload-free selection case; the
   derived id goes (WD F8, SB F6, OC F11). Row flags are kept once, not as a set plus a mirror
   (WD F9).
-- [ ] 3d. **Codex.** The iTerm2 banner says what a person can act on: iTerm2 isn't running (with
+- [x] 3d. **Codex.** The iTerm2 banner says what a person can act on: iTerm2 isn't running (with
   Open iTerm2), iTerm2 refused AiTerm, AiTerm's helper isn't working; nothing while starting or
   connected (WD F7).
-- [ ] 3e. **Opus.** `docs/windows.md` rewritten for the closed view; the alert line in
+- [x] 3e. **Opus.** `docs/windows.md` rewritten for the closed view; the alert line in
   `docs/keyboard.md` and the "No window open" paragraph in `docs/status-model.md` follow.
 
 ### Phase 4. One task lifecycle (after 3)
@@ -847,3 +847,89 @@ left.
   merged to `main`.
 - Owed to the maintainer for phase 2: `scripts/compat-check.sh` (the Codex config editor changed in
   2d). The opt-in `WorkerGuardCodexTests` probe (2g changed the worker guard) was not run either.
+
+### Phase 3
+
+- 3a: closed view. A closed window clears its row's window and nothing else; the close heuristic
+  (`ClosedWindowTriage`), the question and its Archive variant, the hold, eager restore and its
+  triggers, bringing AiTerm forward, the "Couldn't reopen" caption and `letsWindowGo` went.
+  `AppState.windowPlan` returns adoptions only; the reconciler passes only on a snapshot, a closed
+  window or a session event that moved `rowSessions`. Choosing a row without a window opens it (a
+  terminal as a fresh shell) and reports a failed open on the click; a row chosen while iTerm2 is not
+  synced starts iTerm2 and is chosen again (opened and raised) on the next connected snapshot if
+  still selected. Tests deleted with their behaviour as the brief lists (`ClosedWindowTriageTests`,
+  `WindowReconcilerTriggerTests`, ten `ClosedTaskWindowTests`, six `RestoringRowTests`, six
+  `WindowPlanTests` and the single cases it names), survivors as it names
+  (`CheckoutCleanupControllerTests.removingATaskClosesItsWindowBeforeDeletingItsWorktree`,
+  `aCleanupWhoseWindowsCloseArrivesFirstStillForgetsTheTask`). New `ClosedViewControllerTests` (seven
+  cases plus the two moved survivors); `RestoringRowTests` became `OpeningRowTests` with an added
+  pending-open case. Snapshots in `build/refactor-3a` RGB-identical to `build/refactor-phase2`.
+  Review rounds by the orchestrator: (1) the pending open now raises its window (the decision says
+  that first click must not need a second one); the `holding token:` parameter and
+  `WorktreeTeardown.work`, unused after the step, went; (2) two `TaskLauncher.create` messages that
+  promised a window "once AiTerm reconnects" now say to choose the task. Differences: the brief's Tests
+  wanted the not-connected sentence for a choose while iTerm2 is away; its Change and Decisions say
+  nothing is reported, which was followed. `CheckoutCleanupControllerTests.filesystemRefreshRetainsUnconfirmedDeletion`
+  (not named) relied on the deleted missing-changed trigger and now expects the kept task without a
+  window. The second Done-when grep still matches an unrelated `"settled: "` message in
+  `OperatorBadgeTests`. Left for 3b: `RowFocus`'s restore names.
+- 3b: one owner for every row's window. `WindowReconciler` is `RowWindows`; `open(row)` picks the
+  opener for a manual task, a taken-over task, a driven task, a terminal and the Operator chat (new
+  `WindowRow.operatorChat`, adopted by its session's tag and never during a keeper handover).
+  `RowFocus` keeps selection, peek and raising; its three opener slots, the copies of "a signal task
+  is not restored here" and the Operator's 180-second "opened" grace went. What choosing a row does is
+  decided in `AppController.choose` alone; a notification's Open and a restore from the Archive go
+  through it. The chat reopens by itself only when a wake is pending or unread. Issue sources
+  `.openWindow` and `.reopenWorker` went (a failed reopen is reported on the click). No test deleted;
+  added `RowWindowsControllerTests` (8) and cases in `WindowPlanTests`, `WindowReconciliationTests`,
+  `ModelsTests`, `SignalSessionKeeperTests`. Snapshots in `build/refactor-3b` RGB-identical to
+  `build/refactor-3a`. Differences: a row chosen while iTerm2 is away is handed back to
+  `AppController` through a new `onPendingOpen` hook (only `AppController` may select); the four
+  taken-over `ItermFocusControllerTests` send a connected snapshot first (the uniform check order);
+  choosing the Operator row with no work still starts nothing. Noticed and left: a chat closed before
+  its conversation was recorded starts a new generation on the next reconcile (unchanged keeper logic,
+  rare); a closed chat whose workload ended retires at the next scheduled pass. `docs/architecture.md`
+  still names `WindowReconciler` (3e).
+- 3c: the Operator row has one fixed id (`OperatorSession.rowID`) and a payload-free selection and
+  row case (`.operatorChat`); `OperatorRow.swift` and its derived id went. Missing checkouts are kept
+  once in `RowFlags` (a set with per-row observed cells) instead of a set plus a mirror. No test
+  deleted; added `RowFlagsTests`. Snapshots in `build/refactor-3c`: only `marks.png` differs from
+  `build/refactor-3b` (known variant). The brief's identity grep also matches `SignalOperatorRow`.
+- 3d: the iTerm2 banner says what a person can act on: "iTerm2 isn’t running." with Open iTerm2,
+  "iTerm2 refused AiTerm." with the Automation steps, "AiTerm isn’t connected to iTerm2." with Open
+  Settings (after a ten-second grace), or "AiTerm’s helper isn’t working." (starting and unreachable
+  after the grace, missing, Python, failing, mismatch at once); nothing while starting or connected.
+  `DaemonBanner` became `ConnectionBanner`; `.itermReconnecting` became `.itermNotRunning` (from the
+  cookie answer). Test deleted: `everyStateButConnectedKeepsItsBanner` (behaviour deleted; survivor
+  `connectionBannersNameActionableProblemsAfterTheirGrace`); added `ConnectionBannerTests`.
+  Snapshots in `build/refactor-3d`: only `sidebar-banners.png` changed (the four new states, the planned
+  change; the brief's Proof said three, its Change four). Fix round 1: the gate failed in
+  `SidebarScrollTests.scrollingContentStaysBelowTheTrafficLights`; with no always-present startup
+  banner the sidebar `List` extended into the titlebar's safe area, so the list is now hosted in a
+  small `NSHostingView` with no safe-area regions (`SidebarListViewport`). Keyboard, redraw-budget and
+  snapshot tests are unchanged and green; the wrapper rebuilds an `AnyView` on each update, which the
+  phase review should weigh.
+- 3e: `docs/windows.md` rewritten for the closed view in the brief's nine sections; the alert lines
+  in `docs/keyboard.md`, the "No window open" paragraph in `docs/status-model.md`, the `window.closed`
+  row in `docs/daemon-protocol.md` and the window paragraph in `docs/architecture.md` follow.
+  Differences, the code being the truth: a row chosen while iTerm2 isn't connected opens and comes
+  forward by itself once iTerm2 connects if it is still selected (the brief said choose it again);
+  a failed open's banner names the row only for a terminal. The brief's grep still matches one
+  `docs/status-model.md` sentence about the Codex rollout read's one-second bound (not about windows).
+  Left for 4b: `TaskRemoval.swift:9` mentions a "Couldn’t reopen" caption that no longer exists. One
+  of the implementer's plain gate runs failed once in `HTTPJSONTests.aCancelledRequestStaysCancellationThroughMapping`
+  (30 seconds, load average near 5); it passed alone and in the orchestrator's next plain run.
+- Phase close, review round 1 (Codex, `main..HEAD`): one Important finding, confirmed in the code:
+  after iTerm2 crashes (no `window.closed`), rows keep stale window ids, and choosing one raised the
+  stale window instead of starting iTerm2. Fixed by the 3b implementer: while iTerm2 is not synced,
+  choosing a task, terminal or the Operator chat starts iTerm2 and remembers the row whatever its
+  saved window, and raises nothing; the connected snapshot then clears or adopts the window and the
+  row is chosen again. Added `OpeningRowControllerTests.aRowWhoseWindowWentWithACrashedITerm2StartsItAndOpensOnceItConnects`;
+  four tests that raised windows without ever sending a snapshot now send one first. Left: a peek
+  (arrow keys) at a stale window while unsynced fails quietly.
+- Phase close: review round 2 (with the triage): no findings, "ready". Plain `scripts/test.sh all`
+  green on `12e69c93` (after the fix; also green on `ff00e600` before it). Snapshots in
+  `build/refactor-phase3` against `build/refactor-phase2`: only `sidebar-banners.png` (3d, planned)
+  and `marks.png` (known variant) differ. No bundle check is due after phase 3. `main` had only the
+  refactor's own merges; merged to `main`. No manual check is owed for phase 3 by the plan; the smoke
+  run after phase 9 covers the closed view.

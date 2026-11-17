@@ -219,8 +219,8 @@ import Testing
         #expect(fixture.controller.issue == nil)
     }
 
-    /// A task's window restored takes down the banner that said the task was kept.
-    @Test func restoringATaskTakesDownTheBannerAboutIt() async throws {
+    /// A task's window opened takes down the banner that said the task was kept.
+    @Test func openingATaskTakesDownTheBannerAboutIt() async throws {
         let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -229,14 +229,14 @@ import Testing
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await controller.windows.lastRestore?.value
+        await controller.choose(.task(task.id))?.value
 
         #expect(controller.issue == nil)
     }
 
-    /// A failure about the task held back behind a question about it is as answered by the restore:
+    /// A failure about the task held back behind a question about it is as answered by the open:
     /// taking the question down must not put the failure up in its place.
-    @Test func restoringATaskDropsAReportAboutItHeldBehindTheBanner() async throws {
+    @Test func openingATaskDropsAReportAboutItHeldBehindTheBanner() async throws {
         let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -246,7 +246,7 @@ import Testing
         controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await controller.windows.lastRestore?.value
+        await controller.choose(.task(task.id))?.value
 
         #expect(controller.issue == nil)
     }
@@ -258,7 +258,7 @@ import Testing
         fixture.controller.workspace.mutate { $0.tasks[0].windowId = "w" }
         let issue = fixture.controller.issue
 
-        fixture.controller.windows.handleWindowClosed("w")
+        fixture.controller.windows.windowGone("w")
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == nil)
         #expect(fixture.controller.issue == issue && issue != nil)
@@ -290,34 +290,6 @@ import Testing
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.remover.removals.isEmpty)
-    }
-
-    /// A removal stopped after its worktree went — its branch kept — leaves the row for a retry, owed a
-    /// window it has no worktree to open in: nothing restores it.
-    @Test func aRowAwaitingARemovalsRetryIsNotRestored() async throws {
-        let prompter = ScriptedPrompter(answering: "Remove")
-        prompter.checksTheCheckbox = true
-        // The checkout monitor has not read the worktree gone yet: its pass is up to two seconds away.
-        let fixture = try await RaceFixture(prompter: prompter, scan: { _, _, _, _, _, _ in
-            WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
-        })
-        let server = RecordingDaemon()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(server)
-        let task = try await fixture.addTask(windowId: "alive")
-        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
-                            in: task.worktreePath)
-        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [.stub("a", window: "alive")],
-                                                          usage: .empty)))
-
-        await controller.remover.confirmRemove(task: task)?.value
-        await controller.windows.lastRestore?.value
-
-        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
-        #expect(controller.remover.removals[task.id]?.awaitsRetry == true)
-        #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
-        #expect(server.requests("window.createTask").isEmpty)
     }
 
     /// A task, its worktree removed with "Delete local branch" ticked, and its branch kept because it

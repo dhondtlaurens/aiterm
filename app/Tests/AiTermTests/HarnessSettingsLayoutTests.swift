@@ -23,7 +23,7 @@ import AiTermUI
     @Test func settingsOpensWhereSomethingIsBroken() {
         #expect(SettingsTab.opening(iterm: .connected(version: "3.7.2"), serviceTestFailed: false) == .agents)
         #expect(SettingsTab.opening(iterm: .connected(version: nil), serviceTestFailed: true) == .integrations)
-        for broken: ItermConnection in [.starting, .waitingForIterm, .itermReconnecting, .pythonMissing,
+        for broken: ItermConnection in [.starting, .waitingForIterm, .itermNotRunning, .pythonMissing,
                                         .helperMissing, .helperUnreachable, .refused("no")] {
             #expect(SettingsTab.opening(iterm: broken, serviceTestFailed: false) == .integrations)
         }

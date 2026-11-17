@@ -12,10 +12,10 @@ public enum ItermConnection: Equatable, Sendable {
     case helperMismatch
     /// The helper process is up but its socket is not answering yet.
     case helperUnreachable
-    /// The helper is answering and has never had iTerm2 in this streak.
+    /// The helper is answering and waiting for its API connection to iTerm2.
     case waitingForIterm
-    /// The helper had iTerm2 and lost it.
-    case itermReconnecting
+    /// iTerm2 is not running, as the app learned when asked for an API cookie.
+    case itermNotRunning
     /// iTerm2 is running but will not hand the helper an API cookie.
     case refused(String)
     case connected(version: String?)
@@ -26,8 +26,7 @@ public enum ItermConnection: Equatable, Sendable {
         return .waitingForIterm
     }
 
-    /// The state as the iTerm2 card's status line says it — a status, so no full stop. The banner
-    /// above the sidebar opens with the same words, so the two never name one state two ways.
+    /// The iTerm2 card’s status line, without a full stop.
     public var status: String {
         switch self {
         case .starting: "Starting AiTerm’s helper…"
@@ -37,26 +36,46 @@ public enum ItermConnection: Equatable, Sendable {
         case .helperMismatch: "AiTerm’s helper is from another version"
         case .helperUnreachable: "Reconnecting to AiTerm’s helper…"
         case .waitingForIterm: "Waiting for iTerm2…"
-        case .itermReconnecting: "Reconnecting to iTerm2…"
+        case .itermNotRunning: "iTerm2 isn’t running"
         case .refused(let reason): "iTerm2 refused the connection: \(reason)"
         case .connected(let version): version.map { "Connected to iTerm2 \($0)" } ?? "Connected to iTerm2"
         }
     }
 
-    /// The line above the sidebar: the card's status, then — where only the person can mend it —
-    /// what to do, as the card's steps say it. Nothing is shown once iTerm2 is connected.
-    public var banner: DaemonBanner? {
+    /// Actionable problems appear at once; a start, reconnect or wait is silent until its grace ends.
+    public func banner(waited: Bool) -> ConnectionBanner? {
         switch self {
-        case .starting, .helperUnreachable, .waitingForIterm, .itermReconnecting: .info(status)
-        case .helperMissing: .info(status + ". Reinstall AiTerm.app, which bundles the helper.")
-        case .pythonMissing: .info(status + ". Install it with brew install python, then quit and reopen AiTerm.")
-        case .helperFailing: .info(status + ". Read why in \(Self.logPath).")
-        case .helperMismatch: .info(status + ". Quit and reopen AiTerm.app.")
-        case .refused:
-            .warning(status + ". In System Settings › Privacy & Security › Automation, turn on iTerm2 under AiTerm. "
-                     + "AiTerm retries on its own within a minute.")
-        case .connected: nil
+        case .itermNotRunning:
+            return ConnectionBanner(title: "iTerm2 isn’t running.", opensIterm: true)
+        case .refused(let reason):
+            return ConnectionBanner(title: "iTerm2 refused AiTerm.",
+                description: "In System Settings › Privacy & Security › Automation, turn on iTerm2 under AiTerm. "
+                    + "AiTerm retries on its own within a minute.", help: reason)
+        case .waitingForIterm:
+            return waited ? ConnectionBanner(title: "AiTerm isn’t connected to iTerm2.",
+                description: "iTerm2 has to allow AiTerm’s connection. Settings shows what is missing.",
+                opensSettings: true) : nil
+        case .connected:
+            return nil
+        default: break
         }
+        let description: String
+        switch self {
+        case .helperMissing:
+            description = "Reinstall AiTerm.app, which bundles the helper."
+        case .pythonMissing:
+            description = "Python 3.11+ was not found. Install it with brew install python, then quit and reopen AiTerm."
+        case .helperFailing(let message):
+            description = "It keeps stopping: \(message). Read why in \(Self.logPath)."
+        case .helperMismatch:
+            description = "It is from another version. Quit and reopen AiTerm.app."
+        case .starting, .helperUnreachable:
+            guard waited else { return nil }
+            description = "Read why in \(Self.logPath)."
+        case .waitingForIterm, .itermNotRunning, .refused, .connected:
+            return nil
+        }
+        return ConnectionBanner(title: "AiTerm’s helper isn’t working.", description: description)
     }
 
     /// Where the helper's output goes, as a person would type it.

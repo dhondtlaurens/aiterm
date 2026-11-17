@@ -21,7 +21,7 @@ import Testing
         #expect(!controller.workspace.flush())
         controller.start()
         #expect(controller.helper.daemon == nil)
-        #expect(controller.helper.itermConnection.banner == .info("Starting AiTerm’s helper…"))
+        #expect(controller.helper.connectionBanner == nil)
         #expect(try Data(contentsOf: url) == original)
     }
 
@@ -37,13 +37,13 @@ import Testing
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
         #expect(!controller.canChangeWorkspace)
-        controller.helper.itermConnection = .itermReconnecting
+        controller.helper.itermConnection = .waitingForIterm
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
         try FileManager.default.removeItem(at: store.backupURL)
         #expect(controller.workspace.flush())
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
         #expect(controller.persistenceError == nil)
-        #expect(controller.helper.itermConnection == .itermReconnecting)
+        #expect(controller.helper.itermConnection == .waitingForIterm)
     }
 
     @Test func restoreLoadsWorkspaceAndLoadDoesNotReplaceUnsavedEdits() throws {
@@ -617,9 +617,9 @@ import Testing
 
 @MainActor @Suite struct ControllerWindowsTests {
 
-    /// A window found gone leaves its row owed it — a task's and a terminal's alike — and its
+    /// A window found gone leaves its row without one — a task's and a terminal's alike — and its
     /// selection and checkout where they were.
-    @Test func observedClosesLeaveRowsOwedAndPreserveCheckouts() throws {
+    @Test func observedClosesLeaveRowsWithoutAWindowAndPreserveCheckouts() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
@@ -636,7 +636,7 @@ import Testing
         state.items = [.project(project)]; state.tasks = [task]; state.terminals = [terminal]
         controller.workspace.mutate { $0 = state }
         controller.focus.browse(.task(task.id))
-        controller.windows.handleWindowClosed("w1")
+        controller.windows.windowGone("w1")
         #expect(controller.focus.selectedTaskId == task.id, "the row stays, and so does its selection")
         #expect(controller.state.tasks.map(\.windowId) == [nil])
         #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil])
@@ -645,18 +645,18 @@ import Testing
         var replacement = task
         replacement.windowId = "w3"
         controller.workspace.mutate { $0.tasks = [replacement] }
-        controller.windows.handleWindowClosed(task.windowId)
+        controller.windows.windowGone(task.windowId)
         #expect(controller.state.tasks[0].windowId == "w3")
         controller.focus.browse(.terminal(terminal.id))
         // Observations still update memory when saving is blocked.
         try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: true)
-        controller.windows.handleWindowClosed("w2")
+        controller.windows.windowGone("w2")
         #expect(controller.state.terminals.map(\.windowId) == [nil], "the terminal stays, owed")
         #expect(controller.focus.selectedTerminalId == terminal.id)
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
-        controller.windows.handleWindowClosed("w2")
-        controller.windows.handleWindowClosed(nil)
+        controller.windows.windowGone("w2")
+        controller.windows.windowGone(nil)
         try FileManager.default.removeItem(at: store.backupURL)
         #expect(controller.workspace.flush())
         #expect(try store.load() == controller.state)
@@ -890,7 +890,7 @@ import Testing
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Unreadable env")
         try await controller.launcher.createTask(draft: draft, project: project)   // no daemon
-        #expect(controller.issue?.title == "Task created. Its window opens once AiTerm reconnects; start the agent there manually.")
+        #expect(controller.issue?.title == "Task created. Choose it to open its window once AiTerm reconnects, then start the agent there.")
         #expect(controller.issue?.reason == "Couldn’t copy .env into the new worktree.")
     }
 

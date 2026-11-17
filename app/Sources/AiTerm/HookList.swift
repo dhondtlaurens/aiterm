@@ -2,7 +2,7 @@ import Foundation
 
 /// What hears of a change an owner announces: hooks run in the order they were added, and each is added with a token
 /// that an owner which goes first takes it out again with. An owner with room for one listener names it a single slot
-/// instead (`RowFocus.setRestoreOwedRow`), and a new one replaces it.
+/// instead (`SignalOperatorController.archive`), and a new one replaces it.
 ///
 /// A reference, so running the hooks holds no access to the owner's property: a hook may add or take out hooks
 /// meanwhile, which counts from the next run — this one runs the hooks as they were when it began.

@@ -20,15 +20,8 @@ final class CheckoutMonitor {
     private(set) var projectBranch: [UUID: String] = [:]
     /// Tasks whose worktree is not on disk. Not observed: a row reads its own, `isMissing(_:)`, so
     /// one checkout going redraws that task's row and no other.
-    @ObservationIgnored private(set) var missingCheckouts: Set<UUID> = [] {
-        didSet {
-            let changed = oldValue.symmetricDifference(missingCheckouts)
-            for id in changed { missingRows[id] = missingCheckouts.contains(id) }
-            if !changed.isEmpty { missingHooks(changed) }
-        }
-    }
-    /// `missingCheckouts`, observed row by row.
-    private let missingRows: PerRow<Bool>
+    var missingCheckouts: Set<UUID> { missing.members }
+    private let missing: RowFlags
     /// Each task's checkout against its base, for the VS Code badge. Measured by the same pass as
     /// the branches, but at most every few seconds per worktree (``DiffStatResolver``).
     private(set) var diffByTask: [UUID: DiffStat] = [:]
@@ -67,9 +60,6 @@ final class CheckoutMonitor {
     @ObservationIgnored private let remotesHooks = HookList<[UUID: WorkspaceScan.Remote]>()
     private let onTitles: @MainActor ([SessionTitle]) async -> Void
     @ObservationIgnored private let rowsHooks = HookList<Void>()
-    @ObservationIgnored private let missingHooks = HookList<Set<UUID>>()
-    /// Who hears that a poll's pass has ended.
-    @ObservationIgnored private let polledHooks = HookList<Void>()
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
          workspace: WorkspaceStore, onTitles: @escaping @MainActor ([SessionTitle]) async -> Void) {
@@ -83,7 +73,7 @@ final class CheckoutMonitor {
         branches = BranchResolver(git: guarded, probe: probe); remotes = RemoteResolver(git: guarded, probe: probe)
         diffs = DiffStatResolver(git: guarded)
         self.workspace = workspace
-        missingRows = PerRow(default: false, workspace: workspace)
+        missing = RowFlags(workspace: workspace)
         self.onTitles = onTitles
         live.onSessionsChanged { [weak self] in self?.sessionsChanged($0) }
     }
@@ -101,16 +91,6 @@ final class CheckoutMonitor {
         rowsHooks.add(hook)
     }
 
-    /// Adds `hook` to what hears which tasks' worktrees were read missing, or back, since the last time.
-    @discardableResult
-    func onMissingChanged(_ hook: @escaping @MainActor (Set<UUID>) -> Void) -> HookList<Set<UUID>>.Token {
-        missingHooks.add(hook)
-    }
-
-    /// Adds `hook` to what hears that a poll's pass has ended, every `pollInterval` while the monitor runs.
-    @discardableResult
-    func onPolled(_ hook: @escaping @MainActor () -> Void) -> HookList<Void>.Token { polledHooks.add(hook) }
-
     private func rowsChanged() {
         rowsHooks()
     }
@@ -124,7 +104,6 @@ final class CheckoutMonitor {
         monitor = PollLoop(interval: interval) { [weak self] in
             guard let pass = self?.startPass(owesTrailing: false) else { return nil }
             await pass.value
-            self?.polledHooks()
             return interval
         }
     }
@@ -192,10 +171,10 @@ final class CheckoutMonitor {
     }
 
     /// Whether the task's worktree is missing, as its row draws it.
-    func isMissing(_ id: UUID) -> Bool { missingRows[id] }
+    func isMissing(_ id: UUID) -> Bool { missing.contains(id) }
 
     /// A forgotten task's checkout is no longer one of the workspace's missing ones.
-    func forget(task id: UUID) { missingCheckouts.remove(id) }
+    func forget(task id: UUID) { missing.remove(id) }
 
     /// A removal that stopped after its checkout went shows the row's diff as missing, rather than
     /// the one held while the removal ran.
@@ -218,7 +197,7 @@ final class CheckoutMonitor {
     /// whether a branch the rows draw moved.
     @discardableResult
     private func applyScan(_ scan: WorkspaceScan) -> Bool {
-        if missingCheckouts != scan.missingCheckouts { missingCheckouts = scan.missingCheckouts }
+        missing.set(scan.missingCheckouts)
         var moved = false
         if branchByCwd != scan.branchByCwd { branchByCwd = scan.branchByCwd; moved = true }
         if projectBranch != scan.projectBranch { projectBranch = scan.projectBranch; moved = true }
@@ -230,7 +209,7 @@ final class CheckoutMonitor {
     /// Once removal fails, the row remains and the missing diff is shown. Says whether a diff changed.
     private func retainDiffsDuringRemoval(_ scan: WorkspaceScan) -> Bool {
         var next = scan.diffByTask
-        for id in scan.missingCheckouts where removals?.removalInFlight(id) == true {
+        for id in missing.members where removals?.removalInFlight(id) == true {
             if let previous = diffByTask[id] { next[id] = previous }
         }
         guard diffByTask != next else { return false }

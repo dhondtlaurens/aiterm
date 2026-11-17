@@ -300,5 +300,6 @@ all reported the repository root while their processes were inside `.worktrees/*
 - **Drift** — e.g. `main` shown in the drift state. The active tab is not on the branch the task
   is bound to. The tooltip names both: `task · feat/shop-2210-preview-tokens`. Amber, because this
   is the case where the next command lands somewhere you did not mean.
-- **No window open** — e.g. `main`. A task falls back to its own branch, a terminal to the
-  project's checkout. The row still says something true rather than going blank.
+- **No window open** — e.g. `main`. The row whose window you closed, or that has not opened one
+  yet. A task falls back to its own branch, a terminal to the project's checkout. The row still
+  says something true rather than going blank.

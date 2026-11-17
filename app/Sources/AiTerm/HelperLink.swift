@@ -9,7 +9,14 @@ import AiTermCore
 @Observable
 final class HelperLink {
     /// How far the chain to iTerm2 reaches. The sidebar banner and the iTerm settings card read it.
-    var itermConnection: ItermConnection = .starting
+    var itermConnection: ItermConnection = .starting {
+        didSet {
+            if itermConnection != oldValue { refreshConnectionBanner() }
+        }
+    }
+    private(set) var connectionBanner: ConnectionBanner?
+    @ObservationIgnored private var connectionGraceTask: Task<Void, Never>?
+    private let connectionGrace: Duration
     /// The connected daemon, if there is one; every request the app makes goes to it.
     @ObservationIgnored private(set) var daemon: (any DaemonCommands)?
     @ObservationIgnored private var supervisor: DaemonSupervisor?
@@ -46,7 +53,7 @@ final class HelperLink {
     init(socketPath: String = AiTermPaths.socketPath, bundledResourcesURL: URL?, preferences: InterfacePreferences,
          findPython: @escaping @Sendable () -> URL? = { PythonLocator.find() },
          claudeConfig: ClaudeConfig = ClaudeConfig(), harnessHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-         notices: Notices) {
+         notices: Notices, connectionGrace: Duration = .seconds(10)) {
         self.socketPath = socketPath
         self.findPython = findPython
         self.claudeConfig = claudeConfig
@@ -54,6 +61,7 @@ final class HelperLink {
         self.bundledResourcesURL = bundledResourcesURL
         self.preferences = preferences
         self.notices = notices
+        self.connectionGrace = connectionGrace
     }
 
     /// Adds `hook` to what hears every event the connection delivers, once the link has taken its own.
@@ -74,6 +82,7 @@ final class HelperLink {
     func start() {
         guard !running else { return }
         running = true
+        refreshConnectionBanner()
         guard let resources = bundledResourcesURL else {
             itermConnection = .helperMissing
             return
@@ -100,6 +109,7 @@ final class HelperLink {
     /// live socket exists, so an orphan left behind at quit would break the next launch.
     func shutdown() {
         running = false
+        connectionGraceTask?.cancel()
         startup?.cancel()
         // Close our end first — the connection disconnects its client and clears `daemon` — so the
         // daemon sees the client go away before it is asked to quit, rather than writing into a
@@ -107,6 +117,22 @@ final class HelperLink {
         connection?.stop()
         connection = nil
         supervisor?.stop(); supervisor = nil
+    }
+
+    /// Repeated reports of one state keep its grace; a different state cancels the old wait.
+    private func refreshConnectionBanner() {
+        connectionGraceTask?.cancel()
+        connectionBanner = itermConnection.banner(waited: false)
+        switch itermConnection {
+        case .starting, .helperUnreachable, .waitingForIterm:
+            let state = itermConnection, grace = connectionGrace
+            connectionGraceTask = Task { [weak self] in
+                guard (try? await Task.sleep(for: grace)) != nil,
+                      let self, self.itermConnection == state else { return }
+                self.connectionBanner = state.banner(waited: true)
+            }
+        default: break
+        }
     }
 
     func setDaemonClient(_ client: (any DaemonCommands)?) {

@@ -68,7 +68,7 @@ import Testing
 
     @Test func theOperatorsContextBelongsToItsOwnRow() {
         let run = OperatorSession(createdAt: Date())
-        let row = OperatorRow.id(of: OperatorSession.rowID)
+        let row = OperatorSession.rowID
         var state = AppState.empty
         state.operatorSession = run
         var session = tab("operator", window: "operator-window", agent: .claude, active: true, context: 42)

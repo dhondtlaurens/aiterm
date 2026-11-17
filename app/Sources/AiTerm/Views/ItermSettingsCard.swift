@@ -47,7 +47,7 @@ enum ItermCardPresentation {
             return ItermCard(status: SettingsStatus(.attention, connection.status), steps: [
                 "Quit and reopen AiTerm.app",
             ])
-        case .waitingForIterm, .itermReconnecting, .refused:
+        case .waitingForIterm, .itermNotRunning, .refused:
             if environment?.installed == false {
                 return ItermCard(status: SettingsStatus(.attention, "iTerm2 is not installed"), steps: [
                     "Download iTerm2 from iterm2.com",
@@ -63,6 +63,11 @@ enum ItermCardPresentation {
                 ])
             }
             switch connection {
+            case .itermNotRunning:
+                return ItermCard(status: SettingsStatus(.attention, connection.status), steps: [
+                    "Open iTerm2",
+                    "AiTerm connects on its own within a few seconds",
+                ])
             case .refused:
                 return ItermCard(status: SettingsStatus(.attention, connection.status), steps: [
                     "Open System Settings › Privacy & Security › Automation",

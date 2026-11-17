@@ -21,6 +21,11 @@ struct SidebarInteractionTests {
                                     windowId: "terminal-window", createdAt: Date())
         controller.workspace.mutate { $0.items = [.project(project)]; $0.terminals = [terminal] }
         controller.helper.setDaemonClient(server)
+        // iTerm2's windows read, the terminal's among them: a row is raised only once they are.
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
+            sessions: [.stub("t", window: "terminal-window", terminal: terminal)], usage: .empty)))
+        // The connection's own request, the background preference, lands before the paths are compared.
+        try await server.received("interface.setMatchItermBackground")
         let (host, window) = HostedSidebar.make(controller, key: true)
         defer { window.orderOut(nil) }
         settle(host, describing: "the terminal row") {

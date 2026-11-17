@@ -106,7 +106,7 @@ open /Applications/AiTerm.app
 ```
 
 **The person does this:** iTerm2 asks once whether AiTerm may use its API. Click *Allow*. Until
-they do, the sidebar shows "Waiting for iTerm2…".
+they do, the sidebar says AiTerm isn’t connected to iTerm2, and Settings › Integrations › iTerm2 shows what is missing.
 
 ## 6. Hand over
 

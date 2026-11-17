@@ -36,7 +36,7 @@ import Testing
         #expect(fixture.prompter.asked.last?.message == "Remove project “Repo”?", "free once both have opened")
     }
 
-    /// A task's window opening — restored here, or for a review — holds the project too.
+    /// A task's window opening — its row chosen, or for a review — holds the project too.
     @Test func aProjectCannotBeRemovedWhileATaskWindowOpensInIt() async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
         let server = RecordingDaemon(holding: "window.createTask")
@@ -45,9 +45,9 @@ import Testing
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: nil)
 
-        // A restore opens only into an iTerm2 known to be there, and quiet.
+        // A window opens only into an iTerm2 known to be there.
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        let reopening = controller.windows.restore(.task(task.id))
+        let reopening = controller.windows.open(.task(task.id))
         try await server.received("window.createTask")
         await controller.projects.confirmRemove(project: fixture.project)
 
@@ -269,10 +269,10 @@ import Testing
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await controller.windows.restore(.terminal(terminal.id))?.value
+        await controller.windows.open(.terminal(terminal.id))?.value
         #expect(controller.issue != nil)
         daemon.failing = [:]
-        await controller.windows.choose(.terminal(terminal.id))?.value
+        await controller.windows.open(.terminal(terminal.id))?.value
         #expect(controller.state.terminal(id: terminal.id)?.windowId != nil)
         #expect(controller.issue == nil)
     }
@@ -297,7 +297,7 @@ import Testing
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
     }
 
-    /// Remove while the terminal's window is still reopening says so; the restore then finishes.
+    /// Remove while the terminal's window is still reopening says so; the open then finishes.
     @Test func removingATerminalWhileItReopensSaysWhy() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
@@ -307,9 +307,9 @@ import Testing
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        // A restore opens only into an iTerm2 known to be there, and quiet.
+        // A window opens only into an iTerm2 known to be there.
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        let reopening = controller.windows.restore(.terminal(terminal.id))
+        let reopening = controller.windows.open(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         #expect(controller.terminals.close(terminal: terminal) == nil)
 
@@ -340,7 +340,7 @@ import Testing
         #expect(server.requests("window.close").count == 1)
     }
 
-    /// Restoring a terminal whose row went while its window opened closes that window.
+    /// Opening a terminal whose row went while its window opened closes that window.
     @Test func aWindowReopenedForATerminalThatWentMeanwhileIsClosed() async throws {
         let fixture = try await RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
@@ -350,9 +350,9 @@ import Testing
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        // A restore opens only into an iTerm2 known to be there, and quiet.
+        // A window opens only into an iTerm2 known to be there.
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        let reopening = controller.windows.restore(.terminal(terminal.id))
+        let reopening = controller.windows.open(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         controller.workspace.mutate { $0.terminals = [] }
         server.release()

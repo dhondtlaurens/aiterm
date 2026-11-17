@@ -60,7 +60,7 @@ Requires **macOS 26+**, **iTerm2** and **Python 3.11+**. Enable
 2. Open it. The release is self-signed; allow its first launch in **System Settings › Privacy &
    Security › Open Anyway** when macOS asks. If necessary, clear the download flag with
    `xattr -dr com.apple.quarantine /Applications/AiTerm.app`.
-3. Allow AiTerm's API connection when iTerm2 asks. Until then the sidebar shows “Waiting for iTerm2…”.
+3. Allow AiTerm's API connection when iTerm2 asks. Until then the sidebar says AiTerm isn’t connected to iTerm2, and Settings › Integrations › iTerm2 shows what is missing.
 4. Open **Settings › Agents** and press **Install** for each agent you use. This installs a missing
    CLI and AiTerm's driver. Sign in through the chosen agent's CLI as needed; you use your own agent
    account or API access.

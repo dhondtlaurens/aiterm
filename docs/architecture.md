@@ -70,15 +70,14 @@ prompt. Durable reply fingerprints distinguish a newly sent turn from the previo
 An accepted launch with no worker eventually blocks for inspection. Checkout work uses repository
 lanes while separate windows can open concurrently.
 
-`WindowReconciler` compares desired rows with tagged sessions. It adopts, restores, asks about a
-single user close or removes a terminal row. A pass runs when the tabs as a pass reads them move, a
-checkout reads missing or back, the workspace can change again, or a workspace change leaves a row
-owed a window; each checkout poll checks in memory whether a pass would act. `ClosedWindowTriage`
-distinguishes a lone close from iTerm2 shutting down. `TaskRemover`, `TaskArchiver` and
-`WorktreeTeardown` coordinate saved state, window closure and Git safety: Remove and Archive share its
-prepare (one `TaskWorkflow.preflight` listing, the unlisted-folder and unsaved-work questions) and
-its run (git's removal, asking again about work written while the window closed). A failed removal
-retains a recoverable task. See [windows](windows.md).
+`RowWindows` clears a row's window when iTerm2 says it is gone, adopts tagged windows through the
+pure `AppState.windowPlan(sessions:)`, and opens a chosen row's window through the opener for its
+kind. `AppController.choose` decides what choosing a row does, and `RowFocus` raises.
+`TaskRemover`, `TaskArchiver` and `WorktreeTeardown` coordinate saved state, window closure and Git
+safety: Remove and Archive share its prepare (one `TaskWorkflow.preflight` listing, the
+unlisted-folder and unsaved-work questions) and its run (git's removal, asking again about work
+written while the window closed). A failed removal retains a recoverable task. See
+[windows](windows.md).
 
 ## Operator ownership
 

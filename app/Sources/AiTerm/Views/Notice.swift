@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 
 /// Every “needs your attention or your answer” in the app, drawn one way: the
-/// sidebar's banner about a failed operation or a refused connection, a failed create in a sheet's
+/// sidebar’s banner about a failed operation or a connection problem, a failed create in a sheet's
 /// footer, and the Backpack sheet's permission ask.
 ///
 /// An amber `exclamationmark.circle.fill` at `Size.inlineMark`, `Space.snug` before the title in
@@ -13,7 +13,7 @@ import AiTermUI
 /// whether it is a question or a failure. `help` is the tooltip, git's whole output where there is one.
 ///
 /// Inside a sheet's footer the caller passes no actions and keeps its buttons. Not Notices: field
-/// help, row captions, toasts, and the grey line while iTerm2 connects. Its tokens read `scale`, so
+/// help, row captions and toasts. Its tokens read `scale`, so
 /// in the sidebar it grows with the interface size; a sheet resets the scale to ×1.
 struct Notice<Actions: View>: View {
     static var symbol: String { "exclamationmark.circle.fill" }

@@ -141,7 +141,7 @@ final class TaskLauncher {
         let result = try await checkout()
         let task = result.task
         // The row is in the workspace before its window: until this create has opened it — or given
-        // up — the row is this work's, and nothing restores it underneath (`WindowReconciler`).
+        // up — the row is this work's, and choosing it opens no second window (`RowWindows`).
         let opening = work.begin(.opening, onTask: task.id)
         defer { if let opening { work.end(opening) } }
         workspace.mutate { state in
@@ -167,12 +167,12 @@ final class TaskLauncher {
             return
         }
         guard let daemon = daemon() else {
-            say(OperationIssue(title: "\(noun) created. Its window opens once AiTerm reconnects; start the agent there manually."))
+            say(OperationIssue(title: "\(noun) created. Choose it to open its window once AiTerm reconnects, then start the agent there."))
             return
         }
         do { try await openWindow(for: task, command: result.command, with: daemon) }
         catch {
-            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened; it comes back once AiTerm reconnects.",
+            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened; if it isn’t there once AiTerm reconnects, choose the task to open it.",
                                error: error))
         }
     }
@@ -259,8 +259,8 @@ final class TaskLauncher {
     /// A task's window, in its worktree, adopted by the row: its id, or nil when the row went while the
     /// window opened — it cannot adopt it, so the window is closed rather than left behind with nothing
     /// to show it. `command` is what the window's first tab runs: the agent at creation, a resumed
-    /// conversation on a restore, or nothing — the first prompt is never replayed.
-    /// `WindowReconciler.restore` opens a restored task's window through it too.
+    /// conversation when a chosen row opens its window again, or nothing — the first prompt is never
+    /// replayed. `RowWindows.open` opens a chosen task's window through it too.
     @discardableResult
     func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)

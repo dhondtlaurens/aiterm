@@ -9,8 +9,8 @@ import AiTermCore
 /// and a write reaches only the cell whose value it changes — for an arrow key, the row it leaves
 /// and the row it reaches.
 ///
-/// The owner keeps its own collection as it was, for everything that reads it whole, and mirrors
-/// each change into this one, which rows read instead.
+/// `RowFlags` owns a set and its per-row cells; other owners mirror their values into these cells
+/// for rows to read on their own.
 ///
 /// A row's cell is made the first time it is read or given a value other than the default. It goes
 /// once its row has left the workspace and holds the default again, at the workspace's next change;
@@ -64,10 +64,37 @@ final class PerRow<Value: Equatable> {
     private func dropGone(from state: AppState) {
         guard !cells.isEmpty else { return }
         let rows = Set(state.items.map(\.id) + state.tasks.map(\.id) + state.terminals.map(\.id)
-            + state.tasks.compactMap { $0.signalTask?.takenOver == false ? $0.signalTask?.signal : nil } + state.signals.map(\.id) + [OperatorRow.id(of: OperatorSession.rowID)])
+            + state.tasks.compactMap { $0.signalTask?.takenOver == false ? $0.signalTask?.signal : nil } + state.signals.map(\.id) + [OperatorSession.rowID])
         for (id, cell) in cells where !rows.contains(id) && cell.value == defaultValue {
             cells[id] = nil
         }
+    }
+}
+
+/// A set of row ids, with membership observed by each row on its own.
+@MainActor
+final class RowFlags {
+    private let cells: PerRow<Bool>
+    /// The whole set, read without observation.
+    private(set) var members: Set<UUID> = []
+
+    init(workspace: WorkspaceStore) {
+        cells = PerRow(default: false, workspace: workspace)
+    }
+
+    func contains(_ id: UUID) -> Bool { cells[id] }
+
+    func set(_ ids: Set<UUID>) {
+        for id in members.symmetricDifference(ids) { cells[id] = ids.contains(id) }
+        members = ids
+    }
+
+    func insert(_ id: UUID) {
+        if members.insert(id).inserted { cells[id] = true }
+    }
+
+    func remove(_ id: UUID) {
+        if members.remove(id) != nil { cells[id] = false }
     }
 }
 

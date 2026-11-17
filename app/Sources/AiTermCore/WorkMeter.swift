@@ -1,6 +1,6 @@
 import Synchronization
 
-/// Counts window reconciler passes, files written and Archive rankings for tests that budget them.
+/// Counts `RowWindows` passes, files written and Archive rankings for tests that budget them.
 /// A test binds one with `WorkMeter.$current.withValue(_:)` and reads its counts after; with none bound,
 /// as in the app, `note` does nothing. A task-local, so tests running side by side each count only their own work,
 /// which a counter on a pure function could not. Work a caller hands to a queue or a thread of its own is not in that
@@ -8,7 +8,7 @@ import Synchronization
 public final class WorkMeter: Sendable {
     /// The work the budgets count, each noted where it is done.
     public enum Work: String, Sendable {
-        /// `WindowReconciler.pass`: one comparison of the rows with the windows.
+        /// `RowWindows.pass`: one comparison of the rows with the windows.
         case reconcilerPass
         /// One file a `StateStore` writes the bytes of: the workspace, or its backup.
         case stateWrite

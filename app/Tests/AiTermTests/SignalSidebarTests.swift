@@ -71,7 +71,7 @@ import AiTermUI
         }
         controller.helper.setDaemonClient(RecordingDaemon())
         controller.signalController.ports.notifications.onOpen?(.operatorWindow)
-        #expect(controller.focus.selection == .operation(OperatorSession.rowID))
+        #expect(controller.focus.selection == .operatorChat)
     }
     @Test func headingsHoldTheSameTaskRowsAndTakeoverReturnsTheTaskToItsProject() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
@@ -95,7 +95,7 @@ import AiTermUI
         let folder = try ScratchFolder.make("aiterm-signal-sidebar-"); defer { try? FileManager.default.removeItem(at: folder) }
         let controller = AppController(store: StateStore(url: folder.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        #expect(controller.focus.row(id: OperatorRow.id(of: OperatorSession.rowID)) == .operation(OperatorSession.rowID))
+        #expect(controller.focus.row(id: OperatorSession.rowID) == .operatorChat)
         #expect(controller.rows.signalSections.isEmpty)
     }
     /// The projects are the default: with nothing to fold, OPERATOR is a heading and its "+"; once a signal exists the
@@ -144,12 +144,12 @@ import AiTermUI
         #expect(controller.rows.operatorHeading.attention == 2, "the Operator's row says it waits on you, and so does the task")
         controller.openOperatorAttention()
         #expect(controller.rows.operatorOpen)
-        #expect(controller.focus.selection == .operation(OperatorSession.rowID), "its first row that needs you")
+        #expect(controller.focus.selection == .operatorChat, "its first row that needs you")
         #expect(controller.rows.operatorHeading.attention == 0, "open, the rows say it themselves")
 
         controller.reveal(.project(world.project.id))
         #expect(!controller.rows.operatorOpen, "a project row opens the projects")
-        controller.reveal(.operation(OperatorSession.rowID))
+        controller.reveal(.operatorChat)
         #expect(controller.rows.operatorOpen, "the Operator's row opens its section")
     }
     /// ↓ on the Operator's last row reaches the first project, folding the Operator; ↑ on the first project reaches
@@ -162,7 +162,7 @@ import AiTermUI
         let second = Project.make(name: "docs", path: "/synthetic/docs"); world.state.append(project: second)
         world.state.operatorOpen = true
         controller.workspace.mutate { $0 = world.state }
-        #expect(controller.rows.operatorPath == [.operation(OperatorSession.rowID), .signal(signal), .task(task)])
+        #expect(controller.rows.operatorPath == [.operatorChat, .signal(signal), .task(task)])
 
         controller.focus.browse(.signal(signal))
         #expect(!controller.crossSections(down: true), "the signal's task is still below it")

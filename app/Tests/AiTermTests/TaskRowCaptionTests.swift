@@ -6,25 +6,24 @@ import Testing
 /// removed, and the caption under it.
 @Suite struct TaskRowCaptionTests {
     @Test func aRemovalReplacesTheChipLineAndHidesTheCaption() {
-        let removing = TaskRowCaption(removal: .removing, missing: true, failed: false)
+        let removing = TaskRowCaption(removal: .removing, missing: true)
         #expect(removing == TaskRowCaption(progress: "Removing…", note: nil))
-        #expect(TaskRowCaption(removal: .closing, missing: true, failed: false).progress == "Closing…")
+        #expect(TaskRowCaption(removal: .closing, missing: true).progress == "Closing…")
     }
 
     @Test func anArchivingRowSaysSoInItsBadgeLine() {
-        #expect(TaskRowCaption(removal: .archiving, missing: false, failed: false) == TaskRowCaption(progress: "Archiving…", note: nil))
+        #expect(TaskRowCaption(removal: .archiving, missing: false) == TaskRowCaption(progress: "Archiving…", note: nil))
     }
 
     @Test func whyARemovalStoppedTakesTheCaptionsPlace() {
-        #expect(TaskRowCaption(removal: .stopped(note: "Not removed: branch kept", worktreeRemoved: true), missing: true, failed: false)
+        #expect(TaskRowCaption(removal: .stopped(note: "Not removed: branch kept", worktreeRemoved: true), missing: true)
                 == TaskRowCaption(progress: nil, note: .warning("Not removed: branch kept")))
     }
 
     @Test func otherwiseTheCaptionSaysWhatIsMissing() {
-        #expect(TaskRowCaption(removal: nil, missing: true, failed: true).note == .plain("Worktree missing"))
-        #expect(TaskRowCaption(removal: nil, missing: false, failed: true).note == .plain("Couldn’t reopen"))
-        #expect(TaskRowCaption(removal: nil, missing: false, failed: false) == TaskRowCaption(progress: nil, note: nil),
-                "an owed window coming back says nothing: the row is drawn as it was")
+        #expect(TaskRowCaption(removal: nil, missing: true).note == .plain("Worktree missing"))
+        #expect(TaskRowCaption(removal: nil, missing: false) == TaskRowCaption(progress: nil, note: nil),
+                "a row without a window says nothing: the row is drawn as it was")
     }
 
 }

@@ -20,9 +20,8 @@ struct RaceFixture {
     /// path of a repository under `/var/folders`, and adding the unresolved one adds it as "the
     /// repository around" that path.
     init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
-         bringForward: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
-         itermRunning: @escaping @MainActor () -> Bool = { true },
-         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil,
+         launchIterm: @escaping @MainActor () -> Void = {},
+         itermRunning: @escaping @MainActor () -> Bool = { true }, scan: CheckoutMonitor.Scanner? = nil,
          checkoutPollInterval: Duration = .seconds(2),
          provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil) async throws {
         root = try await BackgroundWork.run {
@@ -37,7 +36,7 @@ struct RaceFixture {
         self.prompter = prompter
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
                                    activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
-                                   bringForward: bringForward, checkoutPollInterval: checkoutPollInterval, now: now,
+                                   checkoutPollInterval: checkoutPollInterval,
                                    git: controllerGit ?? GitRunner.hermetic(), scan: scan ?? {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
                                    })

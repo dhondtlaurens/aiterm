@@ -58,8 +58,8 @@ final class TerminalActions {
     }
 
     /// A window for `terminal`, in its project's folder, tagged with the terminal's id, and bound to
-    /// its row: what a new terminal (`adding`, its row added with the window) and a restored one (its
-    /// row given the window) each open. A restored row gone meanwhile cannot adopt the window, nor can
+    /// its row: what a new terminal (`adding`, its row added with the window) and a chosen one without a
+    /// window (its row given the window) each open. A chosen row gone meanwhile cannot adopt the window, nor can
     /// a new one whose project went — the project's removal waits for it (`.openingTerminal`), and a
     /// row without its project would fail every save — so the window is closed then, not left
     /// behind, and nil is returned.
@@ -83,8 +83,8 @@ final class TerminalActions {
 
     /// Closing a terminal touches nothing on disk — there is no worktree behind it — so it needs no
     /// confirmation, unlike removing a task. The row's copy is as old as the click, so the window
-    /// closed is the one the terminal has when the close runs: a restore can have given it one since.
-    /// A close while the window is still reopening (`WindowReconciler.restore`) says so rather than
+    /// closed is the one the terminal has when the close runs: choosing it can have given it one since.
+    /// A close while the window is still reopening (`RowWindows.open`) says so rather than
     /// racing it.
     @discardableResult
     func close(terminal: TerminalItem) -> Task<Void, Never>? {

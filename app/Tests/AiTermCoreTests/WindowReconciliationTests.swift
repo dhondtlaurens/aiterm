@@ -28,9 +28,8 @@ import Testing
         #expect(state.reconciled(with: snapshot([], connected: false)) == state)
     }
 
-    /// Every row whose window the snapshot lacks is owed it — a task's and a terminal's alike; the plan
-    /// (`AppState.windowPlan`) decides what follows.
-    @Test func aRowWhoseWindowIsGoneIsOwedIt() {
+    /// Every row whose window the snapshot lacks is left without one — a task's and a terminal's alike.
+    @Test func aRowWhoseWindowIsGoneIsCleared() {
         let (kept, gone) = (task(window: "w1"), task(window: "w9"))
         let (open, closed) = (terminal(window: "w2"), terminal(window: "w8"))
         var state = AppState.empty
@@ -39,5 +38,21 @@ import Testing
         let next = state.reconciled(with: snapshot([SessionInfo.make("a", task: kept.id), SessionInfo.make("b", window: "w2")]))
         #expect(next.tasks.map(\.windowId) == ["w1", nil])
         #expect(next.terminals.map(\.windowId) == ["w2", nil])
+    }
+
+    /// The Operator's chat is a row like any other: a connected snapshot without its window clears it, a
+    /// disconnected one does not, and during a handover, whose own record it is, neither does.
+    @Test func theOperatorsChatWindowIsClearedOnlyByAConnectedSnapshotOutsideAHandover() {
+        var state = AppState.empty
+        state.operatorSession = OperatorSession(createdAt: Date(timeIntervalSince1970: 0))
+        state.operatorSession?.window = "chat"
+        #expect(state.reconciled(with: snapshot([], connected: false)) == state)
+        #expect(state.reconciled(with: snapshot([SessionInfo.make("o", window: "chat")])) == state)
+        #expect(state.reconciled(with: snapshot([])).operatorSession?.window == nil)
+        for handover in [OperatorHandover.closing, .revoking, .opening] {
+            state.operatorSession?.handover = handover
+            #expect(state.reconciled(with: snapshot([])) == state, "\(handover)")
+            #expect(state.reconciled(with: snapshot([], connected: false)) == state, "\(handover)")
+        }
     }
 }

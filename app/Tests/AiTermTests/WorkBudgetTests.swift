@@ -71,7 +71,6 @@ enum Budget {
         controller.helper.setDaemonClient(RecordingDaemon())
         var tab = SessionInfo.make("s", window: "w", task: task.id, state: .working, cwd: "/repo/a")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [tab], usage: .empty)))
-        await controller.windows.lastRestore?.value
 
         let work = await Budget.metered {
             for n in 1...10 {
@@ -82,30 +81,6 @@ enum Budget {
 
         #expect(controller.state.task(id: task.id)?.windowId == "w", "the row keeps its window")
         #expect(work[.reconcilerPass, default: 0] == 0, "passes for 10 events: \(work)")
-    }
-
-    /// Five checkout polls with every row in its window cause no window reconciler passes.
-    @Test func pollsWithNothingOwedPassTheWindowLockNever() async throws {
-        let controller = AppController(preferences: .scratch(), checkoutPollInterval: .milliseconds(10), scan: Budget.noScan)
-        defer { controller.shutdown() }
-        try controller.workspace.load()
-        let project = Project.make(path: "/repo")
-        let task = TaskItem.make(project: project.id, title: "a", worktreePath: "/repo/a", windowId: "w")
-        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
-        controller.helper.setDaemonClient(RecordingDaemon())
-        let tab = SessionInfo.make("s", window: "w", task: task.id, state: .working, cwd: "/repo/a")
-        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [tab], usage: .empty)))
-        await controller.windows.lastRestore?.value
-        var polls = 0
-        controller.checkouts.onPolled { polls += 1 }
-
-        let work = await Budget.metered {
-            controller.checkouts.startMonitoring()
-            await eventually(describing: "five polls") { polls >= 5 }
-            controller.checkouts.stop()
-        }
-
-        #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls with nothing owed: \(work)")
     }
 
     // MARK: - Archive and restore
@@ -127,10 +102,8 @@ enum Budget {
         #expect(controller.state.archive.map(\.id) == [task.id], "archived")
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await controller.windows.lastRestore?.value
         mark = git.calls.count
-        await controller.archiver.restore(task.id)?.value
-        await controller.windows.lastRestore?.value
+        await controller.restoreFromArchive(task.id)?.value
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 

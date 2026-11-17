@@ -35,7 +35,7 @@ struct WorkInFlightTests {
         let work = WorkInFlight()
         let task = UUID(), terminal = UUID()
         let reopening = try #require(work.begin(.reopening, onTask: task))
-        #expect(work.begin(.removing(windowLetGo: false), onTask: task) == nil)
+        #expect(work.begin(.removing, onTask: task) == nil)
         #expect(work.operation(onTask: task) == .reopening)
         work.end(reopening)
         #expect(work.operation(onTask: task) == nil)
@@ -56,49 +56,37 @@ struct WorkInFlightTests {
         work.end(first)
         let second = try #require(work.begin(.closing, onTask: task))
         work.end(first)
-        work.update(first, to: .removing(windowLetGo: true))
         #expect(work.operation(onTask: task) == .closing)
-        work.update(second, to: .removing(windowLetGo: true))
-        #expect(work.operation(onTask: task) == .removing(windowLetGo: true))
+        work.end(second)
     }
 
-    /// Whoever draws from the ledger hears each subject whose work began, changed or ended — and not
-    /// of a change that changed nothing.
+    /// Whoever draws from the ledger hears each subject whose work began or ended — and not of an end
+    /// that ended nothing.
     @Test func eachChangeIsHeardForItsSubject() throws {
         let work = WorkInFlight()
         let task = UUID(), project = UUID()
         let heard = Recorded<WorkInFlight.Subject>()
         work.onChange { heard.values.append($0) }
-        let removing = try #require(work.begin(.removing(windowLetGo: false), onTask: task))
-        work.update(removing, to: .removing(windowLetGo: false))
-        work.update(removing, to: .removing(windowLetGo: true))
+        let removing = try #require(work.begin(.removing, onTask: task))
         work.end(removing)
         work.end(removing)
         let pull = try #require(work.begin(.changingDefaultBranch, onProject: project))
         #expect(work.isRunning(.changingDefaultBranch, onProject: project))
         work.end(pull)
-        #expect(heard.values == [.task(task), .task(task), .task(task), .project(project), .project(project)])
+        #expect(heard.values == [.task(task), .task(task), .project(project), .project(project)])
     }
 
     /// The row's caption while a task's work runs: a removal or a closing says so, a reopen or a
     /// review leaves whatever the row said.
     @Test func onlyRemovingAndClosingSayAnythingOnTheRow() {
-        #expect(TaskOperation.removing(windowLetGo: true).removal == .removing)
+        #expect(TaskOperation.removing.removal == .removing)
         #expect(TaskOperation.closing.removal == .closing)
         #expect(TaskOperation.reopening.removal == nil)
         #expect(TaskOperation.reviewing.removal == nil)
     }
 
-    @Test func onlyARemovalOrAnArchiveThatHasLetItsWindowGoKeepsTheWindowPlanAway() {
-        #expect(TaskOperation.removing(windowLetGo: true).letsWindowGo)
-        #expect(TaskOperation.archiving(windowLetGo: true).letsWindowGo)
-        #expect(!TaskOperation.removing(windowLetGo: false).letsWindowGo)
-        #expect(!TaskOperation.archiving(windowLetGo: false).letsWindowGo)
-        #expect(!TaskOperation.restoring.letsWindowGo)
-    }
-
     @Test func anArchiveReadsArchivingOnItsRowAndARestoreReadsNothing() {
-        #expect(TaskOperation.archiving(windowLetGo: false).removal == .archiving)
+        #expect(TaskOperation.archiving.removal == .archiving)
         #expect(TaskOperation.restoring.removal == nil)
         #expect(TaskRemoval.archiving.inProgress)
     }

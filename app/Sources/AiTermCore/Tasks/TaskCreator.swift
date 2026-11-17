@@ -151,7 +151,7 @@ public enum TaskCreator {
     }
 
     /// An archived row's worktree back where it was, with what `.worktreeinclude` selects copied in
-    /// again — never over a file already there — and the row windowless, owed its window.
+    /// again — never over a file already there — and the row without a window.
     public static func restore(_ task: TaskItem, project: Project, git: any GitRunning) throws -> Made {
         let repository = Repository(project.path, git: git)
         try repository.restoreWorktree(at: task.worktreePath, branch: task.branch, kind: task.kind)

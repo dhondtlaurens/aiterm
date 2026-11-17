@@ -192,11 +192,6 @@ import AiTermCore
         return OperatorSessionKeeper(workspace: workspace, now: ports.now,
         oracleOn: { [weak self] in self?.currentOracle.isOn == true }, ports: .init(
             canOpen: { [weak self] in self.map { !$0.isStopped && $0.tabsKnown && $0.daemon() != nil && !$0.profile.model.isEmpty && $0.ports.installedAgents().contains(.claude) } ?? false },
-            windowIsOpen: { [weak self] session in
-                guard let self else { return false }
-                if let window = session.window, self.live.sessions.contains(where: { $0.windowId == window && $0.taskUUID == session.id }) { return true }
-                return self.opened.map { $0.window == session.window && $0.generation == session.generation && self.ports.now().timeIntervalSince($0.at) < 180 } ?? false
-            },
             close: { [weak self] window in try await self?.closeOperator(window) },
             revoke: { [weak self] id in
                 guard let self, let daemon = self.daemon(), let session = self.workspace.state.operatorSession else { throw ActionUnavailable("The helper is unavailable.") }
@@ -240,7 +235,7 @@ import AiTermCore
             self.opened = nil; self.wakeLeftUnsent = false
             // These failures belonged to the retired chat. Other sources still clear only on
             // their own next success.
-            self.succeed(.wake); self.succeed(.reply); self.succeed(.openWindow)
+            self.succeed(.wake); self.succeed(.reply)
             self.activity.pulse()
         }
         native.recordSwitch = { [weak self] id, row in try await self?.journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
@@ -491,7 +486,7 @@ import AiTermCore
             || (!workspace.state.operatorHasWork && workspace.state.operatorSession?.startingFresh == true) {
             await keeper.finishIfIdle(idle: activeTools == 0 && oracleJobs.isEmpty, wakePending: waking)
         }
-        if workspace.state.operatorHasWork { await keeper.ensure() }
+        if workspace.state.operatorHasWork { await keeper.ensure(reopen: hasWakeToType) }
         guard !isStopped else { return }
         rememberOperator()
         native.recoverLaunches()
@@ -535,8 +530,10 @@ import AiTermCore
             wakePending: waking || wakePending != nil || session?.wakeAwaitingRead == true)
         // A signal may have matched while the old window was closing. Its task was saved first;
         // it now gets the new generation, with no discarded wake or old conversation.
-        if workspace.state.operatorHasWork { await keeper.ensure() }
+        if workspace.state.operatorHasWork { await keeper.ensure(reopen: hasWakeToType) }
     }
+    /// Whether the Operator has something to type into its chat, which reopens a chat you closed.
+    private var hasWakeToType: Bool { wakePending != nil || workspace.state.operatorSession?.wakeAwaitingRead == true }
     private func pruneQuestions() {
         let obsolete = Set((workspace.state.operatorSession?.questions ?? []).filter {
             $0.resolvedAt == nil && !workspace.state.isCurrentOperatorQuestion($0)
@@ -744,15 +741,18 @@ import AiTermCore
             changed()
         }
     }
-    func openOperator() async {
-        if workspace.state.operatorHasWork { await keeper.ensure(allowPaused: true) }
-        guard let window = workspace.state.operatorSession?.window, let daemon = daemon() else { return }
-        do { try await daemon.activate(windowId: window); succeed(.openWindow) }
-        catch { fail(.openWindow, OperationIssue.reason(of: error)) }
+    /// The Operator's chat opened, even while paused, when its row is chosen without a window; with no
+    /// work there is nothing to open. Throws when it is still without one, with the session's issue as
+    /// the reason when there is one.
+    func openChat() async throws {
+        guard workspace.state.operatorHasWork else { return }
+        await keeper.ensure(allowPaused: true, reopen: true)
+        guard workspace.state.operatorSession?.window == nil else { return }
+        throw ActionUnavailable(issues.current.first { $0.source == .session }?.text ?? "The Operator’s chat couldn’t open.")
     }
-    func reopenWorker(_ id: UUID) async {
+    /// A driven task's worker resumed in its window, through the guarded reopen.
+    func reopenWorker(_ id: UUID) async throws {
         guard let task = workspace.state.task(id: id) else { return }
-        do { try await native.reopen(task); succeed(.reopenWorker) }
-        catch { fail(.reopenWorker, OperationIssue.reason(of: error)) }
+        try await native.reopen(task)
     }
 }

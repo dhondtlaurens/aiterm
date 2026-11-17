@@ -36,7 +36,7 @@ public final class WorkInFlight {
 
     public init() {}
 
-    /// Adds `hook` to what hears that work on a subject began, changed or ended, after the ones
+    /// Adds `hook` to what hears that work on a subject began or ended, after the ones
     /// added before it.
     public func onChange(_ hook: @escaping @MainActor (Subject) -> Void) {
         hooks.append(hook)
@@ -68,13 +68,6 @@ public final class WorkInFlight {
         terminals[id] = (token.serial, operation)
         changed(token.subject)
         return token
-    }
-
-    /// What the task's work is doing now, as it moves on: a removal that lets its window go.
-    public func update(_ token: Token, to operation: TaskOperation) {
-        guard case .task(let id) = token.subject, tasks[id]?.serial == token.serial, tasks[id]?.operation != operation else { return }
-        tasks[id]?.operation = operation
-        changed(token.subject)
     }
 
     /// Ends the work `token` names. Ending it twice ends nothing more.
@@ -135,25 +128,22 @@ public enum ProjectOperation: Equatable, Sendable {
     }
 }
 
-/// Work on a task, one at a time. It is the task's lock, what its row says while it runs, and
-/// whether a snapshot may give the task back a window it has let go.
+/// Work on a task, one at a time. It is the task's lock and what its row says while it runs.
 public enum TaskOperation: Equatable, Sendable {
-    /// A task's window reopened, its conversations resumed.
+    /// A task's window opened again because its row was chosen, its conversations resumed.
     case reopening
     /// A new task's or review's first window opening: its row is in the workspace before the window
-    /// is, and the creation, not a restore, opens it.
+    /// is, and the creation opens it.
     case opening
     /// A review opening as a tab in the task's window.
     case reviewing
     /// Removed by the person: its window, its worktree, maybe its branch, then its row.
-    /// `windowLetGo` once the row has dropped its window to close it (`TaskRemover`): the window's
-    /// tab is the removal's to settle, and `AppState.windowPlan` must not adopt it back for the row.
-    case removing(windowLetGo: Bool)
+    case removing
     /// Its worktree went outside AiTerm, and its window is being closed.
     case closing
     /// Archived by the person: its window, then its worktree, its row into the archive. Its branch is
-    /// never touched. `windowLetGo` as for `removing`.
-    case archiving(windowLetGo: Bool)
+    /// never touched.
+    case archiving
     /// An archived row's worktree coming back, before the row returns to the sidebar.
     case restoring
 
@@ -164,15 +154,6 @@ public enum TaskOperation: Equatable, Sendable {
         case .closing: .closing
         case .archiving: .archiving
         case .reopening, .opening, .reviewing, .restoring: nil
-        }
-    }
-
-    /// Whether the row has dropped its window to close it: its tab is this work's to settle, and the
-    /// window plan must not adopt it back for the row.
-    public var letsWindowGo: Bool {
-        switch self {
-        case .removing(let letGo), .archiving(let letGo): letGo
-        case .reopening, .opening, .reviewing, .closing, .restoring: false
         }
     }
 }

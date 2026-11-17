@@ -280,12 +280,11 @@ import Testing
         task = controller.state.tasks[0]
         await (await controller.archiver.archive(task: task))?.value
         controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = true } }
-        // iTerm2's windows read, so a chosen row's owed window can open: with no snapshot yet, AiTerm
+        // iTerm2's windows read, so a chosen row's window can open: with no snapshot yet, AiTerm
         // waits for one instead.
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await controller.archiver.restore(task.id)?.value
-        await controller.windows.lastRestore?.value
+        await controller.restoreFromArchive(task.id)?.value
 
         #expect(controller.state.archive.isEmpty)
         #expect(controller.state.tasks.map(\.id) == [task.id])
@@ -312,6 +311,7 @@ import Testing
         #expect(prompter.asked.last?.detail.contains("no longer exists here or on origin") == true)
         #expect(fixture.controller.state.archive.map(\.id) == [task.id])
         #expect(fixture.controller.state.tasks.isEmpty)
+        #expect(fixture.controller.focus.selection == nil)
     }
 
     @Test func aProjectCannotBeRemovedWhileOneOfItsArchivedRowsIsRestoring() async throws {
@@ -330,6 +330,7 @@ import Testing
         #expect(controller.state.project(id: fixture.project.id) != nil)
         await restoring?.value
         #expect(controller.state.tasks.map(\.id) == [task.id])
+        #expect(controller.focus.selection == nil, "the restore alone chooses nothing")
     }
 
     /// Git's removal of the worktree has no seam to hold, so the row is put where an archive leaves it
@@ -341,7 +342,7 @@ import Testing
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
         controller.workspace.mutate { $0.moveToArchive(taskId: task.id, branch: task.branch, at: Date()) }
-        let begun = controller.work.begin(.archiving(windowLetGo: true), onTask: task.id)
+        let begun = controller.work.begin(.archiving, onTask: task.id)
         let token = try #require(begun)
         defer { controller.work.end(token) }
 

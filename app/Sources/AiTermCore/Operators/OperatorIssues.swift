@@ -14,10 +14,6 @@ public struct OperatorIssues: Equatable, Sendable {
         case activity
         /// Keeping the Operator's session open, fresh and adopted.
         case session
-        /// Bringing the Operator's window forward.
-        case openWindow
-        /// Reopening a worker's window.
-        case reopenWorker
         /// Take Over's branch-guard refresh and journal entry.
         case takeOver
 
@@ -29,8 +25,6 @@ public struct OperatorIssues: Equatable, Sendable {
             case .reply: "Answering the Operator"
             case .activity: "The Operator's activity log"
             case .session: "The Operator's session"
-            case .openWindow: "Opening the Operator"
-            case .reopenWorker: "Reopening a worker"
             case .takeOver: "Take Over"
             }
         }

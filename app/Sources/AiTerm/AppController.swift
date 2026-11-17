@@ -6,12 +6,13 @@ import AiTermCore
 /// The app's composition root, and the one handle the views and the tests have on it. `init` builds
 /// every owner below, each handed in its initializer the owners it calls, so each is built after
 /// them: the workspace, the notices, the helper, the tabs, the tiling, the checkouts, the task
-/// remover, the selection, then the actions, the windows, the review threads, and Backpack Mode and
-/// the Mac's readings last. What an owner tells one built after it goes out through its `on…` hooks,
-/// which the later owner adds itself to as it is built; the checkout monitor and the task remover,
-/// which each call the other, are the one pair joined after both exist (`CheckoutRemovals`). The
-/// sidebar's rows and the Dock badge are the controller's own. Views and tests reach each owner
-/// directly through this handle; the actions here coordinate owners or decide between them.
+/// remover, the selection, then the actions, the operators, the windows, the review threads, and
+/// Backpack Mode and the Mac's readings last. What an owner tells one built after it goes out
+/// through its `on…` hooks, which the later owner adds itself to as it is built; the checkout
+/// monitor and the task remover, which each call the other, are the one pair joined after both
+/// exist (`CheckoutRemovals`). The sidebar's rows and the Dock badge are the controller's own. Views
+/// and tests reach each owner directly through this handle; the actions here coordinate owners or
+/// decide between them.
 @MainActor
 @Observable
 final class AppController {
@@ -42,8 +43,9 @@ final class AppController {
 
     /// The helper process, the connection to it and how far it reaches iTerm2.
     let helper: HelperLink
-    /// The rows locked to their iTerm2 windows: a window lost is taken back, asked about or restored.
-    let windows: WindowReconciler
+    /// Every row's iTerm2 window: a window gone leaves its row without one, a tagged window is taken,
+    /// and a chosen row's window is opened.
+    let windows: RowWindows
     /// The tabs, usage and context fills the helper reports.
     let live: LiveSessions
     /// The branches, missing checkouts and diffs on disk, read by a pass every two seconds.
@@ -104,23 +106,23 @@ final class AppController {
         let bundledResourcesURL = ports.bundledResourcesURL, locateAgents = ports.locateAgents, findPython = ports.findPython
         let jiraSettings = ports.jiraSettings, gitLabSettings = ports.gitLabSettings, gitHubSettings = ports.gitHubSettings
         let prompter = ports.prompter, setBadge = ports.setBadge, activateIterm = ports.activateIterm
-        let launchIterm = ports.launchIterm, itermRunning = ports.itermRunning, bringForward = ports.bringForward
+        let launchIterm = ports.launchIterm, itermRunning = ports.itermRunning
         let backpackPorts = ports.backpackPorts, backpackSecrets = ports.backpackSecrets
         let openLocationSettings = ports.openLocationSettings, machineSensor = ports.machineSensor, git = ports.git
         let scan = ports.scan
         let peekDelay = timings.peekDelay, checkoutPollInterval = timings.checkoutPollInterval
-        let toastLifetime = timings.toastLifetime, closedWindowHold = timings.closedWindowHold, now = timings.now
+        let toastLifetime = timings.toastLifetime
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython, claudeConfig: claudeConfig, harnessHome: harnessHome,
-                                notices: notices)
+                                notices: notices, connectionGrace: timings.connectionGrace)
         let daemon: @MainActor () -> (any DaemonCommands)? = { helper.daemon }
         let live = LiveSessions(workspace: workspace)
         let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: daemon)
         let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
                                         onTitles: { await helper.sendTitles($0) })
-        let teardown = WorktreeTeardown(workspace: workspace, work: work, workflow: workflow, prompter: prompter, daemon: daemon)
+        let teardown = WorktreeTeardown(workspace: workspace, workflow: workflow, prompter: prompter, daemon: daemon)
         let remover = TaskRemover(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
                                   teardown: teardown, checkouts: checkouts, live: live, daemon: daemon)
         let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
@@ -131,7 +133,7 @@ final class AppController {
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, workflow: workflow, git: git, daemon: daemon)
         let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
-                                    checkouts: checkouts, remover: remover, focus: focus, teardown: teardown, now: { Date() })
+                                    checkouts: checkouts, remover: remover, teardown: teardown, now: { Date() })
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -157,9 +159,10 @@ final class AppController {
                                     tiling: tiling, daemon: daemon, activateIterm: activateIterm)
         // The live sessions hear each helper event first: every other hook reads the tabs as that event left them.
         helper.onEvent { [weak live] in live?.handle($0) }
-        windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
-                                   remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
-                                   notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
+        // A window iTerm2 brought forward, by a click there or a notification, selects its row.
+        helper.onEvent { [weak focus] event in
+            if case .windowActivated(let window) = event { focus?.windowActivated(window) }
+        }
         // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
         let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
                                                     agents: agents, preferences: preferences.defaults)
@@ -169,17 +172,21 @@ final class AppController {
                                         versions: operatorPorts.installedVersions)
         messaging.opener = MessagingChecks.Opener(daemon: daemon, runtime: { helper.runtime }, frame: { tiling.taskFrame() },
                                                   activateIterm: activateIterm)
-        helper.onEvent { [weak messaging] event in
-            if case .windowClosed(let window) = event { messaging?.windowClosed(window) }
-        }
         self.messaging = messaging
-        // After the live sessions and the window lock: the operators read the operator's tab from the sessions.
         let signalController = SignalOperatorController(workspace: workspace, live: live, work: work, ports: operatorPorts,
                                                         daemon: daemon, frame: { tiling.taskFrame() })
         self.signalController = signalController
         signalController.readConnections = { SignalConnections(jira: jiraSettings(), gitLab: gitLabSettings(), gitHub: gitHubSettings()) }
         signalController.archive = { [archiver] task, allowed in try await archiver.archiveAutomatically(task, starting: allowed) }
         signalController.remove = { [remover] task, allowed in try await remover.removeAutomatically(task, starting: allowed, stillAllowed: allowed) }
+        // After the operators, whose openers it calls; its event hook right after the live sessions' own.
+        windows = RowWindows(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
+                             launcher: launcher, terminals: terminals, signalController: signalController, notices: notices,
+                             daemon: daemon, launchIterm: launchIterm)
+        helper.onEvent { [weak messaging] event in
+            if case .windowClosed(let window) = event { messaging?.windowClosed(window) }
+        }
+        // After the live sessions and the rows' windows: the operators read the Operator's tab from the sessions.
         helper.onEvent { [weak signalController] in signalController?.handle($0) }
         helper.onAttach { [weak signalController] in signalController?.daemonAttached() }
         sheets = SheetCoordinator(projects: projects, workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
@@ -221,37 +228,31 @@ final class AppController {
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
-        // A notification's click selects the Operator's row or brings a task's window forward.
+        // A notification's click chooses the Operator's row or a task's, as a click on the row does.
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
             switch target {
-            case .operatorWindow: self.focus.select(.operation(OperatorSession.rowID))
-            case .task(let id): self.focus.select(.task(id))
+            case .operatorWindow: self.choose(.operatorChat)
+            case .task(let id): self.choose(.task(id))
             }
+        }
+        // A row chosen while iTerm2 was away is chosen again once it is synced, if it is still selected.
+        windows.onPendingOpen { [weak self] row in
+            guard let self else { return }
+            let selection = RowSelection(row)
+            if self.focus.selection == selection { self.choose(selection) }
         }
         // Rows read the Operator's current activity and issues from its controller; a change derives the rows again.
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         signalController.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
-        // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
-        // controller's to reopen, in front.
-        focus.setReopenOperatorWindow { [weak signalController] _ in
-            Task { await signalController?.openOperator() }
-        }
-        // A driven task resumes through the Operator; a taken-over task opens through the manual
-        // launcher. Both reuse a live window, and the row raises it once opening is done.
-        focus.setReopenWorkerWindow { [weak self] id in
-            guard let self else { return nil }
-            if self.state.task(id: id)?.signalTask?.takenOver == true {
-                return self.launcher.openTakenOverWindow(id, prepareRequest: self.signalController.native.prepareTakenOverRequest,
-                    resume: self.signalController.native.takenOverResumeCommands)
-            }
-            return Task { await self.signalController.reopenWorker(id) }
-        }
     }
 
     // -- lifecycle ------------------------------------------------------------------
+    /// Starts iTerm2 through the same launch port used at startup, without bringing it forward.
+    func openIterm() { launchIterm() }
+
     /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the checkout
     /// monitor, the agent CLI probes, the helper and the sweep of dead fixes' clones, each once.
     func start() {
@@ -370,9 +371,21 @@ final class AppController {
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
             entries: { [weak self] in self?.state.archiveEntries ?? [] },
-            restore: { [weak self] in self?.archiver.restore($0) },
+            restore: { [weak self] in self?.restoreFromArchive($0) },
             // A turn later, never inside the key handler that asked (`Prompter`).
             remove: { [weak self] id in Task { await self?.removeFromArchive(id) } }))
+    }
+
+    /// Restores an archived task or review, then chooses its row as a click does, which opens its
+    /// window with its conversations resumed. Nil when nothing started.
+    @discardableResult
+    func restoreFromArchive(_ id: UUID) -> Task<Void, Never>? {
+        guard let restoring = archiver.restore(id) else { return nil }
+        return Task { [weak self] in
+            await restoring.value
+            guard let self, self.state.task(id: id) != nil else { return }
+            await self.choose(.task(id))?.value
+        }
     }
 
     /// Asks before removing an archived task or review.
@@ -409,7 +422,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .operation, .signal, nil: nil
+        case .operatorChat, .signal, nil: nil
         }
     }
 
@@ -444,30 +457,50 @@ final class AppController {
         guard let selection = focus.selection else { return nil }
         switch selection {
         case .task(let id) where state.task(id: id) != nil: return choose(selection)
-        case .operation: return choose(selection)
+        case .operatorChat: return choose(selection)
         default: return focus.row(id: selection.id) != nil ? choose(selection) : nil
         }
     }
 
-    /// A task selects its asking tab; other rows go through the managed focus path.
+    /// A row's click or ↩, and every other way a row is chosen: a heading is only selected; a task,
+    /// a terminal or the Operator's row has its window opened when it has none (`RowWindows.open`), and
+    /// is selected and raised once that open ends (`RowFocus.select`).
     @discardableResult
     func choose(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
+        case .project, .signal:
+            focus.browse(row)
+            return nil
         case .task(let id):
             return choose(task: id)
-        case .operation, .terminal, .project, .signal:
-            return focus.select(row)
+        case .terminal(let id):
+            return openAndRaise(row, .terminal(id))
+        case .operatorChat:
+            return openAndRaise(row, .operatorChat)
         }
     }
 
-    /// A task row's click or ↩ opens an unresolved question in the Operator's window unless a worker needs attention.
-    /// A signal's task brings forward its tab that asks, otherwise its last foreground tab.
-    /// `RowFocus.select` restores a closed window, selects a queued task without opening it, and handles other rows.
+    /// A task's choosing: a signal's task with a tab that asks, or its last foreground tab, brings that
+    /// tab forward; a task on its way out is only selected; any other is opened if it has no window,
+    /// then raised.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
-        if let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
+        if windows.itermSynced, let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,
            let tab = task.tabToBring(sessions: live.sessions) { return bringTab(task: id, sessionId: tab.sessionId) }
-        return focus.select(.task(id))
+        if remover.isRemoving(id) { return focus.select(.task(id)) }
+        return openAndRaise(.task(id), .task(id))
+    }
+
+    /// Opens `row`'s window if it has none, then selects and raises it. While iTerm2 is not synced the
+    /// window the row last had may have gone with it: the row is only selected, iTerm2 is started and
+    /// the row is chosen again once iTerm2 is synced (`RowWindows.onPendingOpen`).
+    private func openAndRaise(_ row: RowSelection, _ window: WindowRow) -> Task<Void, Never>? {
+        guard windows.itermSynced else {
+            windows.open(window)
+            focus.browse(row)
+            return nil
+        }
+        return focus.select(row, after: windows.open(window))
     }
 
     /// ⌘⌫ on the list: the selected row's own Remove, as its context menu has it — a task or a
@@ -519,7 +552,6 @@ extension AppController {
                              jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                              gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
                              activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
-                             bringForward: { AppController.bringAiTermForward() },
                              backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
                              openLocationSettings: {
                                  NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
@@ -527,18 +559,5 @@ extension AppController {
                              machineSensor: machineSensor, git: git, scan: scan,
                              operatorPorts: nil)
         return AppController(preferences: preferences, ports: ports, timings: .live)
-    }
-
-    /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's
-    /// cooperative activation may refuse an app that asks while another is frontmost, which would leave
-    /// the alert behind iTerm2; if AiTerm is still not active a moment later, its Dock icon bounces
-    /// until the person comes. A bounce stops by itself once AiTerm is active.
-    @MainActor static func bringAiTermForward() {
-        NSApplication.shared.activate()
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !NSApplication.shared.isActive else { return }
-            NSApplication.shared.requestUserAttention(.criticalRequest)
-        }
     }
 }

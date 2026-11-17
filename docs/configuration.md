@@ -59,7 +59,7 @@ against remotes still use your normal Git authentication.
 ### iTerm2
 
 Enable **iTerm2 › Settings › General › Magic › Enable Python API**. When iTerm2 asks whether AiTerm
-may connect, allow it. Until then AiTerm shows “Waiting for iTerm2…”.
+may connect, allow it. Until then the sidebar says AiTerm isn’t connected to iTerm2, and Settings › Integrations › iTerm2 shows what is missing.
 
 ### Jira, GitLab and GitHub
 

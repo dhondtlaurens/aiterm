@@ -273,8 +273,8 @@ import Foundation
         #expect(try JSONDecoder().decode(SessionAgent.self, from: Data("\"shell\"".utf8)) == .shell)
     }
 
-    /// A window iTerm2 no longer has leaves its row owed it — a task's and a terminal's alike, for
-    /// `AppState.windowPlan` to settle; a stale report leaves a newer window be.
+    /// A window iTerm2 no longer has leaves its row without one — a task's and a terminal's alike; a
+    /// stale report leaves a newer window be.
     @Test func aClosedWindowLeavesItsRowOwedIt() throws {
         let project = Project.make(name: "Repo", path: "/tmp/repo")
         let task = TaskItem.make(project: project.id, worktreePath: "/tmp/repo/.worktrees/work", model: "sonnet",
@@ -305,6 +305,22 @@ import Foundation
         #expect(state.tasks.map(\.windowId) == [nil])
         let rows = SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
         #expect(rows.first?.tasks.map(\.id) == [task.id])
+    }
+
+    /// The Operator's chat window closing leaves the chat without one, except while a handover runs:
+    /// the handover writes it.
+    @Test func aClosedWindowClearsTheOperatorsChatOnlyOutsideAHandover() {
+        var state = AppState.empty
+        state.operatorSession = OperatorSession(createdAt: Date(timeIntervalSince1970: 0))
+        state.operatorSession?.window = "chat"
+        state.operatorSession?.handover = .closing
+        let duringHandover = state.closeWindow("chat")
+        #expect(!duringHandover && state.operatorSession?.window == "chat")
+        state.operatorSession?.handover = nil
+        let other = state.closeWindow("other")
+        #expect(!other)
+        let closed = state.closeWindow("chat")
+        #expect(closed && state.operatorSession?.window == nil)
     }
 
     /// The regression guard for the whole saved workspace. Both new properties must stay `Optional`:

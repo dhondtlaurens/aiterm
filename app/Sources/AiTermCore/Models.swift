@@ -342,8 +342,8 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
 /// A task or review put away: its worktree deleted and its window closed, its branch untouched, and
 /// everything it takes to come back kept — the ticket, the merge request, the agent and model, and
-/// each conversation its tabs last showed. Restoring it puts `task` back in the sidebar, owed its
-/// window, and the window lock reopens it as after a restart.
+/// each conversation its tabs last showed. Restoring it puts `task` back in the sidebar without a
+/// window; choosing it opens one, resuming those conversations.
 public struct ArchivedTask: Codable, Identifiable, Equatable, Sendable {
     /// The row as it left the sidebar: windowless, on the branch its worktree was actually on.
     public var task: TaskItem
@@ -502,9 +502,9 @@ public struct AppState: Codable, Equatable, Sendable {
         if operatorOpen { try c.encode(true, forKey: .operatorOpen) }
     }
 
-    /// A window iTerm2 no longer has: its row is owed it — a task's and a terminal's alike — and
-    /// `AppState.windowPlan` decides what follows: Remove's question, the row's going, or the window
-    /// restored. True if a row had it.
+    /// A window iTerm2 no longer has: its row, a task's, a terminal's or the Operator's chat, stays
+    /// without a window until it is chosen or takes one by its tag. The chat's is left be while a
+    /// handover runs: the handover writes it. True if a row had it.
     @discardableResult
     public mutating func closeWindow(_ windowId: String) -> Bool {
         var changed = false
@@ -514,6 +514,10 @@ public struct AppState: Codable, Equatable, Sendable {
         }
         for index in terminals.indices where terminals[index].windowId == windowId {
             terminals[index].windowId = nil
+            changed = true
+        }
+        if operatorSession?.window == windowId, operatorSession?.handover == nil {
+            operatorSession?.window = nil
             changed = true
         }
         return changed

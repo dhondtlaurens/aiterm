@@ -105,14 +105,13 @@ import Testing
     @Test func bannerWarnsWhileITerm2RefusesAndOtherwiseOnlyWaits() {
         let refusing = DaemonSnapshot(protocolVersion: 1, connected: false, sessions: [], usage: .empty, itermAuthError: Self.refused)
         #expect(ItermConnection.forSnapshot(refusing) == .refused(Self.refused))
-        let banner = ItermConnection.forSnapshot(refusing).banner
-        #expect(banner?.tone == .warning)
-        #expect(banner?.text.contains(Self.refused) == true)
-        #expect(banner?.text.contains("Automation") == true)
+        let banner = ItermConnection.forSnapshot(refusing).banner(waited: false)
+        #expect(banner?.title == "iTerm2 refused AiTerm.")
+        #expect(banner?.help == Self.refused)
+        #expect(banner?.description == "In System Settings › Privacy & Security › Automation, turn on iTerm2 under AiTerm. AiTerm retries on its own within a minute.")
 
-        #expect(ItermConnection.forSnapshot(DaemonSnapshot(protocolVersion: 1, connected: false, sessions: [], usage: .empty)).banner
-                == .info("Waiting for iTerm2…"))
-        #expect(ItermConnection.forSnapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)).banner == nil)
+        #expect(ItermConnection.forSnapshot(DaemonSnapshot(protocolVersion: 1, connected: false, sessions: [], usage: .empty)).banner(waited: false) == nil)
+        #expect(ItermConnection.forSnapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)).banner(waited: false) == nil)
     }
 
     @Test func connectedSnapshotCarriesTheITerm2VersionAndOlderDaemonsDecodeWithout() throws {
@@ -124,22 +123,39 @@ import Testing
                 == .connected(version: nil))
     }
 
-    /// Every state but a live connection keeps the sidebar's line, and it opens with the iTerm2
-    /// card's status for that state; only the refusal is amber.
-    @Test func everyStateButConnectedKeepsItsBanner() {
-        #expect(ItermConnection.starting.banner == .info("Starting AiTerm’s helper…"))
-        #expect(ItermConnection.itermReconnecting.banner == .info("Reconnecting to iTerm2…"))
-        #expect(ItermConnection.helperUnreachable.banner == .info("Reconnecting to AiTerm’s helper…"))
-        #expect(ItermConnection.helperMismatch.banner
-                == .info("AiTerm’s helper is from another version. Quit and reopen AiTerm.app."))
-        #expect(ItermConnection.helperFailing("exit 1").banner?.text
-                == "AiTerm’s helper keeps stopping: exit 1. Read why in \(ItermConnection.logPath).")
-        #expect(ItermConnection.connected(version: "3.7.2").banner == nil)
-        let states: [ItermConnection] = [.starting, .helperMissing, .pythonMissing, .helperFailing("exit 1"), .helperMismatch,
-                                         .helperUnreachable, .waitingForIterm, .itermReconnecting, .refused("-1743")]
-        for state in states {
-            #expect(state.banner?.text.hasPrefix(state.status) == true, "\(state)")
-            #expect(state.banner?.tone == (state == .refused("-1743") ? .warning : .info), "\(state)")
+    @Test func connectionBannersNameActionableProblemsAfterTheirGrace() {
+        let helperTitle = "AiTerm’s helper isn’t working."
+        let causes: [(ItermConnection, String)] = [
+            (.helperMissing, "Reinstall AiTerm.app, which bundles the helper."),
+            (.pythonMissing, "Python 3.11+ was not found. Install it with brew install python, then quit and reopen AiTerm."),
+            (.helperFailing("exit 1"), "It keeps stopping: exit 1. Read why in \(ItermConnection.logPath)."),
+            (.helperMismatch, "It is from another version. Quit and reopen AiTerm.app."),
+        ]
+        for (state, description) in causes {
+            let expected = ConnectionBanner(title: helperTitle, description: description)
+            #expect(state.banner(waited: false) == expected)
+            #expect(state.banner(waited: true) == expected)
+        }
+        for state: ItermConnection in [.starting, .helperUnreachable] {
+            #expect(state.banner(waited: false) == nil)
+            #expect(state.banner(waited: true) == ConnectionBanner(title: helperTitle,
+                description: "Read why in \(ItermConnection.logPath)."))
+        }
+        let notRunning = ConnectionBanner(title: "iTerm2 isn’t running.", opensIterm: true)
+        #expect(ItermConnection.itermNotRunning.banner(waited: false) == notRunning)
+        #expect(ItermConnection.itermNotRunning.banner(waited: true) == notRunning)
+        #expect(ItermConnection.waitingForIterm.banner(waited: false) == nil)
+        #expect(ItermConnection.waitingForIterm.banner(waited: true) == ConnectionBanner(
+            title: "AiTerm isn’t connected to iTerm2.",
+            description: "iTerm2 has to allow AiTerm’s connection. Settings shows what is missing.", opensSettings: true))
+        let refused = ConnectionBanner(title: "iTerm2 refused AiTerm.",
+            description: "In System Settings › Privacy & Security › Automation, turn on iTerm2 under AiTerm. AiTerm retries on its own within a minute.",
+            help: "not allowed")
+        #expect(ItermConnection.refused("not allowed").banner(waited: false) == refused)
+        #expect(ItermConnection.refused("not allowed").banner(waited: true) == refused)
+        for version: String? in [nil, "3.7.2"] {
+            #expect(ItermConnection.connected(version: version).banner(waited: false) == nil)
+            #expect(ItermConnection.connected(version: version).banner(waited: true) == nil)
         }
     }
 
