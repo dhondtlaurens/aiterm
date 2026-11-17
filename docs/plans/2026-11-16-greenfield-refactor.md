@@ -1275,3 +1275,18 @@ left.
   (stale before this step; for 9a).
   Gate: the first plain run failed once in `GitLabClientTests.aCancelledRequestThrowsCancellation` (Swift, untouched
   here; it took 20.9 s under load, and the implementer's own run passed it); the rerun was green.
+- Phase 6 gate: plain `scripts/test.sh all` green on `71ebf7ee` (daemon 1522 passed, 1 skipped). Snapshots in
+  `build/refactor-phase6`: these captures carry the Display P3 profile again, so they compare with
+  `build/refactor-phase3`, the last capture made with that profile (against phase 5, 47 images differ across the
+  whole frame). Against phase 3 only the changes already recorded in 3d and 4b differ (`sidebar-banners.png`,
+  `sidebar-removal*.png`), plus the known `marks.png` variant: phase 6 changed no snapshot. Bundle check
+  (`scripts/make-app.sh` after clearing `daemon/build`, then `scripts/test-app-bundle.sh build/AiTerm.app`) passed.
+- Review round 1, Important, confirmed: after an app crash the orphaned helper still accepts on the socket while
+  the new child imports, so the 20 ms readiness probe reported `.listening`. The app then connected to the old
+  helper before the child's exit 3 replaced it, which 6b's ownership forbids. Fixed by an Opus implementer:
+  `SocketProbe.listenerPid` reads the listener's pid from the kernel (`LOCAL_PEERPID`), and the supervisor reports
+  `.listening` only for its own child. Added
+  `DaemonSupervisorTests.testAStaleHelperServingTheSocketIsNeverReportedAsTheChildListening`, with a real listener
+  as the orphan (it fails without the fix).
+- Review round 2: no findings, "ready". No check is owed to the maintainer for phase 6 beyond those already
+  listed.
