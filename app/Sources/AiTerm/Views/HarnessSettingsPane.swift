@@ -60,12 +60,7 @@ enum HarnessCardPresentation {
         return snapshot.health == .ready ? "Reinstall" : "Repair"
     }
 
-    static func modelOptions(_ models: [AgentModel], preference: ModelPreference?) -> [AgentModel] {
-        guard let preference, !models.contains(where: { $0.id == preference.model }) else { return models }
-        let missing = AgentModel(id: "", label: "Unavailable: \(preference.model)", detail: nil,
-                                 efforts: [], defaultEffort: nil)
-        return [missing] + models
-    }
+
 }
 
 struct HarnessSettingsPane: View {
@@ -92,7 +87,7 @@ struct HarnessSettingsPane: View {
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Claude Code and Codex are fully supported; other providers, such as Grok, work through PI. Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. The install takes effect immediately; Cancel does not undo it.")
+            HelpText("Claude Code and Codex are fully supported; other providers, such as Grok, work through PI. Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. Install and Run check take effect immediately; Cancel does not undo them.")
         }
         .onChange(of: focus.map { model.snapshots[$0] != nil } ?? false, initial: true) { _, drawn in
             if drawn, let focus { scroll?.scrollTo(focus, anchor: .top) }
@@ -147,15 +142,14 @@ struct HarnessSettingsPane: View {
 
     @ViewBuilder
     private func defaults(_ snapshot: HarnessSnapshot) -> some View {
-        if snapshot.models.isEmpty {
+        if snapshot.models.isEmpty && model.preferences[snapshot.agent]?.model.isEmpty != false {
             HelpText(snapshot.agent.harness.noModelsExplanation)
         } else {
             let preference = model.preferences[snapshot.agent]
-            let options = HarnessCardPresentation.modelOptions(snapshot.models, preference: preference)
-            let selected = options.first { $0.id == preference?.model } ?? options[0]
+            let selected = preference?.model ?? snapshot.models.first?.id ?? ""
             VStack(alignment: .leading, spacing: Space.base) {
                 ModelReasoningFields(
-                    models: options, model: selected.id,
+                    models: snapshot.models, model: selected,
                     reasoning: Binding(get: { preference?.reasoning },
                                        set: { if let value = $0 { model.selectReasoning(value, for: snapshot.agent) } }),
                     prefix: "Default ", disabled: snapshot.modelsAreStale,
@@ -163,8 +157,9 @@ struct HarnessSettingsPane: View {
                     selectModel: { model.select($0, for: snapshot.agent) })
                 if snapshot.modelsAreStale {
                     HelpText("Showing the last verified model catalogue.")
-                } else if preference != nil && !snapshot.models.contains(where: { $0.id == preference?.model }) {
-                    HelpText("Choose a current model to replace the unavailable default.")
+                }
+                if preference != nil && !snapshot.models.contains(where: { $0.id == preference?.model }) {
+                    HelpText(ModelReasoningFields.unavailableHelp, tone: .warning)
                 }
             }
         }

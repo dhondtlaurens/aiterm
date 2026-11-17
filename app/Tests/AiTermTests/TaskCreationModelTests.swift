@@ -91,7 +91,7 @@ struct TaskCreationModelTests {
     @Test func agentStepCannotContinueWithoutASelectableCurrentModel() async {
         let model = fixture(agent: .pi, model: "", catalogue: { _ in [] })
         await model.loadAgentCatalogue()
-        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.steps.agentStep!, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.lastStep, model: model))
     }
 
     /// A title of spaces is no name: create refuses it, so the sheet must not carry it past the Task
@@ -115,7 +115,7 @@ struct TaskCreationModelTests {
         model.draft.setTitle("Fix the login form")
         #expect(model.selectedModelIsCurrent)
         #expect(NewTaskSheet.canAdvance(step: 1, model: model))
-        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.steps.agentStep!, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.lastStep, model: model))
     }
 
     /// A keystroke in the prompt redraws the prompt step and the command preview, which draw it,
@@ -125,8 +125,8 @@ struct TaskCreationModelTests {
         await model.loadAgentCatalogue()
         model.draft.setTitle("Fix the login form")
         let sheet = NewTaskSheet(model: model).seeded(step: 2)
-        // The task's own body, and the shared frame's it hands its step to.
-        let wholeSheet = { _ = sheet.body; _ = sheet.body.body }
+        // The task's own body, and the shared frame's it hands its step to, under the sheet's loads.
+        let wholeSheet = { _ = sheet.body; Self.drawFrame(of: sheet.body) }
         #expect(!invalidates(wholeSheet, by: { model.promptText = "g" }))
         #expect(!invalidates(wholeSheet, by: { model.draft.promptText = "go" }), "nor through the draft")
         #expect(model.draft.promptText == "go")
@@ -224,6 +224,26 @@ struct TaskCreationModelTests {
         #expect(review.worktreeSlug == "review-card-2")
     }
 
+    @Test func theBaseFieldsListFollowsWhatIsTyped() {
+        let model = fixture()
+        model.branches = ["main", "release/current", "feature/header"]
+        model.branchQuery = "REL"
+        #expect(model.branchMatches == ["release/current"])
+        model.branches = ["main", "release/next"]
+        #expect(model.branchMatches == ["release/next"])
+        model.branchQuery = " "
+        #expect(model.branchMatches == model.branches)
+    }
+
+    @Test func anEmptyBaseDisablesContinue() {
+        let model = fixture()
+        #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+        model.draft.baseBranch = "   "
+        #expect(!NewTaskSheet.canAdvance(step: 1, model: model))
+        model.draft.baseBranch = "not-listed"
+        #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+    }
+
     private func fixture(search: @escaping @MainActor (String) async throws -> [JiraTicket] = { _ in [] },
                          agent: AgentKind = .claude, model: String = "sonnet",
                          available: Set<AgentKind> = Set(AgentKind.allCases),
@@ -244,4 +264,13 @@ private final class ReadCounter: Sendable {
     private let count = Mutex(0)
     func increment() { count.withLock { $0 += 1 } }
     var value: Int { count.withLock { $0 } }
+}
+
+extension TaskCreationModelTests {
+    /// The body of the `SteppedSheet` a sheet's body wraps in its loads.
+    @MainActor static func drawFrame(of body: some View) {
+        func draw<Frame: View>(_ frame: Frame) { _ = frame.body }
+        if let frame = Mirror(reflecting: body).descendant("content") as? any View { draw(frame) }
+        else { Issue.record("no frame under the sheet's loads") }
+    }
 }

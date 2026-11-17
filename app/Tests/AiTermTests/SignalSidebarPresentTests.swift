@@ -136,7 +136,7 @@ import Testing
         #expect(try row(world).operatorLine == .windowClosed && row(world).status == .idle)
         world.state.tasks[0].windowId = "worker-window"
         world.state.operatorSession?.paused = true
-        #expect(try row(world).operatorLine == .paused && row(world).status == .idle)
+        #expect(try row(world).operatorLine == .paused && row(world).status == .idle && row(world).mark == .pauseSign)
     }
 
     // MARK: - Counted as waiting, never as working
@@ -148,7 +148,7 @@ import Testing
         world.state.signals[0].collapsed = true
         let entries = SidebarModel.entries(state: world.state, sessions: [tab(first, .idle)], branchByCwd: [:], projectBranch: [:])
         let section = try #require(SignalSidebar(state: world.state, entries: entries).signals.first)
-        let heading = SignalHeadingValue(section)
+        let heading = HeadingValue(section)
         #expect(heading.counts == [StatusCount(status: .waiting, count: 2)])
         #expect(SidebarModel.statusCountsLabel(heading.counts) == "2 waiting")
     }
@@ -167,6 +167,6 @@ import Testing
         controller.workspace.mutate { $0 = world.state }
         controller.live.handle(.sessionOpened(worker))
         #expect(controller.rows.projectsNeedingAttention.isEmpty)
-        #expect(!sidebar.signals[0].tasks.contains { $0.status.needsAttention })
+        #expect(!sidebar.signals[0].tasks.contains { $0.needsYou })
     }
 }

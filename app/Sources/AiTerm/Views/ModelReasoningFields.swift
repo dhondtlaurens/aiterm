@@ -14,9 +14,11 @@ struct ModelReasoningFields: View {
     var labelled = true
     let selectModel: (AgentModel) -> Void
 
+    static let unavailableHelp = "A model marked Unavailable is no longer offered. Choose a current one."
+
     var selectedModel: AgentModel? { models.first { $0.id == model } }
     private var placeholder: AgentModel {
-        AgentModel(id: "", label: "Choose a current model…", detail: nil, efforts: [], defaultEffort: nil)
+        AgentModel(id: "", label: model.isEmpty ? "Choose a model…" : "Unavailable: \(model)", detail: nil, efforts: [], defaultEffort: nil)
     }
     var modelChoices: [AgentModel] { selectedModel == nil ? [placeholder] + models : models }
 

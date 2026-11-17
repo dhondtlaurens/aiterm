@@ -17,7 +17,8 @@ struct SectionFold: Equatable {
     private(set) var signalSections: [SignalSection] = []
     private(set) var entries: [SidebarEntry] = []
     private(set) var sections: [ProjectSection] = []
-    private(set) var tasks: [UUID: TaskItem] = [:]
+    /// Each task's saved agent, which the footer names while its window is closed (`usageRow(for:)`).
+    private(set) var taskAgents: [UUID: AgentKind] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
     /// Whether the Operator's section is the open one, the projects folded: the person's choice
     /// (`AppState.operatorOpen`) while there is anything to fold, never otherwise.
@@ -33,16 +34,50 @@ struct SectionFold: Equatable {
     /// The tasks on their way out (`TaskTeardown.leaving`): their windows are closing, so none waits on you.
     @ObservationIgnored var leaving: () -> Set<UUID> = { [] }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
+    @ObservationIgnored private var foldedRemovedSignals: Set<UUID> = []
     private struct Inputs: Equatable {
+        var foldedRemovedSignals: Set<UUID>
         var skipped: [UUID: [String]]
         var failures: [String: String]
         var operatorRow: SignalOperatorRowValue
         var acts: [UUID: String]
         var signals: [Signal]
         var operatorOpen: Bool
-        var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem], sessions: [SessionInfo]
+        var items: [SidebarItem], tasks: [DrawnTask], terminals: [TerminalItem], sessions: [SessionInfo]
         var branches: [String: String], projectBranches: [UUID: String], diffs: [UUID: DiffStat]
         var leaving: Set<UUID>
+    }
+    /// What a task's row is derived from and nothing else, so a write to a journal, a reply marker, a launch attempt,
+    /// a conversation id or a ledger entry derives nothing: what `SidebarModel.taskRow`, `SignalSidebar` and
+    /// `TaskRow.presentingOperator` read of it.
+    private struct DrawnTask: Equatable {
+        var id: UUID, project: UUID, kind: TaskKind, title: String, ticket: JiraRef?, mr: MergeRequestRef?
+        var branch: String, baseBranch: String, worktreePath: String, agent: AgentKind, windowOpen: Bool
+        /// Only for a task under the Operator.
+        var driven: Driven?
+        struct Driven: Equatable {
+            var signal: UUID, phase: TaskPhase, waitingOn: SignalWaitFacts?, blockedReason: String?
+            var choosableRows: Int?, candidateProjects: Int?
+            /// Its window closed with its worker's conversation saved, which its line says.
+            var windowClosedWithWorker: Bool
+            /// The saved configuration, only once its signal was removed: its heading is drawn from it.
+            var removedSignal: Signal?
+            /// The text of its first current question for you.
+            var question: String?
+        }
+
+        init(_ task: TaskItem, state: AppState, questions: [UUID: String]) {
+            id = task.id; project = task.projectId; kind = task.kind; title = task.title; ticket = task.jira; mr = task.mr
+            branch = task.branch; baseBranch = task.baseBranch; worktreePath = task.worktreePath; agent = task.agent
+            windowOpen = task.windowId != nil
+            driven = task.signalTask.map { record in
+                Driven(signal: record.current.signal, phase: record.phase, waitingOn: record.waitingOn, blockedReason: record.blockedReason,
+                       choosableRows: record.choosableRows?.count, candidateProjects: record.candidateProjects?.count,
+                       windowClosedWithWorker: task.windowId == nil && task.firstWorkerConversation != nil,
+                       removedSignal: state.signal(id: record.current.signal) == nil ? record.current.configuration : nil,
+                       question: questions[task.id])
+            }
+        }
     }
     @ObservationIgnored private var inputs: Inputs?
     init(workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor) {
@@ -55,17 +90,17 @@ struct SectionFold: Equatable {
     /// The rows under OPERATOR waiting on you: its own row, then its signals' tasks.
     var operatorNeedingAttention: [RowID] {
         let leaving = inputs?.leaving ?? []
-        return (signalOperator.shown && signalOperator.status == .needsInput ? [.operatorChat] : [])
+        return (signalOperator.shown && signalOperator.needsYou ? [.operatorChat] : [])
             + signalSections.flatMap {
-                $0.tasks.filter { $0.status == .needsInput && !leaving.contains($0.id) }.map { RowID.task($0.id) }
+                $0.tasks.filter { $0.needsYou && !leaving.contains($0.id) }.map { RowID.task($0.id) }
             }
     }
     /// The rows under PROJECTS waiting on you.
     var projectSectionsNeedingAttention: [RowID] {
         let leaving = inputs?.leaving ?? []
         return sections.flatMap { section in
-            section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
-                + section.tasks.filter { $0.status.needsAttention && !leaving.contains($0.id) }.map { RowID.task($0.id) }
+            section.terminals.filter(\.needsYou).map { RowID.terminal($0.id) }
+                + section.tasks.filter { $0.needsYou && !leaving.contains($0.id) }.map { RowID.task($0.id) }
         }
     }
     /// The rows under OPERATOR in the order the arrow keys walk them: its row, then each signal's heading
@@ -74,6 +109,38 @@ struct SectionFold: Equatable {
         (signalOperator.shown ? [.operatorChat] : [])
             + signalSections.flatMap { section in [.signal(section.id)] + (section.collapsed ? [] : section.tasks.map { .task($0.id) }) }
     }
+    /// Whether the last derivation draws this selection in the open section and an unfolded parent.
+    func isDrawn(_ row: RowSelection) -> Bool {
+        switch row {
+        case .operatorChat: operatorOpen && signalOperator.shown
+        case .signal(let id): operatorOpen && signalSections.contains { $0.id == id }
+        case .project(let id): !operatorOpen && sections.contains { $0.project.id == id }
+        case .task(let id):
+            if operatorOpen {
+                signalSections.contains { !$0.collapsed && $0.tasks.contains { $0.id == id } }
+            } else {
+                sections.contains { !$0.collapsed && $0.tasks.contains { $0.id == id } }
+            }
+        case .terminal(let id):
+            !operatorOpen && sections.contains { !$0.collapsed && $0.terminals.contains { $0.id == id } }
+        }
+    }
+
+    /// A child's heading, only while that heading is drawn. Headings and the Operator row have none.
+    func visibleHeading(for row: RowSelection) -> RowSelection? {
+        switch row {
+        case .task(let id):
+            if operatorOpen {
+                return signalSections.first { $0.tasks.contains { $0.id == id } }.map { .signal($0.id) }
+            }
+            return sections.first { $0.tasks.contains { $0.id == id } }.map { .project($0.project.id) }
+        case .terminal(let id):
+            guard !operatorOpen else { return nil }
+            return sections.first { $0.terminals.contains { $0.id == id } }.map { .project($0.project.id) }
+        case .operatorChat, .project, .signal: return nil
+        }
+    }
+
     /// Where an arrow key crosses the fold between the sections: ↓ on the Operator's last row reaches the first
     /// project, ↑ on the first project the Operator's last row. Nil anywhere else, where the list moves on its own,
     /// and while there is no fold.
@@ -85,27 +152,12 @@ struct SectionFold: Equatable {
     }
     @discardableResult func refresh() -> Bool {
         let state = workspace.state
-        let drawn = state.tasks.map { task in
-            var value = task
-            value.conversations = []
-            if let record = task.signalTask {
-                if task.windowId == nil && task.firstWorkerConversation != nil {
-                    value.conversations = [.init(agent: task.agent, id: "saved")]
-                }
-                let current = SignalStage(signal: record.current.signal, item: .unknown(.null), matchedAt: .distantPast,
-                                          configuration: record.current.configuration)
-                var visible = SignalTask(current: current, startedAt: .distantPast)
-                visible.phase = record.phase; visible.stage = record.stage; visible.ownership = record.ownership
-                visible.blockedReason = record.blockedReason
-                visible.waitingOn = record.waitingOn
-                value.signalTask = visible
-            }
-            return value
-        }
-        let skipped = Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
-            .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
+        var questions: [UUID: String] = [:]
+        for question in state.currentOperatorQuestions { if let task = question.task, questions[task] == nil { questions[task] = question.text } }
+        let drawn = state.tasks.map { DrawnTask($0, state: state, questions: questions) }
+        let skipped = SignalSidebar.skipped(in: state)
         let acts = operatorActs()
-        let next = Inputs(skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
+        let next = Inputs(foldedRemovedSignals: foldedRemovedSignals, skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
             operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity(), latestAct: acts.latest),
             acts: acts.byTask, signals: state.signals,
             operatorOpen: state.operatorOpen,
@@ -117,7 +169,7 @@ struct SectionFold: Equatable {
         inputs = next; derivations += 1
         let all = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branches,
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
-        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts)
+        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts, skipped: next.skipped, foldedRemovedSignals: next.foldedRemovedSignals)
         var changed = leavingMoved || signalOperator != next.operatorRow || signalSections != sidebar.signals
             || entries != sidebar.projects
         if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }
@@ -126,8 +178,8 @@ struct SectionFold: Equatable {
         if entries != sidebar.projects { entries = sidebar.projects }
         let sections = entries.compactMap { if case .project(let section) = $0 { return section }; return nil }
         if self.sections != sections { self.sections = sections }
-        let tasks = Dictionary(drawn.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if self.tasks != tasks { self.tasks = tasks }
+        let agents = Dictionary(drawn.map { ($0.id, $0.agent) }, uniquingKeysWith: { first, _ in first })
+        if taskAgents != agents { taskAgents = agents }
         let terminals = Dictionary(next.terminals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if self.terminals != terminals { self.terminals = terminals }
         let folds = signalOperator.shown || !signalSections.isEmpty, open = folds && next.operatorOpen
@@ -139,12 +191,21 @@ struct SectionFold: Equatable {
         return changed
     }
 
+    /// Removed signals keep their fold only for this projection's lifetime.
+    func toggleRemovedSignal(_ id: UUID) {
+        if !foldedRemovedSignals.insert(id).inserted { foldedRemovedSignals.remove(id) }
+    }
+
+    func openRemovedSignal(_ id: UUID) {
+        foldedRemovedSignals.remove(id)
+    }
+
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {
         let contexts = live.contextPercents(for: row)
         switch row {
         case .task(let id):
-            guard let task = tasks[id] else { return nil }
-            return SidebarModel.usageTaskRow(taskId: id, agent: task.agent, sessions: live.rowSessions, contexts: contexts)
+            guard let agent = taskAgents[id] else { return nil }
+            return SidebarModel.usageTaskRow(taskId: id, agent: agent, sessions: live.rowSessions, contexts: contexts)
         case .terminal(let id):
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts)

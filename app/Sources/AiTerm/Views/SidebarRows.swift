@@ -41,196 +41,23 @@ struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, and the menu that adds a project or a divider. While the Operator has anything to show it
-/// folds into the OPERATOR heading and back (`SectionFoldLabel`), the projects open by default.
-struct SidebarHeader: View {
-    let controller: AppController
-    @Environment(\.interfaceScale) private var scale
-    @State private var hovering = false
-    #if DEBUG
-    @Environment(\.rowBodyCounter) private var bodyCounter
-    #endif
-
-    var body: some View {
-        #if DEBUG
-        let _ = bodyCounter?.countHeading("projects")
-        #endif
-        HStack(spacing: scale(Space.base)) {
-            SectionFoldLabel(title: "Projects", fold: controller.rows.projectsHeading, hovering: hovering,
-                             enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
-                             openAttention: { controller.openProjectsAttention() })
-            AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
-                Button("Add Project…") { Task { await controller.projects.addProject() } }
-                Button("Add Divider…") { controller.sheets.presentNewDivider() }
-            }
-        }
-        .frame(height: scale(Size.menuRow)).modifier(SidebarHeadingInset())
-        .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
-        .onHover { hovering = $0 }
-    }
-}
-
-/// The OPERATOR or PROJECTS heading's words, and, while the two fold into each other, one open at a time:
-/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, what
-/// needs you in its section as one amber count, whose click opens the section at the first such row.
-/// Only the label folds; the heading's "+" keeps its own click.
-struct SectionFoldLabel: View {
-    let title: String
-    let fold: SectionFold
-    let hovering: Bool
-    let enabled: Bool
-    let toggle: () -> Void
-    let openAttention: () -> Void
-    @Environment(\.interfaceScale) private var scale
-
-    var body: some View {
-        HStack(spacing: scale(Space.base)) {
-            SidebarHeading(title)
-            Spacer(minLength: scale(Space.tight))
-            if fold.folds {
-                if fold.folded, fold.attention > 0 {
-                    Button(action: openAttention) {
-                        StatusCountChips(counts: [StatusCount(status: .needsInput, count: fold.attention)])
-                    }
-                    .buttonStyle(.plain)
-                }
-                SectionFoldChevron(folded: fold.folded, hovering: hovering)
-            }
-        }
-        .modifier(FoldOnTap(enabled: fold.folds && enabled, action: toggle))
-        .accessibilityLabel(title)
-        .accessibilityValue(fold.folded ? "folded" : "")
-    }
-}
-
-/// A section heading's disclosure chevron while the Operator's section and the projects fold into each other: a
-/// macOS sidebar section's, in the trailing column before the heading's "+", shown folded and, open, only under
-/// the pointer. The heading's click folds; the chevron is not a control of its own.
-struct SectionFoldChevron: View {
-    let folded: Bool
-    let hovering: Bool
-    @Environment(\.interfaceScale) private var scale
-
-    var body: some View {
-        HeaderChevron(collapsed: folded)
-            .frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
-            .opacity(folded || hovering ? 1 : 0)
-            .accessibilityHidden(true)
-    }
-}
-
 extension DividerRow {
     /// A divider wired to the workspace it belongs to.
     init(entry: DividerEntry, controller: AppController) {
         let divider = entry.divider
         self.init(entry: entry,
                   enabled: controller.canChangeWorkspace,
-                  rename: { controller.sheets.presentRename(divider: divider) },
+                  rename: {
+                      if let current = controller.state.items.first(where: { $0.id == divider.id })?.divider {
+                          controller.sheets.presentRename(divider: current)
+                      }
+                  },
                   move: { controller.projects.move(itemId: divider.id, $0) },
-                  delete: { controller.projects.removeDivider(divider) })
-    }
-}
-
-/// A project's header: disclosure, provider, name and its Jira badge — or, collapsed, the status counts
-/// of the rows it is hiding — and the menu that adds a terminal, task or review. An empty project
-/// has nothing to disclose, so like a leaf in a Finder outline it draws no chevron and does not
-/// toggle; the chevron's column stays, so its name lines up with its neighbours'.
-///
-/// The arrows stop on it, as on a row: selected, it is drawn in the same `RowPill` on
-/// `Surface.selected`, and shows no window.
-struct ProjectHeaderRow: View {
-    let heading: ProjectHeadingValue
-    let controller: AppController
-    @Environment(\.interfaceScale) private var scale
-    #if DEBUG
-    @Environment(\.rowBodyCounter) private var bodyCounter
-    #endif
-
-    init(section: ProjectSection, controller: AppController) {
-        heading = ProjectHeadingValue(section); self.controller = controller
-    }
-
-    private var project: Project { heading.project }
-    /// Whether the header's label collapses and expands the section — by click, and for VoiceOver as
-    /// its default action and button trait. An empty project has nothing to disclose, and a locked
-    /// workspace changes nothing.
-    var collapses: Bool { !heading.isEmpty && controller.canChangeWorkspace }
-
-    var body: some View {
-        #if DEBUG
-        let _ = bodyCounter?.count(project.id)
-        #endif
-        let selected = controller.focus.isSelected(project.id)
-        HStack(spacing: scale(Space.base)) {
-            // Only the label collapses the section; the "+" menu keeps its own click, which a tap
-            // gesture on the whole row would have swallowed.
-            HStack(spacing: scale(Space.base)) {
-                HeaderChevron(collapsed: heading.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
-                    .opacity(heading.isEmpty ? 0 : 1)
-                ProviderIcon(provider: project.provider)
-                // The name, then its Jira project count, `Space.gap` apart as a task row's quiet
-                // badges and branch are. They keep their width; the name is what truncates.
-                HStack(spacing: scale(Space.gap)) {
-                    HeaderTitle(text: project.name)
-                    let details = controller.preferences.badgeDetails
-                    if let badge = ProjectJiraBadge.badge(for: project, showsCount: details.jiraProject) {
-                        ProjectJiraBadgeView(badge: badge, markInk: details.markInk, canChangeWorkspace: controller.canChangeWorkspace) {
-                            controller.sheets.presentJiraProjects(for: project)
-                        }
-                    }
-                }
-                Spacer(minLength: scale(Space.tight))
-                // Only when collapsed: expanded, the task and terminal rows say all of this and more, and a
-                // second copy on the header would just be noise above them.
-                if heading.collapsed {
-                    StatusCountChips(counts: heading.counts)
-                }
-            }
-            .modifier(FoldOnTap(enabled: collapses, selected: selected) { controller.projects.toggleCollapsed(project) })
-            AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) { newItems }
-        }
-        .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
-        .modifier(RowPill(selected: selected))
-        // ↩ on an empty header opens this menu, which it has in place of a fold.
-        .background(RowMenuAnchor(id: project.id))
-        .task(id: project.id) { await controller.projects.loadDefaultBranchName(of: project) }
-        .contextMenu {
-            // The "+" menu's items lead, greyed as they are there: the whole "+" is disabled while
-            // the workspace is locked, which a context menu can only say item by item.
-            Group { newItems }.disabled(!controller.canChangeWorkspace)
-            Divider()
-            Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
-            if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
-            Divider()
-            Button("Edit Project…") { controller.sheets.presentJiraProjects(for: project) }
-                .disabled(!controller.canChangeWorkspace)
-            Divider()
-            // The git operations, a group of their own. The branch is named once git has answered.
-            if project.provider == .gitlab || project.provider == .github {
-                Button("Pull \(controller.projects.defaultBranchName(project.id) ?? "Default Branch")") {
-                    controller.projects.pullDefault(project: project)
-                }
-                .disabled(controller.projects.isChangingDefaultBranch(project.id))
-                Divider()
-            }
-            // Disabled at the edges rather than absent: a menu that changes shape with the row's
-            // position is worse than a greyed item, and this menu already greys "Remove" when locked.
-            Button("Move Up") { controller.projects.move(itemId: project.id, .up) }
-                .disabled(!controller.canChangeWorkspace || !heading.canMoveUp)
-            Button("Move Down") { controller.projects.move(itemId: project.id, .down) }
-                .disabled(!controller.canChangeWorkspace || !heading.canMoveDown)
-            Divider()
-            Button("Remove Project…", role: .destructive) { Task { await controller.projects.confirmRemove(project: project) } }
-                .disabled(!controller.canChangeWorkspace)
-        }
-    }
-
-    /// What the "+" menu adds, shared with the context menu so the two cannot drift apart. The File
-    /// menu's order.
-    @ViewBuilder private var newItems: some View {
-        Button("New Task…") { controller.sheets.presentNewTask(project: project) }.disabled(project.provider == .none)
-        Button("New Review…") { controller.sheets.presentNewReview(project: project) }.disabled(project.provider == .none)
-        Button("New Terminal…") { controller.sheets.presentNewTerminal(project: project) }
+                  delete: {
+                      if let current = controller.state.items.first(where: { $0.id == divider.id })?.divider {
+                          controller.projects.removeDivider(current)
+                      }
+                  })
     }
 }
 
@@ -334,28 +161,6 @@ struct RowPill: ViewModifier {
     }
 }
 
-/// A project header's disclosure chevron, in its surface's secondary ink.
-struct HeaderChevron: View {
-    let collapsed: Bool
-    @Environment(\.surface) private var surface
-
-    var body: some View {
-        Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-            .font(Typography.micro).foregroundStyle(surface.secondaryInk)
-    }
-}
-
-/// A project header's name, in its surface's ink — white on the selection.
-struct HeaderTitle: View {
-    let text: String
-    @Environment(\.surface) private var surface
-
-    var body: some View {
-        Text(text).font(Typography.bodyEmphasis).foregroundStyle(surface.ink)
-            .lineLimit(1).truncationMode(.tail)
-    }
-}
-
 /// A default accessibility action that is there only while `enabled`: unlike a menu item, an action
 /// cannot be greyed, only left out.
 struct DefaultAccessibilityAction: ViewModifier {
@@ -386,7 +191,6 @@ struct RowTitle: View {
 /// A signal's task offers Take Over; a task you own has the usual task menu.
 struct TaskRowView: View {
     let row: TaskRow
-    let task: TaskItem?
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     @Environment(\.motionStill) private var motionStill
@@ -406,14 +210,15 @@ struct TaskRowView: View {
         let caption = TaskRowCaption(removal: removal, missing: missing)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
-        let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
-                                             canChangeWorkspace: controller.canChangeWorkspace)
-        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, paused: row.paused)
+        let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing)
+        let commands = commands(removing: removing)
+        // Removing or archiving spins, whatever the row's own mark.
+        let mark = removing ? TaskRowMark.status(.working) : row.mark
         // The same work card is inspectable while the agent works or asks for input, including
         // driven rows. A removal spinner offers no card.
         let jobs = removing ? [] : row.background
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(id: row.id, selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
+        SelectableRow(id: row.id, selected: selected, activate: { if !removing { controller.choose(task: row.id) } }) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.title, dimmed: removing)
@@ -429,7 +234,7 @@ struct TaskRowView: View {
                         HStack(spacing: 0) {
                             ViewThatFits(in: .horizontal) {
                                 // "Absent, not disabled": no VS Code, no badge.
-                                ForEach(badges.fits(editor: task != nil && ExternalApps.vscode != nil), id: \.self) { fit in
+                                ForEach(badges.fits(editor: ExternalApps.vscode != nil), id: \.self) { fit in
                                     badgeLine(fit, of: badges, beforeBranch: !row.branch.name.isEmpty)
                                 }
                             }
@@ -453,41 +258,39 @@ struct TaskRowView: View {
         .accessibilityLabel(voiceOver.label)
         .accessibilityValue(BackgroundCard(jobs: jobs).accessibilityValue(status: row.status,
                             detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip))
-        .accessibilityActions {
-            if let task {
-                ForEach(voiceOver.actions, id: \.self) { action in
-                    switch action {
-                    case .archive: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.archive(current, consent: .ask) } } }
-                    case .remove: Button(voiceOver.title(of: action)) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.remove(current, consent: .ask) } } }
-                    }
-                }
-            }
-        }
+        .modifier(RowCommandActions(groups: commands))
         .accessibilityHint(Text(voiceOver.hint))
         .help(voiceOver.help)
         // The arrows step over it, as over a header: its window is closing, or gone.
         .selectionDisabled(removing)
-        .contextMenu {
-            if let task {
-                if task.signalTask != nil {
-                    Button("Take Over") { Task { await controller.takeOver(task.id) } }
-                        .disabled(!controller.canChangeWorkspace || removing)
-                    Divider()
-                }
-                Button("Rename…") { controller.sheets.presentRename(task: task) }
-                    .disabled(!controller.canChangeWorkspace || removing)
-                Divider()
-                Button("Open in Finder") { ExternalApps.openInFinder(path: task.worktreePath) }
-                if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: task.worktreePath) } }
-                if let jira = task.jira { Button(jira.isGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: jira.url) } }
-                Divider()
-                // No ellipsis: it asks nothing unless the worktree has changes to lose.
-                Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.archive(current, consent: .ask) } } }
-                    .disabled(!controller.canChangeWorkspace || removing)
-                Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { try? await controller.teardown.remove(current, consent: .ask) } } }
-                    .disabled(!controller.canChangeWorkspace || removing)
-            }
+        .modifier(RowCommandContextMenu(groups: commands))
+    }
+
+    func commands(removing: Bool) -> [[RowCommand]] {
+        let enabled = controller.canChangeWorkspace && !removing
+        var groups: [[RowCommand]] = []
+        if row.underOperator {
+            groups.append([RowCommand(title: "Take Over", enabled: enabled) {
+                Task { if controller.state.task(id: row.id) != nil { await controller.takeOver(row.id) } }
+            }])
         }
+        groups.append([RowCommand(title: "Rename…", enabled: enabled) {
+            if let current = controller.state.task(id: row.id) { controller.sheets.presentRename(task: current) }
+        }])
+        var open = RowCommand.open(path: row.worktreePath)
+        if let url = row.jiraUrl {
+            open.append(RowCommand(title: row.ticketIsGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: url) })
+        }
+        groups.append(open)
+        groups.append([
+            RowCommand(title: "Archive \(row.kindName)", enabled: enabled) {
+                Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.archive(current, consent: .ask) } }
+            },
+            RowCommand(title: "Remove \(row.kindName)…", role: .destructive, enabled: enabled) {
+                Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.remove(current, consent: .ask) } }
+            }
+        ])
+        return groups
     }
 
     /// One fit of the badge line. Quiet badges carry no box, so `Space.gap` is what keeps them apart,
@@ -499,10 +302,10 @@ struct TaskRowView: View {
                            sharesMark: badges.sharesGitLabMark)
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
             // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
-            if fit.editor != .none, let task {
+            if fit.editor != .none {
                 Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: fit.editor == .diff ? badges.diff : nil,
                       style: .quiet, markInk: badges.markInk) {
-                    ExternalApps.openInVSCode(path: task.worktreePath)
+                    ExternalApps.openInVSCode(path: row.worktreePath)
                 }
             }
         }
@@ -537,6 +340,7 @@ struct TerminalRowView: View {
         let _ = bodyCounter?.count(row.id)
         #endif
         let selected = controller.focus.isSelected(row.id)
+        let commands = commands()
         SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.choose(.terminal(terminal.id)) } }) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -559,30 +363,22 @@ struct TerminalRowView: View {
         }
         .accessibilityLabel(row.name)
         .accessibilityValue(BackgroundCard(jobs: row.background).accessibilityValue(status: row.status))
-        .accessibilityActions {
-            if let terminal {
-                ForEach(TerminalRowAccessibility(canChangeWorkspace: controller.canChangeWorkspace).actions,
-                        id: \.self) { action in
-                    switch action {
-                    case .rename: Button(action.rawValue) { controller.sheets.presentRename(terminal: terminal) }
-                    case .remove: Button(action.rawValue) { controller.terminals.close(terminal: terminal) }
-                    }
-                }
-            }
-        }
-        .contextMenu {
-            if let terminal {
-                // As a task's menu leads: the same `NameSheet`, on the terminal's name.
-                Button("Rename…") { controller.sheets.presentRename(terminal: terminal) }
-                    .disabled(!controller.canChangeWorkspace)
-                Divider()
-                Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
-                if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
-                Divider()
-                Button("Remove Terminal", role: .destructive) { controller.terminals.close(terminal: terminal) }
-                    .disabled(!controller.canChangeWorkspace)
-            }
-        }
+        .modifier(RowCommandActions(groups: commands))
+        .modifier(RowCommandContextMenu(groups: commands))
+    }
+
+    func commands() -> [[RowCommand]] {
+        guard terminal != nil else { return [] }
+        let enabled = controller.canChangeWorkspace
+        return [
+            [RowCommand(title: "Rename…", enabled: enabled) {
+                if let current = controller.state.terminal(id: row.id) { controller.sheets.presentRename(terminal: current) }
+            }],
+            RowCommand.open(path: project.path),
+            [RowCommand(title: "Remove Terminal", role: .destructive, enabled: enabled) {
+                if let current = controller.state.terminal(id: row.id) { controller.terminals.close(terminal: current) }
+            }]
+        ]
     }
 }
 
@@ -624,107 +420,6 @@ extension EnvironmentValues {
 }
 #endif
 
-/// A quiet Jira mark and total count opening every linked project in one menu. The final
-/// "Edit Project…" action is disabled while the workspace is locked; links remain available.
-private struct ProjectJiraBadgeView: View {
-    let badge: ProjectJiraBadge
-    let markInk: Badge.MarkInk
-    let canChangeWorkspace: Bool
-    let editProjects: () -> Void
-    var body: some View {
-        Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet, markInk: markInk,
-              accessibilityLabel: badge.accessibilityLabel) {
-            ForEach(badge.items, id: \.url) { item in
-                Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
-            }
-            Divider()
-            Button("Edit Project…", action: editProjects).disabled(!canChangeWorkspace)
-        }
-    }
-}
-
-/// A project row's linked Jira project count and menu, testable without rendering the sidebar.
-struct ProjectJiraBadge: Equatable {
-    struct MenuItem: Equatable {
-        let title: String
-        let url: URL
-    }
-
-    /// The total count, unless the Interface tab has turned the detail off.
-    let label: String?
-    let help: String
-    let accessibilityLabel: String
-    /// Every linked project, in the order they were linked.
-    let items: [MenuItem]
-
-    /// The project's badge, or none when it links no Jira project.
-    static func badge(for project: Project, showsCount: Bool = true) -> ProjectJiraBadge? {
-        guard !project.jiraProjects.isEmpty else { return nil }
-        return ProjectJiraBadge(jira: project.jiraProjects, showsCount: showsCount)
-    }
-
-    private init(jira: [JiraProjectRef], showsCount: Bool) {
-        label = showsCount ? "\(jira.count)" : nil
-        items = jira.map { .init(title: "\($0.key) · \($0.name)", url: $0.browseURL) }
-        help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
-        accessibilityLabel = "\(jira.count) Jira \(jira.count == 1 ? "project" : "projects"): \(jira.map(\.key).sentenceList)"
-    }
-}
-
-/// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
-/// the actions its context menu would let the person choose now, and what choosing the row does — its
-/// hint, and the tooltip: a row without a window opens one, a row with one focuses it. A value, so the
-/// rule is testable without rendering the sidebar, as `TaskRowBadges` is.
-struct TaskRowAccessibility: Equatable {
-    enum Action: Hashable {
-        case archive, remove
-    }
-
-    var label: String
-    var actions: [Action]
-    var hint: String
-    var help: String
-    /// "Task" or "Review", which Remove names as the menu does.
-    private var kindName = "Task"
-
-    /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
-    func title(of action: Action) -> String {
-        switch action {
-        case .archive: "Archive \(kindName)"
-        case .remove: "Remove \(kindName)"
-        }
-    }
-
-    init(title: String, task: TaskItem?, missing: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
-        let branch = task?.branch ?? ""
-        label = branch.isEmpty ? title : "\(title), \(branch)"
-        let kindName = task?.kindName ?? "Task"
-        self.kindName = kindName
-        let words: (hint: String, help: String) =
-            removing ? ("", "")
-            : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
-            : task.map({ $0.windowId == nil }) == true ? ("Press Return to open its window.", "")
-            : ("Press Return to focus the window.", "")
-        hint = words.hint
-        help = words.help
-        guard task != nil, canChangeWorkspace, !removing else { actions = []; return }
-        actions = [.archive, .remove]
-    }
-}
-
-/// A task's status mark, the check after the Operator's work ends, or a pause sign during a
-/// pause. Active work and input keep their own mark; removal and archiving spin.
-enum TaskRowMark: Equatable {
-    case status(TaskStatus), ended, pauseSign
-
-    init(status: TaskStatus, line: OperatorLine?, removing: Bool, paused: Bool = false) {
-        if removing { self = .status(.working) }
-        else if paused { self = .pauseSign }
-        else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
-        else { self = .status(status) }
-    }
-}
-
 /// `TaskRowMark` drawn: the `StatusMark`; `checkmark` at the mark's size in `Palette.green`; or `pause.fill`
 /// at the mark's size in `Palette.idleRing`, the idle ring's ink, since nothing runs yet. On the accent either
 /// is `Palette.onAccent`, as the working arc turns there; a selected row is neutral, so both keep their
@@ -744,193 +439,5 @@ struct TaskRowMarkView: View {
             Icon(.symbol("pause.fill"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.idleRing)
                 .frame(width: size, height: size).accessibilityHidden(true)
         }
-    }
-}
-/// The missing checkout below a task’s branch; removal progress takes precedence.
-struct TaskRowCaption: Equatable {
-    enum Note: Equatable {
-        /// What the task is missing, its worktree, in the surface's secondary ink.
-        case plain(String)
-        /// Why a removal stopped, in `Palette.amber` — until the row is selected.
-        case warning(String)
-
-        var text: String {
-            switch self {
-            case .plain(let text), .warning(let text): text
-            }
-        }
-
-        var warns: Bool {
-            if case .warning = self { true } else { false }
-        }
-    }
-
-    /// In place of the badge line, while the row is being removed.
-    var progress: String?
-    var note: Note?
-
-    init(progress: String?, note: Note?) {
-        self.progress = progress
-        self.note = note
-    }
-
-    /// `removal` is the row's own: whatever the banner above the list is saying meanwhile.
-    init(removal: TaskRemoval?, missing: Bool) {
-        switch removal {
-        case .removing: self.init(progress: "Removing…", note: nil)
-        case .closing: self.init(progress: "Closing…", note: nil)
-        case .archiving: self.init(progress: "Archiving…", note: nil)
-        case .stopped(let note): self.init(progress: nil, note: .warning(note))
-        case nil:
-            if missing { self.init(progress: nil, note: .plain("Worktree missing")) }
-            else { self.init(progress: nil, note: nil) }
-        }
-    }
-}
-
-/// The actions VoiceOver offers on a terminal row: its context menu's, when they are enabled.
-struct TerminalRowAccessibility: Equatable {
-    /// Rename is spoken without the menu's ellipsis, as a divider's is: VoiceOver reads the action,
-    /// and the sheet it opens says the rest.
-    enum Action: String, Hashable {
-        case rename = "Rename", remove = "Remove Terminal"
-    }
-
-    var actions: [Action]
-
-    init(canChangeWorkspace: Bool) {
-        guard canChangeWorkspace else { actions = []; return }
-        actions = [.rename, .remove]
-    }
-}
-
-/// The badges a task row wears, after the Interface tab's switches. A badge whose detail is off
-/// keeps its mark and its link; the text it no longer prints leads its tooltip instead. A merge
-/// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
-/// all resolved included — whether or not its number is switched off; one with none, or whose
-/// threads have not been read, wears none.
-struct TaskRowBadges: Equatable {
-    struct Link: Equatable {
-        var label: String?
-        var help: String
-        var url: String?
-        var host: CodeHost? = nil
-        /// The merge request's resolved review threads of all of them, behind a bubble.
-        var threads: Badge.Suffix? = nil
-        /// What VoiceOver reads when the badge says more than its label: the count, in words.
-        var accessibilityLabel: String? = nil
-    }
-
-    /// The SF Symbol a merge request's thread count stands behind.
-    static let threadsSymbol = "bubble.left"
-
-    /// A ticket's `host` is `.gitLab` for a GitLab issue, nil for a Jira ticket.
-    var ticket: Link?
-    var mergeRequest: Link?
-
-    /// A GitLab issue beside a GitLab merge request: they share one mark (`gitLabPair`).
-    var sharesGitLabMark: Bool { ticket?.host == .gitLab && (mergeRequest?.host ?? .gitLab) == .gitLab && mergeRequest != nil }
-    /// The VS Code badge's `+12 −3`; `nil` draws the plain mark.
-    var diff: Badge.Diff?
-    /// Always names the counts when there are any, whether or not the badge prints them.
-    var editorHelp: String
-    /// The line's marks: in the ink of their words, or the vendor's colours once Settings asks.
-    var markInk: Badge.MarkInk
-
-    /// `threads` is the row's merge request's, as last read; `nil` while there is no answer.
-    init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil) {
-        let ticketHost: CodeHost? = row.ticketIsGitLabIssue ? .gitLab : nil
-        ticket = row.jiraKey.map { key in
-            details.jiraTicket
-                ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
-                : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
-        }
-        mergeRequest = row.mr.map { mr in
-            var link = details.mergeRequest
-                ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
-                : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
-            // Nothing until there is a thread to count; then it stays, all resolved included.
-            if let threads, threads.total > 0 {
-                let words = Self.words(threads)
-                link.accessibilityLabel = "\(link.label ?? link.help), \(words)"
-                link.help += " · \(words)"
-                link.threads = Badge.Suffix(icon: .symbol(Self.threadsSymbol), text: "\(threads.resolved)/\(threads.total)")
-            }
-            return link
-        }
-        diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil
-        editorHelp = row.diff?.help ?? "Open in VS Code"
-        markInk = details.markInk
-    }
-
-    /// How a fit draws the VS Code badge: with its `+12 −3`, as the plain mark, or not at all.
-    enum Editor: Hashable { case diff, plain, none }
-
-    /// The badges one width of the row keeps.
-    struct Fit: Hashable {
-        var ticket: Bool, mergeRequest: Bool, editor: Editor
-        var wearsNone: Bool { !ticket && !mergeRequest && editor == .none }
-    }
-
-    /// The badge line at every width, fullest first, each fit giving up one more thing than the last:
-    /// the VS Code counts fold to the plain mark, then the editor, the merge request and the ticket drop
-    /// in turn, from the end of the line, so what is left reads in the same order. Only what the row
-    /// wears is given up, and the last fit wears nothing. `editor` is whether the row has a VS Code badge.
-    func fits(editor: Bool) -> [Fit] {
-        var fit = Fit(ticket: ticket != nil, mergeRequest: mergeRequest != nil,
-                      editor: !editor ? .none : diff == nil ? .plain : .diff)
-        var fits = [fit]
-        func giveUp(_ change: (inout Fit) -> Void) {
-            change(&fit)
-            if fit != fits.last { fits.append(fit) }
-        }
-        giveUp { if $0.editor == .diff { $0.editor = .plain } }
-        giveUp { $0.editor = .none }
-        giveUp { $0.mergeRequest = false }
-        giveUp { $0.ticket = false }
-        return fits
-    }
-
-    /// The count as the tooltip and VoiceOver say it: "2 of 5 threads resolved", "1 of 1 thread resolved".
-    static func words(_ threads: ReviewThreads) -> String {
-        "\(threads.resolved) of \(threads.total) \(threads.total == 1 ? "thread" : "threads") resolved"
-    }
-}
-
-/// A header's mark, centred in a ``Size/avatar`` square so the name after it lines up with the avatars in
-/// the rows below: a project's provider, or the Operator's glyph (`IconSource` alone). No tile behind it:
-/// the header sits on the sidebar's own ground. A vendor's mark is drawn at ``logoSize`` in its colour, an
-/// SF Symbol at ``glyphSize`` in the surface's secondary ink.
-struct ProviderIcon: View {
-    let source: IconSource
-    @Environment(\.interfaceScale) private var scale
-    @Environment(\.surface) private var surface
-
-    init(provider: Provider) { source = Self.source(of: provider) }
-    init(_ source: IconSource) { self.source = source }
-
-    /// A project's host as its header marks it, and New Signal's pickers with it.
-    static func source(of provider: Provider) -> IconSource {
-        switch provider {
-        case .gitlab: .gitlabTanuki
-        case .github: .brand(Palette.github)
-        case .git: .symbol("arrow.triangle.branch")
-        case .none: .symbol("folder.fill")
-        }
-    }
-
-    /// The GitLab and GitHub marks' drawn size, inside the ``Size/avatar`` square — neither `Size` nor
-    /// `Typography` has a step this close without visibly shrinking or enlarging the logo.
-    private static let logoSize: CGFloat = 13
-    /// The plain SF Symbol fallbacks (no vendor mark): smaller than ``logoSize`` because a system
-    /// glyph reads bigger than a custom logo at the same point size.
-    private static let glyphSize: CGFloat = 10
-    var body: some View {
-        ZStack {
-            switch source {
-            case .symbol: Icon(source, size: scale(Self.glyphSize), tint: surface.secondaryInk)
-            case .brand, .artwork: Icon(source, size: scale(Self.logoSize))
-            }
-        }.frame(width: scale(Size.avatar), height: scale(Size.avatar))
     }
 }

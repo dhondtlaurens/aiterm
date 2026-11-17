@@ -8,6 +8,135 @@ import AiTermUI
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test(arguments: [false, true])
+    func foldingASignalHandsItsSelectedTaskToTheHeading(removed: Bool) throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        world.state.operatorOpen = true
+        if removed { world.state.signals = [] }
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        controller.focus.browse(.task(task))
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        #expect(controller.focus.selection == .signal(signal))
+        #expect(controller.rows.signalSections.first?.collapsed == true)
+        #expect(daemon.requests.isEmpty, "handing selection to a heading raises and marks nothing")
+    }
+
+    @Test(arguments: [false, true])
+    func aTaskSelectedFromElsewhereSurvivesDerivationUntilReveal(removed: Bool) throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        world.state.operatorOpen = true
+        if removed { world.state.signals = [] }
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        controller.focus.browse(.task(task))
+        controller.workspace.mutate { $0.tasks[0].title = "Selected by notification" }
+        #expect(controller.focus.selection == .task(task))
+        #expect(controller.rows.signalSections.first?.collapsed == true)
+        controller.reveal(.task(task))
+        #expect(controller.focus.selection == .task(task))
+        #expect(controller.rows.signalSections.first?.collapsed == false)
+    }
+
+    @Test(arguments: [false, true])
+    func anOperatorRowThatDisappearsOrFoldsClearsSelection(fold: Bool) async throws {
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
+        world.state.operatorOpen = true
+        let prompter = ScriptedPrompter(answering: "Cancel")
+        let controller = AppController(preferences: .scratch(), prompter: prompter)
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        #expect(controller.rows.signalOperator.shown)
+        controller.focus.browse(.operatorChat)
+        if fold { controller.toggleOperatorOpen() }
+        else { controller.workspace.mutate { $0.tasks = []; $0.operatorSession = nil } }
+        #expect(controller.focus.selection == nil)
+        #expect(controller.rows.usageRow(for: controller.focus.selection) == nil)
+        #expect(controller.activateSelection() == nil)
+        await controller.removeSelection()
+        #expect(daemon.requests.isEmpty)
+        #expect(prompter.asked.isEmpty)
+    }
+
+    @Test func openingOperatorClearsASelectedProjectTask() throws {
+        var world = SignalWorld(); _ = world.signal()
+        let task = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/task")
+        world.state.tasks = [task]
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.focus.browse(.task(task.id))
+        controller.toggleOperatorOpen()
+        #expect(controller.rows.operatorOpen)
+        #expect(controller.focus.selection == nil)
+    }
+
+    @Test func takingOverASelectedDrivenTaskClearsItWhileProjectsAreFolded() throws {
+        var world = SignalWorld(); let task = world.workingTask(signal: world.signal())
+        world.state.operatorOpen = true
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.focus.browse(.task(task))
+        controller.workspace.mutate { $0.takeOver(task) }
+        #expect(controller.focus.selection == nil)
+        #expect(controller.rows.sections.first?.tasks.map(\.id) == [task])
+    }
+
+    @Test func signalHeadingsProjectRowsAndRemovalAgreeOnWhichTasksAreUnderTheOperator() async throws {
+        var world = SignalWorld()
+        let signal = world.signal(), working = world.workingTask(signal: signal), done = world.workingTask(signal: signal)
+        world.state.updateSignalTask(done) { $0.phase = .done }
+        let ordinary = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/ordinary")
+        world.state.tasks.append(ordinary)
+        let prompter = ScriptedPrompter(answering: "Cancel", "Cancel", "Cancel")
+        let controller = AppController(preferences: .scratch(), prompter: prompter)
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+
+        let entries = SidebarModel.entries(state: controller.state, sessions: [], branchByCwd: [:], projectBranch: [:])
+        let sidebar = SignalSidebar(state: controller.state, entries: entries)
+        #expect(sidebar.signals.map(\.id) == [signal])
+        #expect(sidebar.signals[0].tasks.map(\.id) == [working, done])
+        let projectTasks = sidebar.projects.flatMap { entry -> [TaskRow] in
+            if case .project(let section) = entry { return section.tasks }; return []
+        }
+        #expect(projectTasks.map(\.id) == [ordinary.id])
+        #expect(controller.projects.hasRows(world.project))
+        await controller.projects.confirmRemove(project: world.project)
+
+        controller.workspace.mutate { $0.tasks.removeAll { $0.id == ordinary.id } }
+        #expect(!controller.projects.hasRows(world.project))
+        controller.workspace.mutate { state in
+            state.tasks[state.tasks.firstIndex { $0.id == working }!].worktreePath = ""
+            state.signals = []
+        }
+        #expect(controller.focus.row(id: signal) == .signal(signal))
+        await controller.projects.confirmRemove(project: world.project)
+        controller.workspace.mutate { state in
+            state.tasks[state.tasks.firstIndex { $0.id == done }!].worktreePath = ""
+        }
+        await controller.projects.confirmRemove(project: world.project)
+
+        #expect(prompter.asked.map(\.detail) == [
+            "Removes the project and its 3 tasks from AiTerm. Files, worktrees and windows are kept. 2 worktrees are run by signals.",
+            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept. 1 worktrees are run by signals.",
+            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept.",
+        ])
+        #expect(controller.state.project(id: world.project.id) != nil, "Cancel keeps the project.")
+    }
+
     @Test func aSignalTaskKeepsTheOrdinaryTasksTwoLineHeight() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
         defer { controller.shutdown() }
@@ -15,23 +144,76 @@ import AiTermUI
         controller.workspace.mutate { $0 = world.state }
         _ = controller.signalController.activity.begin(task: id, act: "answering its worker")
         let driven = try #require(controller.rows.signalSections.first?.tasks.first)
-        let task = try #require(controller.state.task(id: id))
-        func height(_ row: TaskRow, _ item: TaskItem) -> CGFloat {
-            NSHostingView(rootView: TaskRowView(row: row, task: item, controller: controller)
+        func height(_ row: TaskRow) -> CGFloat {
+            NSHostingView(rootView: TaskRowView(row: row, controller: controller)
                 .frame(width: Size.sidebarWidth).environment(\.motionStill, .snapshot).surface(.sidebar)).fittingSize.height
         }
-        let drivenHeight = height(driven, task)
+        let drivenHeight = height(driven)
         controller.workspace.mutate { $0.takeOver(id) }
         let ordinary = try #require(controller.rows.sections.flatMap(\.tasks).first { $0.id == id })
-        #expect(drivenHeight == height(ordinary, try #require(controller.state.task(id: id))))
+        #expect(drivenHeight == height(ordinary))
         #expect(drivenHeight == Size.row)
+    }
+
+    @Test func removedSignalHeadingsAreNotPausedButSwitchedOffLiveSignalsAre() throws {
+        var world = SignalWorld(); let id = world.signal(); _ = world.workingTask(signal: id)
+        world.state.signals[0].enabled = false
+        let live = SignalSidebar(state: world.state, entries: [])
+        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].source, removed: false, paused: true))
+        world.state.signals = []
+        let removed = SignalSidebar(state: world.state, entries: [])
+        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.source, removed: true, paused: false))
+    }
+
+    @Test func aRemovedSignalsFoldIsRuntimeOnlyAndStartsOpen() throws {
+        var world = SignalWorld(); let id = world.signal()
+        _ = world.workingTask(signal: id); _ = world.workingTask(signal: id)
+        world.state.tasks[0].signalTask?.current.configuration.collapsed = true
+        world.state.signals = []
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        let before = try encoder.encode(controller.state.tasks)
+        var section = try #require(controller.rows.signalSections.first)
+        #expect(!section.collapsed, "saved configuration does not fold a removed signal")
+        controller.toggleCollapsed(section.signal)
+        section = try #require(controller.rows.signalSections.first)
+        #expect(section.collapsed)
+        #expect(try encoder.encode(controller.state.tasks) == before)
+        controller.toggleCollapsed(section.signal)
+        #expect(controller.rows.signalSections.first?.collapsed == false)
+        #expect(try encoder.encode(controller.state.tasks) == before)
+        controller.toggleCollapsed(section.signal)
+        let fresh = SidebarProjection(workspace: controller.workspace, live: controller.live, checkouts: controller.checkouts)
+        #expect(fresh.signalSections.first?.collapsed == false, "a new projection starts open")
+    }
+
+    @Test(arguments: [false, true])
+    func revealingATaskOpensItsSignalAndLeavesItsProjectFolded(removed: Bool) throws {
+        var world = SignalWorld(); let id = world.signal(), task = world.workingTask(signal: id)
+        if removed { world.state.signals = [] }
+        var project = world.project; project.collapsed = true
+        world.state.items = [.project(project)]
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        #expect(controller.rows.signalSections.first?.collapsed == true)
+        controller.reveal(.task(task))
+        #expect(controller.rows.signalSections.first?.collapsed == false)
+        #expect(controller.state.project(id: world.project.id)?.collapsed == true)
+        controller.reveal(.task(task))
+        #expect(controller.state.project(id: world.project.id)?.collapsed == true, "an already-open signal still owns the task")
     }
 
     @Test func unsupportedSavedSignalsExplainWhyTheyCannotRunInTheirHeading() {
         var world = SignalWorld(); _ = world.signal()
         world.state.signals[0].source = .gitHub(RequestConditions(event: .unknown("future")))
         let sidebar = SignalSidebar(state: world.state, entries: [])
-        #expect(SignalHeadingValue(sidebar.signals[0]).help.contains("cannot run"))
+        #expect(HeadingValue(sidebar.signals[0]).help.contains("cannot run"))
     }
     @Test func backpackModeWaitsForOrphanedStagesButNotUnsupportedSources() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
@@ -238,7 +420,7 @@ import AiTermUI
         #expect(try row().status == .waiting)
         world.state.signals[0].enabled = false
         #expect(try row().operatorLine == .paused)
-        #expect(try row().paused == true)
+        #expect(try row().mark == .pauseSign)
     }
     @Test func signalHeadersAreSelectableAndAFoldDoesNotFoldItsProject() throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
@@ -266,6 +448,20 @@ import AiTermUI
         #expect(!SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a signal with no task yet")
         _ = world.workingTask(signal: signal); world.state.signals = []
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).shown, "a task left from a removed signal")
+    }
+    /// The Operator's row needs you only while it needs input: a question for you; paused, it draws the pause sign.
+    @Test func theOperatorRowWithAQuestionNeedsYou() {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let watching = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(!watching.needsYou && watching.mark == .status(.idle))
+        let askedAt = world.now
+        world.state.operatorSession?.questions = [.init(id: "q", task: id, text: "Which locale?", openedAt: askedAt)]
+        let asking = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(asking.needsYou && asking.mark == .status(.needsInput))
+        world.state.operatorSession?.questions = []
+        world.state.operatorSession?.paused = true
+        let paused = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(!paused.needsYou && paused.mark == .pauseSign)
     }
     @Test func theOperatorNamesItsActAndCountsTheSignalsStillHoldingTasks() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)

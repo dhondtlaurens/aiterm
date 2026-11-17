@@ -34,12 +34,12 @@ extension AppController {
                     let links = await controller.connections()
                     guard let connection = links.jira else { return [] }
                     return try await JiraClient(config: connection, session: links.session).signalUsers(query: query)
-                }, ready: { [weak self] in self?.signalReadiness == .ready }, save: { [weak self] value in
+                }, save: { [weak self] value in
                     try await controller.save(value)
                     // A new signal opens the Operator's section, where its tasks will be.
                     if signal == nil { self?.setOperatorOpen(true) }
                 })
-            model.readinessLines = { [weak self] in self?.signalReadiness.lines ?? [] }
+            model.readiness = { [weak self] in self?.signalReadiness(for: $0) ?? .ready }
             model.checkReadiness = { [weak self] in await self?.checkSignalReadiness() }
             model.loadCompletions = { [weak model] in
                 let found = await BackgroundWork.run {
@@ -54,7 +54,7 @@ extension AppController {
     }
     /// The person's Take Over of a driven task (`TaskLauncher.takeOver`), said in a toast once it is theirs.
     func takeOver(_ id: UUID) async {
-        guard let task = state.task(id: id), task.signalTask != nil else { return }
+        guard let task = state.task(id: id), task.isUnderOperator else { return }
         await launcher.takeOver(id)
         if state.task(id: id)?.takenOver == true {
             notices.showToast((task.jira?.key ?? task.title) + " is yours. The Operator let go of it.")
@@ -62,13 +62,14 @@ extension AppController {
     }
     func toggleCollapsed(_ signal: Signal) {
         guard canChangeWorkspace else { return }
-        workspace.mutate { state in
-            if let index = state.signals.firstIndex(where: { $0.id == signal.id }) { state.signals[index].collapsed.toggle() }
-            else { for task in state.tasks where task.signalTask?.current.signal == signal.id {
-                state.updateSignalTask(task.id) { $0.current.configuration.collapsed = !signal.collapsed }
-            } }
+        if let index = state.signals.firstIndex(where: { $0.id == signal.id }) {
+            workspace.mutate { $0.signals[index].collapsed.toggle() }
+        } else {
+            rows.toggleRemovedSignal(signal.id)
+            refreshRows()
         }
     }
+
     func toggleEnabled(_ signal: Signal) {
         guard canChangeWorkspace, var current = state.signal(id: signal.id) else { return }
         current.enabled.toggle()

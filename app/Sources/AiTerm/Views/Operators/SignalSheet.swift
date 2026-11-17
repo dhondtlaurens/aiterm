@@ -2,21 +2,24 @@ import SwiftUI
 import AiTermCore
 import AiTermUI
 
-/// Signal → Starts when → Prompt → Agents → Done, in the shared creation-sheet chrome.
+/// Signal → Starts when → Prompt → Agents → Done, in the shared `SteppedSheet`.
 struct SignalSheet: View {
     @Bindable var model: SignalModel
-    @Environment(\.dismiss) private var dismiss
     @State private var step = 1
     @State private var projectsOpen = false
     var body: some View {
-        SteppedSheetFrame(title: model.title, height: Sheet.height, step: step, stepNames: SignalModel.stepNames,
-                          onBackgroundTap: closeLists, onNavigate: navigate) {
+        SteppedSheet(title: model.title, height: Sheet.height, steps: steps, step: $step,
+                     createLabel: model.createLabel, creating: model.starting, create: model.create) {
             content
-        } footer: {
-            CreationFooter(step: step, steps: SignalModel.steps, error: model.error, availableAgents: [],
-                           createLabel: model.createLabel, creating: model.starting, canAdvance: model.canAdvance(step: step),
-                           closeList: closeOpenList, back: back, advance: advance, recover: {},
-                           waiting: (SignalReadiness.title, model.readinessLines()))
+        } notices: {
+            if let error = model.error { Notice(title: error) }
+            switch model.readiness(ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }) {
+            case .checking: Notice(title: SignalReadiness.checkingTitle)
+            case .notReady(let lines): Notice(title: SignalReadiness.title, description: lines.joined(separator: "\n"))
+            case .ready: EmptyView()
+            }
+        } closing: {
+            SignalDoneSummary(model: model)
         }
         .task(id: model.sourceKey) {
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
@@ -25,6 +28,25 @@ struct SignalSheet: View {
         .task { await model.loadMetadata() }
         .task { await model.loadCompletions() }
         .task { await model.checkReadiness() }
+    }
+    /// The Starts when step closes its projects picker, then the JQL completions; the Prompt step its
+    /// completion popup.
+    private var steps: [Step] {
+        let completions = model.completions, jqlCompletions = model.jqlCompletions
+        let closesPrompt = {
+            guard completions.isOpen else { return false }
+            completions.close(); return true
+        }
+        let closesConditions = {
+            if projectsOpen { projectsOpen = false; return true }
+            if jqlCompletions.isOpen { jqlCompletions.close(); return true }
+            return false
+        }
+        return SignalModel.stepNames.enumerated().map { index, name in
+            let number = index + 1
+            return Step(name: name, canAdvance: model.canAdvance(step: number), whyNot: number == 4 ? model.agentsWhyNot : nil,
+                        closeList: number == 2 ? closesConditions : number == 3 ? closesPrompt : { false })
+        }
     }
     @ViewBuilder private var content: some View {
         switch step {
@@ -62,22 +84,6 @@ struct SignalSheet: View {
     private var requestToggle: some View {
         DescriptionToggle("Add the merge request’s description", isOn: $model.requestDescription,
                           help: model.sourceKind == .jira ? "When the task has one, for its later stages." : "It goes to the worker under your prompt.")
-    }
-    private func closeLists() { projectsOpen = false; model.completions.close(); model.jqlCompletions.close() }
-    private func closeOpenList() -> Bool {
-        if model.completions.isOpen { model.completions.close(); return true }
-        if model.jqlCompletions.isOpen { model.jqlCompletions.close(); return true }
-        if projectsOpen { projectsOpen = false; return true }
-        return false
-    }
-    private func navigate(_ target: Int) {
-        guard !model.starting, SheetStepper.canNavigate(from: step, to: target, count: 5) else { return }
-        closeLists(); step = target
-    }
-    private func back() { guard !model.starting else { return }; if step == 1 { dismiss.afterThisEvent() } else { closeLists(); step -= 1 } }
-    private func advance() {
-        if step < 5 { closeLists(); step += 1 }
-        else { Task { if await model.create() { dismiss() } } }
     }
 }
 

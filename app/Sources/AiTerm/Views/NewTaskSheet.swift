@@ -9,17 +9,40 @@ struct NewTaskSheet: View {
     @Bindable var model: TaskCreationModel
     @State private var step = 1
     @State private var ticketsOpen = false
+    @State private var baseOpen = false
     init(model: TaskCreationModel) { self.model = model }
     var body: some View {
-        CreationSheet(model: model, step: $step, title: "New task in \(model.project.name)",
-                      stepNames: ["Task", "Prompt", "Agent"], destination: destination,
-                      createLabel: "Create Task", canAdvance: Self.canAdvance(step: step, model: model), pickers: [$ticketsOpen]) {
+        SteppedSheet(title: "New task in \(model.project.name)", height: Sheet.creationHeight, steps: steps, step: $step,
+                     createLabel: "Create Task", creating: model.creating, create: model.create) {
             content
+        } notices: {
+            CreationNotices(error: model.error,
+                            creating: model.creating, recoverAndCreate: model.recoverAndCreate)
+        } closing: {
+            CreationSummary(model: model, destination: destination)
         }
+        .creationLoads(model)
+    }
+    /// Leaving the Task step closes its ticket and base lists; the Prompt step's list is the completion popup.
+    private var steps: [Step] {
+        let canChange = model.canChangeWorkspace()
+        let completions = model.completions
+        return [
+            Step(name: "Task", canAdvance: canChange && Self.canAdvance(step: 1, model: model), closeList: {
+                if ticketsOpen { ticketsOpen = false; return true }
+                if baseOpen { baseOpen = false; return true }
+                return false
+            }),
+            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: 2, model: model), closeList: {
+                guard completions.isOpen else { return false }
+                completions.close(); return true
+            }),
+            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: 3, model: model)),
+        ]
     }
     @ViewBuilder private var content: some View {
         switch step {
-        case 1: NewTaskFirstStep(model: model, ticketsOpen: $ticketsOpen)
+        case 1: NewTaskFirstStep(model: model, ticketsOpen: $ticketsOpen, baseOpen: $baseOpen)
         case 2:
             PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
                 if model.draft.ticket?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
@@ -34,19 +57,20 @@ struct NewTaskSheet: View {
     /// an agent that can run too.
     static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
         guard !model.creating else { return false }
-        guard TaskCreator.isNamed(model.draft.title), !model.draft.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        return step != TaskCreation.steps.agentStep || model.agentIsReady
+        guard TaskCreator.isNamed(model.draft.title), !model.draft.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !model.draft.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return step != TaskCreation.lastStep || model.agentIsReady
     }
     private var destination: Destination? {
-        guard TaskCreation.steps.showsDestination(onStep: step), !model.worktreeSlug.isEmpty else { return nil }
+        guard step == TaskCreation.lastStep, !model.worktreeSlug.isEmpty else { return nil }
         return .worktree(project: model.project, slug: model.worktreeSlug, branch: model.draft.branch)
     }
 }
 
 #if DEBUG
 extension NewTaskSheet {
-    func seeded(step: Int, ticketsOpen: Bool = false) -> Self {
-        var sheet = self; sheet._step = State(initialValue: step); sheet._ticketsOpen = State(initialValue: ticketsOpen); return sheet
+    func seeded(step: Int, ticketsOpen: Bool = false, baseOpen: Bool = false) -> Self {
+        var sheet = self; sheet._step = State(initialValue: step); sheet._ticketsOpen = State(initialValue: ticketsOpen); sheet._baseOpen = State(initialValue: baseOpen); return sheet
     }
 }
 #endif
@@ -56,7 +80,8 @@ extension NewTaskSheet {
 struct NewTaskFirstStep: View {
     @Bindable var model: TaskCreationModel
     @Binding var ticketsOpen: Bool
-    /// The base-branch select's column: room for `main`, `develop` or a short release branch in
+    @Binding var baseOpen: Bool
+    /// The base-branch field’s column: room for `main`, `develop` or a short release branch in
     /// monospace, the rest of the row left to the new branch.
     private static let baseBranchWidth: CGFloat = 190
     var body: some View {
@@ -80,14 +105,15 @@ struct NewTaskFirstStep: View {
                     HelpText("A new branch, in its own worktree.")
                 }
                 FormField("Base branch") {
-                    Select(values: choices, selection: $model.draft.baseBranch, label: { $0 }, monospaced: true)
-                    HelpText("The branch it starts from.")
+                    BranchInput(placeholder: "main", text: Binding(get: { model.draft.baseBranch }, set: {
+                        model.draft.baseBranch = $0; model.branchQuery = $0
+                    }), open: $baseOpen, choices: model.branchMatches)
+                    if model.branchesLoaded, !model.draft.baseBranch.isEmpty, !model.branches.contains(model.draft.baseBranch) {
+                        HelpText("That branch doesn’t exist in this repository.", tone: .warning)
+                    } else { HelpText("The branch it starts from.") }
                 }.frame(width: Self.baseBranchWidth)
             }
             if !model.worktreeIncludes.isEmpty { WorktreeIncludeToggle(files: model.worktreeIncludes, isOn: $model.draft.copiesWorktreeInclude) }
         }
-    }
-    private var choices: [String] {
-        model.branches.contains(model.draft.baseBranch) || model.draft.baseBranch.isEmpty ? model.branches : [model.draft.baseBranch] + model.branches
     }
 }

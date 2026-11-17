@@ -57,7 +57,7 @@ struct SettingsView: View {
     /// Handed to the Agents tab, which is its one observer: this view only starts its load and
     /// its save, so a probe landing redraws that tab and not the whole sheet.
     let harnessModel: HarnessSettingsModel
-    /// The Agents tab's configuration path and where the Operator tab's profile is kept.
+    /// Where the Agents tab reads the installed CLIs and Claude's configuration path.
     let agents: AgentIntegrations
     /// The live state of the chain to iTerm2. A closure rather than a value so this view's own body
     /// reads the controller, and the card follows a reconnect while Settings is open.
@@ -241,9 +241,8 @@ struct SettingsView: View {
         result = nil
     }
 
-    /// Jira, GitLab and GitHub are optional. Validate them before committing the Operator's profile and
-    /// harness defaults so a failed save can still be cancelled without changing the models used by
-    /// new tasks or the next signal.
+    /// Validates integrations before committing the Operator's profile and the agents' defaults,
+    /// so a refused save changes nothing those read.
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
         saveInterface()

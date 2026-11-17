@@ -31,8 +31,8 @@ public enum TaskStatus: Equatable, Hashable, Sendable, CaseIterable {
         }
     }
 
-    /// The two statuses that are yours to act on, which Focus View opens a project for. Not `background`: the
-    /// agent takes its turn up again by itself. Not `waiting`: the Operator or someone else moves next.
+    /// The two statuses that make a task of your own or a terminal wait on you (`TaskRow.needsYou`). Not `background`:
+    /// the agent takes its turn up again by itself. Not `waiting`: the Operator or someone else moves next.
     public var needsAttention: Bool { self == .done || self == .needsInput }
 }
 
@@ -77,12 +77,35 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// task you made yourself or took over. That line is the Operator's alone: a test run on a task of your own is
     /// not drawn as one (29 Oct 2026); it shows only as background work, on the row's mark and its card.
     public var operatorLine: OperatorLine? = nil
-    /// The pause sign with idle status during your pause: a working task whose workers stopped, or an idle task
-    /// in people's review. The review task keeps its review line rather than replacing it with `paused`.
-    public var paused = false
     /// The existing mark's work card, also available while working or asking. Display facts do
     /// not change the row's status or its Operator line (`SidebarModel.displayJobs`).
     public var background: [BackgroundJob] = []
+    /// The trailing mark: its status's, or for a driven task the check once the Operator's work ended or the pause
+    /// sign during your pause. The view draws the spinner over it while the row is being removed or archived.
+    public var mark: TaskRowMark = .status(.idle)
+    /// Whether the row waits on you: a task of your own done or needing input, a driven task only needing input.
+    /// What the Dock badge, Focus View and a folded heading count.
+    public var needsYou = false
+    /// "Task" or "Review", as its menu names it.
+    public var kindName = "Task"
+    public var worktreePath = ""
+    /// The task's own branch, which VoiceOver reads after the title; `branch` is the one its tabs are on now.
+    public var savedBranch = ""
+    /// Whether the task has a window, which choosing it focuses rather than opens.
+    public var windowOpen = false
+    /// Whether the Operator drives it (`TaskItem.isUnderOperator`): its menu offers Take Over.
+    public var underOperator = false
+}
+/// A task row's trailing mark: its status's `StatusMark`, the check once the Operator's work on the task ended, or
+/// the pause sign while paused. A session in use (working, asking, background work) keeps its own mark.
+public enum TaskRowMark: Equatable, Sendable {
+    case status(TaskStatus), ended, pauseSign
+
+    public init(status: TaskStatus, line: OperatorLine?, paused: Bool = false) {
+        if paused { self = .pauseSign }
+        else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
+        else { self = .status(status) }
+    }
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
 /// merge-request target. The VS Code badge draws only the counts, `+12 −3`; the base it measures
@@ -102,6 +125,8 @@ public struct TerminalRow: Equatable, Identifiable, Sendable {
     public var id: UUID, name: String, branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
     /// The same work card as a task row's (`SidebarModel.displayJobs`).
     public var background: [BackgroundJob] = []
+    /// Whether the terminal waits on you: done or needing input, as a task of your own.
+    public var needsYou = false
 }
 /// How many of a project's rows sit in one status — the chips a collapsed project header draws
 /// in place of the task and terminal rows it is hiding.
@@ -123,9 +148,7 @@ public struct ProjectSection: Equatable, Identifiable, Sendable {
     /// returns to its stored state once a row lands in it — so nothing is written for it.
     public var collapsed: Bool { project.collapsed || isEmpty }
     /// Whether a row in it is waiting on you: finished (blue) or asking (orange).
-    public var needsAttention: Bool {
-        tasks.contains { $0.status.needsAttention } || terminals.contains { $0.status.needsAttention }
-    }
+    public var needsAttention: Bool { tasks.contains(where: \.needsYou) || terminals.contains(where: \.needsYou) }
     public func canMove(_ step: MoveStep) -> Bool { step == .up ? canMoveUp : canMoveDown }
 }
 /// A divider as the sidebar draws it: the rule, and which way it can move, as ``ProjectSection``.
@@ -435,16 +458,17 @@ public enum SidebarModel {
             // Matched on the window, not on `projectId`: every terminal of a project carries the
             // same project id, so only the window tells two of them apart.
             let own = term.windowId.flatMap { tabs.byWindow[$0] } ?? []
+            let status = aggregate(tabs: own)
             return TerminalRow(id: term.id, name: term.name,
                                branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: nil, fallback: projectBranch[project.id]),
                                avatars: own.isEmpty ? AvatarGroup(marks: [.shell], overflow: 0) : avatars(for: own),
-                               status: aggregate(tabs: own), background: displayJobs(of: own))
+                               status: status, background: displayJobs(of: own), needsYou: status.needsAttention)
         }
         return ProjectSection(project: project, tasks: tasks, terminals: terminals)
     }
 
-    /// One task's row: its tabs' agents, branch and status. A driven task's line and status are `SignalSidebar`'s to
-    /// set over these.
+    /// One task's row: its tabs' agents, branch, status and the mark and "needs you" a task of your own has. A driven
+    /// task's line, status, mark and "needs you" are `TaskRow.presentingOperator`'s to set over these.
     static func taskRow(_ task: TaskItem, tabs: Tabs, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
@@ -454,6 +478,10 @@ public enum SidebarModel {
                        diff: baseDiff(task: task, stat: diffByTask[task.id]),
                        background: displayJobs(of: own))
         row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
+        row.mark = TaskRowMark(status: row.status, line: nil)
+        row.needsYou = row.status.needsAttention
+        row.kindName = task.kindName; row.worktreePath = task.worktreePath; row.savedBranch = task.branch
+        row.windowOpen = task.windowId != nil; row.underOperator = task.isUnderOperator
         return row
     }
 

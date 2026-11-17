@@ -50,7 +50,7 @@ final class HarnessSettingsModel {
     }
 
     /// Every harness at once, so a slow one (PI launches its CLI twice) holds up only its own card;
-    /// New Signal probes only the agents the Operator may plan on.
+    /// New Signal probes only the agents it may use.
     func load(_ agents: [AgentKind] = AgentKind.allCases) async {
         await withTaskGroup(of: Void.self) { group in
             for agent in agents {
@@ -132,7 +132,7 @@ final class HarnessSettingsModel {
 
     func save() {
         for agent in AgentKind.allCases {
-            guard picked.contains(agent), loaded.contains(agent), let snapshot = snapshots[agent], !snapshot.modelsAreStale,
+            guard picked.contains(agent), let snapshot = snapshots[agent], !snapshot.modelsAreStale,
                   let preference = preferences[agent],
                   snapshot.models.contains(where: { $0.id == preference.model }) else { continue }
             ModelSettings.save(preference, for: agent, defaults: defaults)
@@ -170,7 +170,7 @@ final class HarnessSettingsModel {
             // harness layer passes, this is the first (and only) failed check and still becomes
             // the card summary.
             checks.append(HarnessCheck(.selectedModel, passed: false,
-                                       explanation: "The selected model is no longer available."))
+                                       explanation: "The default model is no longer offered."))
         }
         return .reduce(agent: snapshot.agent, cliAvailable: snapshot.health != .unavailable,
                        integrationState: snapshot.integrationState, models: snapshot.models,

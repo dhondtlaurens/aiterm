@@ -82,45 +82,18 @@ protocol CreationKind {
     func slug(for draft: Draft) -> String
     /// Told after anything in the draft but its prompt changed, with what the draft was before.
     func draftChanged(from old: Draft, in model: CreationModel<Self>)
-    /// Told after the branch list was read.
-    func branchesChanged(in model: CreationModel<Self>)
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
 }
 
 extension CreationKind {
-    /// New Task and New Review: three steps — what and where from, the prompt, the agent — the
-    /// destination summed up only on the last.
-    static var steps: CreationSteps { CreationSteps(count: 3, agentStep: 3, promptSteps: [2], summarizesOnlyOnLast: true) }
+    /// New Task and New Review have three steps — what and where from, the prompt, the agent — and
+    /// the agent's, the last, creates and sums up where the window opens.
+    static var lastStep: Int { 3 }
 
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
-    func branchesChanged(in model: CreationModel<Self>) {}
     /// Kinds with no recovery effects need no implementation.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
-}
-
-/// A creation sheet's step count, footer actions, destination summary and prompt editors.
-/// The last step creates; the first offers Cancel and the others Back.
-struct CreationSteps: Equatable {
-    let count: Int
-    /// The step that picks the agent and its model; nil for a sheet that starts no agent of its own.
-    let agentStep: Int?
-    /// New Signal's Agents step lists permitted worker choices and has no prompt editor.
-    var agentsListStep: Int? = nil
-    var promptSteps: Set<Int>? = nil
-    var summarizesOnlyOnLast = false
-
-    func creates(onStep step: Int) -> Bool { step == count }
-    func primaryTitle(onStep step: Int, createLabel: String) -> String { creates(onStep: step) ? createLabel : "Continue" }
-    func secondaryTitle(onStep step: Int) -> String { step == 1 ? "Cancel" : "Back" }
-    /// Step 1, which names where the window opens, and the last, which opens it. Never the agent's
-    /// step, so nothing works the line out there (finding the unused worktree slug looks at the disk).
-    func showsDestination(onStep step: Int) -> Bool { summarizesOnlyOnLast ? step == count : step == 1 || step == count }
-    /// Why no agent can run, on the create step of a sheet that starts one.
-    func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
-    /// The steps past the first that are not the agent's or the Agents list's: a prompt editor, whose completion popup
-    /// ⎋ closes.
-    func hasPrompt(onStep step: Int) -> Bool { promptSteps?.contains(step) ?? (step > 1 && step != agentStep && step != agentsListStep) }
 }
 
 /// The dependencies shared by New Task and New Review; disk and preference sources are explicit.
@@ -178,8 +151,11 @@ final class CreationModel<Kind: CreationKind> {
     }
     var branchesLoaded = false
     var branches: [String] = [] {
-        didSet { kind.branchesChanged(in: self) }
+        didSet { filterBranches() }
     }
+    private(set) var unavailableModel: String?
+    var branchQuery = "" { didSet { if branchQuery != oldValue { filterBranches() } } }
+    private(set) var branchMatches: [String] = []
     var models: [AgentModel] = []
     private(set) var catalogueLoaded = false
     /// Why the chosen agent has no models to offer, when its catalogue could not be read: PI's own
@@ -273,6 +249,7 @@ final class CreationModel<Kind: CreationKind> {
         models = []
         catalogueLoaded = false
         catalogueFailure = nil
+        unavailableModel = nil
         resetModel = true
     }
 
@@ -302,15 +279,24 @@ final class CreationModel<Kind: CreationKind> {
         let preference: ModelPreference
         let savedModelIsMissing: Bool
         switch catalogue.resolution {
-        case .valid(let value): preference = value; savedModelIsMissing = false
-        case .missing: preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = true
-        case .empty: preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = false
+        case .valid(let value): preference = value; savedModelIsMissing = false; unavailableModel = nil
+        case .missing(let value): preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = true; unavailableModel = value.model
+        case .empty: preference = ModelPreference(model: "", reasoning: nil); savedModelIsMissing = false; unavailableModel = nil
         }
         if resetModel || savedModelIsMissing || !models.contains(where: { $0.id == draft.model }) {
             draft.model = preference.model
             draft.reasoning = preference.reasoning
             resetModel = false
         }
+    }
+
+    /// Filter only when the typed query or branch list changes, preserving the repository’s order.
+    private func filterBranches() { branchMatches = filteredBranches(query: branchQuery) }
+
+    func filteredBranches(query: String) -> [String] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return branches }
+        return branches.filter { $0.range(of: query, options: .caseInsensitive) != nil }
     }
 
     func loadBranches() async {

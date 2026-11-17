@@ -6,6 +6,18 @@ import Testing
 @Suite struct SignalDomainTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    @Test(arguments: [TaskPhase.launching, .choosing, .working, .watching(.approved), .blocked,
+                      .done, .archived, .unknown(.string("future"))])
+    func aTaskIsUnderTheOperatorExactlyWhenItHasARecord(_ phase: TaskPhase) throws {
+        var world = SignalWorld()
+        let id = world.workingTask(signal: world.signal())
+        var task = try #require(world.state.task(id: id))
+        task.signalTask?.phase = phase
+        #expect(task.isUnderOperator)
+        task.signalTask = nil
+        #expect(!task.isUnderOperator)
+    }
+
     func signal(_ name: String = "Tickets", createdAt: Date? = nil) -> Signal {
         Signal(name: name, createdAt: createdAt ?? now, source: .jira(JiraConditions()),
                work: SignalWork(prompt: "/psg:plan"), agents: [], finish: SignalFinish(doneWhen: .operatorJudges))
@@ -64,6 +76,19 @@ import Testing
                 "Remove offers a branch cleanup that still requires proof the branch was merged.")
         #expect(!SignalFinish(doneWhen: .merged, mergesWhenReady: true).isValid(for: .jira(JiraConditions())))
         #expect(!SignalFinish(doneWhen: .ticketStatus("Done")).isValid(for: .gitHub(RequestConditions(event: .myRequest))))
+    }
+
+    @Test func completeReadStartsOnlyMappedItemsNotAlreadyMatchingForThisSignal() {
+        var world = SignalWorld(); let signal = world.signal(), other = world.signal(name: "Other")
+        let items = (1...5).map { world.ticket("PAY-\($0)") } + [world.ticket("OTHER-1")]
+        let seen = [
+            SignalSeen(signal: signal, item: items[0].item, disposition: .started, at: now),
+            SignalSeen(signal: other, item: items[1].item, disposition: .started, at: now),
+            SignalSeen(signal: signal, item: items[2].item, disposition: .skipped, at: now),
+            SignalSeen(signal: signal, item: items[3].item, disposition: .started, at: now, isMatching: false),
+        ]
+        #expect(SignalStarts.items(in: items, signal: signal, projects: world.state.projects, seen: seen) == Array(items[1...4]))
+        #expect(SignalStarts.items(in: items, signal: nil, projects: world.state.projects, seen: seen) == Array(items[0...4]))
     }
 
     @Test func completeReadsStartCurrentMatchesOnceAndIncompleteReadsStartNothing() {

@@ -58,7 +58,7 @@ struct SidebarView: View {
             DividerRow(entry: divider, controller: controller).selectionDisabled()
         case .project(let section):
             // On the arrow path, as a Finder outline's folders are; a divider is not.
-            ProjectHeaderRow(section: section, controller: controller).tag(section.project.id)
+            HeadingRow(value: HeadingValue(section), controller: controller).equatable().tag(section.project.id)
             if !section.collapsed {
                 ForEach(section.terminals) { row in
                     TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
@@ -73,7 +73,7 @@ struct SidebarView: View {
     /// snapshots stack on their own.
     @ViewBuilder static func taskRows(of section: ProjectSection, in rows: SidebarProjection, controller: AppController) -> some View {
         ForEach(section.tasks) { row in
-            TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
+            TaskRowView(row: row, controller: controller)
                 .tag(row.id)
         }
     }
@@ -83,15 +83,15 @@ struct SidebarView: View {
     /// (`SignalOperatorRowValue.shown`) — then each signal's heading and tasks. The heading is off the arrow path,
     /// as a divider is; the rest is on it, the Operator's row using the fixed `OperatorSession.rowID`.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
-        SignalOperatorHeading(controller: controller).selectionDisabled()
+        SectionHeading(controller: controller, kind: .operator).selectionDisabled()
         ForEach(rows.operatorOpen && rows.signalOperator.shown ? [rows.signalOperator] : []) { value in
             SignalOperatorRow(value: value, controller: controller).tag(value.id)
         }
         ForEach(rows.operatorOpen ? rows.signalSections : []) { section in
-            SignalHeader(section: section, controller: controller).equatable()
+            HeadingRow(value: HeadingValue(section), controller: controller).equatable().tag(section.id)
             if !section.collapsed {
                 ForEach(section.tasks) { row in
-                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+                    TaskRowView(row: row, controller: controller).tag(row.id)
                 }
             }
         }
@@ -100,7 +100,7 @@ struct SidebarView: View {
     /// The PROJECTS heading and, unless they are folded while the Operator's section is open, every entry's rows:
     /// what the list draws under the Operator's, and the snapshots stack.
     @ViewBuilder static func projectRows(in rows: SidebarProjection, controller: AppController) -> some View {
-        SidebarHeader(controller: controller).selectionDisabled()
+        SectionHeading(controller: controller, kind: .projects).selectionDisabled()
         if !rows.operatorOpen {
             if !rows.hasProjects { SidebarEmptyState(controller: controller).selectionDisabled() }
             ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }

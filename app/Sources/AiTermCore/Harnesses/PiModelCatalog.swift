@@ -22,8 +22,6 @@ public enum PiModelCatalogError: Error, Equatable, Sendable, LocalizedError {
 }
 
 public enum PiModelCatalog {
-    public static let thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-
     /// PI's table, one row a model. With no provider signed in PI prints a sentence instead — "No
     /// models available. Use /login …" — and exits 0: that is an empty list, not a broken one.
     public static func parse(_ output: String) throws -> [AgentModel] {
@@ -45,7 +43,7 @@ public enum PiModelCatalog {
             return AgentModel(id: "\(fields[0])/\(fields[1])",
                               label: "\(fields[0]) / \(fields[1])",
                               detail: "\(fields[2]) context · \(fields[3]) max · \(imageText)",
-                              efforts: supportsThinking ? thinkingLevels : [],
+                              efforts: supportsThinking ? Harness.pi.fallbackEfforts : [],
                               defaultEffort: supportsThinking ? Harness.pi.defaultEffort : nil)
         }
     }

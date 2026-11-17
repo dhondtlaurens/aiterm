@@ -4,9 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// New Signal's Start waits for what the Operator needs: every agent the Operator may plan on Ready,
-/// Messaging included, and iTerm2's own checks passed. What is not ready is one footer line each, in
-/// the words that agent's card says it.
+/// New Signal advises about its own agents and iTerm2, in each card’s words.
 @MainActor
 @Suite struct SignalReadinessTests {
     private let model = AgentModel(id: "m", label: "M", detail: nil, efforts: [], defaultEffort: nil)
@@ -22,15 +20,15 @@ import Testing
     private let ready: [AgentKind: DeliveryReadiness] = [.claude: .ready("Messaging ready for 2.1"), .codex: .ready("Messaging ready for 0.160")]
     private let itermPassed = DeliveryReadiness.ready("iTerm2 checks passed")
 
-    private func readiness(installed: Set<AgentKind> = [.claude, .codex], cards: [AgentKind: HarnessSnapshot]? = nil,
+    private func readiness(agents: [AgentKind] = [.claude, .codex], installed: Set<AgentKind> = [.claude, .codex], cards: [AgentKind: HarnessSnapshot]? = nil,
                            messaging: [AgentKind: DeliveryReadiness]? = nil, iterm: DeliveryReadiness?? = .none) -> SignalReadiness {
         let messaging = messaging ?? ready
-        return SignalReadiness.of(installed: installed, snapshots: cards ?? self.cards, messaging: { messaging[$0] },
+        return SignalReadiness.of(agents: agents, installed: installed, snapshots: cards ?? self.cards, messaging: { messaging[$0] },
                                      iterm: iterm ?? itermPassed)
     }
 
     @Test func codexWorkersStillNeedClaudeForTheOperator() {
-        let result = readiness(installed: [.codex])
+        let result = readiness(agents: [.codex], installed: [.codex])
         #expect(result.lines.contains { $0.contains("Claude Code") })
     }
     @Test func everythingReadyIsReady() {
@@ -50,10 +48,11 @@ import Testing
                               "iTerm2 checks failed: backgroundWindow"]))
     }
 
-    /// Only an installed agent the Operator chooses from is waited for: PI never is.
-    @Test func onlyTheAgentsTheOperatorMayPlanOnAreWaitedFor() {
-        #expect(readiness(installed: [.claude], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
-        #expect(readiness(installed: [.claude, .pi], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
+    /// A signal only checks its own installed agents, in the shared order.
+    @Test func onlyTheSignalsOwnAgentsAreChecked() {
+        #expect(readiness(agents: [.claude], installed: [.claude], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
+        #expect(readiness(agents: [.claude], installed: [.claude, .pi], cards: [.claude: card(.claude)], messaging: [.claude: ready[.claude]!]) == .ready)
+        #expect(readiness(agents: [.claude, .claude], messaging: [.claude: ready[.claude]!, .codex: .needsAttention("Codex unready")]) == .ready)
         #expect(readiness(installed: []) == .notReady(["The Operator needs Claude Code. Install it in Settings › Agents."]))
     }
 
@@ -81,7 +80,7 @@ import Testing
         controller.agents.availableAgents = [.claude, .codex, .pi]
         let service = ReadyHarnesses(snapshots: cards)
         let harness = controller.agents.harnessSettingsModel(service: service)
-        #expect(controller.signalReadiness == .checking)
+        #expect(controller.signalReadiness(for: [.claude, .codex]) == .checking)
 
         let policy = AiTermPaths.deliveryPolicyURL(home: home)
         try FileManager.default.createDirectory(at: policy.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -92,7 +91,7 @@ import Testing
         #expect(await eventually(describing: "both planned cards and the policy file read") {
             Set(harness.snapshots.keys) == [.claude, .codex] && controller.messaging.file != nil
         })
-        #expect(controller.signalReadiness == .notReady(["Codex: Messaging not checked for 0.160", "iTerm2 checks not run"]))
+        #expect(controller.signalReadiness(for: [.claude, .codex]) == .notReady(["Codex: Messaging not checked for 0.160", "iTerm2 checks not run"]))
         #expect(await service.probed.sorted { $0.rawValue < $1.rawValue } == [.claude, .codex], "PI is never planned on")
     }
 

@@ -5,7 +5,6 @@ import AiTermCore
     let id = UUID()
     let editing: Bool
     private(set) var preparation: ProjectPreparation
-    var folder: String
     var linked: [JiraProjectRef]
     var importWorktrees: Bool
     private(set) var projects: [JiraProjectRef] = []
@@ -13,9 +12,7 @@ import AiTermCore
     private(set) var loadingError: String?
     private(set) var error: String?
     private(set) var saving = false
-    private(set) var validating = false
-    private var validatedFolder: String
-    private var inspection = UUID()
+    private(set) var preparing = false
     private let git: any GitRunning
     private let canChange: @MainActor () -> Bool
     private let inspect: @MainActor (String) async throws -> ProjectPreparation
@@ -30,10 +27,10 @@ import AiTermCore
         self.preparation = preparation; self.editing = editing; self.canChange = canChange
         self.git = git
         self.inspect = inspect; self.choose = chooseFolder; self.load = loadProjects; self.commit = commit
-        folder = preparation.project.path; validatedFolder = preparation.project.path; linked = preparation.project.jiraProjects
+        linked = preparation.project.jiraProjects
         importWorktrees = preparation.canImport
     }
-    var canSave: Bool { canChange() && !saving && !validating && (editing || folder == validatedFolder) }
+    var canSave: Bool { canChange() && !saving && !preparing }
     var title: String { editing ? "Edit \(preparation.project.name)" : "Add project" }
     var closing: String {
         if editing { return "Saves the Jira projects of \(preparation.project.name). Its folder, name and tasks stay as they are." }
@@ -53,7 +50,15 @@ import AiTermCore
     }
     func chooseFolder() async {
         guard let url = await choose(), !Task.isCancelled else { return }
-        folder = url.path
+        preparing = true; error = nil; defer { preparing = false }
+        do {
+            let found = try await inspect(url.path)
+            guard !Task.isCancelled else { return }
+            preparation = found; importWorktrees = found.canImport
+        } catch {
+            guard !Task.isCancelled else { return }
+            self.error = error.localizedDescription
+        }
     }
     func loadProjects() async {
         do {
@@ -65,21 +70,6 @@ import AiTermCore
             loadingError = error.localizedDescription
         }
         loading = false
-    }
-    func inspectFolder() async {
-        guard !editing else { return }
-        if folder == validatedFolder { error = nil; validating = false; return }
-        let key = UUID(), requested = folder
-        inspection = key; validating = true; error = nil
-        do {
-            let found = try await inspect((requested as NSString).expandingTildeInPath)
-            guard !Task.isCancelled, inspection == key, folder == requested else { return }
-            preparation = found; validatedFolder = requested; importWorktrees = found.canImport
-        } catch {
-            guard !Task.isCancelled, inspection == key, folder == requested else { return }
-            self.error = error.localizedDescription
-        }
-        if inspection == key { validating = false }
     }
     func save() async -> Bool {
         guard canSave else { return false }

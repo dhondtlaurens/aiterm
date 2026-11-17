@@ -87,11 +87,10 @@ import AiTermUI
         let rows = controller.rows.signalSections.flatMap(\.tasks)
         let selected = rows.first { $0.id == fixture.working.id }!, plain = rows.first { $0.id == fixture.other.id }!
         // Driven tasks use the ordinary two-line row under the same status-mark rules.
-        let working = controller.workspace.state.task(id: fixture.working.id), other = controller.workspace.state.task(id: fixture.other.id)
         return SnapshotColumn(width: Size.sidebarWidth + 2 * Space.inset, spacing: Space.base, horizontalInset: Space.inset, verticalInset: Space.base) {
-            TaskRowView(row: plain, task: other, controller: controller)
-            TaskRowView(row: selected, task: working, controller: controller)
-            TaskRowView(row: plain, task: other, controller: controller).environment(\.motionStill, .reduceMotion)
+            TaskRowView(row: plain, controller: controller)
+            TaskRowView(row: selected, controller: controller)
+            TaskRowView(row: plain, controller: controller).environment(\.motionStill, .reduceMotion)
             HStack(spacing: Space.base) {
                 ForEach([TaskStatus.working, .background, .waiting], id: \.self) { StatusMark(status: $0, size: Size.statusMark) }
             }

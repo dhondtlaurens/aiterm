@@ -52,7 +52,7 @@ public extension AppState {
         return record
     }
     func signal(id: UUID) -> Signal? { signals.first { $0.id == id } }
-    var allSignalTasks: [TaskItem] { tasks.filter { $0.signalTask != nil } + archive.map(\.task).filter { $0.signalTask != nil } }
+    var allSignalTasks: [TaskItem] { tasks.filter { $0.isUnderOperator } + archive.map(\.task).filter { $0.isUnderOperator } }
     func signalItem(id: UUID) -> TaskItem? { task(id: id) ?? archived(id: id)?.task }
     mutating func updateSignalItem(_ id: UUID, _ change: (inout TaskItem) throws -> Void) rethrows {
         if let index = tasks.firstIndex(where: { $0.id == id }) { try change(&tasks[index]) }

@@ -32,8 +32,9 @@ struct BackgroundCardTests {
         let task = TaskItem.make(project: UUID(), title: "A task with background work", worktreePath: "/wt", model: "sonnet",
             createdAt: Date(), windowId: "w")
         let row = TaskRow(id: task.id, title: task.title, jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
-                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, background: [tests, ci])
-        let changed = try await cardSurfaceChange(TaskRowView(row: row, task: task, controller: controller))
+                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, background: [tests, ci],
+                          mark: .status(status))
+        let changed = try await cardSurfaceChange(TaskRowView(row: row, controller: controller))
         #expect(changed > 1000, "the same card opens: \(changed) pixels")
     }
 
@@ -110,8 +111,8 @@ struct BackgroundCardTests {
     /// A driven task that ended is yours again: work left running keeps its own mark, not the Operator's check.
     @Test func anEndedTaskInTheBackgroundKeepsItsMark() {
         let ended = OperatorLine("done", look: .ended)
-        #expect(TaskRowMark(status: .background, line: ended, removing: false) == .status(.background))
-        #expect(TaskRowMark(status: .done, line: ended, removing: false) == .ended)
+        #expect(TaskRowMark(status: .background, line: ended) == .status(.background))
+        #expect(TaskRowMark(status: .done, line: ended) == .ended)
     }
 
     /// Offered its row's pill up to the mark, the card fills it however many jobs it lists, the rest scrolling.
@@ -134,13 +135,13 @@ struct BackgroundCardTests {
         let row = TaskRow(id: task.id, title: task.title, jiraKey: "FE-1783", jiraUrl: nil, mr: nil,
                           branch: BranchLabel(name: task.branch, extra: 0, drifted: false, detail: ""),
                           avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status,
-                          background: Array([tests, server, ci].prefix(jobs)))
-        let closed = NSHostingController(rootView: TaskRowView(row: row, task: task, controller: controller))
+                          background: Array([tests, server, ci].prefix(jobs)), mark: .status(status))
+        let closed = NSHostingController(rootView: TaskRowView(row: row, controller: controller))
             .sizeThatFits(in: CGSize(width: 320, height: 400))
         let hover = BackgroundCardHover(sleep: { _ in })
         hover.mark(true)
         await settle()
-        let open = NSHostingController(rootView: TaskRowView(row: row, task: task, controller: controller)
+        let open = NSHostingController(rootView: TaskRowView(row: row, controller: controller)
             .environment(\.seededHover, SeededHover(backgroundCard: hover)))
             .sizeThatFits(in: CGSize(width: 320, height: 400))
         #expect(hover.isOpen)

@@ -13,14 +13,6 @@ final class DebouncedSearch<Item: Sendable> {
     /// How long typing pauses before the query is searched for.
     static var pause: Duration { .milliseconds(250) }
 
-    /// What letting the search go drops (`cancel()`, and each keystroke before it searches again). The pickers drop
-    /// any search under way, one started directly — the sheet's opening search — among them; the ticket field cancels
-    /// only the search its own typing started, so a direct search's answer can still land after it. Two rules from
-    /// before they shared this type, each kept (`DebouncedSearchTests`).
-    enum Superseding {
-        case everySearch, typedSearchOnly
-    }
-
     /// The text as it is typed.
     var query = ""
     /// The rows of the latest answer.
@@ -29,13 +21,11 @@ final class DebouncedSearch<Item: Sendable> {
     var error: String?
 
     @ObservationIgnored private let lookup: @MainActor (String) async throws -> [Item]
-    @ObservationIgnored private let superseding: Superseding
     /// The search the latest keystroke started, while it runs; a test awaits it.
     @ObservationIgnored private(set) var typed: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
 
-    init(superseding: Superseding = .everySearch, lookup: @escaping @MainActor (String) async throws -> [Item]) {
-        self.superseding = superseding
+    init(lookup: @escaping @MainActor (String) async throws -> [Item]) {
         self.lookup = lookup
     }
 
@@ -46,10 +36,9 @@ final class DebouncedSearch<Item: Sendable> {
         typed = Task { await search(text, debounce: true) }
     }
 
-    /// Lets the search go: what it answers is dropped (`Superseding`).
+    /// Lets the search go: what it answers is dropped after any cancel.
     func cancel() {
         typed?.cancel()
-        guard superseding == .everySearch else { return }
         generation += 1
         typed = nil
     }

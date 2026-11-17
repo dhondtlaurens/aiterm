@@ -1,3 +1,4 @@
+import SwiftUI
 import Testing
 import Foundation
 @testable import AiTerm
@@ -12,7 +13,7 @@ import Foundation
     nonisolated static let astra = AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "medium")
     nonisolated static let mini = AgentModel(id: "gpt-6-mini", label: "gpt-6-mini", detail: nil, efforts: ["low", "high"], defaultEffort: "low")
     nonisolated static let sol = AgentModel(id: "openai-codex/gpt-5.6-sol", label: "openai-codex / gpt-5.6-sol", detail: nil,
-                                            efforts: PiModelCatalog.thinkingLevels, defaultEffort: "medium")
+                                            efforts: AgentKind.pi.harness.efforts(for: nil), defaultEffort: "medium")
 
     /// A model over `defaults`, as Settings makes it: the saved profile loaded from them, Claude's and
     /// Codex's catalogues, and Save writing back to them.
@@ -153,15 +154,18 @@ import Foundation
         #expect(written.instructions == "Keep this instruction.")
     }
 
-    /// A saved model the catalogue no longer lists is still offered, by its id, with its reasoning.
-    @Test func aModelOffTheCatalogueIsStillOffered() {
-        let options = OperatorSettingsModel.options([Self.opus], keeping: "opus", reasoning: "high")
-        #expect(options.map(\.id) == ["opus", "claude-opus-5-5"])
-        #expect(options[0].label == "opus")
-        #expect(OperatorSettingsModel.efforts(of: options[0], keeping: "high") == ["high"])
+    @Test func aSavedModelOffTheCatalogueShowsAsUnavailableAndSaveKeepsIt() {
+        let defaults = ScratchDefaults.make()
+        let profile = OperatorProfile(model: "removed", reasoning: "high", oracle: .standard, instructions: "")
+        let settings = loaded(profile, installed: [.claude, .codex], into: defaults)
+        let fields = ModelReasoningFields(models: settings.models[.claude]!, model: settings.model,
+                                         reasoning: .constant(settings.reasoning), selectModel: { settings.select(model: $0) })
+        #expect(fields.modelChoices.first?.label == "Unavailable: removed")
+        settings.instructions = "Keep this instruction."
+        settings.save()
+        #expect(saved(defaults).model == "removed" && saved(defaults).reasoning == "high")
         #expect(OperatorSettingsModel.efforts(of: Self.opus, keeping: "xhigh") == ["xhigh", "low", "medium", "high"])
         #expect(OperatorSettingsModel.efforts(of: Self.sonnet, keeping: nil).isEmpty)
-        #expect(OperatorSettingsModel.options([Self.opus], keeping: "claude-opus-5-5", reasoning: nil).map(\.id) == ["claude-opus-5-5"])
     }
 
     @Test func theCopyDescribesSignalsQuestionsAndHowToSteerThem() {

@@ -13,14 +13,39 @@ struct NewReviewSheet: View {
     @State private var ticketsOpen = false
     init(model: ReviewCreationModel) { self.model = model }
     var body: some View {
-        CreationSheet(model: model, step: $step, title: "New review in \(model.project.name)",
-                      stepNames: ["Review", "Prompt", "Agent"],
-                      destination: Self.destination(step: step, project: model.project, owner: model.owningTask, slug: model.worktreeSlug, branch: model.draft.branch),
-                      createLabel: Self.createLabel(owner: model.owningTask), canAdvance: Self.canAdvance(step: step, model: model),
-                      pickers: [$mrOpen, $ticketsOpen, $branchOpen]) { content }
-            .task { await model.loadCheckouts() }
-            .task { await model.searchTickets(text: "") }
-            .onChange(of: model.requestListOffers) { mrOpen = true }
+        SteppedSheet(title: "New review in \(model.project.name)", height: Sheet.creationHeight, steps: steps, step: $step,
+                     createLabel: Self.createLabel(owner: model.owningTask), creating: model.creating, create: model.create) {
+            content
+        } notices: {
+            CreationNotices(error: model.error,
+                            creating: model.creating, recoverAndCreate: model.recoverAndCreate)
+        } closing: {
+            CreationSummary(model: model, destination: Self.destination(step: step, project: model.project, owner: model.owningTask,
+                                                                        slug: model.worktreeSlug, branch: model.draft.branch))
+        }
+        .creationLoads(model)
+        .task { await model.loadCheckouts() }
+        .task { await model.searchTickets(text: "") }
+        .onChange(of: model.requestListOffers) { mrOpen = true }
+    }
+    /// The Review step's lists close merge requests first, then tickets, then branches; the Prompt
+    /// step's list is the completion popup.
+    private var steps: [Step] {
+        let canChange = model.canChangeWorkspace()
+        let completions = model.completions
+        return [
+            Step(name: "Review", canAdvance: canChange && Self.canAdvance(step: 1, model: model), closeList: {
+                if mrOpen { mrOpen = false; return true }
+                if ticketsOpen { ticketsOpen = false; return true }
+                if branchOpen { branchOpen = false; return true }
+                return false
+            }),
+            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: 2, model: model), closeList: {
+                guard completions.isOpen else { return false }
+                completions.close(); return true
+            }),
+            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: 3, model: model)),
+        ]
     }
     @ViewBuilder private var content: some View {
         switch step {
@@ -45,10 +70,10 @@ struct NewReviewSheet: View {
     }
     static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
         canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating)
-            && (step != ReviewCreation.steps.agentStep || model.agentIsReady)
+            && (step != ReviewCreation.lastStep || model.agentIsReady)
     }
     static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String, branch: String) -> Destination? {
-        guard ReviewCreation.steps.showsDestination(onStep: step), !branch.isEmpty else { return nil }
+        guard step == ReviewCreation.lastStep, !branch.isEmpty else { return nil }
         if let owner { return .existing(owner) }
         return .worktree(project: project, slug: slug(), branch: branch)
     }

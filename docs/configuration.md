@@ -3,9 +3,10 @@
 Open **AiTerm › Settings…** (⌘,) to configure agents, the Operator, integrations and the interface.
 For installation and a first task, start with the [README](../README.md#install).
 
-**Save** applies settings edits. Agent installation/repair takes effect
-immediately; **Cancel** does not undo it. Sidebar size previews immediately, and Cancel restores
-its previous size. The Mac card's **Allow…** and **Remove** permission actions also apply immediately.
+**Save** applies every switch and field in Settings. Installing, repairing and **Run check** take
+effect immediately; **Cancel** does not undo them. Sidebar size previews immediately, and Cancel
+restores its previous size. The Mac card's **Allow…** and **Remove** permission actions also apply
+immediately.
 
 ## Agents
 

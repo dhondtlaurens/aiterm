@@ -75,27 +75,32 @@ extension AppController {
         workspace.mutate { $0.operatorOpen = open }
     }
 
-    var signalReadiness: SignalReadiness {
+    func signalReadiness(for signalAgents: [AgentKind]) -> SignalReadiness {
         let messaging = self.messaging
-        return .of(installed: agents.availableAgents, snapshots: agents.harnessSettingsModel().snapshots,
+        return .of(agents: signalAgents, installed: agents.availableAgents, snapshots: agents.harnessSettingsModel().snapshots,
                    messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm)
     }
 
-    /// A row selected from away from the list — a notification, Focus View, an amber count — opens what
-    /// hides it: the section it is in, folding the other, then its signal or project.
+    /// A row selected through a notification, Focus View or an amber count opens its section, folding the other,
+    /// then its signal or project; tasks under the Operator open their signal.
     func reveal(_ row: RowSelection) {
         guard canChangeWorkspace else { return }
         if rows.operatorHeading.folds {
             let underOperator = switch row {
             case .operatorChat, .signal: true
-            case .task(let id): state.task(id: id)?.signalTask != nil
+            case .task(let id): state.task(id: id)?.isUnderOperator == true
             case .project, .terminal: false
             }
             if underOperator != rows.operatorOpen { setOperatorOpen(underOperator) }
         }
-        if case .task(let id) = row, let task = state.task(id: id), let record = task.signalTask,
-           let signal = state.signal(id: record.current.signal), signal.collapsed { toggleCollapsed(signal) }
-        else if case .task(let id) = row, let task = state.task(id: id),
+        if case .task(let id) = row, let task = state.task(id: id), task.isUnderOperator, let record = task.signalTask {
+            if let signal = state.signal(id: record.current.signal) {
+                if signal.collapsed { toggleCollapsed(signal) }
+            } else {
+                rows.openRemovedSignal(record.current.signal)
+                refreshRows()
+            }
+        } else if case .task(let id) = row, let task = state.task(id: id),
                 let project = state.project(id: task.projectId), project.collapsed { projects.toggleCollapsed(project) }
     }
 }

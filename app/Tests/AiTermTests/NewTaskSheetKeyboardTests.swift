@@ -8,6 +8,44 @@ import AiTermCore
 
 @MainActor
 @Suite(.serialized, .blocking) struct NewTaskSheetKeyboardTests {
+    @Test func theBaseFieldFiltersAndPicksABranchAndEscapeClosesBothLists() throws {
+        let project = Project.make(name: "Repo", path: "/tmp/repo")
+        var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
+        draft.setTitle("Fix header")
+        let model = TaskCreationModel(project: project, draft: draft, context: .scratch(), searchIssues: { _ in [] }, createTask: { _ in })
+        model.branches = ["main", "release/current", "release/next"]
+        model.results = [JiraTicket(key: "APP-1", summary: "Header", description: nil, issueType: nil, status: nil, url: "https://example.com/APP-1")]
+        let host = testHost(NewTaskSheet(model: model).seeded(step: 1, ticketsOpen: true, baseOpen: true),
+                            size: CGSize(width: Sheet.width, height: Sheet.creationHeight))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        settle(host)
+        func send(_ selector: Selector, to field: NSTextField) -> Bool {
+            field.delegate?.control?(field, textView: NSTextView(), doCommandBy: selector) ?? false
+        }
+        let base = try #require(host.descendants(NSTextField.self).first { $0.placeholderString == "main" })
+        let ticket = try #require(host.descendants(NSTextField.self).first { $0.placeholderString == "Search by key or title" })
+        let escape = keyDown("\u{1b}", code: 53, in: window)!
+        _ = window.performKeyEquivalent(with: escape)
+        settle(host)
+        #expect(!send(#selector(NSResponder.moveDown(_:)), to: ticket))
+        #expect(send(#selector(NSResponder.moveDown(_:)), to: base))
+        _ = window.performKeyEquivalent(with: escape)
+        settle(host)
+        #expect(!send(#selector(NSResponder.moveDown(_:)), to: base))
+        #expect(window.makeFirstResponder(base))
+        settle(host)
+        let editor = try #require(base.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("release", replacementRange: NSRange(location: NSNotFound, length: 0))
+        settle(host)
+        #expect(model.draft.baseBranch == "release" && model.branchMatches == ["release/current", "release/next"])
+        #expect(send(#selector(NSResponder.moveDown(_:)), to: base))
+        #expect(send(#selector(NSResponder.insertNewline(_:)), to: base))
+        settle(host)
+        #expect(model.draft.baseBranch == "release/next" && model.branchQuery == "release/next")
+    }
+
     @Test func arrowDownAndReturnSelectTheNextVisibleTicket() throws {
         let controller = AppController(preferences: .scratch())
         let project = Project.make(name: "AiTerm", path: "/tmp", provider: .none, addedAt: Date())

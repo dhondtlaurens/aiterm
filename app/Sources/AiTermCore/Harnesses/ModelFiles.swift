@@ -6,8 +6,6 @@ import Foundation
 /// harness's `ModelListing`.
 public enum ModelFiles {
     public static let claudeAliases = ["opus", "sonnet", "fable", "haiku"]
-    public static let claudeEfforts = ["low", "medium", "high"]
-    public static let codexEfforts = ["minimal", "low", "medium", "high", "xhigh"]
 
     // -- claude ---------------------------------------------------------------------
 
@@ -22,13 +20,13 @@ public enum ModelFiles {
     public static func claudeModels(catalogJSON: Data?, settingsJSON: Data?, claudeJSON: Data?) -> [AgentModel] {
         var out = claudeCatalogModels(catalogJSON)
         if out.isEmpty {
-            out = claudeAliases.map { AgentModel(id: $0, label: $0.capitalized, detail: nil, efforts: claudeEfforts, defaultEffort: Harness.claude.defaultEffort) }
+            out = claudeAliases.map { AgentModel(id: $0, label: $0.capitalized, detail: nil, efforts: Harness.claude.fallbackEfforts, defaultEffort: Harness.claude.defaultEffort) }
         }
         func add(_ model: AgentModel) { if !out.contains(where: { $0.id == model.id }) { out.append(model) } }
 
         if let data = settingsJSON, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let models = obj["availableModels"] as? [String] {
-            for id in models { add(AgentModel(id: id, label: id, detail: nil, efforts: claudeEfforts, defaultEffort: Harness.claude.defaultEffort)) }
+            for id in models { add(AgentModel(id: id, label: id, detail: nil, efforts: Harness.claude.fallbackEfforts, defaultEffort: Harness.claude.defaultEffort)) }
         }
         if let data = claudeJSON, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let options = obj["additionalModelOptionsCache"] as? [[String: Any]] {
@@ -39,7 +37,7 @@ public enum ModelFiles {
                 // at all falls back to the legacy three.
                 let base = out.first { $0.id == id.prefix(while: { $0 != "[" }) }
                 add(AgentModel(id: id, label: (option["label"] as? String) ?? id, detail: option["description"] as? String,
-                               efforts: base?.efforts ?? claudeEfforts, defaultEffort: base.map(\.defaultEffort) ?? Harness.claude.defaultEffort))
+                               efforts: base?.efforts ?? Harness.claude.fallbackEfforts, defaultEffort: base.map(\.defaultEffort) ?? Harness.claude.defaultEffort))
             }
         }
         return out
@@ -113,12 +111,12 @@ public enum ModelFiles {
                 guard (entry["visibility"] as? String) != "hide" else { return nil }
                 let efforts = (entry["supported_reasoning_levels"] as? [[String: Any]])?.compactMap { $0["effort"] as? String } ?? []
                 return AgentModel(id: slug, label: (entry["display_name"] as? String) ?? slug, detail: entry["description"] as? String,
-                                  efforts: efforts.isEmpty ? codexEfforts : efforts,
+                                  efforts: efforts.isEmpty ? Harness.codex.fallbackEfforts : efforts,
                                   defaultEffort: entry["default_reasoning_level"] as? String)
             }
             if !models.isEmpty { return models }
         }
-        return [AgentModel(id: "gpt-5.6", label: "gpt-5.6", detail: nil, efforts: codexEfforts, defaultEffort: Harness.codex.defaultEffort)]
+        return [AgentModel(id: "gpt-5.6", label: "gpt-5.6", detail: nil, efforts: Harness.codex.fallbackEfforts, defaultEffort: Harness.codex.defaultEffort)]
     }
 
     /// Codex's models as `home` keeps them, read now.

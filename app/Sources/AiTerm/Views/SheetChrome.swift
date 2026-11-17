@@ -232,20 +232,20 @@ struct SheetPrimaryButton: View {
     }
 }
 
-/// The foot of every sheet: Cancel — or Back, whatever `secondary` says — and the primary action
-/// at the trailing edge, with optional `status` text before them. A nil `secondary` or `primary` is
-/// an action the sheet does not offer at that moment, absent rather than disabled: the Backpack
-/// sheet has only Cancel while it connects, and only Done once it is safe.
+/// The foot of every one-step sheet (a stepped sheet's is `SteppedSheetFooter`): Cancel, or whatever
+/// `secondary` says, and the primary action at the trailing edge, with optional `status` text before
+/// them. A nil `secondary` or `primary` is an action the sheet does not offer at that moment, absent
+/// rather than disabled: the Backpack sheet has only Cancel while it connects, and only Done once it is safe.
 ///
-/// ⎋ is a hidden button of its own, not Cancel's key: an open list closes first — a button's key
-/// equivalent would beat the field's own ⎋, and in every other app that list is a window of its own,
+/// ⎋ is a hidden button of its own (`sheetEscapeKey`), not Cancel's key: an open list closes first — a
+/// button's key equivalent would beat the field's own ⎋, and in every other app that list is a window of its own,
 /// so closing the whole sheet is not what the key means there — and *clicking* Cancel still cancels.
 /// `closeList` closes one and says whether there was one to close — a picker's results, or the
 /// prompt editor's completion popup, whose own ⎋ the hidden button hears first; a sheet with no
-/// lists needs nothing, and ⎋ is Cancel. `cancel` guards itself when it must, as Back does while a create runs.
+/// lists needs nothing, and ⎋ is Cancel. `cancel` guards itself when it must.
 /// With no `secondary` there is nothing for ⎋ to do, and it does nothing.
 ///
-/// Every button in it is the house push button: Cancel or Back, and whatever `status` carries (a failure's
+/// Every button in it is the house push button: Cancel, and whatever `status` carries (a failure's
 /// recovery or leading actions), secondary; the primary, primary.
 ///
 /// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
@@ -281,58 +281,16 @@ struct SheetFooter<Status: View>: View {
             }
         }
         .buttonStyle(.push(.secondary))
-        .overlay {
-            if secondary != nil { Button("Close") { if !closeList() { cancel() } }.keyboardShortcut(.cancelAction).hidden() }
-        }
+        .sheetEscapeKey(active: secondary != nil, closeList: closeList, cancel: cancel)
     }
 }
 
-/// The footer every creation sheet shares (New Task, New Review, New Signal): the last failure,
-/// why no agent can run, and a `SheetFooter` — Back, or Cancel on the first step, and Continue or
-/// the create button on the last (`CreationSteps`). A failure
-/// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
-/// slot: a secondary push button with no key, since it moves a branch — ⌘↩ stays the create.
-///
-/// A failure is a `Notice` with no actions — the footer's buttons are its actions — and shows its
-/// reason, never the head of git's output: that is the command line and git's narration, and three
-/// lines of it used to be all there was room for. The reason is git's failure lines as one sentence
-/// (`GitError.sentence`), or any other error's own, as the banner has it — short by construction, so
-/// it is never cut, and the Notice's title alone; git's whole output is the tooltip.
-struct CreationFooter: View {
-    let step: Int
-    /// How many steps there are and which picks the agent: New Task's and New Review's unless told.
-    var steps = TaskCreation.steps
-    let error: CreationFailure?
-    let availableAgents: Set<AgentKind>
-    let createLabel: String
-    let creating: Bool
-    let canAdvance: Bool
-    let closeList: () -> Bool
-    let back: () -> Void
-    let advance: () -> Void
-    /// The failure's fix, then the create it stopped.
-    let recover: () -> Void
-    /// What the create waits for, one line each, under a title: New Signal's `SignalReadiness`.
-    /// A Notice with no actions, as a failure is; none while nothing waits.
-    var waiting: (title: String, lines: [String])? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.gap) {
-            if let error { Notice(title: error.reason, help: error.detail) }
-            if steps.saysNoAgentCanRun(onStep: step), availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
-                Notice(title: note)
-            }
-            if let waiting, !waiting.lines.isEmpty {
-                Notice(title: waiting.title, description: waiting.lines.joined(separator: "\n"))
-            }
-            SheetFooter(secondary: steps.secondaryTitle(onStep: step),
-                        primary: steps.primaryTitle(onStep: step, createLabel: createLabel),
-                        canCancel: !creating, canSubmit: canAdvance,
-                        closeList: closeList, cancel: back, submit: advance) {
-                if let recovery = error?.recovery {
-                    Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
-                }
-            }
+extension View {
+    /// ⎋ for a sheet's footer, as a hidden button of its own rather than Cancel's key: `closeList` first,
+    /// and `cancel` only when it found no list open. Inactive, ⎋ does nothing here.
+    func sheetEscapeKey(active: Bool = true, closeList: @escaping () -> Bool, cancel: @escaping () -> Void) -> some View {
+        overlay {
+            if active { Button("Close") { if !closeList() { cancel() } }.keyboardShortcut(.cancelAction).hidden() }
         }
     }
 }

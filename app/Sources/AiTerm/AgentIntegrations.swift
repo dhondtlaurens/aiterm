@@ -32,7 +32,8 @@ final class AgentIntegrations {
     let claudeConfig: ClaudeConfig
     private(set) var claudeConfigPath: String?
 
-    /// Settings › Operator's profile as these defaults keep it, read off the main actor when asked.
+    /// Settings › Operator's profile as these defaults keep it, read by the Operator for its next
+    /// session, off the main actor.
     var operatorProfile: @Sendable () -> OperatorProfile {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let defaults = defaults
@@ -52,8 +53,8 @@ final class AgentIntegrations {
     }
 
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
-    /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
-    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none.
+    /// model last picked for that agent (`remembered`, the workspace's), else empty, the agent's own
+    /// default (`Harness.readOnlyHeadless`). What the Operator's tasks launch with when it names none.
     /// Read when each task starts, off the main actor.
     nonisolated static func taskModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {

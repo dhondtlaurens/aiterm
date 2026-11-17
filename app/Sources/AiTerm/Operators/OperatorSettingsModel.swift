@@ -90,7 +90,7 @@ final class OperatorSettingsModel {
     /// saved keeps following Claude's default in Settings › Agents. An empty model is never written:
     /// the one loaded stands in for it.
     func save() {
-        guard isLoaded, let original else { return }
+        guard let original else { return }
         var saving = profile
         if saving.model.isEmpty { saving.model = original.model; saving.reasoning = original.reasoning }
         if saving.oracle.model.isEmpty {
@@ -145,14 +145,6 @@ final class OperatorSettingsModel {
     }
 
     // -- what the Selects offer -----------------------------------------------------
-
-    /// The catalogue, led by the saved model when it no longer lists it (or there is none), named by
-    /// its id, so a Select never shows a model that is not the one saved.
-    static func options(_ models: [AgentModel], keeping id: String, reasoning: String?) -> [AgentModel] {
-        guard !id.isEmpty, !models.contains(where: { $0.id == id }) else { return models }
-        let kept = AgentModel(id: id, label: id, detail: nil, efforts: reasoning.map { [$0] } ?? [], defaultEffort: reasoning)
-        return [kept] + models
-    }
 
     /// A model's reasoning levels, led by the saved one when the model does not list it. Empty: the
     /// model takes no reasoning, and Reasoning is not drawn.

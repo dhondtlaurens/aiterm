@@ -124,6 +124,8 @@ import Testing
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
         let operatorRow = OperatorSession.rowID
+        // Measure row data with no selected project child for the section fold to deselect.
+        sidebar.controller.focus.browse(nil)
         sidebar.controller.workspace.mutate { $0.operatorSession = OperatorSession(createdAt: Date()); $0.operatorOpen = true }
         sidebar.settleRows()
         sidebar.counter.reset()

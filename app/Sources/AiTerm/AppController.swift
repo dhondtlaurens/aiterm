@@ -75,9 +75,6 @@ final class AppController {
     let backpack: BackpackController
     /// The Mac's CPU, memory and battery, sampled every 5 s for the footer's readings row.
     let machine: MachineMonitor
-    /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
-    /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
-    @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
@@ -310,8 +307,13 @@ final class AppController {
     // -- the rows and the Dock badge ------------------------------------------------
     /// Something the rows are made of may have changed: they are derived again if it did, and the
     /// badge recounted if a section changed.
-    private func refreshRows() {
+    func refreshRows() {
+        let selection = focus.selection
+        let wasDrawn = selection.map(rows.isDrawn) == true
         if rows.refresh() { updateDockBadge() }
+        if let selection, wasDrawn, !rows.isDrawn(selection) {
+            focus.browse(rows.visibleHeading(for: selection))
+        }
     }
 
     /// Only a changed label is written to the dock: this runs whenever a row's status may have
@@ -332,8 +334,8 @@ final class AppController {
 
     /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
     /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
-    /// and a task still unseen. With nothing waiting the selection stays. The peek is returned, when there
-    /// is one.
+    /// and a task still unseen. A selected row hidden by a fold hands selection to its visible heading.
+    /// The peek is returned, when there is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
         guard applyView(signalLayout(focus: true)) else { return nil }
@@ -348,7 +350,7 @@ final class AppController {
     private func signalLayout(focus: Bool) -> [UUID: Bool] {
         var layout = focus ? SidebarModel.focusView(rows.sections) : SidebarModel.listView(rows.sections)
         for section in rows.signalSections where !section.tasks.isEmpty {
-            layout[section.id] = focus && !section.tasks.contains { $0.status == .needsInput }
+            layout[section.id] = focus && !section.tasks.contains(where: \.needsYou)
         }
         return layout
     }
@@ -440,21 +442,22 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// Return folds a populated project or signal; an empty project's header opens its menu.
+    /// Return folds a populated heading; an empty heading opens its main creation or edit sheet.
     /// Other rows open their window through the managed focus path.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if case .signal(let id) = focus.selection, let section = rows.signalSections.first(where: { $0.id == id }) {
             if !section.tasks.isEmpty { toggleCollapsed(section.signal) }
+            else if let signal = state.signal(id: id) { presentNewSignal(editing: signal) }
             return nil
         }
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
             if projects.hasRows(project) {
                 projects.toggleCollapsed(project)
-            } else {
-                // Next turn, as an alert comes up (`Prompter`): the menu runs modally, and not
-                // inside SwiftUI's key handler.
-                RunLoop.main.perform { MainActor.assumeIsolated { self.openRowMenu(project.id) } }
+            } else if canCreateTask {
+                sheets.presentNewTask(project: project)
+            } else if canCreateTerminal {
+                sheets.presentNewTerminal(project: project)
             }
             return nil
         }
@@ -490,7 +493,7 @@ final class AppController {
     /// then raised.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
-        if windows.itermSynced, let task = state.task(id: id), task.signalTask != nil, !teardown.isLeaving(id),
+        if windows.itermSynced, let task = state.task(id: id), task.isUnderOperator, !teardown.isLeaving(id),
            let tab = task.tabToBring(sessions: live.sessions) { return bringTab(task: id, sessionId: tab.sessionId) }
         if teardown.isLeaving(id) { return focus.select(.task(id)) }
         return openAndRaise(.task(id), .task(id))

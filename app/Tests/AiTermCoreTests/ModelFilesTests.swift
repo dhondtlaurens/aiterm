@@ -13,7 +13,7 @@ import Foundation
         #expect(models.map(\.id) == ["openai-codex/gpt-5.6-sol", "anthropic/claude-sonnet"])
         #expect(models[0].label == "openai-codex / gpt-5.6-sol")
         #expect(models[0].detail == "272K context · 128K max · images")
-        #expect(models[0].efforts == PiModelCatalog.thinkingLevels)
+        #expect(models[0].efforts == AgentKind.pi.harness.efforts(for: nil))
         #expect(models[0].defaultEffort == "medium")
         #expect(models[1].efforts.isEmpty)
         #expect(models[1].defaultEffort == nil)
@@ -70,7 +70,7 @@ import Foundation
         #expect(models.map(\.id).last == "claude-fable-5-1[1m]")
         #expect(models.last?.label == "Fable")
         #expect(models.last?.detail == "Fable 5.1 · Most capable")
-        #expect(models.allSatisfy { $0.efforts == ModelFiles.claudeEfforts })
+        #expect(models.allSatisfy { $0.efforts == AgentKind.claude.harness.efforts(for: nil) })
     }
 
     /// Codex publishes its real model list — display names, reasoning levels and the default level
@@ -101,7 +101,7 @@ import Foundation
         for cache in [nil, Data("{}".utf8), Data(#"{"models":[]}"#.utf8)] {
             let models = ModelFiles.codexModels(modelsCacheJSON: cache)
             #expect(models.map(\.id) == ["gpt-5.6"])
-            #expect(models.first?.efforts == ModelFiles.codexEfforts)
+            #expect(models.first?.efforts == AgentKind.codex.harness.efforts(for: nil))
             #expect(models.first?.defaultEffort == Harness.codex.defaultEffort)
         }
     }
@@ -113,8 +113,8 @@ import Foundation
     @Test func testEffortsFollowTheModel() {
         let model = AgentModel(id: "gpt-5.6-sol", label: "Sol", detail: nil, efforts: ["low", "high"], defaultEffort: "high")
         #expect(AgentKind.codex.harness.efforts(for: model) == ["low", "high"])
-        #expect(AgentKind.codex.harness.efforts(for: nil) == ModelFiles.codexEfforts)
-        #expect(AgentKind.claude.harness.efforts(for: nil) == ModelFiles.claudeEfforts)
+        #expect(AgentKind.codex.harness.efforts(for: nil) == ["minimal", "low", "medium", "high", "xhigh"])
+        #expect(AgentKind.claude.harness.efforts(for: nil) == ["low", "medium", "high"])
     }
 
     /// Claude Code 2.1.251+ drives `/model` from a signed catalogue it caches under
@@ -188,7 +188,7 @@ import Foundation
         #expect(by("claude-fable-5-1[1m]")?.efforts == ["low", "medium", "high", "xhigh", "max"])
         #expect(by("claude-fable-5-1[1m]")?.defaultEffort == "high")
         #expect(by("claude-haiku-4-5-20251001[1m]")?.efforts == [], "Haiku takes no effort flag in either context size")
-        #expect(by("some-unknown-model")?.efforts == ModelFiles.claudeEfforts, "nothing to inherit from: the three-level fallback")
+        #expect(by("some-unknown-model")?.efforts == AgentKind.claude.harness.efforts(for: nil), "nothing to inherit from: the three-level fallback")
     }
 
     /// No catalogue on disk (a fresh install, or a CLI too old to write one) falls back to the
@@ -203,7 +203,7 @@ import Foundation
     @Test func testClaudeEffortsFollowTheModel() {
         let fable = ModelFiles.claudeModels(catalogJSON: Fixtures.claudeCatalog, settingsJSON: nil, claudeJSON: nil)[0]
         #expect(AgentKind.claude.harness.efforts(for: fable) == ["low", "medium", "high", "xhigh", "max"])
-        #expect(AgentKind.claude.harness.efforts(for: nil) == ModelFiles.claudeEfforts, "no model picked: the legacy three")
+        #expect(AgentKind.claude.harness.efforts(for: nil) == ["low", "medium", "high"], "no model picked: the legacy three")
     }
 
     /// The cache file is named per org and per surface; the sheet must find the `-cc` one (Claude

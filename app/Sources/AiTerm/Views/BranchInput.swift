@@ -4,6 +4,7 @@ import AiTermUI
 
 /// The same plain Branch input as New Task, with existing branches offered under it.
 struct BranchInput: View {
+    var placeholder = "feat/my-task"
     @Binding var text: String
     @Binding var open: Bool
     let choices: [String]
@@ -13,7 +14,7 @@ struct BranchInput: View {
     private static let visibleLimit = 6
     private var shown: [Choice] { choices.prefix(Self.visibleLimit).map { Choice(name: $0) } }
     var body: some View {
-        Input(placeholder: "feat/my-task", text: Binding(get: { text }, set: { text = $0; open = true; index = 0 }),
+        Input(placeholder: placeholder, text: Binding(get: { text }, set: { text = $0; open = true; index = 0 }),
               monospaced: true, onFocus: { open = true }, onCommand: command)
             .overlay(alignment: .topLeading) {
                 if open, !shown.isEmpty {

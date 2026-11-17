@@ -426,33 +426,33 @@ TS tests-scripts.
 
 ### Phase 8. Sidebar and sheets (sidebar after 5; sheets after 1)
 
-- [ ] 8a. **Codex.** One Core rule for "this task is under the Operator" (it has a signal record),
+- [x] 8a. **Codex.** One Core rule for "this task is under the Operator" (it has a signal record),
   read by the eight places that ask (SB F3). The defects the audit tied to a stopped task cannot
   be reached: nothing ever produced that phase, and 5a removes it.
-- [ ] 8b. **Opus.** The projection decides each row's mark and "needs you" once and hands views
+- [x] 8b. **Opus.** The projection decides each row's mark and "needs you" once and hands views
   small row values, not altered task copies; attention uses that one flag; the pure row values
   leave the view file (SB F4, F14). Redraw budgets and pixels hold.
-- [ ] 8c. **Codex.** One heading module for projects and signals and one for the two section
+- [x] 8c. **Codex.** One heading module for projects and signals and one for the two section
   headings; Return on an empty heading runs its main command and the synthesized right-click goes;
   a removed signal's heading shows no pause mark and its fold is not written into task records
   (SB F5, F15).
-- [ ] 8d. **Codex.** Each row builds its commands once, drawn as both the context menu and the
+- [x] 8d. **Codex.** Each row builds its commands once, drawn as both the context menu and the
   VoiceOver actions (SB F11). Pause and Resume have one home and one wording (SB F16, first item).
-- [ ] 8e. **Codex.** The selection follows its row (SB F8). "Which items would start" is one Core
+- [x] 8e. **Codex.** The selection follows its row (SB F8). "Which items would start" is one Core
   rule; a heading no longer reads the source (SB F9, SS F11).
-- [ ] 8f. **Opus.** One stepped-sheet frame that each sheet configures with its steps, create
+- [x] 8f. **Opus.** One stepped-sheet frame that each sheet configures with its steps, create
   action, failure and closing block; it owns the stepper, Cancel on every step, Escape, Back,
   Continue and dismissal. Each sheet keeps its height. New Task, New Review and New Signal use it; one-field sheets
   commit on Return (SS F2, F3, F14 Return only).
-- [ ] 8g. **Codex.** Sheet fixes: readiness as advice for the signal's rows; the "isn't installed"
+- [x] 8g. **Codex.** Sheet fixes: readiness as advice for the signal's rows; the "isn't installed"
   note once and only when no agent can run; one unavailable-model wording and a visible reason for
   a disabled Continue; Add Project's folder as a line with Choose…; Base branch as the filtered
   field; one cancel rule in `DebouncedSearch`, which fixes the late ticket answer after a pick
   (SS F5, F6, F10, F12, F13, F15).
-- [ ] 8h. **Codex.** Settings tidy: the Operator profile save cannot silently fail, dead staging
+- [x] 8h. **Codex.** Settings tidy: the Operator profile save cannot silently fail, dead staging
   paths go, the copy about Cancel not undoing "Help with problems" goes with the switch (SS F1,
   tidy only).
-- [ ] 8i. **Codex.** Headless agent launches are described in the one agent table beside the
+- [x] 8i. **Codex.** Headless agent launches are described in the one agent table beside the
   interactive ones; effort constants live only there; the skill and project-file catalogues move
   beside the prompt step (PL F5, F7).
 
@@ -1350,3 +1350,150 @@ left.
 - Review round 1: one Minor, about this Record: the 7c entry said approvals came from the request's one fetch,
   but they come from their own listing. The entry is corrected. No code finding, verdict "ready with fixes", so no
   second round.
+- Plain `scripts/test.sh all` green on `f700a7c4`. `main` had only the refactor's own merges; merged to `main`
+  (`ec98214f`). No check is owed to the maintainer for phase 7.
+
+### Phase 8
+- 8a: `TaskItem.isUnderOperator` (true exactly when the task has a signal record) is the one way the app asks;
+  the sidebar grouping, reveal, Take Over, the project fold, Remove Project's count, `RowFocus`, `PerRow`,
+  `allSignalTasks`, the launcher, teardown and the item router read it. Per the brief, a `done` task under its signal
+  still offers Take Over. Small differences: `adoptOnly:` was already gone from the window plan, the signal id is
+  at `record.current.signal`, and `RequestWatch`'s boolean map over the record's phase became an explicit record
+  read. No test deleted. Added the accessor test across every phase and a `SignalWorld` test that the places agree.
+  Noticed and left: Remove Project's alert says "1 worktrees are run by signals" (grammar; older than this step).
+- 8b: Core's `TaskRowMark` and the rows' `needsYou` are decided in `SidebarModel.taskRow` and the terminal
+  mapping (done or needs input) and in 5h's `presentingOperator` (needs input only). Every attention reader uses
+  `needsYou`. The projection's private `DrawnTask` key replaces the doctored task copies, and `TaskRowView` takes only
+  its row. The five pure row values moved to `SidebarRowValues.swift`. Snapshots were identical (`build/8b-before`
+  against `build/8b-after`; `marks.png` differs only in encoding), and every redraw and work budget held. Differences
+  from the brief:
+  - `TaskRow.windowOpen` was added, and `DrawnTask` carries it, for VoiceOver's "open its window" or "focus the
+    window" hint. The old copies carried `windowId`, so no derivation is added.
+  - 5h's function returns a `TaskRow`, so the mark and flag are set inside it in Core.
+  - The Operator row's `mark` and `needsYou` are computed.
+  - Two Done-when greps are not literally clean: `DeliveryCheck`'s unrelated `.needsAttention(String)` case
+    matches, and `SidebarRows.swift` keeps `SidebarRowLayout` and the debug-only `RowBodyCounter` and `SeededHover`.
+  Tests deleted: the two removing cases of `TaskRowMarkTests` (`SidebarRowRedrawTests.aRemovalRedrawsOnlyItsRow` and
+  the `sidebar-removal` snapshots cover the spinner), and the two `task: nil` expectations of `RowAccessibilityTests`
+  (behaviour deleted: a drawn row always has its task). Added: Core `TaskRowMarkTests` and `RowNeedsYouTests`,
+  `SignalSidebarTests.theOperatorRowWithAQuestionNeedsYou`,
+  `AppControllerTests.aDrivenTaskWhoseTabIsDoneIsCountedByNoReaderAndYourOwnByAll` and
+  `SidebarProjectionTests.eachDrawnDrivenFactDerivesOnceAndChangesItsRow`. Not captured: the hosted-only
+  `signals-waiting-marks.png` (it opens windows; for 9c with the other hosted poses).
+- 8c: one `HeadingRow` drawing one `HeadingValue` for projects and signals (both `.equatable()`, both tagged by
+  `SidebarView`), and one `SectionHeading` for OPERATOR and PROJECTS. Return on an empty heading presents New Task…
+  (else New Terminal…) for a project and Edit Signal… for a signal, and `RowMenuAnchor` is gone. A removed signal's
+  heading has no pause glyph, and its fold is a runtime set in the projection, so no task record is written.
+  Snapshots: hosted captures (`AITERM_SNAPSHOT_HOSTED=1`, `build/8c-before-hosted` against `-after-hosted`) differ only
+  in `signals-removed.png`, the pause glyph gone, as the brief allows. In the default capture, seven `sidebar*` images
+  differ (`sidebar`, `-brand-colours`, `-collapsed`, `-extra-large`, `-large`, `-header-selected`,
+  `-header-selected-collapsed`). The before images drew ImageRenderer's yellow "unsupported view" placeholder for the
+  AppKit anchor behind each project heading, which the app never shows; I looked at the pair. The after images show
+  the real heading. Small difference: the Done-when symbol grep also searches `app/.build`, so it is clean only with
+  `--exclude-dir=.build`. Tests deleted: `RowMenuAnchorTests` (both tests; the behaviour is deleted) and
+  `SidebarInteractionTests.returnOnAnEmptyHeaderOpensItsMenu`, replaced by
+  `returnOnAnEmptyProjectHeadingPresentsItsMainSheet`, `returnOnAnEmptySignalHeadingEditsTheSignal` and
+  `returnOnEmptyHeadingsPresentsNothingWhileLocked`. Added `SignalSidebarTests` for a removed signal's heading not
+  paused, its fold leaving task records byte for byte, and reveal leaving its project's fold alone.
+- 8d: each row (task, terminal, divider, project and signal heading, OPERATOR heading) builds one `RowCommand` list,
+  drawn as its context menu and as its VoiceOver actions (the enabled ones, without "…"). Open in Finder and Open in
+  VS Code come from one helper. Pause Operator and Resume Operator live only on the OPERATOR heading's context menu
+  (enabled while the workspace can change); its "+" holds New Signal… alone, and the Operator row has no menu. The
+  menus kept their items, groups and enabling; I compared the diff item by item. Snapshots identical apart from
+  the known `marks.png` variant. Small difference: the Done-when `TerminalRowAccessibility` grep is clean only with
+  `--exclude-dir=.build`. Tests deleted (all in `RowAccessibilityTests`, replaced by command-list tests):
+  `aTaskRowOffersRemoveAndNoReopen`, `archiveIsOfferedBesideRemoveAndNamedWithoutAnEllipsis` and
+  `aTaskRowBeingRemovedOffersNothing` → `taskCommandsKeepTheirGroupsKindsAndEnabledActions` (a row being removed
+  now offers its open commands, as the brief decides); `aLockedWorkspaceOffersNoTaskActions` →
+  `lockedTaskAndTerminalKeepOpenCommands`; `aRowsActionsAreItsMenuItemsTitles` → the task, terminal and divider
+  command tests; `aTerminalRowOffersRenameAndRemoveWithOrWithoutItsWindow` → `terminalCommandsDoNotDependOnItsWindow`;
+  `aDividerOffersOnlyWhatItsMenuHasEnabled` → `dividerCommandsAtBothEndsAndWhileLocked`.
+- 8e: the projection answers whether a selection is drawn and which visible heading holds it. The controller's one
+  re-derivation hands a selection that was drawn and no longer is to that heading, or clears it, as a browse only. A
+  selection that was not drawn before is left for `reveal`. The Core rule `SignalStarts.items` beside
+  `MatchDecision` is what the sheet's preview counts. The signal heading's command reads "Switch On" or "Switch Off",
+  and no view reads a source. Removed-signal fold changes now go through the controller's re-derivation, so the
+  hand-over sees them. Snapshots byte-identical. Small difference: the `(starts` Done-when grep matches an
+  unrelated `(startsInSpan` in `CodexHookConfig.swift`. `SidebarRowRedrawTests`' question-only redraw test now
+  clears the selection first, because opening OPERATOR would now deselect a selected project task (an intended
+  selection change, not row data); its budget is unchanged. Tests deleted: none.
+  `signalCommandsKeepSwitchCountAndOmitRemovedSignals` became `signalCommandsSwitchAndOmitRemovedSignals` (the count
+  is deleted), and Focus View's old expectation that a hidden task stays selected now expects its heading. Added
+  Core start-rule tests and app tests for each hand-over the brief lists. Noticed and left: Focus View and List View
+  apply saved folds only, not a removed signal's runtime fold (as the 8c brief decided).
+- 8f: one `SteppedSheet` frame, configured with `Step`s, owns the stepper, the footer, the keys and dismissal for New
+  Task, New Review and New Signal. Each sheet keeps its height (500 and 560 pt). Cancel is on every step at the leading
+  end, Back appears from step 2, Escape closes the step's open list and then cancels, and ⌘↩, ⌘1…n and Back are
+  refused while a create runs. Rename, Add Divider and New Terminal commit on plain Return. `CreationSheet`,
+  `SteppedSheetFrame`, `CreationFooter` and `CreationSteps` went; `SignalModel.error` is the sentence it shows.
+  Decisions (within the agreed visible change "Stepped sheets show Cancel on every step"):
+  - With the longest fix label ("Create Empty Commit and Retry"), Cancel, the fix button, Back and Create no longer
+    fit one row: SwiftUI squeezed the primary button and shifted the whole footer. The fix button now sits under
+    the failure notice it answers, leading, and the button row is always Cancel … Back, primary. No control or word
+    changed. The four images with a fix button (`task-unborn-base`, `task-initialization-identity`, `review-rebase`,
+    `review-switch-folder`) grow by that line, with the notice pixel-identical.
+  - Settings › Interface said ⎋ is "Back a step, or close", which is now false; it reads "Close the list, or cancel"
+    (`settings-interface-full.png` changes in that row only).
+  Snapshots against `build/8f-before`: only the footer rows of the stepped sheets and their footer images changed,
+  as the brief lists, plus the two decisions above. Small differences:
+  - `creating` is read when a key acts (an autoclosure): SwiftUI kept stale actions on the hidden ⎋ button and the
+    stepper's ⌘1, so a captured flag let Escape dismiss mid-create.
+  - Leaving a step closes all of its open lists.
+  - A redraw test reaches the frame through a small `Mirror` helper.
+  Tests deleted: `CreationSheetStepsTests.taskAndReviewShareThreeStepsWithTheAgentLast` (survivors: the new
+  footer-titles test in `SteppedSheetTests` and `NewReviewSheetTests.theDestinationAsksForTheSlugOnlyWhereItIsDrawn`)
+  and `NewReviewSheetKeyboardTests.escapeOnAPreviewedLaterStepStepsBack` (behaviour deleted).
+  `onlyCompletedStepsCanBeClickedOrReachedByTheirNumber` moved to `SteppedSheetTests`, and three Escape tests were
+  rewritten to cancel. Added `SteppedSheetTests` and three `SheetDismissalTests`. Noticed and left (docs comments for
+  9a): `SheetStepper`'s "no step is a button" and `SheetPrimaryButton`'s "New Review's Apply";
+  `docs/design/design-system.html` still names the old types (design-system sync).
+- 8g, the sheet fixes as the brief lists them:
+  - New Signal's readiness checks only the signal's own agents and is advice: "Checking agents…" or "Fix this before
+    its tasks start" above the buttons, never disabling Create.
+  - The "isn't installed" note shows once, in amber, only when no agent can run.
+  - One wording, "Unavailable: <model>", for a saved model no longer offered, with one help line (New Task, New
+    Review, Settings › Agents and Operator).
+  - `Step.whyNot` says why New Signal's Agents step cannot continue.
+  - Add Project shows the chosen folder as a line with Choose…, with no typed path or second inspection.
+  - New Task's Base branch is the filtered `BranchInput` New Review uses, and an empty base disables Continue.
+  - `DebouncedSearch` has one cancel rule, so a late opening ticket search after a pick is dropped.
+  Snapshots against `build/8g-before`: the six `step1-*` images (Base branch field) and `add-project.png` (folder
+  line), as listed. `step3-agent.png` also differs by 10 pixels with a channel delta of 1 on glyph edges, the same
+  render noise the phase 6 comparison showed on that image. Tests deleted:
+  `ProjectSheetModelTests.anOldFolderInspectionCannotReplaceTheNewerOne` (typed folders deleted) and
+  `DebouncedSearchTests.theTicketFieldShowsWhatItsOwnRuleShowed` (the second rule deleted;
+  `thePickersSearchShowsWhatItsOwnRuleShowed` and the new held ticket-search test in `ReviewTicketFieldTests`
+  cover the one rule). Rewritten: `aLockedWorkspaceOrFailedInspectionCannotSaveAPreviousFolder` →
+  `aFailedChoiceKeepsThePreviousFolderAndStaysSaveableALockedWorkspaceCannotSave`, `aModelOffTheCatalogueIsStillOffered`
+  → `aSavedModelOffTheCatalogueShowsAsUnavailableAndSaveKeepsIt`, `onlyTheAgentsTheOperatorMayPlanOnAreWaitedFor` →
+  `onlyTheSignalsOwnAgentsAreChecked`. Added the brief's model, sheet, Agents-reason and base-field tests. Noticed
+  and left: `SignalContext.read` picks the first catalogue model when a resolved preference is empty.
+- 8h: the profile save was already non-throwing after 2h. `OperatorSettingsModel.save()` now guards on `original`
+  alone, and `HarnessSettingsModel.save()` lost its redundant `loaded.contains`. The Agents tab's closing help, the
+  Settings comments, and `docs/configuration.md` and `docs/keyboard.md` say what Save stages and what applies at
+  once. Differences from the brief:
+  - The `try?` Done-when grep still matches one line, `catalogue.models(for:)` (a catalogue read, not the profile
+    save).
+  - `settings-agents.png` is byte-identical because the changed help line falls below its captured viewport; the
+    only other differing image is the known `marks.png` variant.
+  No test deleted or added. Noticed and left for 9a: `docs/keyboard.md` still says "There are no ended broadcasts
+  to open." (Archive section).
+- 8i: the agent table describes the Oracle's read-only headless run as well. Each entry holds its model words, its
+  read-only launch (Codex), its headless arguments, where its answer is read from, and its effort lists.
+  `HeadlessRun.swift` went, and `OracleLaunch` asks the table. `HeadlessInvocation` moved to `Harnesses/` without its
+  `environment` and `sessionID`, which were always empty and nil. `SkillCatalog` and `ProjectFiles` moved to
+  `AiTermCore/Prompt/`. Every command line is byte for byte (`CompatContractTests`), and `compat/` is unchanged.
+  Small differences: `RegularFileTests` read the deleted answer-limit constant and now uses the same number, and a
+  stale comment in `OracleLaunchTests` was updated. No test deleted or added.
+- Phase 8 gate: plain `scripts/test.sh all` green on `55970cda`. Snapshots in `build/refactor-phase8` against
+  `build/refactor-phase7`: 64 images differ, each one recorded above:
+  - the stepped sheets' footer row (8f: Cancel at the leading end on every step);
+  - the four images with a fix button, now under its notice (8f);
+  - `settings-interface-full.png`, the ⎋ line (8f);
+  - the `step1-*` Base branch field and `add-project.png` (8g);
+  - the seven `sidebar*` images that lost ImageRenderer's placeholder for the deleted menu anchor (8c);
+  - the known `marks.png` variant.
+  `step3-agent.png` also carries delta-1 noise above its footer. No bundle check is due after phase 8.
+- Review round 1: one Minor, confirmed: `presentingOperator` still checked `signalTask != nil` instead of 8a's
+  accessor. Fixed by Codex (one line), gate green. No code finding of Critical or Important severity, verdict "ready
+  with fixes", so no second round.

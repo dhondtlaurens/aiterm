@@ -38,7 +38,7 @@ switching to Signals, as described in
 
 `AppState` stores projects, tasks, terminals, the archive, signals, seen items and one Operator
 session. Unknown keys still round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
-and `SidebarProjection` scope observation to drawn facts. Signal headings compare `SignalHeadingValue`;
+and `SidebarProjection` scope observation to drawn facts. Project and signal headings compare `HeadingValue`;
 menus resolve saved tasks at action time. Journals, reply markers and launch history do not redraw
 rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No leaf `body`
 performs I/O or reads the whole workspace.
@@ -47,7 +47,8 @@ performs I/O or reads the whole workspace.
 and its waits as `AppTimings`, and `choose(_:)` owns what choosing a row
 does. Owners publish changes through `HookList`, whose hooks return removal tokens; a hook with one
 slot says so in its name. `SheetCoordinator` owns the single sheet slot and cancels stale
-preparation. Creation models share `CreationModel`, `CreationSheet` and model/reasoning controls;
+preparation. Creation models share `CreationModel` and model/reasoning controls, and the stepped sheets one
+`SteppedSheet` frame, where Escape cancels;
 provider lookup and missing-model policy remain with the caller. `LatestTask` replaces a prior
 request, polling passes run from the Operator's tick, one per host and none while that host's last
 pass still reads, and `DebouncedSearch` keeps the latest search after a pause for the pickers and the

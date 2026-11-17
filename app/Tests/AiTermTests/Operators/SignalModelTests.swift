@@ -53,6 +53,7 @@ import Testing
         let model = SignalModel(projects: [], context: context, preview: { _ in previewed += 1; return SignalRead(items: [], complete: true) },
                                 save: { _ in })
         #expect(model.jira == JiraConditions() && model.prompt.isEmpty && model.jql.isEmpty)
+        #expect(!model.isEditing && model.title == "New signal")
         model.name = "Tickets"
         #expect(model.canAdvance(step: 1) && !model.canAdvance(step: 2), "No condition would match every ticket the account can see.")
         await model.loadPreview()
@@ -70,6 +71,7 @@ import Testing
         var saved: Signal?
         let model = SignalModel(signal: original, projects: world.state.projects, context: context,
                                 preview: { _ in SignalRead(items: [world.ticket()], complete: false) }, save: { saved = $0 })
+        #expect(model.isEditing && model.title == "Edit signal")
         await model.loadPreview()
         #expect(model.startCount == nil && model.previewItems.isEmpty && model.previewError != nil)
         model.name = "Updated"; model.done = .merged; model.then = .remove; model.deleteMergedBranch = true
@@ -94,4 +96,46 @@ import Testing
         #expect(!model.canAdvance(step: 4))
         #expect(await model.create() == false)
     }
+    @Test func readinessNeverDisablesCreate() async {
+        let model = SignalModel(projects: [], context: context, save: { _ in })
+        model.name = "Tickets"; model.jira.labels = ["ready"]; model.prompt = "Fix it."
+        for readiness in [SignalReadiness.checking, .ready, .notReady(["Messaging needs attention"])] {
+            model.readiness = { _ in readiness }
+            #expect(model.canAdvance(step: 5))
+            #expect(await model.create())
+        }
+    }
+
+    @Test func anUnavailableModelExplainsWhyContinueIsDisabled() {
+        var signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Fix it."),
+                            agents: [AgentChoice(agent: .claude, model: "removed", reasoning: nil)],
+                            finish: SignalFinish(doneWhen: .hasReviewer, then: .archive))
+        signal.source = .gitHub(RequestConditions(event: .reviewRequested))
+        let model = SignalModel(signal: signal, projects: [], context: context, save: { _ in })
+        #expect(!model.canAdvance(step: 4))
+        #expect(model.agentsWhyNot == ModelReasoningFields.unavailableHelp)
+    }
+
+    @Test func anEmptyAgentsListSaysAddAnAgent() {
+        let model = SignalModel(projects: [], context: context, save: { _ in })
+        model.removeAgent(model.agentRows[0].id)
+        #expect(model.agentsWhyNot == "Add an agent.")
+    }
+
+    @Test func anUninstalledRowExplainsWhyContinueIsDisabled() {
+        let missing = SignalContext(models: context.models, defaults: [.codex: AgentChoice(agent: .codex, model: "m", reasoning: nil)])
+        var world = SignalWorld(); let id = world.signal()
+        let model = SignalModel(signal: world.state.signal(id: id), projects: [], context: missing, save: { _ in })
+        #expect(model.agentsWhyNot == "Claude Code isn’t installed. Choose another agent for its row, or remove it.")
+    }
+
+    @Test func savedReasoningNoLongerOfferedLoadsAsTheModelsLevel() {
+        var world = SignalWorld(); let id = world.signal()
+        var signal = world.state.signal(id: id)!
+        signal.agents = [AgentChoice(agent: .claude, model: choice.model, reasoning: "removed")]
+        let model = SignalModel(signal: signal, projects: [], context: context, save: { _ in })
+        #expect(model.agents.first?.reasoning == "high")
+        #expect(model.agentsWhyNot == nil)
+    }
+
 }

@@ -112,6 +112,33 @@ import Testing
         #expect(controller.state.projects.map(\.collapsed) == [false, true])
     }
 
+    @Test(arguments: [false, true])
+    func foldingAProjectHandsItsSelectedRowToTheHeading(terminal: Bool) throws {
+        let (controller, dir) = try loadedController()
+        defer { controller.shutdown(); try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("Project")
+        let task = TaskItem.make(project: project.id)
+        let shell = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "shell", createdAt: Date())
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task]; $0.terminals = [shell] }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        controller.focus.browse(terminal ? .terminal(shell.id) : .task(task.id))
+        controller.projects.toggleCollapsed(project)
+        #expect(controller.focus.selection == .project(project.id))
+        #expect(daemon.requests.isEmpty)
+    }
+
+    @Test func focusViewWithNothingWaitingHandsSelectionToTheFoldedProject() throws {
+        let (controller, dir) = try loadedController()
+        defer { controller.shutdown(); try? FileManager.default.removeItem(at: dir) }
+        let project = fixtureProject("Busy")
+        let task = TaskItem.make(project: project.id)
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
+        controller.focus.browse(.task(task.id))
+        #expect(controller.showFocusView() == nil)
+        #expect(controller.state.project(id: project.id)?.collapsed == true)
+        #expect(controller.focus.selection == .project(project.id))
+    }
+
     /// Focus View (⌘F) reads the rows' live statuses, as the sidebar draws them: the project whose agent is done
     /// opens, the one only working folds, and the result is saved.
     @Test func focusViewOpensOnlyWaitingProjectsAndPersists() throws {
@@ -155,8 +182,8 @@ import Testing
     }
 
     /// Focus View also goes to the first row waiting on you, in the order the sidebar draws them:
-    /// projects top to bottom, and within one its terminals above its tasks. With nothing waiting it
-    /// leaves the selection where it was.
+    /// projects top to bottom, and within one its terminals above its tasks. With nothing waiting,
+    /// a selected child hands selection to its folded project's heading.
     @Test func focusViewSelectsTheFirstRowNeedingAttention() throws {
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -191,7 +218,7 @@ import Testing
 
         controller.live.sessions = [session("a", window: "w1", task: working, state: .working)]
         controller.showFocusView()
-        #expect(controller.focus.selection == .task(done.id))
+        #expect(controller.focus.selection == .project(waiting.id))
     }
 
     /// Greyed out while a sheet is up — its search fields are where ⌘F would otherwise land — and
@@ -1169,6 +1196,37 @@ import Testing
         #expect(written.last == "2")
         controller.showFocusView()
         #expect(controller.focus.selectedTerminalId == shell.id, "Focus View goes to the first of the rows the badge counts")
+    }
+
+    /// A driven task whose worker ended its turn is the Operator's to read: the Dock badge, Focus View and the folded
+    /// heading's count all pass over it, while a task of your own in the same state is counted by each.
+    @Test func aDrivenTaskWhoseTabIsDoneIsCountedByNoReaderAndYourOwnByAll() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var written: [String?] = []
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       setBadge: { written.append($0) })
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(), driven = world.workingTask(signal: signal)
+        var project = world.project; project.collapsed = true
+        world.state.items = [.project(project)]
+        let own = TaskItem.make(project: project.id, title: "Own", branch: "feat/own", worktreePath: "/synthetic/shop/own", model: "opus",
+                                createdAt: Date(), windowId: "own-window")
+        world.state.tasks.append(own)
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.sessions = [SessionInfo.make("worker", window: "worker-window", task: driven, state: .done),
+                                    SessionInfo.make("own", window: "own-window", task: own.id, state: .done)]
+        #expect(written.last == "1", "the Dock badge")
+        #expect(controller.rows.projectsNeedingAttention == [.task(own.id)])
+
+        #expect(controller.rows.operatorHeading == SectionFold(folds: true, folded: true, attention: 0), "the folded Operator")
+        controller.toggleOperatorOpen()
+        #expect(controller.rows.projectsHeading == SectionFold(folds: true, folded: true, attention: 1), "the folded projects")
+
+        controller.showFocusView()
+        #expect(controller.state.signal(id: signal)?.collapsed == true, "Focus View folds the signal")
+        #expect(controller.state.project(id: project.id)?.collapsed == false, "and opens the project")
     }
 }
 

@@ -262,11 +262,13 @@ enum SheetSnapshots {
         footer(CreationFailure(error))
     }
 
-    /// Step 3's footer showing `failure`, as wide as a sheet.
+    /// The last of three steps' footer showing `failure`, as wide as a sheet.
     private static func footer(_ failure: CreationFailure, createLabel: String = "Create Review") -> some View {
-        CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: createLabel, creating: false,
-                       canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {})
-            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
+        SteppedSheetFooter(step: 3, count: 3, createLabel: createLabel, creating: false, canAdvance: true,
+                           closeList: { false }, cancel: {}, back: {}, advance: {}) {
+            CreationNotices(error: failure, creating: false, recoverAndCreate: { false })
+        }
+        .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
     }
 
     /// The other `NameSheet` flows, built as `SidebarSheet` builds them: Add divider, and the

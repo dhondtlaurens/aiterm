@@ -5,9 +5,8 @@ public enum GateVerdict: Equatable, Sendable {
     case allow, redirect(String), escalate(String), unparsed
 }
 
-/// The Oracle's headless run is read-only like every headless run: `claude -p` with the read tools alone,
-/// `codex exec` in a read-only sandbox or `pi -p` with the read tools alone, in the Operator's folder
-/// with the projects readable. Reads the Oracle's answer.
+/// Launches the Oracle read-only through the agent table, in the Operator's folder with the
+/// projects readable, and reads its answer.
 public enum OracleLaunch {
     static let gateInstructions = """
     You are the Oracle for the Operator in AiTerm, which answers workers and steers coding agents for a person’s signals. \
@@ -94,52 +93,16 @@ public enum OracleLaunch {
         return (line[start..<wordEnd].uppercased(), reason)
     }
 
-    /// The Oracle's read tools and explicit write denials.
-    static let readTools = ["Read", "Grep", "Glob"]
-    static let writeTools = ["Bash", "Edit", "Write", "NotebookEdit"]
-    /// PI's: it has no sandbox, so this list is what keeps it to reading. Its extensions and MCP servers are off besides,
-    /// so nothing adds a tool, and so are its skills, prompt templates and the project settings a trusted folder would load.
-    /// Its context files (AGENTS.md, CLAUDE.md) still load, as Claude's and Codex's do.
-    static let piReadTools = ["read", "grep", "find", "ls"]
-    static let piQuiet = ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-approve", "--offline"]
-
     public static func invocation(_ opinion: OracleSetting, prompt: String, folder: String, projects: [String],
                                   answerFile: String) -> HeadlessInvocation {
-        let effort = opinion.reasoning.nonEmpty
-        switch opinion.agent {
-        case .claude:
-            // The read tools are its whole tool set (`--tools`), and the writing tools are denied besides.
-            return HeadlessInvocation(executable: "claude",
-                arguments: HeadlessRun.claude(prompt: prompt, allowedTools: readTools, deniedTools: writeTools, tools: readTools,
-                                              directories: projects, model: opinion.model, reasoning: effort),
-                environment: [:], sessionID: nil, answerFile: nil)
-        case .codex:
-            return HeadlessInvocation(executable: "codex",
-                arguments: HeadlessRun.codex(prompt: prompt, directory: folder, answerFile: answerFile, model: opinion.model, reasoning: effort),
-                environment: [:], sessionID: nil, answerFile: answerFile)
-        case .pi:
-            // PI reads any path, so the projects need no naming. `--` keeps a prompt that starts with a dash the prompt.
-            return HeadlessInvocation(executable: "pi", arguments: ["-p"] + piQuiet + ["--tools", piReadTools.joined(separator: ",")]
-                + HeadlessRun.modelArguments(.pi, model: opinion.model, reasoning: effort) + ["--", prompt],
-                environment: [:], sessionID: nil, answerFile: nil)
-        }
+        opinion.agent.harness.readOnlyHeadless(prompt: prompt, folder: folder, readable: projects, answerFile: answerFile,
+                                              model: opinion.model, reasoning: opinion.reasoning.nonEmpty)
     }
 
     /// The critique, or nil when the run gave none: it failed, ran out of time, or said nothing.
     public static func critique(_ agent: AgentKind, output: ProcessOutput, answerFile: String?) -> String? {
         guard !output.timedOut, output.status == 0 else { return nil }
-        struct ClaudeResult: Decodable { var result: String? }
-        let text: String?
-        switch agent {
-        case .claude:
-            text = (try? JSONDecoder().decode(ClaudeResult.self, from: Data(output.stdout.utf8)))?.result
-        case .codex:
-            guard let answerFile, case .bytes(let data) = RegularFile.read(answerFile, limit: HeadlessRun.answerLimit) else { return nil }
-            text = String(decoding: data, as: UTF8.self)
-        case .pi:
-            text = output.stdout
-        }
-        return text.said
+        return agent.harness.headlessAnswer(output.stdout, answerFile).said
     }
 }
 

@@ -8,16 +8,19 @@ struct SignalSection: Equatable, Identifiable {
     var failure: String?
     var removed = false
     var id: UUID { signal.id }
-    var collapsed: Bool { signal.collapsed || tasks.isEmpty }
+    var removedFolded = false
+    var collapsed: Bool { (removed ? removedFolded : signal.collapsed) || tasks.isEmpty }
 }
 
 /// Reuses the project's exact task rows. Moving ownership changes only which heading holds them.
-/// `acts` are the acts the Operator runs on tasks now (`OperatorActivityTracker.actsByTask`).
+/// `acts` are the acts the Operator runs on tasks now (`OperatorActivityTracker.actsByTask`); `skipped` each
+/// signal's skipped-item sentences (`skipped(in:)`).
 struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
-    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:]) {
-        let held = state.tasks.filter { $0.signalTask != nil }
+    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:], skipped: [UUID: [String]] = [:],
+         foldedRemovedSignals: Set<UUID> = []) {
+        let held = state.tasks.filter { $0.isUnderOperator }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
             if case .project(let section) = entry { return section.tasks }; return []
@@ -25,15 +28,17 @@ struct SignalSidebar {
         var definitions = state.signals
         for task in held {
             if let record = task.signalTask, !definitions.contains(where: { $0.id == record.current.signal }) {
-                var removed = record.current.configuration; removed.enabled = false; definitions.append(removed)
+                definitions.append(record.current.configuration)
             }
         }
         signals = definitions.map { signal in
-            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.current.signal == signal.id }.compactMap { task in rows[task.id].map { Self.present($0, task: task, state: state, act: acts[task.id]) } })
-            section.skipped = state.signalSeen.filter { $0.signal == signal.id && $0.disposition == .skipped && $0.isMatching }
-                .map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted()
+            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.current.signal == signal.id }.compactMap { task in
+                rows[task.id].map { $0.presentingOperator(task: task, state: state, act: acts[task.id]) }
+            })
+            section.skipped = skipped[signal.id] ?? []
             section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
             section.removed = state.signal(id: signal.id) == nil
+            section.removedFolded = foldedRemovedSignals.contains(signal.id)
             return section
         }
         projects = entries.map { entry in
@@ -42,8 +47,10 @@ struct SignalSidebar {
             return .project(section)
         }
     }
-    private static func present(_ original: TaskRow, task: TaskItem, state: AppState, act: String?) -> TaskRow {
-        original.presentingOperator(task: task, state: state, act: act)
+    /// Each signal's skipped items as its heading's tooltip lists them, sorted: "PAY-1: No project".
+    static func skipped(in state: AppState) -> [UUID: [String]] {
+        Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
+            .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
     }
 }
 
@@ -56,6 +63,10 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
     var shown = true
     var event: UUID?
     var completedActivity: OperatorLine?
+    /// Its trailing mark, by the task row's rule: the pause sign during your pause.
+    var mark: TaskRowMark { TaskRowMark(status: status, line: line, paused: paused) }
+    /// It waits on you only while it needs input: a question for you, or its chat asking.
+    var needsYou: Bool { status == .needsInput }
     static let empty = Self(line: OperatorLine("watching 0 tasks in 0 signals"), status: .idle, paused: false, shown: false)
     /// `latestAct` is the most recent act the Operator runs on a task (`OperatorActivityTracker.latestAct`).
     static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil, activity: OperatorActivity? = nil,

@@ -119,7 +119,7 @@ import Testing
 
     /// What the list draws from: a write that changes none of it redraws no row.
     private func readsTheList(_ rows: SidebarProjection) -> () -> Void {
-        { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
+        { _ = rows.entries; _ = rows.signalSections; _ = rows.terminals }
     }
 
     /// A done check that read only new reviewers or a new thread count changes the waiting task's line, and nothing else.
@@ -137,6 +137,51 @@ import Testing
         #expect(line() == "waiting on approval · Ann")
         controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ben Aerts"]) } }
         #expect(line() == "waiting on approval · Ben")
+    }
+    /// Each fact a driven row draws, changed alone, derives the rows once and changes that row: its blocked reason,
+    /// what it waits on, a question for it, and its window closing with its worker's conversation saved.
+    @Test func eachDrawnDrivenFactDerivesOnceAndChangesItsRow() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let signal = Signal(name: "Requests", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .approved, then: .keep))
+        var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
+        record.phase = .blocked; record.blockedReason = "Pick a project."
+        controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record; $0.operatorSession = OperatorSession(createdAt: Date()) }
+        controller.live.handle(.sessionChanged(tab(.idle)))
+        let rows = controller.rows
+        func row() throws -> TaskRow { try #require(rows.signalSections.first?.tasks.first) }
+        func changesOnce(_ change: () -> Void) throws -> (before: TaskRow, after: TaskRow) {
+            let before = try row(), start = rows.derivations
+            change()
+            #expect(rows.derivations == start + 1)
+            return (before, try row())
+        }
+
+        let blocked = try changesOnce { controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.blockedReason = "Pick an agent." } } }
+        #expect(blocked.before.operatorLine?.tooltip == "Pick a project." && blocked.after.operatorLine?.tooltip == "Pick an agent.")
+
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.phase = .watching(.approved) } }
+        let waiting = try changesOnce {
+            controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ann Peeters"]) } }
+        }
+        #expect(waiting.before.operatorLine?.text == "waiting on reviewer approval" && waiting.after.operatorLine?.text == "waiting on approval · Ann")
+
+        let asked = try changesOnce {
+            controller.workspace.mutate { $0.operatorSession?.questions = [.init(id: "q", task: Self.taskId, text: "Which locale?", openedAt: Date())] }
+        }
+        #expect(!asked.before.needsYou && asked.after.needsYou && asked.after.operatorLine?.tooltip == "Which locale?")
+        let reworded = try changesOnce {
+            controller.workspace.mutate { $0.operatorSession?.questions = [.init(id: "q", task: Self.taskId, text: "Which currency?", openedAt: Date())] }
+        }
+        #expect(reworded.after.operatorLine?.tooltip == "Which currency?", "another question in the same count")
+        controller.workspace.mutate { $0.operatorSession?.questions = [] }
+
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.phase = .working } }
+        let start = rows.derivations
+        controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .claude, id: "c1")] }
+        #expect(rows.derivations == start, "a conversation saved while its window is open draws nothing")
+        let closed = try changesOnce { controller.workspace.mutate { $0.tasks[0].windowId = nil } }
+        #expect(closed.before.operatorLine != .windowClosed && closed.after.operatorLine == .windowClosed)
     }
     @Test func journalAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
         let controller = try controller(); defer { controller.shutdown() }
@@ -223,7 +268,7 @@ import Testing
                                  diffByTask: controller.checkouts.diffByTask)
         }
         #expect(controller.rows.entries == expected())
-        #expect(controller.rows.tasks[Self.taskId]?.title == "a")
+        #expect(controller.rows.sections.first?.tasks.first { $0.id == Self.taskId }?.title == "a")
 
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "t", createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal]; $0.append(divider: SidebarDivider(id: UUID(), name: "")) }

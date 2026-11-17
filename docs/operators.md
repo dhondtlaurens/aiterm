@@ -40,6 +40,8 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
 5. **Done:** choose the source's done condition, whether to merge when ready where offered, and
    whether to keep, archive or remove the task. The closing box states what your choices do.
 
+While an agent the signal may use isn't ready, a note above the buttons says what to fix; you can still create or save the signal.
+
 Creating, saving an edit or switching a signal on starts every currently matching item that never
 started. An incomplete read starts nothing. An item that stops matching keeps running to its done
 condition. There is no concurrency cap. Jira checks every minute and sweeps all matching keys every
@@ -115,13 +117,13 @@ Select All.
 
 ## Pause, switch off and take over
 
-Use **Pause Operator** in the Operator heading’s **+** menu to pause all signals, and **Resume Operator**
-there to resume even when its chat row is absent. The heading reads **Operator · paused** while paused. The row’s context menu offers the same control.
+Use **Pause Operator** in the Operator heading's context menu to pause all signals, and **Resume Operator**
+there to resume, even when its chat row is absent. The heading reads **Operator · paused** while paused.
 Unfinished tasks retain the chat while
 paused. A configured signal alone does not show the chat row; its heading remains available,
 and with no signal configured only the OPERATOR heading and its + remain. Existing workers receive a note to finish
-their current turn and wait. **Resume** carries them on before stages advance. A signal's menu
-has **Switch Off** and **Switch On (starts n)**; switching it off pauses only its workers and source
+their current turn and wait. **Resume Operator** carries them on before stages advance. A signal's menu
+has **Switch Off** and **Switch On**; switching it off pauses only its workers and source
 polling. Removing a signal leaves its existing tasks running with their saved instructions under
 a heading explaining that the source was removed.
 

@@ -51,7 +51,10 @@ import AiTermCore
     /// stage leaves the phase it was read in, a block included, is left alone from then on.
     func pass() async {
         var cache: [String: Snapshot] = [:]
-        let ids = workspace.state.tasks.filter { $0.signalTask.map { Self.isRead($0.phase) } == true }.map(\.id)
+        let ids = workspace.state.tasks.filter { task in
+            guard let record = task.signalTask else { return false }
+            return Self.isRead(record.phase)
+        }.map(\.id)
         for id in ids {
             guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
                   Self.isRead(record.phase),

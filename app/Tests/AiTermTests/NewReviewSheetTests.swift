@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 import AiTermUI
 import Testing
@@ -89,16 +90,54 @@ import AiTermCore
                 == "Opens in iTerm2 · acme-web/.worktrees/shop-1711-monorepo · feat/shop-1711-monorepo")
     }
 
-    /// With no CLI installed every segment is disabled — none of them would open anything — and
-    /// the note sends the user to where the CLIs are installed.
+    /// With no CLI installed the note sends the user to where the CLIs are installed.
     @Test func anAgentIsSelectableOnlyWhenItsCLIIsInstalled() {
-        #expect(AgentStep.missingAgentNote(available: Set(AgentKind.allCases)) == nil)
-        #expect(AgentStep.missingAgentNote(available: [.claude, .codex])
-                == "PI isn’t installed. Install it in Settings › Agents.")
-        #expect(AgentStep.missingAgentNote(available: [.codex])
-                == "Claude Code and PI aren’t installed. Install them in Settings › Agents.")
-        #expect(AgentStep.missingAgentNote(available: [])
-                == "Claude Code, Codex and PI aren’t installed. Install them in Settings › Agents.")
+        #expect(AgentStep.noAgentNote == "Claude Code, Codex and PI aren’t installed. Install them in Settings › Agents.")
+        for available: Set<AgentKind> in [[], [.codex], Set(AgentKind.allCases)] {
+            let view = AgentStep(availableAgents: available, models: [], catalogueLoaded: true,
+                                 agent: .claude, model: "", reasoning: .constant(nil), selectAgent: { _ in }, setModel: { _ in })
+            let host = testHost(view, size: CGSize(width: Sheet.width, height: Sheet.height))
+            let window = testWindow(hosting: host, styleMask: [])
+            defer { window.orderOut(nil) }
+            settle(host)
+            let image = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+            host.cacheDisplay(in: host.bounds, to: image)
+            #expect((amberPixelCount(image) > 0) == available.isEmpty)
+            #expect(texts(in: host).filter { $0 == AgentStep.noAgentNote }.count == (available.isEmpty ? 1 : 0))
+        }
+    }
+
+    private func texts(in root: NSObject) -> [String] {
+        let app = NSApplication.shared
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = app.accessibilityAttributeValue(enhanced) as? Bool ?? false
+        app.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { app.accessibilitySetValue(previous, forAttribute: enhanced) }
+        func value(_ node: NSObject, _ attribute: NSAccessibility.Attribute, _ getter: String) -> Any? {
+            let selector = NSSelectorFromString(getter)
+            if node.responds(to: selector), let value = node.perform(selector)?.takeUnretainedValue() { return value }
+            return node.accessibilityAttributeValue(attribute)
+        }
+        var seen = Set<ObjectIdentifier>()
+        func walk(_ node: NSObject) -> [String] {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+            let children = value(node, .children, "accessibilityChildren") as? [NSObject] ?? []
+            let own = value(node, .role, "accessibilityRole") as? String == NSAccessibility.Role.staticText.rawValue
+                ? (value(node, .value, "accessibilityValue") as? String).map { [$0] } ?? [] : []
+            return own + children.flatMap(walk)
+        }
+        return walk(root)
+    }
+
+    private func amberPixelCount(_ image: NSBitmapImageRep) -> Int {
+        var count = 0
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.redComponent > 0.6 && color.greenComponent > 0.3 && color.greenComponent < 0.85 && color.blueComponent < 0.4 { count += 1 }
+            }
+        }
+        return count
     }
 
     @MainActor @Test func completedEmptyCatalogueDoesNotLookLikeItIsStillLoading() {
@@ -119,11 +158,11 @@ import AiTermCore
         let current = AgentModel(id: "openai/current", label: "openai / current", detail: nil,
                                  efforts: ["high"], defaultEffort: "high")
         let view = AgentStep(availableAgents: [.pi], models: [current], catalogueLoaded: true,
-                             agent: .pi, model: "", reasoning: .constant(nil),
+                             agent: .pi, model: "openai/removed", reasoning: .constant(nil),
                              selectAgent: { _ in }, setModel: { _ in })
         #expect(view.selectedModel == nil)
         #expect(view.fields.modelChoices.first?.id == "")
-        #expect(view.fields.modelChoices.first?.label == "Choose a current model…")
+        #expect(view.fields.modelChoices.first?.label == "Unavailable: openai/removed")
     }
 }
 
@@ -243,36 +282,65 @@ import AiTermCore
         #expect(h.created.drafts.isEmpty)
     }
 
-    /// With no list open, ⎋ falls through to the footer's Back — which on step 1 is Cancel, and on
-    /// any later step is one step back.
-    @Test func escapeWithNoListOpenStepsBack() throws {
-        let h = harness(step: 2, title: "Review it", branch: "main", mrOpen: false)
-        defer { h.window.orderOut(nil) }
-        #expect(self.field(Self.mrPlaceholder, in: h.host) == nil)
-        pressEscape(h)
-        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
-        #expect(self.field("Describe the review", in: h.host) != nil)
+    /// The sheet presented as the app presents it, over a window of its own: a dismiss closes it, which
+    /// a bare hosting window has no presentation for.
+    private struct Shown {
+        let model: ReviewCreationModel
+        let window: NSWindow
+        let sheetWindow: NSWindow
+        let content: NSView
+        let presented: Presented
+        var isOpen: Bool { presented.isOn }
     }
 
-    /// A list left open on step 1 is out of sight on step 2, so ⎋ there steps back at once rather
-    /// than spending the press on closing a list nobody can see.
-    @Test func escapeOnALaterStepStepsBackEvenWithAListLeftOpen() throws {
-        let h = harness(title: "Review it", branch: "main", mrOpen: true)
-        defer { h.window.orderOut(nil) }
-        pressCommandReturn(h)
-        #expect(self.field(Self.mrPlaceholder, in: h.host) == nil)
-        pressEscape(h)
-        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
-        #expect(!listIsOpen(Self.mrPlaceholder, in: h.host))
+    private func presenting(step: Int, mrOpen: Bool = false) throws -> Shown {
+        let project = Project.make(name: "acme-web", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git",
+                                   addedAt: Date())
+        let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
+                                        context: .scratch(availableAgents: { [.claude] }, git: NoPickerGit()),
+                                        searchMergeRequests: { _ in [Self.first, Self.second] },
+                                        createReview: { _ in throw Refused() }, recover: { _ in })
+        model.draft.setTitle("Review it")
+        model.draft.setBranch("main")
+        model.results = [Self.first, Self.second]
+        let presented = Presented()
+        let sheet = NewReviewSheet(model: model).seeded(step: step, mergeRequestsOpen: mrOpen)
+        let host = NSHostingView(rootView: Color.clear.sheet(isPresented: Binding(get: { presented.isOn }, set: { presented.isOn = $0 })) { sheet })
+        host.frame = NSRect(x: 0, y: 0, width: Sheet.width + 100, height: Sheet.settingsHeight + 100)
+        let window = testWindow(hosting: host, styleMask: [.titled])
+        pumpRunLoop(describing: "the sheet to be presented") { window.attachedSheet != nil }
+        let sheetWindow = try #require(window.attachedSheet)
+        let content = try #require(sheetWindow.contentView)
+        settle(content)
+        return Shown(model: model, window: window, sheetWindow: sheetWindow, content: content, presented: presented)
     }
 
-    /// The same when the sheet opens on a later step with a list still marked open.
-    @Test func escapeOnAPreviewedLaterStepStepsBack() throws {
-        let h = harness(step: 2, title: "Review it", branch: "main", mrOpen: false, branchOpen: true)
-        defer { h.window.orderOut(nil) }
-        #expect(self.field(Self.branchPlaceholder, in: h.host) == nil)
-        pressEscape(h)
-        #expect(self.field(Self.branchPlaceholder, in: h.host) != nil)
+    private func pressEscape(_ s: Shown) {
+        let escape = keyDown("\u{1b}", code: 53, in: s.sheetWindow)!
+        _ = s.sheetWindow.performKeyEquivalent(with: escape)
+        settle(s.content)
+    }
+
+    /// With no list open, ⎋ cancels the sheet on any step; Back and the completed steps go back.
+    @Test func escapeWithNoListOpenCancelsTheSheet() async throws {
+        let s = try presenting(step: 2)
+        defer { s.window.orderOut(nil) }
+        #expect(self.field(Self.mrPlaceholder, in: s.content) == nil)
+        pressEscape(s)
+        await eventually(describing: "the sheet to close") { !s.isOpen }
+        #expect(s.model.creating == false)
+    }
+
+    /// Leaving step 1 closes its lists, so ⎋ on step 2 has none to close, and cancels.
+    @Test func leavingStepOneClosesItsListsSoEscapeOnStepTwoCancels() async throws {
+        let s = try presenting(step: 1, mrOpen: true)
+        defer { s.window.orderOut(nil) }
+        let event = keyDown("\r", code: 36, modifiers: [.command], in: s.sheetWindow)!
+        _ = s.sheetWindow.performKeyEquivalent(with: event)
+        settle(s.content, for: 0.1)
+        #expect(self.field(Self.mrPlaceholder, in: s.content) == nil, "on step 2")
+        pressEscape(s)
+        await eventually(describing: "the sheet to close") { !s.isOpen }
     }
 
     /// The branch list sits on step 1 with the merge request's: ⎋ closes it before it reaches the
@@ -289,22 +357,23 @@ import AiTermCore
     }
 
     /// The prompt's completion popup is a list too: on step 2, ⎋ closes only the popup, and the
-    /// next one steps back. The footer's hidden ⎋ button hears the key before the text view does,
-    /// so the popup is the footer's to close (docs/keyboard.md).
-    @Test func escapeClosesTheCompletionPopupBeforeSteppingBack() throws {
-        let h = harness(step: 2, title: "Review it", branch: "main", mrOpen: false)
-        defer { h.window.orderOut(nil) }
-        h.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
-        settle(h.host)
-        #expect(!h.host.descendants(NSTextView.self).isEmpty, "step 2: Prompt")
-        try #require(h.model.completions.isOpen, "the popup is open before ⎋")
+    /// next one cancels the sheet. The footer's hidden ⎋ button hears the key before the text view
+    /// does, so the popup is the frame's to close (docs/keyboard.md).
+    @Test func escapeClosesTheCompletionPopupBeforeCancelling() async throws {
+        let s = try presenting(step: 2)
+        defer { s.window.orderOut(nil) }
+        s.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
+        settle(s.content)
+        #expect(!s.content.descendants(NSTextView.self).isEmpty, "step 2: Prompt")
+        try #require(s.model.completions.isOpen, "the popup is open before ⎋")
 
-        pressEscape(h)
-        #expect(!h.model.completions.isOpen, "⎋ closed the popup")
-        #expect(!h.host.descendants(NSTextView.self).isEmpty, "and only the popup: step 2 is still up")
+        pressEscape(s)
+        #expect(!s.model.completions.isOpen, "⎋ closed the popup")
+        #expect(s.isOpen, "and only the popup: the sheet is still up")
+        #expect(!s.content.descendants(NSTextView.self).isEmpty, "on step 2")
 
-        pressEscape(h)
-        #expect(self.field(Self.mrPlaceholder, in: h.host) != nil, "the next ⎋ went back to step 1")
+        pressEscape(s)
+        await eventually(describing: "the next ⎋ to close the sheet") { !s.isOpen }
     }
 
     /// The primary button answers ⌘↩ only, the keycaps it shows; a plain ↩ leaves step 1 up.
@@ -339,4 +408,9 @@ import AiTermCore
         #expect(h.model.error == CreationFailure(reason: "Refused.", detail: nil))
         #expect(!h.host.descendants(NSPopUpButton.self).isEmpty)
     }
+}
+
+/// Whether a test's sheet is presented, which the sheet's own dismiss sets back.
+@Observable private final class Presented {
+    var isOn = true
 }

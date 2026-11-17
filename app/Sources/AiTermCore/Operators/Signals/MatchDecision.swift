@@ -104,3 +104,14 @@ public struct SignalSeen: Codable, Equatable, Sendable {
         }
     }
 }
+
+/// The mapped items from a complete read that have not already started and stayed matching for this signal.
+public enum SignalStarts {
+    public static func items(in items: [SignalItem], signal: UUID?, projects: [Project], seen: [SignalSeen]) -> [SignalItem] {
+        items.filter { item in
+            !ItemProjectMapper.projects(for: item.item, in: projects).isEmpty && !seen.contains {
+                $0.signal == signal && $0.item.identity == item.item.identity && $0.disposition == .started && $0.isMatching
+            }
+        }
+    }
+}

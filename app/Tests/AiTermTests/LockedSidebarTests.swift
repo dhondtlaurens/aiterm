@@ -79,7 +79,7 @@ struct LockedSidebarTests {
         }
         let entries = SidebarModel.entries(state: controller.state, sessions: [], branchByCwd: [:], projectBranch: [:], diffByTask: [:])
         guard case .project(let section)? = entries.first else { Issue.record("expected a project section"); return }
-        let host = testHost(ProjectHeaderRow(section: section, controller: controller).frame(width: 300), size: CGSize(width: 300, height: 40))
+        let host = testHost(HeadingRow(value: HeadingValue(section), controller: controller).frame(width: 300), size: CGSize(width: 300, height: 40))
         let panel = testPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel])
         panel.contentView = host; panel.makeKeyAndOrderFront(nil)
         defer { panel.orderOut(nil) }

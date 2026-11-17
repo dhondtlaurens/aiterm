@@ -1,7 +1,7 @@
 import Foundation
 
 /// Everything AiTerm knows about one agent's harness that is not its driver's own business: the
-/// CLI and how it is installed, how a task launches it, its reasoning levels and where its model
+/// CLI and how it is installed, how tasks and headless requests launch it, its reasoning levels and where its model
 /// list comes from, where its skills live, and the driver that reports its state. One value per
 /// agent (`Harness+Agents.swift`), reached through `AgentKind.harness` — the one switch over the
 /// agents — so a vendor's change, or a fifth harness, is an edit in one place rather than a hunt
@@ -27,6 +27,15 @@ public struct Harness: Sendable {
     let bundledResource: BundledResource?
     /// The launch command's arguments after the CLI and before the prompt, unquoted.
     let launchArguments: @Sendable (_ model: String, _ reasoning: String?) -> [String]
+    /// The model and reasoning words, unquoted.
+    let modelArguments: @Sendable (_ model: String, _ reasoning: String?) -> [String]
+    /// A review tab's read-only arguments, when the CLI offers them.
+    let readOnlyLaunchArguments: (@Sendable (_ model: String, _ reasoning: String?) -> [String])?
+    /// A single read-only answer, with an empty model left to the CLI.
+    let readOnlyHeadless: @Sendable (_ prompt: String, _ folder: String, _ readable: [String], _ answerFile: String,
+                                   _ model: String, _ reasoning: String?) -> [String]
+    let readsAnswerFromFile: Bool
+    let headlessAnswer: @Sendable (_ stdout: String, _ answerFile: String?) -> String?
     /// The arguments after the CLI that resume conversation `id` — the one the agent's own hooks name
     /// (`SessionInfo.conversationId`) — as the CLI's `--help` spells them, unquoted.
     let resumeArguments: @Sendable (_ conversation: String) -> [String]
@@ -40,11 +49,7 @@ public struct Harness: Sendable {
 
     /// The CLI’s model and reasoning flag spellings, shared by interactive and headless runs.
     func modelArguments(model: String, reasoning: String?) -> [String] {
-        return switch agent {
-        case .claude: ["--model", model] + (reasoning.map { ["--effort", $0] } ?? [])
-        case .codex: ["-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
-        case .pi: ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? [])
-        }
+        modelArguments(model, reasoning)
     }
 
     func hookURL(port: Int) -> String { "http://127.0.0.1:\(port)" + hookEndpoint }
@@ -54,11 +59,17 @@ public struct Harness: Sendable {
         [executable] + launchArguments(model, reasoning)
     }
 
-    /// Codex's launch that may only read, before its prompt, unquoted, asked of Codex's harness: its read-only sandbox,
-    /// never asking, as there is no one at a review tab to approve. Claude reads only through `AgentCommand`'s denials,
-    /// and PI has no such mode.
-    func codexReadOnlyLaunchWords(model: String, reasoning: String?) -> [String] {
-        [executable, "--sandbox", "read-only", "--ask-for-approval", "never"] + modelArguments(model: model, reasoning: reasoning)
+    /// A read-only launch's words before its prompt, when the CLI offers one.
+    func readOnlyLaunchWords(model: String, reasoning: String?) -> [String]? {
+        readOnlyLaunchArguments.map { [executable] + $0(model, reasoning) }
+    }
+
+    /// One read-only headless request, carrying an answer file only when the CLI writes its answer there.
+    func readOnlyHeadless(prompt: String, folder: String, readable: [String], answerFile: String,
+                          model: String, reasoning: String?) -> HeadlessInvocation {
+        HeadlessInvocation(executable: executable,
+                           arguments: readOnlyHeadless(prompt, folder, readable, answerFile, model, reasoning),
+                           answerFile: readsAnswerFromFile ? answerFile : nil)
     }
 
     /// The resume command's words, unquoted (`AgentCommand` quotes them): the CLI, the conversation,
