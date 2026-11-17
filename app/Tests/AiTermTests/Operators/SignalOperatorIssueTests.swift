@@ -54,7 +54,7 @@ import Testing
         r.daemon.deliveries = [Delivery(result: .refused, reason: "the person is typing", code: .typing)]
         r.root.native.onTurn(r.task)
         for _ in 0..<4 { await r.pass() }
-        #expect(r.root.issues.current.isEmpty, "Typing is not a failure.")
+        #expect(r.root.log.issues.current.isEmpty, "Typing is not a failure.")
         r.daemon.deliveries = [Delivery(result: .partial, reason: "Enter held", code: nil),
                                Delivery(result: .refused, reason: "unsent input", code: .unsentInput)]
         for _ in 0..<3 { await r.pass() }
@@ -102,10 +102,10 @@ import Testing
             await r.pass()
             await r.request("run_status", ["task": .string(r.task.uuidString)])
         }
-        #expect(Set(r.root.issues.current.filter(\.needsYou).map(\.source)) == [.wake, .reply])
+        #expect(Set(r.root.log.issues.current.filter(\.needsYou).map(\.source)) == [.wake, .reply])
         r.daemon.failing = ["operator.reply": .timeout]
         await r.pass()
-        #expect(r.root.issues.current.map(\.source) == [.reply] && r.root.statusIssue?.hasPrefix("Answering the Operator:") == true)
+        #expect(r.root.log.issues.current.map(\.source) == [.reply] && r.root.statusIssue?.hasPrefix("Answering the Operator:") == true)
         let status = await r.root.tools.respond(OperatorRequest(requestId: "s", operatorId: r.session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
         let issue = try #require(status.value?["appIssues"]?.arrayValue?.first)
         #expect(issue["source"] == "reply" && issue["needsYou"] == true && issue["text"]?.stringValue?.contains("could not be sent") == true)
@@ -117,10 +117,10 @@ import Testing
         r.daemon.failing = ["operator.reply": .timeout]
         await r.request("note", note)
         await r.request("note", note)
-        #expect(r.root.issues.current.first?.attempts == 2 && r.root.statusIssue == nil, "Two failed replies are not yet the person's.")
+        #expect(r.root.log.issues.current.first?.attempts == 2 && r.root.statusIssue == nil, "Two failed replies are not yet the person's.")
         r.daemon.failing = [:]
         await r.request("note", note)
-        #expect(r.root.issues.current.isEmpty)
+        #expect(r.root.log.issues.current.isEmpty)
         let notes = try TaskJournal.read(task: r.task, folder: OperatorLaunch.folder(home: r.ports.home).appendingPathComponent("journals"))
         #expect(notes.count == 1, "The ledger replays the note instead of writing it again.")
         r.daemon.failing = ["operator.reply": .timeout]
@@ -136,7 +136,7 @@ import Testing
         r.daemon.failing["session.deliver"] = .timeout
         r.root.native.onTurn(r.task)
         await r.pass()
-        #expect(r.root.issues.current.map(\.source).contains(.activity))
+        #expect(r.root.log.issues.current.map(\.source).contains(.activity))
         try FileManager.default.removeItem(at: log)
         await r.request("run_status")
         let logged = r.activity.filter { $0.tool == "app_issue" }.map(\.line)
@@ -144,7 +144,7 @@ import Testing
         #expect(logged.contains("The Operator's activity log recovered."))
         #expect(!logged.contains("The Operator's activity log failed."))
         #expect(!logged.contains("Waking the Operator failed."), "The failed entry is dropped.")
-        #expect(!r.root.issues.current.map(\.source).contains(.activity))
+        #expect(!r.root.log.issues.current.map(\.source).contains(.activity))
         r.daemon.failing = [:]
         await r.pass()
         #expect(r.activity.contains { $0.line == "Waking the Operator recovered." })
@@ -159,7 +159,7 @@ import Testing
         await r.pass(); await r.pass()
         #expect(r.h.workspace.state.operatorSession?.window == nil)
         #expect(r.root.statusIssue == nil && !r.row.shown)
-        #expect(r.root.operatorTab() == nil, "The old snapshot still lists the closed tab.")
+        #expect(r.root.chat.operatorTab() == nil, "The old snapshot still lists the closed tab.")
         #expect(r.daemon.requests("window.createTask").isEmpty)
         for _ in 0..<3 { await r.request("run_status") }
         #expect(r.root.statusIssue == nil && !r.row.shown, "Late reply failures from the retired generation cannot recreate attention.")

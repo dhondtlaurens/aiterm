@@ -64,4 +64,49 @@ public extension AppState {
             try change(&record); task.signalTask = record
         }
     }
+
+    /// The Operator's retention, as of `at`: seen items no live stage still names, resolved worker
+    /// questions and the Oracle rounds of `answer_worker`, `choose_agent` and `open_tab` whose task is
+    /// gone or whose stage or ownership moved on, the session's own bounds, and the source failures
+    /// of signals that no longer exist.
+    mutating func pruneOperator(at: Date) {
+        let records = Dictionary(allSignalTasks.compactMap { task in task.signalTask.map { (task.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        let activeSignals = Set(signals.map(\.id))
+        let liveItems = Set(records.values.flatMap { record in
+            ([record.current.item] + record.pendingStages.map(\.item) + (record.watchedRequest.map { [ItemRef.mergeRequest($0)] } ?? [])).compactMap(\.identity)
+        })
+        signalSeen = SignalSeen.pruned(signalSeen, liveItems: liveItems, now: at)
+        operatorSession?.questions.removeAll { question in
+            guard question.resolvedAt != nil, question.workerQuestion != nil, let id = question.task else { return false }
+            guard let record = records[id] else { return true }
+            return question.stage != record.stage || question.ownership != record.ownership
+        }
+        operatorSession?.oracleRounds.removeAll { round in
+            guard [OperatorTool.answerWorker, .chooseAgent, .openTab].map(\.rawValue).contains(round.tool), let evidence = round.askedEvidence,
+                  let binding = try? JSONDecoder().decode(JSONValue.self, from: Data(evidence.utf8)),
+                  let id = binding["task"]?.stringValue.flatMap(UUID.init(uuidString:)) else { return false }
+            guard let record = records[id] else { return true }
+            return binding["stage"]?.intValue != record.stage || binding["ownership"]?.intValue != record.ownership
+        }
+        operatorSession?.prune(at: at)
+        if let failures = operatorSession?.sourceFailures {
+            let kept = failures.filter { UUID(uuidString: $0.key).map(activeSignals.contains) == true }
+            operatorSession?.sourceFailures = kept.isEmpty ? nil : kept
+        }
+    }
+    /// Resolves, as of `at`, every open Operator question that is no longer current: its stage
+    /// finished or was superseded. Whether any question changed.
+    @discardableResult
+    mutating func withdrawObsoleteQuestions(at: Date) -> Bool {
+        let obsolete = Set((operatorSession?.questions ?? []).filter {
+            $0.resolvedAt == nil && !isCurrentOperatorQuestion($0)
+        }.map(\.id))
+        guard !obsolete.isEmpty else { return false }
+        for index in operatorSession?.questions.indices ?? 0..<0 {
+            if let id = operatorSession?.questions[index].id, obsolete.contains(id) {
+                operatorSession?.questions[index].resolvedAt = at
+            }
+        }
+        return true
+    }
 }

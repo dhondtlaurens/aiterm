@@ -176,7 +176,7 @@ final class RowWindows {
             return run(row, ending: token) { [self] in await open(terminal, with: daemon) }
         case .operatorChat:
             return run(row) { [signalController, notices] in
-                do { try await signalController.openChat() }
+                do { try await signalController.chat.open() }
                 catch { notices.report(OperationIssue(title: "Couldn’t open the Operator’s chat.", error: error)) }
             }
         }

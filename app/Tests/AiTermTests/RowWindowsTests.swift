@@ -113,7 +113,7 @@ import Testing
 
         #expect(controller.issue?.title == "Couldn’t reopen the window.")
         #expect(controller.issue?.subject == task.id)
-        #expect(controller.signalController.issues.current.isEmpty, "not an Operator issue")
+        #expect(controller.signalController.log.issues.current.isEmpty, "not an Operator issue")
     }
 
     @Test func choosingADrivenTaskStillLaunchingWithoutACheckoutOnlySelectsIt() async throws {

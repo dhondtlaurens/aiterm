@@ -1,9 +1,9 @@
 import Foundation
 
 /// What is currently going wrong between AiTerm and its Operator, one issue per source. Each issue
-/// clears only when its own source next succeeds, so a success elsewhere cannot hide it. A failure
-/// AiTerm retries by itself needs the person only once it has failed three times in a row; one the
-/// person started (they can try again) needs them at once.
+/// clears only when its own source next succeeds, so a success elsewhere cannot hide it. AiTerm
+/// retries every source by itself, so an issue needs the person only once it has failed three times
+/// in a row.
 public struct OperatorIssues: Equatable, Sendable {
     public enum Source: String, Codable, CaseIterable, Sendable {
         /// Typing a wake line into the Operator's chat.
@@ -15,8 +15,6 @@ public struct OperatorIssues: Equatable, Sendable {
         /// Keeping the Operator's session open, fresh and adopted.
         case session
 
-        /// AiTerm tries again by itself, so one failure is not yet the person's to act on.
-        public var retried: Bool { [.wake, .reply, .activity, .session].contains(self) }
         public var label: String {
             switch self {
             case .wake: "Waking the Operator"
@@ -33,7 +31,7 @@ public struct OperatorIssues: Equatable, Sendable {
         public var since: Date
         /// Failures in a row.
         public var attempts: Int
-        public var needsYou: Bool { !source.retried || attempts >= OperatorIssues.attemptsBeforeAttention }
+        public var needsYou: Bool { attempts >= OperatorIssues.attemptsBeforeAttention }
         public init(source: Source, text: String, since: Date, attempts: Int) {
             self.source = source; self.text = text; self.since = since; self.attempts = attempts
         }

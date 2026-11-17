@@ -372,7 +372,7 @@ TS tests-scripts.
   Core beside the invocation; a settings change discards the answer and retries; no in-flight
   marker is left behind by a crash (RT F3, OC F6). Prompts move byte for byte except where this
   plan changes them.
-- [ ] 5d. **Opus.** The controller composes owners and runs one ordered reconcile. Wake policy,
+- [x] 5d. **Opus.** The controller composes owners and runs one ordered reconcile. Wake policy,
   the chat's window and session, the activity writer and retention each get one owner; Take Over
   already left in phase 4 (RT F1).
 - [ ] 5e. **Opus.** One tick with the existing event triggers: source polling, the host watch and
@@ -1096,3 +1096,14 @@ left.
   were kept over the brief's; a person marker now replaces the round it continues; the round-limit check
   in `QuestionRounds` went (nothing at the limit is saved). Left for 5f: the merge veto still sets
   `currentAct`.
+- 5d: the controller composes owners and runs one ordered reconcile (678 to 445 lines; the rest is
+  owner construction and wiring): `OperatorWaker` owns waking, `OperatorChat` the chat's window and
+  session (keeper, open, close), `ActivityWriter` the activity log and the issue record; retention is
+  `AppState.pruneOperator(at:)` and `withdrawObsoleteQuestions(at:)` in Core. With Take Over gone,
+  `OperatorIssues.Source.retried` and the non-retried branch went. No test deleted; added two
+  `SignalRetentionTests`. Differences: the chat's opener was `openChat()` (3b), now `OperatorChat.open()`;
+  the chat's parameter is labelled `wakeWaiting:` (the brief's grep matches `wakePending`). Left: `ItemRouter`
+  also prunes seen items. The orchestrator's first plain gate failed once in
+  `SignalWorkerIOTests.takeOverDuringARequestCheckoutKeepsItsFolderAndBaseBranchWithoutLaunchingAWorker`
+  (its wait for the checkout reaching git timed out at a load average near 10); the rerun was green.
+  That test is timing-sensitive on a loaded machine.
