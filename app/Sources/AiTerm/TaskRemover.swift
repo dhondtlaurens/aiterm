@@ -31,15 +31,9 @@ final class TaskRemover: CheckoutRemovals {
     private let rows: PerRow<TaskRemoval?>
     /// Each task's removal or closing while it runs, for whoever awaits it.
     private var running: [UUID: Task<Void, Never>] = [:]
-    /// Each removed checkout being confirmed gone again before it is acted on: one at a time per task,
-    /// so passes over a mount that has stopped answering do not pile up threads stuck on it.
-    private var confirmations: [UUID: Task<Void, Never>] = [:]
-    /// Each confirmed-gone checkout whose git record is being cleared (`TaskWorkflow.forgetDeletedCheckout`). Apart from
-    /// `confirmations`, which a later pass must find empty to act on the task again.
+    /// Each checkout the scan confirmed gone whose git record is being cleared
+    /// (`TaskWorkflow.forgetDeletedCheckout`), at most one cleanup per task.
     private var recordCleanups: [UUID: Task<Void, Never>] = [:]
-    /// Whether a task's checkout is gone for good, asked off the main actor just before the cleanup
-    /// acts on it.
-    private let confirmsRemoval: ConfirmsRemoval
 
     private let workspace: WorkspaceStore
     private let work: WorkInFlight
@@ -52,15 +46,8 @@ final class TaskRemover: CheckoutRemovals {
     private let daemon: @MainActor () -> (any DaemonCommands)?
     private let removalsHooks = HookList<Void>()
 
-    /// Whether a task's checkout — at `projectPath`'s project, if it still has one — is gone for good.
-    typealias ConfirmsRemoval = @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool
-
-    /// The disk's answer to `ConfirmsRemoval`, which a test replaces with a mount that never answers.
-    static let diskConfirmsRemoval: ConfirmsRemoval = { WorkspaceScan.checkoutRemovalIsConfirmed($0, projectPath: $1) }
-
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
-         teardown: WorktreeTeardown, checkouts: CheckoutMonitor, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
-         confirmsRemoval: @escaping ConfirmsRemoval) {
+         teardown: WorktreeTeardown, checkouts: CheckoutMonitor, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
         self.workspace = workspace
         self.work = work
         self.workflow = workflow
@@ -70,7 +57,6 @@ final class TaskRemover: CheckoutRemovals {
         self.checkouts = checkouts
         self.live = live
         self.daemon = daemon
-        self.confirmsRemoval = confirmsRemoval
         rows = PerRow(default: nil, workspace: workspace)
         work.onChange { [weak self] subject in
             if case .task(let id) = subject { self?.refresh(id) }
@@ -97,18 +83,16 @@ final class TaskRemover: CheckoutRemovals {
     var leavingTasks: Set<UUID> { Set(removals.filter(\.value.inProgress).keys) }
 
     /// Whether the checkout monitor holds the task's diff still while its checkout goes: something
-    /// runs on the task — its cleanup's confirmation among them — and it is not a row waiting on a
-    /// retry.
+    /// runs on the task and it is not a row waiting on a retry.
     func removalInFlight(_ id: UUID) -> Bool {
-        (work.operation(onTask: id) != nil || confirmations[id] != nil) && removals[id]?.awaitsRetry != true
+        work.operation(onTask: id) != nil && removals[id]?.awaitsRetry != true
     }
 
-    /// Waits for the task's removal or closing under way, if there is one — and for a removed
-    /// checkout's confirmation first, which the closing follows.
+    /// Waits for the removed checkout's git record cleanup and the task's removal or closing,
+    /// if either is under way.
     func waitForRemoval(of id: UUID) async {
-        await confirmations[id]?.value
-        await running[id]?.value
         await recordCleanups[id]?.value
+        await running[id]?.value
     }
 
     #if DEBUG
@@ -410,39 +394,30 @@ final class TaskRemover: CheckoutRemovals {
 
     // -- checkouts removed outside AiTerm ---------------------------------------------------
     /// The tasks a checkout pass found gone, as they are now: one being changed, or waiting on a
-    /// removal's retry, is its workflow's to finish, and one whose checkout or project came back
-    /// while the pass ran stays. One whose agent is still mid-turn — it removed its own worktree
-    /// and is finishing up — waits: closing the window would kill it. The turn still ends: every
+    /// removal's retry, is its workflow's to finish. One whose agent removed its own worktree and is
+    /// still finishing its turn waits: closing the window would kill it. The turn still ends: every
     /// harness AiTerm drives delivers its end of turn without a process in the removed checkout
     /// (Claude's HTTP hooks, Codex's `Stop` over MCP, PI's in-process extension; docs/status-model.md,
     /// “A turn that removes its own checkout”), and the next pass closes it.
     ///
-    /// Each removal is confirmed once more just before it is acted on — the checkout can have come
-    /// back since the pass looked — and off the main actor: a `stat` on a mount that has stopped
-    /// answering holds a thread of its own, not the sidebar. The task is then checked again as it
-    /// is now, back on the main actor, and only a task that is still gone and still waiting is
-    /// closed. Git's record of the checkout, which its lock keeps, is cleared beside the closing.
+    /// The scan confirms the checkout is gone. The main actor checks the task is unchanged and
+    /// ready for cleanup, then closes it. Git's record of the checkout, which its lock keeps,
+    /// is cleared beside the closing.
     func forgetRemovedCheckouts(_ removed: [TaskItem]) {
         // A task still closing whose checkout came back is not closing any more.
         let gone = Set(removed.map(\.id))
         for (id, outcome) in outcomes where outcome == .closing && !gone.contains(id) && work.operation(onTask: id) == nil {
             outcomes[id] = nil
         }
-        for task in removed where awaitsCleanup(task) && confirmations[task.id] == nil {
-            let confirms = confirmsRemoval, projectPath = workspace.state.project(id: task.projectId)?.path
-            confirmations[task.id] = Task {
-                defer { confirmations[task.id] = nil }
-                let confirmed = await ThreadWork.run { confirms(task, projectPath) }
-                guard confirmed, awaitsCleanup(task) else { return }
-                if let project = workspace.state.project(id: task.projectId), recordCleanups[task.id] == nil {
-                    let workflow = workflow
-                    recordCleanups[task.id] = Task {
-                        defer { recordCleanups[task.id] = nil }
-                        await workflow.forgetDeletedCheckout(of: task, in: project)
-                    }
+        for task in removed where awaitsCleanup(task) {
+            if let project = workspace.state.project(id: task.projectId), recordCleanups[task.id] == nil {
+                let workflow = workflow
+                recordCleanups[task.id] = Task {
+                    defer { recordCleanups[task.id] = nil }
+                    await workflow.forgetDeletedCheckout(of: task, in: project)
                 }
-                automaticallyForgetRemovedTask(task.id)
             }
+            automaticallyForgetRemovedTask(task.id)
         }
     }
 

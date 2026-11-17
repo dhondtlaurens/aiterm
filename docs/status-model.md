@@ -276,8 +276,8 @@ and the daemon has no rule for a vanished directory. A harness added later needs
 transport that survives one.
 
 The app waits on the same fact before closing a removed task's window: `forgetRemovedCheckouts`
-keeps its confirmed-removal check, and also waits while any of the task's sessions is still
-`working` or `needsInput`. It closes the window on the first pass after they have all settled, so
+waits while any of the task's sessions is still `working` or `needsInput`. It closes the window
+on the first pass after they have all settled, so
 an agent whose worktree just vanished finishes its final message before the window disappears.
 
 ## Why the branch is not iTerm2's to tell

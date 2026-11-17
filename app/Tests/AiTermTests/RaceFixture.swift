@@ -24,7 +24,6 @@ struct RaceFixture {
          itermRunning: @escaping @MainActor () -> Bool = { true },
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil,
          checkoutPollInterval: Duration = .seconds(2),
-         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
          provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil) async throws {
         root = try await BackgroundWork.run {
             let raw = try ScratchFolder.make("controller-").path
@@ -41,7 +40,7 @@ struct RaceFixture {
                                    bringForward: bringForward, checkoutPollInterval: checkoutPollInterval, now: now,
                                    git: controllerGit ?? GitRunner.hermetic(), scan: scan ?? {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
-                                   }, confirmsRemoval: confirmsRemoval)
+                                   })
         try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
@@ -107,8 +106,8 @@ struct TaskFixture {
     let task: TaskItem
 
     init(windowOpen: Bool, prompter: ScriptedPrompter = ScriptedPrompter(), pollInterval: Duration = .seconds(2),
-         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval, provider: Provider = .git) async throws {
-        fixture = try await RaceFixture(prompter: prompter, checkoutPollInterval: pollInterval, confirmsRemoval: confirmsRemoval, provider: provider)
+         provider: Provider = .git) async throws {
+        fixture = try await RaceFixture(prompter: prompter, checkoutPollInterval: pollInterval, provider: provider)
         task = try await fixture.addTask(windowId: windowOpen ? "alive" : nil)
     }
 

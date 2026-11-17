@@ -4,7 +4,7 @@ import AiTermCore
 /// Everything an `AppController` reaches outside the process: the state file, the person's home and Claude's folder,
 /// the app's bundle, the agent CLIs and Python found on this machine, the connections Settings saved, the modal alerts,
 /// the Dock badge, iTerm2 started and handed focus, Backpack Mode's ports and secrets, the Mac's load, git, the checkout
-/// monitor's reading of the disk and its last look at a checkout gone, and the operators' ports. Nothing
+/// monitor's reading of the disk, and the operators' ports. Nothing
 /// has a default: the app builds them with `AppController.live`, the snapshots with `live` and a few of their own, and a
 /// test with the scratch ones in its target, which touch none of them.
 ///
@@ -13,8 +13,8 @@ import AiTermCore
 /// once macOS will not ask. `machineSensor` reads the Mac's load for the footer; the battery is `backpackPorts.power`.
 /// `bringForward` brings AiTerm forward for Remove's question about a window the person closed; `launchIterm` starts
 /// iTerm2 when AiTerm starts while `itermRunning` says it is not, and when a row is chosen while it is away.
-/// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`). `operatorPorts` are what the
-/// Operator reaches: its folder, the agents' home, notifications; nil is the app's own (`OperatorPorts.live`), from
+/// `operatorPorts` are what the Operator reaches: its folder, the agents' home, notifications;
+/// nil is the app's own (`OperatorPorts.live`), from
 /// `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
 struct AppPorts {
     var store: StateStore
@@ -38,7 +38,6 @@ struct AppPorts {
     var machineSensor: any MachineSensor
     var git: any GitRunning
     var scan: CheckoutMonitor.Scanner
-    var confirmsRemoval: TaskRemover.ConfirmsRemoval
     var operatorPorts: OperatorPorts?
 }
 

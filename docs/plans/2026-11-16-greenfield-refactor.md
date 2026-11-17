@@ -291,7 +291,7 @@ TS tests-scripts.
 - [x] 2b. **Codex.** The default branch is asked from git when it is needed (when a project's
   heading appears, after a pull, when a sheet opens); `DefaultBranchResolver`, its map and its
   poll go (CG F5).
-- [ ] 2c. **Codex.** The checkout cleanup trusts the scan's confirmation; the second disk check,
+- [x] 2c. **Codex.** The checkout cleanup trusts the scan's confirmation; the second disk check,
   its port and its dictionary go (TL F6).
 - [ ] 2d. **Opus.** The Codex config editor writes its marked block, refuses on a conflicting
   table and removes its own entries by marker; the four-form string parser, the moved-hook
@@ -770,3 +770,12 @@ left.
   (survivor `theUnbornBranchIsOfferedAsTheBase`); `TaskCreatorTests.aDraftTakesTheDefaultBranchItIsGivenWithoutAskingGit`
   is now `aDraftAsksGitForTheDefaultBranch`. Added `DefaultBranchNameTests`. A worker guard test
   named `defaultBranches...` was renamed `defaultBranchNames...` (behaviour unchanged).
+- 2c: the checkout cleanup trusts the scan's confirmation; the second disk look, its port and its
+  dictionary went, and `waitForRemoval` joins the record cleanup and the removal. Tests deleted with
+  their behaviour: `CheckoutCleanupTests.aCheckoutThatCameBackBeforeTheCleanupActsIsNotForgotten`
+  (survivor `aCheckoutThatComesBackStopsClosing`), `aConfirmationThatNeverAnswersLeavesTheMainActorFree`,
+  `thePersonsRemoveRunsWhileAConfirmationHangs` (survivors `removingAnUnknownFolderKeepsItUnlessExplicitlyConfirmed`
+  and the new `checkoutCleanupLeavesATaskAloneWhileRemoveIsInProgress`). Difference: a
+  `RestoringRowTests` case expected the row to read as missing after the pass; with the cleanup now
+  acting in the same turn the task is already forgotten, so it joins the removal and expects the task
+  gone (a consequence of the step, not a weakened check).

@@ -163,7 +163,7 @@ import Synchronization
     }
 
     /// A worktree a restore found gone is looked for once, not again at every pass until the checkout
-    /// monitor reads it: the row waits for the monitor, whose pass then says the worktree is missing.
+    /// monitor reads it: the row waits for the monitor, whose pass then forgets the confirmed-gone checkout.
     @Test func aWorktreeFoundGoneIsLookedForOnceUntilTheMonitorReadsIt() async throws {
         let read = Mutex(false)
         let fixture = try await RaceFixture(scan: { cwds, projects, tasks, branches, remotes, diffs in
@@ -199,7 +199,9 @@ import Synchronization
         controller.checkouts.refresh()
         await readMissing.wait()
         await controller.windows.lastRestore?.value
-        #expect(controller.checkouts.isMissing(task.id))
+        await controller.remover.waitForRemoval(of: task.id)
+        #expect(controller.state.task(id: task.id) == nil)
+        #expect(!controller.checkouts.isMissing(task.id))
         #expect(attempts == 1, "the monitor says it is missing: nothing more is tried")
         #expect(server.requests("window.createTask").isEmpty)
         #expect(!controller.windows.hasFailed(task.id))
