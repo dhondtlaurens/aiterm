@@ -25,7 +25,7 @@ import Testing
         #expect(!granted.contains { $0.contains("Edit") || $0.contains("Write") || $0.contains("Bash") })
     }
 
-    /// Claude's and Codex's whole runs, word for word, as they were before they were built through `HeadlessRun`.
+    /// Claude's and Codex's whole headless requests, word for word.
     @Test func theRunsAreWordForWordAsBefore() {
         let settings = #"{"disableAllHooks":true,"sandbox":{"enabled":true,"allowUnsandboxedCommands":false,"network":{"allowedDomains":[]}}}"#
         #expect(OracleLaunch.invocation(claude, prompt: "P", folder: "/run", projects: ["/shop", "/web"], answerFile: "/run/a").arguments

@@ -13,7 +13,7 @@ import Foundation
     nonisolated static let astra = AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "medium")
     nonisolated static let mini = AgentModel(id: "gpt-6-mini", label: "gpt-6-mini", detail: nil, efforts: ["low", "high"], defaultEffort: "low")
     nonisolated static let sol = AgentModel(id: "openai-codex/gpt-5.6-sol", label: "openai-codex / gpt-5.6-sol", detail: nil,
-                                            efforts: PiModelCatalog.thinkingLevels, defaultEffort: "medium")
+                                            efforts: AgentKind.pi.harness.efforts(for: nil), defaultEffort: "medium")
 
     /// A model over `defaults`, as Settings makes it: the saved profile loaded from them, Claude's and
     /// Codex's catalogues, and Save writing back to them.

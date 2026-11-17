@@ -50,7 +50,7 @@ struct OracleRunner: Sendable {
         let name = invocation.executable, locate = self.locate
         guard let executable = await BackgroundWork.run({ locate(name) }) else { return .failure(.missing(name)) }
         // A CLI installed by npm needs its own bin on the PATH launchd gives an app.
-        let environment = ProcessRunner.environment(runningCLI: executable, overrides: invocation.environment)
+        let environment = ProcessRunner.environment(runningCLI: executable, overrides: [:])
         let output: ProcessOutput
         do { output = try await run(executable, invocation.arguments, environment, directory, timeout) }
         catch { return .failure(.failed(error.localizedDescription)) }

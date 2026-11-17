@@ -12,8 +12,8 @@ final class RegularFileTests {
 
     @Test func anAnswerFileOverAMegabyteIsNoAnswer() throws {
         let file = dir + "/answer"
-        try Data(repeating: 32, count: HeadlessRun.answerLimit + 1).write(to: URL(fileURLWithPath: file))
-        #expect(RegularFile.read(file, limit: HeadlessRun.answerLimit) == nil)
+        try Data(repeating: 32, count: 1_000_000 + 1).write(to: URL(fileURLWithPath: file))
+        #expect(RegularFile.read(file, limit: 1_000_000) == nil)
     }
 
     /// A FIFO is rejected without waiting for a writer.
@@ -23,7 +23,7 @@ final class RegularFileTests {
         let done = DispatchSemaphore(value: 0)
         let result = Mutex<RegularFile.Entry?>(.absent)
         Thread.detachNewThread {
-            result.withLock { $0 = RegularFile.read(file, limit: HeadlessRun.answerLimit) }
+            result.withLock { $0 = RegularFile.read(file, limit: 1_000_000) }
             done.signal()
         }
         let finished = done.wait(timeout: .now() + 5) == .success
@@ -40,10 +40,10 @@ final class RegularFileTests {
         let target = dir + "/target", file = dir + "/answer"
         try Data("answer".utf8).write(to: URL(fileURLWithPath: target))
         try FileManager.default.createSymbolicLink(atPath: file, withDestinationPath: target)
-        #expect(RegularFile.read(file, limit: HeadlessRun.answerLimit) == nil)
+        #expect(RegularFile.read(file, limit: 1_000_000) == nil)
     }
 
     @Test func anAbsentFileIsAbsent() {
-        #expect(RegularFile.read(dir + "/answer", limit: HeadlessRun.answerLimit) == .absent)
+        #expect(RegularFile.read(dir + "/answer", limit: 1_000_000) == .absent)
     }
 }

@@ -452,7 +452,7 @@ TS tests-scripts.
 - [x] 8h. **Codex.** Settings tidy: the Operator profile save cannot silently fail, dead staging
   paths go, the copy about Cancel not undoing "Help with problems" goes with the switch (SS F1,
   tidy only).
-- [ ] 8i. **Codex.** Headless agent launches are described in the one agent table beside the
+- [x] 8i. **Codex.** Headless agent launches are described in the one agent table beside the
   interactive ones; effort constants live only there; the skill and project-file catalogues move
   beside the prompt step (PL F5, F7).
 
@@ -1478,3 +1478,10 @@ left.
     only other differing image is the known `marks.png` variant.
   No test deleted or added. Noticed and left for 9a: `docs/keyboard.md` still says "There are no ended broadcasts
   to open." (Archive section).
+- 8i: the agent table describes the Oracle's read-only headless run as well. Each entry holds its model words, its
+  read-only launch (Codex), its headless arguments, where its answer is read from, and its effort lists.
+  `HeadlessRun.swift` went, and `OracleLaunch` asks the table. `HeadlessInvocation` moved to `Harnesses/` without its
+  `environment` and `sessionID`, which were always empty and nil. `SkillCatalog` and `ProjectFiles` moved to
+  `AiTermCore/Prompt/`. Every command line is byte for byte (`CompatContractTests`), and `compat/` is unchanged.
+  Small differences: `RegularFileTests` read the deleted answer-limit constant and now uses the same number, and a
+  stale comment in `OracleLaunchTests` was updated. No test deleted or added.

@@ -53,8 +53,8 @@ final class AgentIntegrations {
     }
 
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
-    /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
-    /// default (`HeadlessRun.modelArguments`). What the Operator's tasks launch with when it names none.
+    /// model last picked for that agent (`remembered`, the workspace's), else empty, the agent's own
+    /// default (`Harness.readOnlyHeadless`). What the Operator's tasks launch with when it names none.
     /// Read when each task starts, off the main actor.
     nonisolated static func taskModel(_ agent: AgentKind, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
