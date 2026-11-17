@@ -64,8 +64,9 @@ import Testing
 
     /// Diverged, the banner says by how much and offers the rebase; the rebase says what it left.
     @Test func pullDefaultOffersToRebaseADivergedBranch() async throws {
-        let fixture = try await RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let git = PullHeldUntilRemovedGit()
+        let fixture = try await RaceFixture(controllerGit: git)
+        defer { git.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
         let repo = fixture.repo.path
         try fixture.git.run(["init", "-q", "--bare", "-b", "main", remote], in: fixture.root.path)
@@ -86,10 +87,13 @@ import Testing
             title: "Couldn’t pull the default branch.", reason: reason, actions: [.rebaseDefault(fixture.project.id)]))
         #expect(OperationIssue.Action.rebaseDefault(fixture.project.id).title == "Rebase")
 
-        let rebase = await fixture.controller.perform(.rebaseDefault(fixture.project.id))
+        git.arm()
+        let rebase = Task { await fixture.controller.perform(.rebaseDefault(fixture.project.id)) }
+        await git.entered.wait()
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.projects.isChangingDefaultBranch(fixture.project.id), "the menu's Pull main waits for it")
-        await rebase?.value
+        git.release()
+        await rebase.value
 
         #expect(fixture.controller.toastState.toast?.message == "main rebased onto origin: 1 commit ahead, not pushed.")
         #expect(!fixture.controller.projects.isChangingDefaultBranch(fixture.project.id))
@@ -104,7 +108,7 @@ import Testing
         fixture.controller.notices.report(banner)
 
         let pull = fixture.controller.projects.pullDefault(project: fixture.project)
-        #expect(await fixture.controller.perform(.rebaseDefault(fixture.project.id)) == nil)
+        await fixture.controller.perform(.rebaseDefault(fixture.project.id))
         #expect(fixture.controller.issue == banner)
         await pull?.value
     }
@@ -130,7 +134,7 @@ import Testing
         await fixture.controller.projects.pullDefault(project: fixture.project)?.value
         try #require(fixture.controller.issue?.actions == [.rebaseDefault(fixture.project.id)])
 
-        await fixture.controller.perform(.rebaseDefault(fixture.project.id))?.value
+        await fixture.controller.perform(.rebaseDefault(fixture.project.id))
 
         // The whole sentence stays in the banner, with git's words as its tooltip.
         let issue = try #require(fixture.controller.issue)
@@ -162,7 +166,8 @@ import Testing
 }
 
 
-/// Makes "removed while pulling" an explicit ordering, including a pull that fails immediately.
+/// Holds git, once armed, until released: makes "removed while pulling" an explicit ordering,
+/// including a pull that fails immediately, and catches a rebase while it runs.
 private final class PullHeldUntilRemovedGit: GitRunning {
     let entered = TestLatch()
     private let armed = Mutex(false)

@@ -29,8 +29,6 @@ final class TaskRemover: CheckoutRemovals {
     }
     /// `removals`, observed row by row.
     private let rows: PerRow<TaskRemoval?>
-    /// Each task's removal or closing while it runs, for whoever awaits it.
-    private var running: [UUID: Task<Void, Never>] = [:]
     /// Each checkout the scan confirmed gone whose git record is being cleared
     /// (`TaskWorkflow.forgetDeletedCheckout`), at most one cleanup per task.
     private var recordCleanups: [UUID: Task<Void, Never>] = [:]
@@ -88,13 +86,6 @@ final class TaskRemover: CheckoutRemovals {
         work.operation(onTask: id) != nil && removals[id]?.awaitsRetry != true
     }
 
-    /// Waits for the removed checkout's git record cleanup and the task's removal or closing,
-    /// if either is under way.
-    func waitForRemoval(of id: UUID) async {
-        await recordCleanups[id]?.value
-        await running[id]?.value
-    }
-
     #if DEBUG
     /// The snapshot renderer's rows mid-removal, drawn without running one.
     func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { outcomes[id] = removal }
@@ -142,13 +133,13 @@ final class TaskRemover: CheckoutRemovals {
 
     /// Each question here is an `await`: a snapshot, a window closing or another Remove can run
     /// while it is up. What happens after an answer is decided on the task as it is then — `task`
-    /// is the row's copy, as old as the click. Nil when nothing started: the task was gone or busy,
-    /// the question was declined, or another Remove took the task while it was up.
-    @discardableResult
-    func confirmRemove(task: TaskItem) async -> Task<Void, Never>? {
+    /// is the row's copy, as old as the click. Returns once the removal has ended, or at once when
+    /// nothing started: the task was gone or busy, the question was declined, or another Remove took
+    /// the task while it was up.
+    func confirmRemove(task: TaskItem) async {
         let state = workspace.state
         guard workspace.canChangeWorkspace, work.operation(onTask: task.id) == nil, let shown = state.task(id: task.id),
-              state.project(id: shown.projectId) != nil else { return nil }
+              state.project(id: shown.projectId) != nil else { return }
         let detail = shown.kind == .review
             ? "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
             : "Deletes its worktree and closes its iTerm2 window."
@@ -157,8 +148,8 @@ final class TaskRemover: CheckoutRemovals {
         // this answer then does nothing; the task or its project can be gone, or the workspace locked.
         guard answer.confirmed, workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id),
               let project = workspace.state.project(id: current.projectId),
-              let token = work.begin(.removing, onTask: task.id) else { return nil }
-        return remove(current, from: project, deleteBranch: answer.checked, holding: token)
+              let token = work.begin(.removing, onTask: task.id) else { return }
+        await remove(current, from: project, deleteBranch: answer.checked, holding: token)
     }
 
     /// AiTerm's own Remove (Auto-close): no questions and no permission to discard changes. `starting` writes the
@@ -171,7 +162,7 @@ final class TaskRemover: CheckoutRemovals {
               let token = work.begin(.removing, onTask: task.id) else {
             throw ActionUnavailable("The task changed or is busy. Remove it yourself once it is safe.")
         }
-        defer { end(token, of: task.id) }
+        defer { work.end(token) }
         outcomes[task.id] = nil
         // A turn under way is waited for: checked first, so a task you are driving with edits waits rather than reads as
         // unsaved work, and again after the worktree checks, since a turn can start while they run.
@@ -235,23 +226,23 @@ final class TaskRemover: CheckoutRemovals {
     }
 
     /// The banner's Keep: the removal that stopped with the branch kept finishes, the branch left.
-    /// Nil when the task is gone or busy, or no longer waiting on a retry.
-    func keepBranch(of id: UUID) -> Task<Void, Never>? {
-        guard let (task, project, token) = heldForRetry(id) else { return nil }
+    /// Returns at once when the task is gone or busy, or no longer waiting on a retry.
+    func keepBranch(of id: UUID) async {
+        guard let (task, project, token) = heldForRetry(id) else { return }
         notices.clearIssue()
-        return remove(task, from: project, deleteBranch: false, holding: token)
+        await remove(task, from: project, deleteBranch: false, holding: token)
     }
 
-    /// The banner's Delete: deleting drops commits no other branch has, so it asks first. Nil when
-    /// the question was declined, or the task is gone, busy or no longer waiting on a retry.
-    func deleteBranch(of id: UUID) async -> Task<Void, Never>? {
-        guard let shown = workspace.state.task(id: id) else { return nil }
+    /// The banner's Delete: deleting drops commits no other branch has, so it asks first. Returns at
+    /// once when the question was declined, or the task is gone, busy or no longer waiting on a retry.
+    func deleteBranch(of id: UUID) async {
+        guard let shown = workspace.state.task(id: id) else { return }
         let answer = await prompter.ask(Self.deleteUnmergedBranchQuestion(for: shown))
         // Act on the task as it is once the alert is answered: across the await, a Keep or another
         // Delete can have taken it, or its row gone.
-        guard answer.confirmed, let (task, project, token) = heldForRetry(id) else { return nil }
+        guard answer.confirmed, let (task, project, token) = heldForRetry(id) else { return }
         notices.clearIssue()
-        return remove(task, from: project, deleteBranch: true, holding: token) { [workflow] in
+        await remove(task, from: project, deleteBranch: true, holding: token) { [workflow] in
             try await workflow.deleteUnmergedBranch(of: task, in: project)
         }
     }
@@ -288,26 +279,22 @@ final class TaskRemover: CheckoutRemovals {
     /// for, then its row. `before` runs first; if it throws, nothing else does. A removal that stops
     /// says why on the row, which keeps it until the task goes or is removed again.
     private func remove(_ task: TaskItem, from project: Project, deleteBranch: Bool, holding token: WorkInFlight.Token,
-                        before: (() async throws -> Void)? = nil) -> Task<Void, Never> {
+                        before: (() async throws -> Void)? = nil) async {
         outcomes[task.id] = nil
-        let removal = Task {
-            defer { end(token, of: task.id) }
-            do {
-                try await before?()
-                // A canceled confirmation leaves the task as it was.
-                guard let result = try await removeWorktree(task: task, project: project, deleteBranch: deleteBranch)
-                else { return }
-                await finishRemoval(of: task, after: result)
-            } catch TeardownStop.windowStayedOpen(let why) {
-                outcomes[task.id] = .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)
-                notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: why, subject: task.id))
-            } catch {
-                outcomes[task.id] = .stopped(note: "Not removed", worktreeRemoved: false)
-                notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error, subject: task.id))
-            }
+        defer { work.end(token) }
+        do {
+            try await before?()
+            // A canceled confirmation leaves the task as it was.
+            guard let result = try await removeWorktree(task: task, project: project, deleteBranch: deleteBranch)
+            else { return }
+            await finishRemoval(of: task, after: result)
+        } catch TeardownStop.windowStayedOpen(let why) {
+            outcomes[task.id] = .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)
+            notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: why, subject: task.id))
+        } catch {
+            outcomes[task.id] = .stopped(note: "Not removed", worktreeRemoved: false)
+            notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error, subject: task.id))
         }
-        running[task.id] = removal
-        return removal
     }
 
     /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow` and the teardown Archive
@@ -362,12 +349,6 @@ final class TaskRemover: CheckoutRemovals {
         workspace.flush()
         checkouts.forget(task: task.id)
         checkouts.refresh()
-    }
-
-    /// The task's removal or closing has ended: it no longer holds the task.
-    private func end(_ token: WorkInFlight.Token, of id: UUID) {
-        running[id] = nil
-        work.end(token)
     }
 
     // -- checkouts removed outside AiTerm ---------------------------------------------------
@@ -426,8 +407,8 @@ final class TaskRemover: CheckoutRemovals {
         guard let daemon = daemon(), let token = work.begin(.closing, onTask: id) else { return }
         // The closing says so itself while it runs.
         outcomes[id] = nil
-        let closing = Task {
-            defer { end(token, of: id) }
+        Task {
+            defer { work.end(token) }
             // On failure the saved task remains visible, still closing, and the next poll retries.
             guard (try? await daemon.closeWindowIfOpen(windowId)) != nil else {
                 outcomes[id] = .closing
@@ -440,7 +421,6 @@ final class TaskRemover: CheckoutRemovals {
             forget(task: task)
             notices.showToast("\(task.kindName) closed because its worktree was removed.")
         }
-        running[id] = closing
     }
 }
 

@@ -338,7 +338,7 @@ TS tests-scripts.
 
 ### Phase 4. One task lifecycle (after 3)
 
-- [ ] 4a. **Opus.** Lifecycle tests join through one settled join, as the Operator's tests do, and
+- [x] 4a. **Opus.** Lifecycle tests join through one settled join, as the Operator's tests do, and
   no product function returns a task handle only for a test (TS F4).
 - [ ] 4b. **Opus.** Remove asks everything before it acts: the unmerged-branch question comes up
   at once, a row with a window and no helper is refused as Archive refuses it, and the
@@ -933,3 +933,14 @@ left.
   and `marks.png` (known variant) differ. No bundle check is due after phase 3. `main` had only the
   refactor's own merges; merged to `main`. No manual check is owed for phase 3 by the plan; the smoke
   run after phase 9 covers the closed view.
+
+### Phase 4
+
+- 4a: every task lifecycle operation (archive, restore, remove, keep and delete branch, remove from
+  the Archive, `perform`, `removeSelection`) is `async` and returns once its work is done; no product
+  function returns a `Task` handle for a test, and `waitForRemoval` and the remover's `running` map
+  went. Tests join by awaiting the call, or hold it at a port latch in a task of their own (a new
+  `WorktreeAddHeldGit` in `ArchiveTests` for the restore races). No test deleted. Assertions that read
+  a nil handle now assert the effect. Differences: restore's choosing lives in
+  `AppController.restoreFromArchive`, which became `async` and awaits it; `perform(.rebaseDefault)`
+  awaits the rebase; about 90 call sites, not 200. `docs/testing.md` says how lifecycle tests join.

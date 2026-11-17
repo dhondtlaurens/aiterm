@@ -22,7 +22,7 @@ import Testing
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        await fixture.controller.perform(.keepBranch(task.id))?.value
+        await fixture.controller.perform(.keepBranch(task.id))
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
@@ -34,7 +34,7 @@ import Testing
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove", "Delete Branch")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        await fixture.controller.perform(.deleteBranch(task.id))?.value
+        await fixture.controller.perform(.deleteBranch(task.id))
 
         #expect(fixture.prompter.asked.last?.message == "Delete branch feat/work?")
         #expect(fixture.controller.state.tasks.isEmpty)
@@ -47,7 +47,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let before = fixture.controller.issue
 
-        #expect(await fixture.controller.perform(.deleteBranch(task.id)) == nil)
+        await fixture.controller.perform(.deleteBranch(task.id))
 
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(fixture.controller.issue == before)
@@ -61,12 +61,13 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.prompter.checksTheCheckbox = false
 
-        await fixture.controller.remover.confirmRemove(task: task)?.value
+        await fixture.controller.remover.confirmRemove(task: task)
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.remover.removals.isEmpty)
-        #expect(await fixture.controller.perform(.keepBranch(task.id)) == nil, "nothing is left to keep")
+        await fixture.controller.perform(.keepBranch(task.id))
+        #expect(fixture.controller.issue == nil && fixture.controller.remover.removals.isEmpty, "nothing is left to keep")
     }
 
     /// Dismissing hides the banner, but the removal still waits on a retry, and its row says so.
@@ -87,7 +88,7 @@ import Testing
 
         fixture.controller.notices.report("Couldn’t show the window.")
         #expect(fixture.controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
-        await fixture.controller.perform(.keepBranch(task.id))?.value
+        await fixture.controller.perform(.keepBranch(task.id))
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.remover.removals.isEmpty)
@@ -197,7 +198,7 @@ import Testing
 
         fixture.controller.notices.report("First.")
         fixture.controller.notices.report("Second.")
-        await fixture.controller.perform(.keepBranch(task.id))?.value
+        await fixture.controller.perform(.keepBranch(task.id))
 
         #expect(fixture.controller.issue == OperationIssue(title: "Second."))
         fixture.controller.notices.dismissIssue()
@@ -214,7 +215,7 @@ import Testing
         fixture.controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
 
         fixture.controller.workspace.mutate { state in state.tasks.removeAll { $0.id == other.id } }
-        await fixture.controller.perform(.keepBranch(task.id))?.value
+        await fixture.controller.perform(.keepBranch(task.id))
 
         #expect(fixture.controller.issue == nil)
     }
@@ -302,7 +303,7 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
-        await fixture.controller.remover.confirmRemove(task: task)?.value
+        await fixture.controller.remover.confirmRemove(task: task)
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
         return (fixture, task)
     }

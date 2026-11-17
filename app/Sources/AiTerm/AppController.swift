@@ -371,24 +371,21 @@ final class AppController {
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
             entries: { [weak self] in self?.state.archiveEntries ?? [] },
-            restore: { [weak self] in self?.restoreFromArchive($0) },
+            restore: { [weak self] id in Task { await self?.restoreFromArchive(id) } },
             // A turn later, never inside the key handler that asked (`Prompter`).
             remove: { [weak self] id in Task { await self?.removeFromArchive(id) } }))
     }
 
     /// Restores an archived task or review, then chooses its row as a click does, which opens its
-    /// window with its conversations resumed. Nil when nothing started.
-    @discardableResult
-    func restoreFromArchive(_ id: UUID) -> Task<Void, Never>? {
-        guard let restoring = archiver.restore(id) else { return nil }
-        return Task { [weak self] in
-            await restoring.value
-            guard let self, self.state.task(id: id) != nil else { return }
-            await self.choose(.task(id))?.value
-        }
+    /// window with its conversations resumed. Returns once that window has opened or the choosing
+    /// gave up, or at once when nothing started.
+    func restoreFromArchive(_ id: UUID) async {
+        await archiver.restore(id)
+        guard state.task(id: id) != nil else { return }
+        await choose(.task(id))?.value
     }
 
-    /// Asks before removing an archived task or review.
+    /// Asks before removing an archived task or review, and returns once it is removed or not.
     func removeFromArchive(_ id: UUID) async {
         await archiver.confirmRemove(archived: id)
     }
@@ -400,16 +397,15 @@ final class AppController {
 
     /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
     /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
-    /// conflict, so it does not ask. Nil when nothing started: the question was declined, or the
-    /// task or project is gone or busy.
-    @discardableResult
-    func perform(_ action: OperationIssue.Action) async -> Task<Void, Never>? {
+    /// conflict, so it does not ask. Returns once the action has ended, or at once when nothing
+    /// started: the question was declined, or the task or project is gone or busy.
+    func perform(_ action: OperationIssue.Action) async {
         switch action {
-        case .keepBranch(let id): return remover.keepBranch(of: id)
-        case .deleteBranch(let id): return await remover.deleteBranch(of: id)
+        case .keepBranch(let id): await remover.keepBranch(of: id)
+        case .deleteBranch(let id): await remover.deleteBranch(of: id)
         case .rebaseDefault(let id):
-            guard let project = state.project(id: id) else { return nil }
-            return projects.rebaseDefault(project: project)
+            guard let project = state.project(id: id) else { return }
+            await projects.rebaseDefault(project: project)?.value
         }
     }
 
@@ -504,12 +500,10 @@ final class AppController {
     }
 
     /// ⌘⌫ on the list: the selected row's own Remove, as its context menu has it — a task or a
-    /// review asks first, a terminal just closes.
-    @discardableResult
-    func removeSelection() async -> Task<Void, Never>? {
-        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return await remover.confirmRemove(task: task) }
-        if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { return terminals.close(terminal: terminal) }
-        return nil
+    /// review asks first, a terminal just closes. Returns once that has ended.
+    func removeSelection() async {
+        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { await remover.confirmRemove(task: task) }
+        else if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { await terminals.close(terminal: terminal)?.value }
     }
 }
 

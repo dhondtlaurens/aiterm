@@ -89,7 +89,7 @@ import Testing
         controller.workspace.mutate { $0.append(project: other) }
         let task = try await fixture.addTask(windowId: "alive")
 
-        let removal = await controller.remover.confirmRemove(task: task)
+        let removal = Task { await controller.remover.confirmRemove(task: task) }
         try await server.received("window.close")
         await controller.projects.confirmRemove(project: other)
         await controller.projects.confirmRemove(project: fixture.project)
@@ -99,7 +99,7 @@ import Testing
         #expect(controller.state.project(id: other.id) == nil, "Other went; Repo stayed")
         #expect(controller.state.projects == [fixture.project])
         server.release()
-        await removal?.value
+        await removal.value
     }
 
     /// The project can still go while the window opens — a restored backup replaces the whole
@@ -132,7 +132,7 @@ import Testing
         let task = try await fixture.addTask(windowId: "alive")
         controller.focus.browse(.task(task.id))
 
-        await controller.removeSelection()?.value
+        await controller.removeSelection()
 
         #expect(fixture.prompter.asked.map(\.message) == ["Remove task “\(task.title)”?"])
         #expect(controller.state.task(id: task.id) != nil)
@@ -149,7 +149,7 @@ import Testing
         controller.workspace.mutate { $0.terminals = [terminal] }
         controller.focus.browse(.terminal(terminal.id))
 
-        await controller.removeSelection()?.value
+        await controller.removeSelection()
 
         #expect(fixture.prompter.asked.isEmpty)
         #expect(controller.state.terminals.isEmpty)
@@ -159,9 +159,10 @@ import Testing
     @Test func removingNoSelectionDoesNothing() async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter())
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        _ = try await fixture.addTask(windowId: "alive")
-        #expect(await fixture.controller.removeSelection() == nil)
+        let task = try await fixture.addTask(windowId: "alive")
+        await fixture.controller.removeSelection()
         #expect(fixture.prompter.asked.isEmpty)
+        #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
     }
 
     /// The row's copy of the task is as old as the click. By the time the alert is answered the
@@ -176,15 +177,16 @@ import Testing
         let clicked = try await fixture.addTask(windowId: nil)
         fixture.prompter.whileAsking = { _ in controller.helper.handle(.snapshot(fixture.snapshot(tagging: clicked, in: "alive"))) }
 
-        await controller.remover.confirmRemove(task: clicked)?.value
+        await controller.remover.confirmRemove(task: clicked)
 
         #expect(controller.state.tasks.isEmpty)
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
         #expect(!FileManager.default.fileExists(atPath: clicked.worktreePath))
     }
 
-    /// A second Remove for the same row, started while the first alert was up, owns the removal;
-    /// the first answer finds the task busy and does nothing, rather than running git twice.
+    /// A second Remove for the same row, started while the first alert was up, owns the removal and
+    /// runs to its end inside that alert; the first answer then finds the task gone and does nothing,
+    /// rather than running git twice.
     @Test func aRemovalStartedDuringTheAlertIsTheOnlyOneThatRuns() async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Remove"))
         let server = RecordingDaemon()
@@ -192,15 +194,14 @@ import Testing
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: "alive")
-        var nested = false, nestedRemoval: Task<Void, Never>?
+        var nested = false
         fixture.prompter.whileAsking = { _ in
             guard !nested else { return }
             nested = true
-            nestedRemoval = await controller.remover.confirmRemove(task: task)
+            await controller.remover.confirmRemove(task: task)
         }
 
-        #expect(await controller.remover.confirmRemove(task: task) == nil, "the nested Remove owns the removal")
-        await nestedRemoval?.value
+        await controller.remover.confirmRemove(task: task)
 
         #expect(controller.state.tasks.isEmpty)
         #expect(fixture.prompter.asked.count == 2)
@@ -223,7 +224,7 @@ import Testing
             controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
         }
 
-        await controller.remover.confirmRemove(task: task)?.value
+        await controller.remover.confirmRemove(task: task)
 
         #expect(controller.state.tasks.isEmpty)
         #expect(fixture.prompter.asked.map(\.message).last == "The worktree has uncommitted changes")
