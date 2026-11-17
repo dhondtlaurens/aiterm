@@ -20,9 +20,9 @@ struct NoticesTests {
         return notices
     }
 
-    private let task = UUID(), other = UUID()
+    private let task = UUID(), other = UUID(), project = UUID()
     private var question: OperationIssue {
-        OperationIssue(title: "Branch kept.", actions: [.keepBranch(task), .deleteBranch(task)], subject: task)
+        OperationIssue(title: "Couldn’t pull the default branch.", actions: [.rebaseDefault(project)], subject: task)
     }
 
     /// The newest report takes the banner, and the one it replaces about another task is withdrawn.

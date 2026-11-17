@@ -403,13 +403,11 @@ struct TaskRowView: View {
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
         let removal = controller.remover.removal(of: row.id), removing = removal?.inProgress == true
-        // Stopped after its worktree went: it waits on Remove's retry, which archiving would cut short.
-        let awaitsRetry = removal?.awaitsRetry == true
         let caption = TaskRowCaption(removal: removal, missing: missing)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
-                                             awaitsRetry: awaitsRetry, canChangeWorkspace: controller.canChangeWorkspace)
+                                             canChangeWorkspace: controller.canChangeWorkspace)
         let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, paused: row.paused)
         // The same work card is inspectable while the agent works or asks for input, including
         // driven rows. A removal spinner offers no card.
@@ -485,7 +483,7 @@ struct TaskRowView: View {
                 Divider()
                 // No ellipsis: it asks nothing unless the worktree has changes to lose.
                 Button("Archive \(task.kindName)") { Task { if let current = controller.state.task(id: task.id) { await controller.archiver.archive(task: current) } } }
-                    .disabled(!controller.canChangeWorkspace || removing || awaitsRetry)
+                    .disabled(!controller.canChangeWorkspace || removing)
                 Button("Remove \(task.kindName)…", role: .destructive) { Task { if let current = controller.state.task(id: task.id) { await controller.remover.confirmRemove(task: current) } } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
@@ -697,10 +695,7 @@ struct TaskRowAccessibility: Equatable {
         }
     }
 
-    /// `awaitsRetry` is a removal that stopped after the worktree went: the row waits on Remove's retry,
-    /// so Archive, which its menu greys, is not offered.
-    init(title: String, task: TaskItem?, missing: Bool, removing: Bool = false, awaitsRetry: Bool = false,
-         canChangeWorkspace: Bool) {
+    init(title: String, task: TaskItem?, missing: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
         let branch = task?.branch ?? ""
         label = branch.isEmpty ? title : "\(title), \(branch)"
         let kindName = task?.kindName ?? "Task"
@@ -713,7 +708,7 @@ struct TaskRowAccessibility: Equatable {
         hint = words.hint
         help = words.help
         guard task != nil, canChangeWorkspace, !removing else { actions = []; return }
-        actions = awaitsRetry ? [.remove] : [.archive, .remove]
+        actions = [.archive, .remove]
     }
 }
 
@@ -785,7 +780,7 @@ struct TaskRowCaption: Equatable {
         case .removing: self.init(progress: "Removing…", note: nil)
         case .closing: self.init(progress: "Closing…", note: nil)
         case .archiving: self.init(progress: "Archiving…", note: nil)
-        case .stopped(let note, _): self.init(progress: nil, note: .warning(note))
+        case .stopped(let note): self.init(progress: nil, note: .warning(note))
         case nil:
             if missing { self.init(progress: nil, note: .plain("Worktree missing")) }
             else { self.init(progress: nil, note: nil) }

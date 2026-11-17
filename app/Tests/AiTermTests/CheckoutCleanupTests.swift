@@ -509,7 +509,7 @@ extension CheckoutCleanupControllerTests {
 
         await controller.remover.confirmRemove(task: fixture.task)
 
-        #expect(controller.remover.removals == [fixture.task.id: .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)])
+        #expect(controller.remover.removals == [fixture.task.id: .stopped(note: "Not removed: its window did not close")])
         #expect(controller.issue?.subject == fixture.task.id)
     }
 

@@ -4,21 +4,16 @@ import Foundation
 /// The three parts `LocalizedError` keeps apart — description, failure reason, recovery — kept
 /// apart here too, so no one joins them with `+` and loses a full stop between.
 ///
-/// Its actions are cases, not closures: the app maps each to its call, so an issue stays
-/// `Equatable` — a test asserts on it, and `@Observable` skips a repeat of the same one.
+/// Its one action, Rebase after a pull found the default branch diverged, is a case, not a closure:
+/// the app maps it to its call, so an issue stays `Equatable` — a test asserts on it, and
+/// `@Observable` skips a repeat of the same one.
 public struct OperationIssue: Equatable, Sendable {
     public enum Action: Equatable, Sendable {
-        /// Finish removing the task, leaving its branch.
-        case keepBranch(UUID)
-        /// Delete the task's branch with the commits only it has — after asking — then finish.
-        case deleteBranch(UUID)
         /// Replay the project's local default branch on origin's, after a pull found them diverged.
         case rebaseDefault(UUID)
 
         public var title: String {
             switch self {
-            case .keepBranch: "Keep Branch"
-            case .deleteBranch: "Delete Branch…"
             case .rebaseDefault: "Rebase"
             }
         }
@@ -59,7 +54,6 @@ public struct OperationIssue: Equatable, Sendable {
         if let subject, state.task(id: subject) == nil, state.terminal(id: subject) == nil { return true }
         return actions.contains { action in
             switch action {
-            case .keepBranch(let id), .deleteBranch(let id): state.task(id: id) == nil
             case .rebaseDefault(let id): state.project(id: id) == nil
             }
         }
@@ -75,19 +69,6 @@ public struct OperationIssue: Equatable, Sendable {
     /// "Try …", as the person would say it once AiTerm has reconnected.
     public static func disconnected(_ action: String) -> OperationIssue {
         OperationIssue(title: "Disconnected. Try \(action) once AiTerm reconnects.")
-    }
-
-    /// A removed task's branch that git would not delete. Only `.notMerged` offers Delete: `-D`
-    /// answers commits the base lacks, not a refusal for any other reason.
-    public static func branchKept(_ branch: String, of task: UUID, because refusal: TaskWorkflow.BranchRefusal) -> OperationIssue {
-        switch refusal {
-        case .notMerged(let base):
-            OperationIssue(title: "Branch \(branch) kept.",
-                           reason: "It has commits that aren’t on \(base.isEmpty ? "its base" : base).",
-                           actions: [.keepBranch(task), .deleteBranch(task)], subject: task)
-        case .other(let reason):
-            OperationIssue(title: "Branch \(branch) kept.", reason: reason, actions: [.keepBranch(task)], subject: task)
-        }
     }
 
     /// A diverged default branch offers Rebase; other failures keep their error and git's words.

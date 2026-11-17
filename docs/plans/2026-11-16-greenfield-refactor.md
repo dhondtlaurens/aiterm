@@ -340,7 +340,7 @@ TS tests-scripts.
 
 - [x] 4a. **Opus.** Lifecycle tests join through one settled join, as the Operator's tests do, and
   no product function returns a task handle only for a test (TS F4).
-- [ ] 4b. **Opus.** Remove asks everything before it acts: the unmerged-branch question comes up
+- [x] 4b. **Opus.** Remove asks everything before it acts: the unmerged-branch question comes up
   at once, a row with a window and no helper is refused as Archive refuses it, and the
   "worktree removed, waiting for a retry" state with its banner actions goes (TL F1).
 - [ ] 4c. **Opus.** One teardown owner for archive and remove over the shared prepare and run, with
@@ -944,3 +944,24 @@ left.
   a nil handle now assert the effect. Differences: restore's choosing lives in
   `AppController.restoreFromArchive`, which became `async` and awaits it; `perform(.rebaseDefault)`
   awaits the rebase; about 90 call sites, not 200. `docs/testing.md` says how lifecycle tests join.
+- 4b: Remove asks everything before it acts: the Remove alert, the unlisted-folder and unsaved-work
+  questions, then the unmerged-branch question (Delete Branch / Keep Branch, asked only when the box
+  is ticked and the branch is on neither its base nor its upstream), and only then closes the window,
+  removes the worktree and deletes or keeps the branch; a branch git still refuses is kept and said in
+  the toast, and the row goes. A row with a window and no helper is refused ("Not removed: iTerm2
+  isn’t connected"), as Archive refuses it. The "worktree removed, waiting for a retry" state, its
+  banner actions (Keep, Delete), `BranchRefusal` and `awaitsRetry` went; the archived row's Remove
+  asks the same branch question. Tests deleted with their behaviour: nine retry tests in
+  `OperationIssueControllerTests`, `ArchiveControllerTests.aRowWaitingOnItsRemovalsRetryIsNotArchived`,
+  `RowAccessibilityTests.aRowAwaitingItsRemovalsRetryOffersRemoveAlone`, two `OperationIssueTests`;
+  `TaskWorkflowTests.removalRetainsUnmergedBranchAndRetryOnlyDeletesBranch` replaced by
+  `anUnmergedBranchIsKeptAndSaidSoAgreedItIsDeleted`. Survivors and new coverage: the new
+  `RemoveTaskControllerTests` (seven cases on real git) and
+  `aBranchHasUnmergedCommitsOnlyWhenNeitherItsBaseNorItsUpstreamHasThem`. Differences: the toast no
+  longer doubles a full stop after git's sentence; `closeWindow`'s `requiringDaemon:` went since every
+  caller passes true; a workspace that locks while the branch question is up stops Remove with
+  nothing changed. Snapshots in `build/refactor-4b`: the removal caption in `sidebar-removal*.png` and
+  the second banner in `sidebar-banners.png` (a diverged pull with Rebase replaces the deleted
+  branch-kept banner) changed, as the step implies. Environment: this capture carries no Display P3
+  profile while earlier ones did (the display changed while the maintainer was away), so raw RGB
+  differs on 48 files; converted to sRGB, every other file is within 16 per channel.

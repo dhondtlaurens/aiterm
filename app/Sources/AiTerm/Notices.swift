@@ -63,8 +63,8 @@ final class Notices {
 
     /// Shows `issue` above the list, in place of whatever was there — unless it is about a task or
     /// project that has gone while the work it reports was running, or it offers nothing while a
-    /// question with answers is still up: a background failure must not take "Branch X kept" and
-    /// its Keep or Delete from someone who has not answered yet. It waits (the newest one) until
+    /// question with answers is still up: a background failure must not take a diverged pull's
+    /// Rebase from someone who has not answered yet. It waits (the newest one) until
     /// the question is gone, and is logged meanwhile. The toast cannot carry it: it is the
     /// completion toast, a checkmark and all.
     func report(_ issue: OperationIssue) {
@@ -77,8 +77,7 @@ final class Notices {
     /// A failure with nothing to offer but Dismiss.
     func report(_ message: String) { report(OperationIssue(title: message)) }
 
-    /// Dismissed, a removal that stopped with nothing deleted is just a task again. One that got
-    /// past its worktree still waits on a retry, and its row keeps saying so.
+    /// Dismissed, a removal that stopped with nothing deleted is just a task again.
     func dismissIssue() {
         if let issue { withdraw(issue) }
         clearIssue()

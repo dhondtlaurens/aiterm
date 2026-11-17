@@ -45,14 +45,6 @@ import AiTermCore
         #expect(a.title(of: .archive) == "Archive Task")
     }
 
-    /// A row whose Remove stopped after its worktree went waits on that retry, which the archiver
-    /// refuses to cut short: its menu greys Archive, so VoiceOver offers Remove alone.
-    @Test func aRowAwaitingItsRemovalsRetryOffersRemoveAlone() {
-        let held = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, awaitsRetry: true,
-                                        canChangeWorkspace: true)
-        #expect(held.actions == [.remove])
-    }
-
     /// Nothing is offered on a row being removed: its menu has Remove disabled.
     @Test func aTaskRowBeingRemovedOffersNothing() {
         let removing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, removing: true,

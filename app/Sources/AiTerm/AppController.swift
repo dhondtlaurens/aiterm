@@ -395,14 +395,11 @@ final class AppController {
     var issue: OperationIssue? { notices.issue }
     var toastState: ToastState { notices.toastState }
 
-    /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
-    /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
-    /// conflict, so it does not ask. Returns once the action has ended, or at once when nothing
-    /// started: the question was declined, or the task or project is gone or busy.
+    /// Answers the banner. Rebasing rewrites only local commits and aborts on a conflict, so it
+    /// does not ask. Returns once the action has ended, or at once when nothing started: the
+    /// project is gone or busy.
     func perform(_ action: OperationIssue.Action) async {
         switch action {
-        case .keepBranch(let id): await remover.keepBranch(of: id)
-        case .deleteBranch(let id): await remover.deleteBranch(of: id)
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return }
             await projects.rebaseDefault(project: project)?.value

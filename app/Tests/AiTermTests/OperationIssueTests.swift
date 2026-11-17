@@ -5,99 +5,12 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The banner a failed operation raises: what it says, the ways out it offers, and how long it
-/// stays. Removing a task whose branch has commits its base lacks is the case with ways out.
+/// stays. A pull that found the default branch diverged is the case with a way out, Rebase.
 @MainActor @Suite(.blocking) struct OperationIssueControllerTests {
-    @Test func aBranchKeptForUnmergedWorkIsReportedWithItsWaysOut() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-
-        #expect(fixture.controller.issue == OperationIssue(
-            title: "Branch feat/work kept.", reason: "It has commits that aren’t on main.",
-            actions: [.keepBranch(task.id), .deleteBranch(task.id)], subject: task.id))
-        #expect(fixture.controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
-        #expect(fixture.controller.state.tasks.map(\.id) == [task.id], "the row stays for the answer")
-    }
-
-    @Test func keepBranchFinishesTheRemovalAndLeavesTheBranch() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-
-        await fixture.controller.perform(.keepBranch(task.id))
-
-        #expect(fixture.controller.state.tasks.isEmpty)
-        #expect(fixture.controller.issue == nil)
-        #expect(try fixture.hasBranch("feat/work"))
-        #expect(fixture.prompter.asked.count == 1, "keeping loses nothing, so it asks nothing")
-    }
-
-    @Test func deleteBranchAsksFirstThenDropsTheBranch() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove", "Delete Branch")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-
-        await fixture.controller.perform(.deleteBranch(task.id))
-
-        #expect(fixture.prompter.asked.last?.message == "Delete branch feat/work?")
-        #expect(fixture.controller.state.tasks.isEmpty)
-        #expect(fixture.controller.issue == nil)
-        #expect(try !fixture.hasBranch("feat/work"))
-    }
-
-    @Test func cancellingDeleteBranchChangesNothing() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove", "Cancel")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let before = fixture.controller.issue
-
-        await fixture.controller.perform(.deleteBranch(task.id))
-
-        #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
-        #expect(fixture.controller.issue == before)
-        #expect(try fixture.hasBranch("feat/work"))
-    }
-
-    /// Retrying from the row's menu, without the checkbox, removes the task; the banner about it
-    /// goes with it rather than asking for a retry that already happened.
-    @Test func theIssueGoesWithTheTaskItIsAbout() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove", "Remove")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        fixture.prompter.checksTheCheckbox = false
-
-        await fixture.controller.remover.confirmRemove(task: task)
-
-        #expect(fixture.controller.state.tasks.isEmpty)
-        #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.remover.removals.isEmpty)
-        await fixture.controller.perform(.keepBranch(task.id))
-        #expect(fixture.controller.issue == nil && fixture.controller.remover.removals.isEmpty, "nothing is left to keep")
-    }
-
-    /// Dismissing hides the banner, but the removal still waits on a retry, and its row says so.
-    @Test func dismissingClearsTheIssueButNotTheRowsNote() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-
-        fixture.controller.notices.dismissIssue()
-
-        #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.remover.removals[task.id]?.awaitsRetry == true)
-    }
-
-    /// A report that cannot outrank the question leaves it up; the row keeps its note, and the kept branch its answer.
-    @Test func aLaterReportLeavesTheRowWaitingOnItsRetry() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-
-        fixture.controller.notices.report("Couldn’t show the window.")
-        #expect(fixture.controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true))
-        await fixture.controller.perform(.keepBranch(task.id))
-
-        #expect(fixture.controller.state.tasks.isEmpty)
-        #expect(fixture.controller.remover.removals.isEmpty)
-    }
-
     /// A background report with nothing to offer — an activation that failed, a send that did not
     /// go — does not take the banner from a question that still waits on its answer.
     @Test func aReportWithNoActionsLeavesAPendingQuestionShowing() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        let (fixture, task) = try await askingRebase()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let question = fixture.controller.issue
         #expect(question?.actions.isEmpty == false)
@@ -110,10 +23,10 @@ import Testing
 
     /// Anything else still replaces: no question, another question, or a plain message over one.
     @Test func aNewerReportReplacesWhatItDoesNotOutrank() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        let (fixture, _) = try await askingRebase()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
-        let rebase = OperationIssue(title: "Couldn’t pull the default branch.", actions: [.rebaseDefault(fixture.project.id)])
+        let rebase = OperationIssue(title: "Couldn’t pull the default branch again.", actions: [.rebaseDefault(fixture.project.id)])
 
         controller.notices.report(rebase)
         #expect(controller.issue == rebase, "a question replaces a question")
@@ -121,7 +34,6 @@ import Testing
         controller.notices.report("First.")
         controller.notices.report("Second.")
         #expect(controller.issue == OperationIssue(title: "Second."), "a message replaces a message")
-        #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "the row's retry never rode on the banner")
     }
 
     /// A removal that stopped with nothing deleted says so on its row only while its banner is up.
@@ -131,7 +43,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
-        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
+        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed"), of: task.id)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
         controller.notices.report("Something else.")
@@ -147,7 +59,7 @@ import Testing
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
-        let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
+        let note = TaskRemoval.stopped(note: "Not removed")
         controller.remover.seedSnapshotRemoval(note, of: task.id)
 
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Still busy.", subject: task.id))
@@ -162,7 +74,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
-        let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
+        let note = TaskRemoval.stopped(note: "Not removed")
         controller.remover.seedSnapshotRemoval(note, of: task.id)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
 
@@ -178,7 +90,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         let task = try await fixture.addTask(windowId: nil)
-        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
+        controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed"), of: task.id)
         controller.notices.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
         let failure = OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id)
         controller.notices.report(failure)
@@ -193,12 +105,12 @@ import Testing
     }
 
     @Test func theNewestHeldBackReportIsTheOneShown() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        let (fixture, _) = try await askingRebase()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
         fixture.controller.notices.report("First.")
         fixture.controller.notices.report("Second.")
-        await fixture.controller.perform(.keepBranch(task.id))
+        fixture.controller.notices.dismissIssue()
 
         #expect(fixture.controller.issue == OperationIssue(title: "Second."))
         fixture.controller.notices.dismissIssue()
@@ -207,7 +119,7 @@ import Testing
 
     /// A held-back report about a row that has gone meanwhile is not worth showing.
     @Test func aHeldBackReportForARowThatWentIsDropped() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        let (fixture, _) = try await askingRebase()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let other = TaskItem.make(project: fixture.project.id, title: "Other", branch: "feat/other",
             worktreePath: fixture.root.path + "/other", agent: .codex, model: "model", windowId: "w")
@@ -215,7 +127,7 @@ import Testing
         fixture.controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
 
         fixture.controller.workspace.mutate { state in state.tasks.removeAll { $0.id == other.id } }
-        await fixture.controller.perform(.keepBranch(task.id))
+        fixture.controller.notices.dismissIssue()
 
         #expect(fixture.controller.issue == nil)
     }
@@ -252,33 +164,18 @@ import Testing
         #expect(controller.issue == nil)
     }
 
-    /// A row whose window closes stays, windowless, so what its removal left stays with it.
-    @Test func theIssueStaysWhenItsRowsWindowCloses() async throws {
-        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        fixture.controller.workspace.mutate { $0.tasks[0].windowId = "w" }
-        let issue = fixture.controller.issue
-
-        fixture.controller.windows.windowGone("w")
-
-        #expect(fixture.controller.state.task(id: task.id)?.windowId == nil)
-        #expect(fixture.controller.issue == issue && issue != nil)
-        #expect(fixture.controller.remover.removals[task.id] != nil)
-    }
-
     @Test func theIssueGoesWithItsProject() async throws {
-        let (fixture, _) = try await removedWithUnmergedBranch(answering: "Remove", "Remove")
+        let (fixture, _) = try await askingRebase(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
         await fixture.controller.projects.confirmRemove(project: fixture.project)
 
         #expect(fixture.controller.state.projects.isEmpty)
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.remover.removals.isEmpty)
     }
 
     @Test func theIssueGoesWhenABackupWithoutItsRowIsRestored() async throws {
-        let (fixture, _) = try await removedWithUnmergedBranch(answering: "Remove")
+        let (fixture, _) = try await askingRebase()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         var without = fixture.controller.state
         without.tasks = []
@@ -293,24 +190,13 @@ import Testing
         #expect(fixture.controller.remover.removals.isEmpty)
     }
 
-    /// A task, its worktree removed with "Delete local branch" ticked, and its branch kept because it
-    /// has a commit `main` lacks. `answers` start with the Remove alert's.
-    private func removedWithUnmergedBranch(answering answers: String...) async throws -> (RaceFixture, TaskItem) {
-        let prompter = ScriptedPrompter(answering: answers)
-        prompter.checksTheCheckbox = true
-        let fixture = try await RaceFixture(prompter: prompter)
-        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+    /// A task, and the banner asking whether to rebase the project's default branch, about the task
+    /// so that it goes with its row. `answers` are for what the test asks after.
+    private func askingRebase(answering answers: String...) async throws -> (RaceFixture, TaskItem) {
+        let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: answers))
         let task = try await fixture.addTask(windowId: nil)
-        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
-                            in: task.worktreePath)
-        await fixture.controller.remover.confirmRemove(task: task)
-        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+        fixture.controller.notices.report(OperationIssue(title: "Couldn’t pull the default branch.",
+                                                         actions: [.rebaseDefault(fixture.project.id)], subject: task.id))
         return (fixture, task)
-    }
-}
-
-private extension RaceFixture {
-    func hasBranch(_ name: String) throws -> Bool {
-        try !git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + name], in: repo.path).isEmpty
     }
 }

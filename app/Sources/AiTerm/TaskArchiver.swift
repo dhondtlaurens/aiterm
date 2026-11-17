@@ -39,13 +39,10 @@ final class TaskArchiver {
 
     // -- archive ------------------------------------------------------------------------
     /// Returns once the archive has ended, or at once when nothing started: the workspace locked, the
-    /// task gone, already busy or waiting on its removal's retry.
+    /// task gone or already busy.
     func archive(task: TaskItem) async {
         let state = workspace.state
-        // A row whose Remove stopped after its worktree went waits on that retry: it has no worktree to
-        // put away, and starting would clear the outcome that holds it.
         guard workspace.canChangeWorkspace, let shown = state.task(id: task.id), let project = state.project(id: shown.projectId),
-              remover.removals[task.id]?.awaitsRetry != true,
               let token = work.begin(.archiving, onTask: task.id) else { return }
         defer { work.end(token) }
         remover.clearOutcome(of: task.id)
@@ -82,7 +79,7 @@ final class TaskArchiver {
             if $0.head == .detached { throw Stop.detached }
         }) else { throw Stop.kept }
         let task = prepared.task, head = prepared.head
-        try await teardown.closeWindow(of: task, requiringDaemon: true)
+        try await teardown.closeWindow(of: task)
         // The branch it is on now — a task's worktree can have moved since it was created, or while
         // the question was up and its window closing. Detached by now, its commits would go with the
         // worktree: refused, and the row stays a task without a window until it is chosen.
@@ -125,7 +122,6 @@ final class TaskArchiver {
     func archiveAutomatically(_ task: TaskItem, starting: @MainActor () -> Bool) async throws {
         guard workspace.canChangeWorkspace, workspace.state.task(id: task.id) == task,
               let project = workspace.state.project(id: task.projectId),
-              remover.removals[task.id]?.awaitsRetry != true,
               let token = work.begin(.archiving, onTask: task.id) else {
             throw ActionUnavailable("The task changed or is busy.")
         }
@@ -145,7 +141,7 @@ final class TaskArchiver {
         guard allowed() else { throw ActionUnavailable("The stage changed while its worktree was checked.") }
         try remover.requireIdleForAutomaticCleanup(task)
         do {
-            try await teardown.closeWindow(of: task, requiringDaemon: true)
+            try await teardown.closeWindow(of: task)
         } catch TeardownStop.noDaemon { throw ClosingWait.helper }
         guard allowed() else { throw ActionUnavailable("The stage changed while its window closed.") }
         let head = try await workflow.head(of: task, in: project)
@@ -197,11 +193,12 @@ final class TaskArchiver {
     }
 
     // -- remove from the archive --------------------------------------------------------
-    /// Remove's own question about an archived row, then its record forgotten and — when asked for —
-    /// its branch deleted, a review's released as Remove does. Its old worktree path is never
-    /// touched: something else may live there by now. A branch with commits its base lacks asks
-    /// before it goes. Returns once the row is forgotten or the removal stopped, or at once when
-    /// nothing started.
+    /// Remove's own question about an archived row and, with "Delete local branch" ticked on a branch
+    /// holding commits found nowhere else, Remove's question about losing them; then its record
+    /// forgotten and — when asked for — its branch deleted, a review's released as Remove does. Its old
+    /// worktree path is never touched: something else may live there by now. The row goes whatever
+    /// git did with the branch, and the toast says when it was kept. Returns once the row is forgotten
+    /// or the removal stopped, or at once when nothing started.
     func confirmRemove(archived id: UUID) async {
         guard workspace.canChangeWorkspace, work.operation(onTask: id) == nil, let shown = workspace.state.archived(id: id)?.task,
               workspace.state.project(id: shown.projectId) != nil else { return }
@@ -213,32 +210,18 @@ final class TaskArchiver {
               let project = workspace.state.project(id: task.projectId),
               let token = work.begin(.removing, onTask: id) else { return }
         defer { work.end(token) }
+        guard let branch = await remover.branchDeletion(of: task, in: project, asked: answer.checked) else { return }
         do {
-            let result = try await workflow.forgetArchived(task: task, project: project, deleteBranch: answer.checked)
-            // The row goes whatever became of its branch: it has no worktree to retry, so a branch
-            // git refused is kept and said so, where Remove's row waits on a Keep or Delete.
-            switch result.branchRefusal {
-            case .notMerged:
-                let delete = await prompter.ask(TaskRemover.deleteUnmergedBranchQuestion(for: task))
-                if delete.confirmed { try await workflow.deleteUnmergedBranch(of: task, in: project) }
-            case .other(let reason):
-                var issue = OperationIssue.branchKept(task.branch, of: id, because: .other(reason: reason))
-                // Nothing to keep or delete later: the row is going. No subject either: a banner's
-                // subject names a sidebar row, and an archived one is not a row there, so a subject
-                // would make `Notices` drop the banner as stale.
-                issue.actions = []
-                issue.subject = nil
-                notices.report(issue)
-            case nil:
-                break
-            }
+            let result = try await workflow.forgetArchived(task: task, project: project, deleteBranch: branch.delete,
+                                                           discardingUnmerged: branch.discardingUnmerged)
             workspace.mutate { $0.removeArchived(id: id) }
             workspace.flush()
             if workspace.persistenceError == nil {
                 notices.showRemoval(of: task, result: result)
             }
         } catch {
-            // No subject, for the reason above.
+            // No subject: a banner's subject names a sidebar row, and an archived one is not a row
+            // there, so a subject would make `Notices` drop the banner as stale.
             notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error))
         }
     }

@@ -142,7 +142,7 @@ import Testing
         let task = try await fixture.addTask(windowId: "alive")
         await fixture.controller.archiver.archive(task: task)
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived: iTerm2 isn’t connected", worktreeRemoved: false))
+        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived: iTerm2 isn’t connected"))
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
@@ -154,7 +154,7 @@ import Testing
         let task = try await fixture.addTask(windowId: "alive")
         await fixture.controller.archiver.archive(task: task)
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived: its window did not close", worktreeRemoved: false))
+        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived: its window did not close"))
     }
 
     @Test func anUnreadableProjectFolderStopsTheArchiveWithNothingMoved() async throws {
@@ -167,7 +167,7 @@ import Testing
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"], "its window too")
         #expect(fixture.controller.state.archive.isEmpty)
-        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(fixture.controller.remover.removal(of: task.id) == .stopped(note: "Not archived"))
     }
 
     @Test func anArchiveThatCannotBeSavedLeavesTheWorktreeAndTheTask() async throws {
@@ -191,7 +191,7 @@ import Testing
         #expect(controller.state.tasks.map(\.id) == [task.id], "a task again, owed its window")
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath), "nothing deleted")
-        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not archived"))
         #expect(controller.toastState.toast == nil)
     }
 
@@ -208,25 +208,6 @@ import Testing
         await first.value
         #expect(fixture.controller.state.archive.count == 1)
         #expect(server.requests("window.close").count == 1)
-    }
-
-    @Test func aRowWaitingOnItsRemovalsRetryIsNotArchived() async throws {
-        let prompter = ScriptedPrompter(answering: "Remove")
-        prompter.checksTheCheckbox = true
-        let fixture = try await RaceFixture(prompter: prompter)
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try await fixture.addTask(windowId: nil)
-        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
-                            in: task.worktreePath)
-        await controller.remover.confirmRemove(task: task)
-        #expect(controller.remover.removals[task.id]?.awaitsRetry == true, "removed up to its unmerged branch")
-
-        await controller.archiver.archive(task: task)
-        #expect(controller.state.tasks.map(\.id) == [task.id], "not archived")
-        #expect(controller.state.archive.isEmpty)
-        #expect(controller.remover.removals[task.id] == .stopped(note: "Not removed: branch kept", worktreeRemoved: true), "its retry still held")
     }
 
     @Test func uncommittedWorkWrittenWhileTheWindowClosesIsAskedAboutAndKeepPutsTheTaskBack() async throws {
@@ -248,7 +229,7 @@ import Testing
         #expect(prompter.asked.map(\.buttons) == [["Keep Task", "Delete Changes and Archive"]])
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "owed its window")
-        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.remover.removal(of: task.id) == .stopped(note: "Not archived"))
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/wip.txt"))
     }
@@ -422,17 +403,24 @@ import Testing
         try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
                             in: task.worktreePath)
         await fixture.controller.archiver.archive(task: task)
+        var archivedWhileAsked = false
+        prompter.whileAsking = { prompt in
+            if prompt.message == "Delete branch feat/work?" { archivedWhileAsked = fixture.controller.state.archived(id: task.id) != nil }
+        }
 
         await fixture.controller.archiver.confirmRemove(archived: task.id)
 
         let asked = try #require(prompter.asked.last)
         #expect(asked.message == "Delete branch feat/work?")
+        #expect(asked.buttons == ["Delete Branch", "Keep Branch"])
+        #expect(archivedWhileAsked, "asked before the row is forgotten")
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path).isEmpty)
+        #expect(fixture.controller.toastState.toast?.message == "Task removed.")
     }
 
     @Test func decliningTheUnmergedBranchQuestionKeepsTheBranchAndStillForgetsTheRow() async throws {
-        let prompter = ScriptedPrompter(answering: "Remove", "Cancel")
+        let prompter = ScriptedPrompter(answering: "Remove", "Keep Branch")
         prompter.checksTheCheckbox = true
         let fixture = try await RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -446,6 +434,7 @@ import Testing
 
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
+        #expect(fixture.controller.toastState.toast?.message == "Task removed.", "kept as asked, nothing to say")
     }
 
     @Test func aBranchGitWillNotDeleteForAnotherReasonIsSaidKeptAndTheRowStillGoes() async throws {
@@ -461,14 +450,17 @@ import Testing
 
         await fixture.controller.archiver.confirmRemove(archived: task.id)
 
-        let issue = try #require(fixture.controller.issue)
-        #expect(issue.title == "Branch feat/work kept.")
-        #expect(issue.actions.isEmpty)
+        #expect(fixture.controller.issue == nil, "said by the toast, with nothing to answer")
+        let toast = try #require(fixture.controller.toastState.toast?.message)
+        #expect(toast.hasPrefix("Task removed. Branch feat/work kept: "), "\(toast)")
+        #expect(!toast.hasSuffix(".."))
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
     }
 
-    @Test func aBranchThatCannotBeDeletedAfterTheUnmergedQuestionSaysTheRemovalFailedAndLeavesTheRowArchived() async throws {
+    /// Delete Branch answered, `-D` can still fail — the branch got checked out in the project's
+    /// folder meanwhile. The branch is kept, the toast says so in git's words, and the row goes.
+    @Test func aBranchThatCannotBeDeletedAfterTheUnmergedQuestionIsSaidKeptAndTheRowStillGoes() async throws {
         let prompter = ScriptedPrompter(answering: "Remove", "Delete Branch")
         prompter.checksTheCheckbox = true
         let fixture = try await RaceFixture(prompter: prompter)
@@ -486,8 +478,10 @@ import Testing
 
         await fixture.controller.archiver.confirmRemove(archived: task.id)
 
-        #expect(fixture.controller.issue?.title == "Couldn’t remove the task.")
-        #expect(fixture.controller.state.archive.map(\.id) == [task.id], "nothing is forgotten when the removal failed")
+        #expect(fixture.controller.issue == nil)
+        #expect(fixture.controller.toastState.toast?.message.hasPrefix("Task removed. Branch feat/work kept: ") == true)
+        #expect(fixture.controller.state.archive.isEmpty)
+        #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
     }
 
     @Test func removingAProjectSaysHowManyArchivedRowsItForgets() {

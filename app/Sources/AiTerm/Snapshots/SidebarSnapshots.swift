@@ -104,7 +104,7 @@ enum SidebarSnapshots {
                     SidebarBanner {
                         Notice(title: "Couldn’t save the workspace: the disk is full.", description: nil) { Button("Retry Saving") {} }
                     }
-                    IssueBanner(issue: OperationIssue.branchKept("feat/migrate-alert", of: UUID(), because: .notMerged(base: "main")),
+                    IssueBanner(issue: OperationIssue.pullRefused(WorktreeError.branchDiverged("main", local: 2, remote: 3), in: UUID()),
                                 perform: { _ in }, dismiss: {})
                     ForEach(0..<4) { index in
                         let states: [ItermConnection] = [.itermNotRunning, .refused("not allowed"),
@@ -237,8 +237,8 @@ enum SidebarSnapshots {
         }
     }
 
-    /// The fixture's tasks mid-removal — two removing, one closing, and one whose removal kept its
-    /// branch — with `selecting` selected, or the PI task. Only the task rows, as the list draws
+    /// The fixture's tasks mid-removal — two removing, one closing, and one whose removal stopped
+    /// because its window did not close — with `selecting` selected, or the PI task. Only the task rows, as the list draws
     /// them: the project's header and terminal have nothing to say about a removal.
     private static func removal(_ file: String, selecting: KeyPath<Fixture, TaskItem>?) -> Snapshot {
         Snapshot(file) {
@@ -246,8 +246,10 @@ enum SidebarSnapshots {
             controller.remover.seedSnapshotRemoval(.removing, of: fixture.working.id)
             controller.remover.seedSnapshotRemoval(.removing, of: fixture.piTask.id)
             controller.remover.seedSnapshotRemoval(.closing, of: fixture.codexTask.id)
-            controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed: branch kept", worktreeRemoved: true), of: fixture.other.id)
-            controller.notices.report(.branchKept(fixture.other.branch, of: fixture.other.id, because: .notMerged(base: "develop")))
+            controller.remover.seedSnapshotRemoval(.stopped(note: "Not removed: its window did not close"), of: fixture.other.id)
+            controller.notices.report(OperationIssue(title: "Couldn’t remove the task.",
+                                                     error: ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted."),
+                                                     subject: fixture.other.id))
             if let selecting { controller.focus.browse(.task(fixture[keyPath: selecting].id)) }
             return taskRows(controller)
         }

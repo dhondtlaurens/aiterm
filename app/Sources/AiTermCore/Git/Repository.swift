@@ -109,6 +109,13 @@ public struct Repository: Sendable {
         return false
     }
 
+    /// Whether every commit on `branch` is on its upstream (`<branch>@{upstream}`): pushed, so the
+    /// branch can go without losing them. A branch with no upstream is not (git's 128). Thrown when
+    /// git could not answer.
+    public func isOnUpstream(_ branch: String) throws -> Bool {
+        try git.ask(["merge-base", "--is-ancestor", "refs/heads/" + branch, branch + "@{upstream}"], in: path, none: [1, 128]) != nil
+    }
+
     // MARK: Refs and origin, for the jobs in the other files
 
     /// The commit the checkout at `checkout` — the repository's own folder unless named — is at.

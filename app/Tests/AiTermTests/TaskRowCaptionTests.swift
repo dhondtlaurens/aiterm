@@ -16,8 +16,8 @@ import Testing
     }
 
     @Test func whyARemovalStoppedTakesTheCaptionsPlace() {
-        #expect(TaskRowCaption(removal: .stopped(note: "Not removed: branch kept", worktreeRemoved: true), missing: true)
-                == TaskRowCaption(progress: nil, note: .warning("Not removed: branch kept")))
+        #expect(TaskRowCaption(removal: .stopped(note: "Not removed: iTerm2 isn’t connected"), missing: true)
+                == TaskRowCaption(progress: nil, note: .warning("Not removed: iTerm2 isn’t connected")))
     }
 
     @Test func otherwiseTheCaptionSaysWhatIsMissing() {

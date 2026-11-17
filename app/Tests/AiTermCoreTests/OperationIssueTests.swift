@@ -6,26 +6,6 @@ import Testing
 /// The banner's value on its own: its words, its ways out, and when it has gone stale. What the
 /// app does with one — which report wins the banner, what its actions run — is in AiTermTests.
 @Suite struct OperationIssueTests {
-    /// The refusal AiTerm has words for: commits the base lacks, which `-D` answers, so Delete is
-    /// offered beside Keep.
-    @Test func aBranchWithCommitsItsBaseLacksOffersKeepAndDelete() {
-        let id = UUID()
-        #expect(OperationIssue.branchKept("feat/work", of: id, because: .notMerged(base: "main"))
-                == OperationIssue(title: "Branch feat/work kept.", reason: "It has commits that aren’t on main.",
-                                  actions: [.keepBranch(id), .deleteBranch(id)], subject: id))
-        #expect(OperationIssue.branchKept("feat/work", of: id, because: .notMerged(base: "")).reason
-                == "It has commits that aren’t on its base.")
-    }
-
-    /// A refusal AiTerm has no words of its own for keeps git's, and offers only Keep Branch: `-D`
-    /// would not answer it.
-    @Test func anyOtherRefusalKeepsGitsReasonAndOffersOnlyKeep() {
-        let id = UUID()
-        let issue = OperationIssue.branchKept("feat/work", of: id, because: .other(reason: "Cannot delete branch 'feat/work'."))
-        #expect(issue == OperationIssue(title: "Branch feat/work kept.", reason: "Cannot delete branch 'feat/work'.",
-                                        actions: [.keepBranch(id)], subject: id))
-    }
-
     /// A failure's own words go in the title and the error's in the reason, never joined: git's by
     /// its sentence rule, the helper's by its code, anything else by its description.
     @Test func anErrorIsTheReasonNotPartOfTheTitle() {
@@ -36,8 +16,8 @@ import Testing
         #expect(OperationIssue(title: "Couldn’t remove the task.", error: git).reason == "Not a working tree.")
     }
 
-    /// An issue is stale once the task it is about, or the task or project an action would act on,
-    /// has left the workspace; one that names nothing never is.
+    /// An issue is stale once the task it is about, or the project its action would act on, has left
+    /// the workspace; one that names nothing never is.
     @Test func anIssueIsStaleOnceWhatItNamesHasGone() {
         let project = Project.make(name: "Repo", path: "/repo")
         let task = TaskItem.make(project: project.id, title: "t", branch: "b", worktreePath: "/w")
@@ -45,18 +25,16 @@ import Testing
         state.append(project: project)
         state.tasks = [task]
         let issues = [OperationIssue(title: "About the task.", subject: task.id),
-                      OperationIssue(title: "Keep it?", actions: [.keepBranch(task.id)]),
-                      OperationIssue(title: "Delete it?", actions: [.deleteBranch(task.id)]),
                       OperationIssue(title: "Rebase?", actions: [.rebaseDefault(project.id)])]
 
         #expect(issues.allSatisfy { !$0.isStale(in: state) })
         #expect(!OperationIssue(title: "About nothing.").isStale(in: .empty))
         var withoutTask = state
         withoutTask.tasks = []
-        #expect(issues.map { $0.isStale(in: withoutTask) } == [true, true, true, false])
+        #expect(issues.map { $0.isStale(in: withoutTask) } == [true, false])
         var withoutProject = state
         withoutProject.removeItem(id: project.id)
-        #expect(issues.map { $0.isStale(in: withoutProject) } == [false, false, false, true])
+        #expect(issues.map { $0.isStale(in: withoutProject) } == [false, true])
     }
 
     /// A pull that found the branches diverged offers the rebase; any other failure is reported

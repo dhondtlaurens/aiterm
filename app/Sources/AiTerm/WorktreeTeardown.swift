@@ -96,15 +96,12 @@ struct WorktreeTeardown {
 
     /// Closes the window the task has now. The row drops it first, so the window's own
     /// `window.closed` finds it windowless already. A window that will not close is given back, and
-    /// nothing is deleted. A row with no window has nothing to close; one whose window cannot be
-    /// reached without a daemon is left open — or, `requiringDaemon`, stops the teardown.
-    func closeWindow(of task: TaskItem, requiringDaemon: Bool) async throws {
+    /// nothing is deleted. A row with no window has nothing to close and needs no daemon; one with a
+    /// window and no daemon to close it stops the teardown.
+    func closeWindow(of task: TaskItem) async throws {
         guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }),
               let wid = workspace.state.tasks[i].windowId else { return }
-        guard let daemon = daemon() else {
-            if requiringDaemon { throw TeardownStop.noDaemon }
-            return
-        }
+        guard let daemon = daemon() else { throw TeardownStop.noDaemon }
         // Windowless at once, so the window's own `window.closed` finds it so; a
         // snapshot no longer drops a row, so this need not be on disk before the window closes.
         workspace.mutate { $0.tasks[i].windowId = nil }
@@ -124,6 +121,6 @@ struct WorktreeTeardown {
 enum TeardownStop: Error {
     /// The window would not close, so nothing was deleted.
     case windowStayedOpen(ActionUnavailable)
-    /// An archive found no daemon to close the window with, so nothing was deleted.
+    /// A remove or an archive found no daemon to close the window with, so nothing was deleted.
     case noDaemon
 }
