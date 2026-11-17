@@ -118,8 +118,8 @@ is not continued.
 **A task the Operator drives** resumes its worker's conversation under its branch guard, without
 sending the stage's prompt again. One the Operator has not started yet has nothing to open.
 
-**A task you took over** opens as your task, with its conversations resumed. If the Operator never
-made its worktree, opening it makes one first.
+**A task you took over** is your task and opens like one. If the Operator never made its worktree,
+Take Over made one.
 
 **A terminal** opens a fresh shell in its project folder. Whatever was running there, a dev server
 for example, is not started again.
@@ -177,6 +177,6 @@ or remove the task.
 | What choosing a row does | `AppController.choose(_:)`, then `RowFocus.select(_:after:)` |
 | Selection, peek and raising | `RowFocus` |
 | The invisible label | iTerm2 user variables `aiterm_task` / `aiterm_terminal`, read by the daemon (`sessions.py`, `windows.py`) |
-| The openers | `TaskLauncher.open` for a task, manual or driven (through `TaskLauncher.openWindow`), `TaskLauncher.openTakenOverWindow`, `TerminalActions.openWindow`, `SignalOperatorController.openChat` through `OperatorSessionKeeper.ensure` |
+| The openers | `TaskLauncher.open` for a task, manual, driven or taken over (through `TaskLauncher.openWindow`), `TerminalActions.openWindow`, `SignalOperatorController.openChat` through `OperatorSessionKeeper.ensure` |
 | Which conversations resume | `AppState.rememberingConversations`; `TaskLauncher.openCommands(for:)`: `TaskItem.resumeCommands` for your task, the first worker's under its guard for a driven one |
 | Starting iTerm2 | The daemon only at its own start (`ItermSupervisor`, `connection.py`); the app's `launchIterm` at AiTerm's start, on a row chosen while iTerm2 isn't connected, and from the banner's Open iTerm2 |

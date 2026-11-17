@@ -172,22 +172,6 @@ import AiTermCore
         }
         return claim
     }
-    /// Take Over revokes the Operator's authority, while resumed agents keep their branch guard.
-    /// Each conversation gets its own launch script, including multiple tabs running the same CLI.
-    func takenOverResumeCommands(_ task: TaskItem) async throws -> [String] {
-        let conversations = task.conversations.filter { TaskConversation.isResumable($0.id) }
-        let commands = task.resumeCommands, home = ports.home, executable = ports.workerGuardExecutable, git = ports.git
-        let remote = workspace.state.project(id: task.projectId)?.remoteUrl
-        return try await BackgroundWork.run {
-            try zip(conversations, commands).map { conversation, command in
-                var worker = task; worker.agent = conversation.agent
-                let slot = task.signalTask?.extraTabs.first(where: { $0.conversation == conversation.id })?.key
-                    ?? (conversation == task.firstWorkerConversation ? "main" : "resumed-" + conversation.agent.rawValue + "-" + conversation.id)
-                return try WorkerGuardLaunch.command(command, task: worker, remote: remote, home: home,
-                    executable: executable, git: git, slot: slot, publishes: task.kind != .review)
-            }
-        }
-    }
     func launch(_ initial: TaskItem, prompt: String) async throws -> String {
         _ = try require(initial)
         var task = initial
@@ -243,7 +227,7 @@ import AiTermCore
     }
     private func command(for task: TaskItem, prompt: String, slot: String, conversation: String? = nil) async throws -> String {
         guard let record = task.signalTask, let configuration = record.configuration ?? workspace.state.signal(id: record.signal),
-              (record.takenOver || configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning))) else {
+              configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) else {
             throw ActionUnavailable("This agent and model are not permitted by the task's signal.")
         }
         let git = ports.git, home = ports.home, executable = ports.workerGuardExecutable

@@ -54,7 +54,7 @@ import Testing
         let handler = make(h, world: world, read: { _ in entered.signal(); await release.wait(); return ["worker": "private"] })
         let call = Task { await handler.respond(request(h, tool: "read_task", arguments(id))) }
         await entered.wait()
-        h.workspace.mutate { $0.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1 } }
+        h.workspace.mutate { $0.takeOver(id) }
         release.signal()
         #expect(await call.value.message != nil)
     }

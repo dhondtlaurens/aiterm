@@ -3,7 +3,6 @@ import Foundation
 public enum SignalTransitions {
     public static func apply(_ action: SignalAction, to task: SignalTask, at: Date, workerIsWorking: Bool = false) throws -> SignalTask {
         var next = task
-        guard !task.takenOver || action == .takeOver else { throw SignalTransitionError.takenOver }
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
             next.signal = stage.signal; next.item = stage.item; next.stage += 1; next.ownership += 1; next.startedAt = at
@@ -59,7 +58,6 @@ public enum SignalTransitions {
             guard task.canRunThen else { throw SignalTransitionError.invalidEdge }
             next.phase = .archived
         case .stop: next.phase = .stopped; next.currentAct = nil
-        case .takeOver: next.takenOver = true; next.ownership += 1; next.currentAct = nil
         }
         if next.phase != task.phase || next.stage != task.stage {
             next.edges.append(SignalEdge(from: task.phase, to: next.phase, stage: next.stage, at: at))

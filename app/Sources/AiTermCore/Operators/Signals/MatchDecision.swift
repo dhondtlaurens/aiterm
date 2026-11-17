@@ -34,7 +34,8 @@ public enum MatchDecision: Equatable, Sendable {
                    projects.contains(where: { $0.id == candidate.projectId && $0.remoteUrl.flatMap(ItemRef.repository) == ItemRef.repository(request.remote) }) { return true }
                 return false
             }) {
-                if task.signalTask?.takenOver != true { decisions.append(.continueTask(task.id, stage)) }
+                // A task a person took over is theirs: it is neither continued nor adopted.
+                if !task.takenOver { decisions.append(.continueTask(task.id, stage)) }
             } else if let index = started[identity], case .start(let first, var pending) = decisions[index] {
                 pending.append(stage); decisions[index] = .start(first, pending: pending)
             } else if match.project != nil {

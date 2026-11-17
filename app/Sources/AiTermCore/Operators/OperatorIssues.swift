@@ -14,8 +14,6 @@ public struct OperatorIssues: Equatable, Sendable {
         case activity
         /// Keeping the Operator's session open, fresh and adopted.
         case session
-        /// Take Over's branch-guard refresh and journal entry.
-        case takeOver
 
         /// AiTerm tries again by itself, so one failure is not yet the person's to act on.
         public var retried: Bool { [.wake, .reply, .activity, .session].contains(self) }
@@ -25,7 +23,6 @@ public struct OperatorIssues: Equatable, Sendable {
             case .reply: "Answering the Operator"
             case .activity: "The Operator's activity log"
             case .session: "The Operator's session"
-            case .takeOver: "Take Over"
             }
         }
     }

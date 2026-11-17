@@ -47,7 +47,7 @@ import AiTermCore
         running = true; defer { running = false }
         var cache: [String: Snapshot] = [:]
         let ids = workspace.state.tasks.compactMap { task -> UUID? in
-            guard let record = task.signalTask, !record.takenOver else { return nil }
+            guard let record = task.signalTask else { return nil }
             if record.phase == .working { return task.id }
             if case .watching = record.phase { return task.id }
             return nil

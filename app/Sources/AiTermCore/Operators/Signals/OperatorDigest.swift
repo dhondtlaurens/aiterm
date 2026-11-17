@@ -95,7 +95,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         sourceFailures = state.operatorSession?.sourceFailures ?? [:]
         generation = state.operatorSession?.generation; paused = state.operatorSession?.paused == true
         standingInstructions = instructions
-        let ids = Set(state.allSignalTasks.filter { $0.signalTask?.takenOver == false && (task == nil || $0.id == task) }.map(\.id))
+        let ids = Set(state.allSignalTasks.filter { task == nil || $0.id == task }.map(\.id))
         workers = sessions.compactMap { session in
             guard let id = session.taskUUID, ids.contains(id) else { return nil }
             return WorkerLine(task: id, session: session.sessionId, tab: session.tabKey ?? "main", agent: session.agent, state: session.state,
@@ -105,7 +105,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         generatedAt = at; self.oracleOn = oracleOn; signals = state.signals
         projects = state.projects.map { ProjectLine(id: $0.id, name: $0.name, path: $0.path) }
         tasks = state.allSignalTasks.compactMap { value in
-            guard task == nil || task == value.id, let record = value.signalTask, !record.takenOver else { return nil }
+            guard task == nil || task == value.id, let record = value.signalTask else { return nil }
             let configuration = record.configuration ?? state.signal(id: record.signal)
             let tabs = [TabLine(key: "main", agent: value.agent, model: value.model, reasoning: value.reasoning, session: nil, conversation: value.firstWorkerConversation?.id)] + record.extraTabs.map {
                 TabLine(key: $0.key, agent: $0.agent, model: $0.model, reasoning: $0.reasoning, session: $0.sessionId, conversation: $0.conversation, reason: $0.modelReason)

@@ -19,7 +19,7 @@ public enum WorkerGuardLaunch {
     public static func workerCommand(task: TaskItem, prompt: String, resuming conversation: String?, slot: String,
                                      remote: String?, home: URL, executable: URL, git: any GitRunning) throws -> String {
         let command = try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
-            worktreePath: task.worktreePath, git: git, worker: task.signalTask?.takenOver != true,
+            worktreePath: task.worktreePath, git: git, worker: true,
             promptFile: "signal-" + UUID().uuidString + ".md", publishing: true, resuming: conversation)
         return try Self.command(command, task: task, remote: remote, home: home, executable: executable, git: git,
                                 slot: slot, publishes: task.kind != .review)

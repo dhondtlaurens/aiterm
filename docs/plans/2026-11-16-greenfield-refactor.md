@@ -351,7 +351,7 @@ TS tests-scripts.
   asked), one "worker checkout for an item" and one window opener whose commands depend on
   ownership. The Operator's stage launch and a person's click call the same operations
   (TL F3, RT F4).
-- [ ] 4e. **Opus.** Take Over makes an ordinary task: the signal record goes, a small mark on the
+- [x] 4e. **Opus.** Take Over makes an ordinary task: the signal record goes, a small mark on the
   task (saved as the optional key `takenOver`) keeps later signals from continuing it, and it is
   opened, archived and removed like any task. The
   taken-over opener, its checkout copy and its resume commands go (RT F4, TL F3). Saved format
@@ -992,3 +992,21 @@ left.
   taken-over opener already holds the task's token, so the checkout takes only the project's
   (`taskHeld`); a driven task without a checkout that is not launching opens nothing on a click instead
   of saying it has no conversation.
+- 4e: Take Over makes an ordinary task: `AppState.takeOver` removes the signal record, sets the task's
+  own `takenOver` mark (saved only when true; the key the reset script writes), opens the project and
+  withdraws the task's questions and paused workers; `TaskLauncher.takeOver` saves, rewrites the
+  recorded guard scopes once (ownership + 1) and makes the worktree when the task has none. A marked
+  task is never continued or adopted by a match. The taken-over opener, its checkout copy, its resume
+  commands, `SignalAction.takeOver`, `SignalTask.takenOver` and the `.takeOver` issue source went.
+  Fixture re-recorded: `operator-signals/state.json` with `AITERM_RECORD_SIGNAL_STATE=1` (both
+  records lose `takenOver: false`, a taken-over task with `takenOver: true` is added), provenance
+  section added; the reset script's guard passed on it. Tests deleted: two `ItermFocusControllerTests`
+  taken-over opener tests (survivors: phase 3's latest-click and tagged-window journeys),
+  `SignalOperatorIssueTests.aTakeOverWhoseJournalCannotBeWrittenShowsAtOnce` and
+  `OperatorIssuesTests.aPersonStartedActionNeedsYouAtOnceUntilThatSameActionSucceeds` (behaviour
+  deleted), the `.takeOver` cases in `SignalDomainTests`. Added three Core tests (not continued or
+  adopted; record removed and hold withdrawn; the mark round-trips). Snapshots in `build/refactor-4e`
+  byte-identical to `build/refactor-4c`. `docs/operators.md` and `docs/windows.md` follow. Noticed and
+  left: with `.takeOver` gone every `OperatorIssues.Source` is retried, so its non-retried branch and
+  doc are dead (for 5d or 5h). From this step on, the installed app and this branch cannot read each
+  other's Operator records: run `scripts/reset-operator-state.sh` with AiTerm quit before switching.

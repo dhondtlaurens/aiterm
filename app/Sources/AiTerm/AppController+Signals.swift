@@ -52,10 +52,11 @@ extension AppController {
             self.sheets.present(signal: model)
         }
     }
+    /// The person's Take Over of a driven task (`TaskLauncher.takeOver`), said in a toast once it is theirs.
     func takeOver(_ id: UUID) async {
-        guard let task = state.task(id: id), task.signalTask?.takenOver == false else { return }
-        await signalController.takeOver(id)
-        if state.task(id: id)?.signalTask?.takenOver == true {
+        guard let task = state.task(id: id), task.signalTask != nil else { return }
+        await launcher.takeOver(id)
+        if state.task(id: id)?.takenOver == true {
             notices.showToast((task.jira?.key ?? task.title) + " is yours. The Operator let go of it.")
         }
     }

@@ -10,6 +10,8 @@ import Testing
 @MainActor @Suite(.blocking) struct ItermFocusControllerTests {
     enum TakenOverWindow: CaseIterable { case notStarted, queued, shell, conversations }
 
+    /// Take Over makes an ordinary task: one whose worker never started gets its worktree on its branch at once,
+    /// and choosing it opens its window like any task's, its conversations resumed plainly, outside any branch guard.
     @Test(arguments: TakenOverWindow.allCases)
     func clickingATakenOverTaskOpensItsWindowAndBringsItermForward(window: TakenOverWindow) async throws {
         let focus = ControllerItermFocus()
@@ -24,8 +26,6 @@ import Testing
             : try await fixture.addTask(windowId: nil)
         task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         task.signalTask?.phase = window == .queued ? .launching : .blocked
-        task.signalTask?.takenOver = true
-        task.signalTask?.ownership = 1
         task.firstPrompt = "The Operator's original instruction must not be replayed."
         if window == .conversations {
             task.conversations = [.init(agent: task.agent, id: "saved-main"), .init(agent: .claude, id: "saved-companion")]
@@ -34,80 +34,29 @@ import Testing
         #expect(controller.workspace.flush())
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
+        await controller.takeOver(task.id)
+        let taken = try #require(controller.state.task(id: task.id))
+        #expect(taken.signalTask == nil && taken.takenOver && taken.hasCheckout)
         await controller.choose(task: task.id)?.value
 
         let current = try #require(controller.state.task(id: task.id))
-        #expect(current.hasCheckout)
         #expect(current.windowId == "reopened")
         #expect(focus.seen.count == 1)
         #expect(server.requests("window.activate").last?.params["windowId"] as? String == "reopened")
         let opened = try #require(server.requests("window.createTask").first)
         #expect(opened.params["cwd"] as? String == current.worktreePath)
         if window == .conversations {
-            #expect(try guardedWorkerCommand(opened.params["agentCommand"] as? String)?.contains("saved-main") == true)
-            #expect(try guardedWorkerCommand(server.requests("tab.create").first?.params["agentCommand"] as? String)?.contains("saved-companion") == true)
-            let scope = WorkerGuardLaunch.recordedScope(task: task.id, home: controller.signalController.ports.home)
-            #expect(scope?.ownership == 1 && scope?.allowsPush == true && scope?.branch == task.branch)
+            let first = try #require(opened.params["agentCommand"] as? String)
+            let second = try #require(server.requests("tab.create").first?.params["agentCommand"] as? String)
+            #expect(try guardedWorkerCommand(first) == first && first.contains("saved-main"))
+            #expect(try guardedWorkerCommand(second) == second && second.contains("saved-companion"))
+            #expect(WorkerGuardLaunch.recordedScope(task: task.id, home: controller.signalController.ports.home) == nil)
         } else {
             #expect(opened.params["agentCommand"] == nil)
         }
         let git = fixture.git, path = current.worktreePath
         let branch = try await BackgroundWork.run { try git.run(["branch", "--show-current"], in: path) }
         #expect(branch.trimmingCharacters(in: .whitespacesAndNewlines) == task.branch)
-    }
-
-    @Test(arguments: [false, true])
-    func aTakenOverWindowOpeningFollowsTheLatestClick(clickAgain: Bool) async throws {
-        let focus = ControllerItermFocus()
-        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
-        let server = RecordingDaemon(holding: "window.createTask")
-        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(server)
-        var task = try await fixture.addTask(windowId: nil)
-        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        task.signalTask?.takenOver = true
-        controller.workspace.mutate { $0.tasks = [task] }
-        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-
-        let first = controller.choose(task: task.id)
-        try await server.received("window.createTask")
-        let latest: Task<Void, Never>?
-        if clickAgain { latest = controller.choose(task: task.id) }
-        else { latest = nil; controller.focus.browse(.project(fixture.project.id)) }
-        server.release()
-        await first?.value
-        await latest?.value
-
-        #expect(server.requests("window.createTask").count == 1)
-        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
-        #expect(focus.seen.count == (clickAgain ? 1 : 0))
-    }
-
-    @Test(arguments: [false, true])
-    func aTakenOverTaskChecksForALiveWindowBeforeResuming(connected: Bool) async throws {
-        let focus = ControllerItermFocus()
-        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
-        let server = RecordingDaemon()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(server)
-        var task = try await fixture.addTask(windowId: nil)
-        task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        task.signalTask?.takenOver = true
-        task.conversations = [.init(agent: task.agent, id: "still-running")]
-        controller.workspace.mutate { $0.tasks = [task] }
-        // iTerm2's windows read with none of the task's yet; the opener's own lookup then finds the live one.
-        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        server.snapshotValue = DaemonSnapshot(protocolVersion: 1, connected: connected,
-            sessions: connected ? [.stub("live", window: "still-open", task: task, state: .working)] : [], usage: .empty)
-
-        await controller.choose(task: task.id)?.value
-
-        #expect(server.requests("window.createTask").isEmpty)
-        #expect(controller.state.task(id: task.id)?.windowId == (connected ? "still-open" : nil))
-        #expect(focus.seen.count == (connected ? 1 : 0))
-        if !connected { #expect(controller.issue != nil) }
     }
 
     @Test(arguments: [false, true])
@@ -139,18 +88,20 @@ import Testing
         var task = TaskItem.make(project: fixture.project.id, branch: "review-source", model: "")
         task.mr = .init(iid: 7, title: "Request", url: "https://git.example/shop/web/-/merge_requests/7")
         task.signalTask = SignalTask(signal: UUID(), item: .request(remote: "git@git.example:shop/web.git", number: 7), startedAt: Date())
-        task.signalTask?.takenOver = true
         controller.workspace.mutate { $0.tasks = [task] }
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await controller.choose(task: task.id)?.value
+        await controller.takeOver(task.id)
 
-        let current = try #require(controller.state.task(id: task.id))
         if fork {
-            #expect(!current.hasCheckout && current.windowId == nil)
-            #expect(server.requests("window.createTask").isEmpty && controller.issue != nil)
+            let current = try #require(controller.state.task(id: task.id))
+            #expect(current.takenOver && !current.hasCheckout && current.windowId == nil)
+            #expect(server.requests("window.createTask").isEmpty && controller.issue?.subject == task.id)
         } else {
-            #expect(current.hasCheckout && current.windowId == "reopened")
+            #expect(controller.state.task(id: task.id)?.hasCheckout == true)
+            await controller.choose(task: task.id)?.value
+            let current = try #require(controller.state.task(id: task.id))
+            #expect(current.windowId == "reopened")
             let path = current.worktreePath
             let openedHead = try await BackgroundWork.run { try git.run(["rev-parse", "HEAD"], in: path) }
             #expect(openedHead == sourceHead)

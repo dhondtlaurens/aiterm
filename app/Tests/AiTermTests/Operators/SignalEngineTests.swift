@@ -159,12 +159,12 @@ import Testing
         var launched = false
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: { _ in false }, prepare: { task, _ in
-                h.workspace.mutate { $0.updateSignalTask(id) { $0 = try! SignalTransitions.apply(.takeOver, to: $0, at: world.now) } }
+                h.workspace.mutate { $0.takeOver(id) }
                 h.workspace.mutate { $0.updateSignalItem(task.id) { $0.worktreePath = "/synthetic/work" } }
                 return try #require(h.workspace.state.task(id: task.id))
             }, launch: { _, _ in launched = true; return "unexpected" }, restore: { $0 }))
         await runner.run(id)
-        #expect(!launched && h.workspace.state.task(id: id)?.signalTask?.takenOver == true)
+        #expect(!launched && h.workspace.state.task(id: id)?.signalTask == nil && h.workspace.state.task(id: id)?.takenOver == true)
     }
 
     @Test func anArchivedItemIsRestoredAndContinuedInItsOriginalTask() async throws {

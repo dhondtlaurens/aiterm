@@ -161,7 +161,7 @@ import AiTermCore
             return
         }
         let record = task.flatMap { workspace.state.task(id: $0)?.signalTask }
-        if task != nil, record == nil || record?.takenOver == true { throw ActionUnavailable("This task is no longer the Operator’s.") }
+        if task != nil, record == nil { throw ActionUnavailable("This task is no longer the Operator’s.") }
         var question = OperatorSession.Question(id: key, task: task, text: text, openedAt: now())
         question.stage = record?.stage; question.ownership = record?.ownership; question.tab = tab
         question.workerQuestion = task.flatMap { ports.question($0, tab)?.text }

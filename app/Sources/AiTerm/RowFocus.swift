@@ -138,7 +138,7 @@ final class RowFocus {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
-        if state.signals.contains(where: { $0.id == id }) || state.tasks.contains(where: { $0.signalTask?.signal == id && $0.signalTask?.takenOver == false }) { return .signal(id) }
+        if state.signals.contains(where: { $0.id == id }) || state.tasks.contains(where: { $0.signalTask?.signal == id }) { return .signal(id) }
         if state.project(id: id) != nil { return .project(id) }
         if OperatorSession.rowID == id { return .operatorChat }
         return nil

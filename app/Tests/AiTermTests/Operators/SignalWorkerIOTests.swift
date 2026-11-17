@@ -185,7 +185,7 @@ import Synchronization
         let io = SignalWorkerIO(workspace: harness.workspace, live: live, work: WorkInFlight(), ports: .scratch(),
                                 daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
         let stale = try #require(harness.workspace.state.task(id: id))
-        harness.workspace.mutate { $0.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1 } }
+        harness.workspace.mutate { $0.takeOver(id) }
         await #expect(throws: (any Error).self) { try await io.launch(stale, prompt: "Run.") }
         #expect(daemon.requests("window.createTask").isEmpty)
     }
@@ -221,15 +221,15 @@ import Synchronization
         let checkout = Task { await root.stages.run(id) }
         // The stage reads the request before git runs: on a loaded host that can take a while.
         try #require(await eventually(describing: "the checkout reaching git") { git.reached })
-        await root.takeOver(id)
-        #expect(controller.state.task(id: id)?.signalTask?.takenOver == true)
+        await controller.takeOver(id)
+        #expect(controller.state.task(id: id)?.signalTask == nil && controller.state.task(id: id)?.takenOver == true)
         #expect(controller.state.task(id: id)?.hasCheckout == false)
         git.release(); await checkout.value
         let task = try #require(controller.state.task(id: id))
         #expect(task.worktreePath == repo + "/.worktrees/review-work")
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
         #expect(task.baseBranch == "main")
-        #expect(task.signalTask?.takenOver == true && task.signalTask?.ownership == 1)
+        #expect(task.signalTask == nil && task.takenOver)
         #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
                 "The finished checkout cannot launch a worker after Take Over.")
     }

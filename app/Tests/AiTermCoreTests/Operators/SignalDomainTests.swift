@@ -184,6 +184,58 @@ import Testing
         #expect(ItemRef.ticket(site: "https://jira.example:8443", key: "PAY-1").identity != ItemRef.ticket(site: "https://jira.example", key: "PAY-1").identity)
     }
 
+    /// A task a person took over carries its item as its ticket or request, so a later match finds it, and leaves it be:
+    /// it is neither continued nor started again, in the sidebar or archived.
+    @Test(arguments: [false, true]) func aTakenOverTaskIsNeitherContinuedNorAdoptedByTicketOrRequest(archived: Bool) {
+        let project = Project.make(remoteUrl: "git@git.example:shop/repo.git")
+        var task = TaskItem.make(project: project.id, branch: "work", jira: JiraRef(key: "PAY-1", summary: "Ticket", url: "https://jira.example/browse/PAY-1"))
+        task.mr = MergeRequestRef(iid: 7, title: "MR", url: "https://git.example/shop/repo/-/merge_requests/7")
+        task.takenOver = true
+        var state = AppState(); state.append(project: project); state.tasks = [task]
+        if archived { _ = state.moveToArchive(taskId: task.id, branch: task.branch, at: now) }
+        let s = signal()
+        for item in [ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), .request(remote: "https://git.example/shop/repo", number: 7)] {
+            let match = SignalMatch(signal: s.id, item: item, project: project.id, matchedAt: now)
+            #expect(MatchDecision.decide(matches: [match], signals: [s], tasks: state.tasks + state.archive.map(\.task), projects: [project],
+                                         seen: [], complete: true).isEmpty, "\(item)")
+        }
+    }
+
+    @Test func takeOverRemovesTheRecordMarksTheTaskAndWithdrawsTheOperatorsHold() {
+        var world = SignalWorld(); let s = world.signal(), id = world.workingTask(signal: s), other = world.workingTask(signal: s)
+        world.state.updateProject(id: world.project.id) { $0.collapsed = true }
+        world.state.updateSignalTask(id) { $0.ownership = 3 }
+        world.state.operatorSession?.questions = [.init(id: "mine", task: id, text: "Which?", openedAt: now),
+                                                  .init(id: "other", task: other, text: "Which?", openedAt: now),
+                                                  .init(id: "workload", task: nil, text: "Which?", openedAt: now)]
+        world.state.operatorSession?.pausedWorkers = [PausedWorker(task: id, tab: "main", ownership: 3), PausedWorker(task: other, tab: "main", ownership: 0)]
+        let record = world.state.task(id: id)?.signalTask
+
+        #expect(world.state.takeOver(id) == record && record != nil)
+
+        let task = world.state.task(id: id)
+        #expect(task?.signalTask == nil && task?.takenOver == true)
+        #expect(world.state.project(id: world.project.id)?.collapsed == false)
+        #expect(world.state.operatorSession?.questions.map(\.id) == ["other", "workload"])
+        #expect(world.state.operatorSession?.pausedWorkers?.map(\.task) == [other])
+        #expect(world.state.task(id: other)?.signalTask != nil && world.state.task(id: other)?.takenOver == false)
+        let after = world.state
+        #expect(world.state.takeOver(id) == nil && world.state == after, "A task without a record is left as it is.")
+        _ = world.state.moveToArchive(taskId: other, branch: "work", at: now)
+        #expect(world.state.takeOver(other) == nil && world.state.archived(id: other)?.task.signalTask != nil, "An archived task is not taken over.")
+    }
+
+    @Test func theTakenOverMarkRoundTripsAndIsAbsentFromATaskWithout() throws {
+        var task = TaskItem.make(project: UUID(), branch: "work")
+        let plain = try JSONEncoder().encode(task)
+        #expect(!String(decoding: plain, as: UTF8.self).contains("takenOver"))
+        #expect(try JSONDecoder().decode(TaskItem.self, from: plain).takenOver == false)
+        task.takenOver = true
+        let marked = try JSONEncoder().encode(task)
+        #expect(try JSONValue(encoding: task)["takenOver"] == true)
+        #expect(try JSONDecoder().decode(TaskItem.self, from: marked) == task)
+    }
+
     @Test func unsupportedFinishAndUnknownRecordsStayInertAndCanBePersisted() throws {
         var s = signal(); s.finish = SignalFinish(doneWhen: .myReviewPosted)
         #expect(!s.isRunnable)
@@ -243,7 +295,7 @@ import Testing
         #expect(session.cached(key: "0", at: now.addingTimeInterval(8 * 86400)) == nil)
     }
 
-    @Test func blockResumeStopAndTakeoverRespectAuthority() throws {
+    @Test func blockResumeAndStopRespectAuthority() throws {
         let s = signal(), item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         var task = SignalTask(signal: s.id, item: item, startedAt: now)
         task = try SignalTransitions.apply(.block("Launch failed"), to: task, at: now)
@@ -253,8 +305,6 @@ import Testing
         task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
         task = try SignalTransitions.apply(.stop, to: task, at: now)
         #expect(task.phase == .stopped)
-        task = try SignalTransitions.apply(.takeOver, to: task, at: now)
-        #expect(task.takenOver && task.ownership == 2 && !task.needsWorkerReads)
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.resume, to: task, at: now) }
     }
 
@@ -281,7 +331,6 @@ import Testing
         #expect(chosen.choosableRows == nil && chosen.candidateProjects == nil)
         #expect(chosen.edges.suffix(2).map(\.to) == [.choosing, .launching])
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.chosen, to: chosen, at: now) }
-        #expect(try SignalTransitions.apply(.takeOver, to: task, at: now).takenOver)
         #expect(try SignalTransitions.apply(.stop, to: task, at: now).phase == .stopped)
     }
     @Test func theChoosingPhaseAndItsSparseFieldsRoundTripAndOldRecordsDecode() throws {

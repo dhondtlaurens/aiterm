@@ -240,7 +240,7 @@ final class ProjectActions {
 
     /// Whether the project has a task, review or terminal row, anything to fold.
     func hasRows(_ project: Project) -> Bool {
-        return state.tasks.contains(where: { $0.projectId == project.id && ($0.signalTask == nil || $0.signalTask?.takenOver == true) })
+        return state.tasks.contains(where: { $0.projectId == project.id && $0.signalTask == nil })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
@@ -274,7 +274,7 @@ final class ProjectActions {
         guard canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
         let tasks = state.tasks.filter { $0.projectId == project.id }
-        let held = tasks.filter { $0.signalTask.map { !$0.takenOver } == true && $0.hasCheckout }.count
+        let held = tasks.filter { $0.signalTask != nil && $0.hasCheckout }.count
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
             detail: Self.removalDetail(tasks: tasks.count, archived: state.archived(projectId: project.id), operatorWorktrees: held),

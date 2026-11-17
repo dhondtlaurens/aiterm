@@ -21,7 +21,7 @@ import AiTermUI
                 .frame(width: Size.sidebarWidth).environment(\.motionStill, .snapshot).surface(.sidebar)).fittingSize.height
         }
         let drivenHeight = height(driven, task)
-        controller.workspace.mutate { $0.updateSignalTask(id) { $0.takenOver = true } }
+        controller.workspace.mutate { $0.takeOver(id) }
         let ordinary = try #require(controller.rows.sections.flatMap(\.tasks).first { $0.id == id })
         #expect(drivenHeight == height(ordinary, try #require(controller.state.task(id: id))))
         #expect(drivenHeight == Size.row)
@@ -83,7 +83,7 @@ import AiTermUI
             if case .project(let section) = entry { return section.tasks }; return []
         }
         #expect(ordinary.isEmpty)
-        world.state.updateSignalTask(id) { $0.takenOver = true }
+        world.state.takeOver(id)
         let taken = SignalSidebar(state: world.state, entries: entries)
         #expect(taken.signals[0].tasks.isEmpty)
         let projectTasks: [UUID] = taken.projects.flatMap { entry -> [UUID] in

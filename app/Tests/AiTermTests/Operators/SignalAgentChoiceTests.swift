@@ -296,7 +296,7 @@ import Testing
         let pending = Task { try await rounds.decide(task: task, scope: .stage, rows: [SignalWorld.agent, Self.codex], projects: nil,
                                                      proposal: .init(row: Self.codex, project: nil, reason: "r"), challenge: nil) }
         await entered.wait()
-        r.h.workspace.mutate { $0.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1 } }
+        r.h.workspace.mutate { $0.takeOver(id) }
         release.signal()
         await #expect(throws: (any Error).self) { try await pending.value }
         #expect(r.launched.isEmpty)

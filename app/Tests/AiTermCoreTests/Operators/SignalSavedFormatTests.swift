@@ -17,6 +17,7 @@ import Testing
         #expect(loaded == state)
         #expect(loaded.tasks[0].signalTask?.pendingStages.count == 1)
         #expect(loaded.archive[0].task.signalTask?.phase == .archived)
+        #expect(loaded.tasks[1].takenOver && loaded.tasks[1].signalTask == nil && !loaded.tasks[0].takenOver)
         #expect(loaded.operatorSession?.generation == 2)
         #expect(loaded.operatorSession?.waitingOnYou == 1)
         #expect(loaded.operatorSession?.oracleRounds.count == 1)
@@ -66,6 +67,11 @@ import Testing
         archived.signalTask?.item = .ticket(site: "https://jira.example", key: "PAY-2")
         archived.signalTask?.phase = .archived; archived.signalTask?.pendingStages = []; archived.signalTask?.pendingReplies = nil
         archived.signalTask?.extraTabs = []; archived.signalTask?.thenApplied = true
+        // A task the person took over: an ordinary task of its project, its record gone and the mark on it.
+        var taken = TaskItem.make(id: id(8), project: project.id, title: "Tidy checkout", branch: "feat/pay-3",
+            worktreePath: "/synthetic/shop/.worktrees/pay-3", jira: JiraRef(key: "PAY-3", summary: "Tidy checkout", url: "https://jira.example/browse/PAY-3"),
+            model: claude.model, reasoning: claude.reasoning, firstPrompt: first.work.prompt, createdAt: at, windowId: nil)
+        taken.takenOver = true
         var session = OperatorSession(id: id(7), createdAt: at); session.generation = 2
         session.window = "operator-window"; session.session = "operator-session"; session.conversation = "operator-conversation"
         var question = OperatorSession.Question(id: "locale", task: task.id, text: "Which locale?", openedAt: at)
@@ -73,7 +79,7 @@ import Testing
         session.questions = [question]
         session.oracleRounds = [OracleRound(id: "round", tool: "answer_worker", askedAt: at, askedEvidence: "question-bound", round: 1)]
         session.remember(key: "tool:note:note", result: ["status": "recorded"], at: at, arguments: "{}")
-        var state = AppState(); state.append(project: project); state.signals = [first, next]; state.tasks = [task]
+        var state = AppState(); state.append(project: project); state.signals = [first, next]; state.tasks = [task, taken]
         state.archive = [ArchivedTask(task: archived, archivedAt: at)]; state.operatorSession = session
         state.signalSeen = [SignalSeen(signal: first.id, item: record.item, disposition: .started, at: at)]
         return state

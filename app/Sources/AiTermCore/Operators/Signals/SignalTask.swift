@@ -32,18 +32,16 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var thenApplied: Bool?
     public var operatorJudged: Bool?
     public var currentAct: String?
-    public var takenOver = false
     public var ownership = 0
     public var blockedReason: String?
     public var edges: [SignalEdge] = []
     public var journal: [TaskJournal.Entry] = []
     public init(signal: UUID, item: ItemRef, startedAt: Date) { self.signal = signal; self.item = item; self.startedAt = startedAt }
-    public var canRunThen: Bool { phase == .done && pendingStages.isEmpty && !takenOver }
-    public var needsWorkerReads: Bool { !takenOver && phase.isActive }
+    public var canRunThen: Bool { phase == .done && pendingStages.isEmpty }
+    public var needsWorkerReads: Bool { phase.isActive }
     /// Configured sources and retained completed tasks need no model session. Pending stages
     /// and Then's closeout still belong to the current workload, including while paused.
     public var keepsOperatorSession: Bool {
-        guard !takenOver else { return false }
         switch phase {
         case .launching, .choosing, .working, .watching, .blocked: return true
         case .done: return !pendingStages.isEmpty || thenApplied != true

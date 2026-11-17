@@ -20,7 +20,7 @@ import AiTermCore
         guard enabled(), workspace.canChangeWorkspace, !running else { return }
         running = true; defer { running = false }
         let targets = workspace.state.tasks.flatMap { task -> [PausedWorker] in
-            guard task.signalTask?.takenOver == false, task.signalTask?.phase == .working, paused(task) else { return [] }
+            guard task.signalTask?.phase == .working, paused(task) else { return [] }
             return task.workerTabs(in: live.sessions, now: now()).filter { $0.isStillAtWork && $0.session?.agent.agentKind != nil }
                 .map { PausedWorker(task: task.id, tab: $0.reference.name, ownership: task.signalTask!.ownership) }
         }
@@ -38,7 +38,7 @@ import AiTermCore
         }
         for target in workspace.state.operatorSession?.pausedWorkers ?? [] {
             guard enabled(), !Task.isCancelled else { return }
-            guard let task = workspace.state.task(id: target.task), task.signalTask?.takenOver == false,
+            guard let task = workspace.state.task(id: target.task),
                   task.signalTask?.ownership == target.ownership, task.signalTask?.phase == .working else { forget(target); continue }
             guard !paused(task) else { continue }
             do {

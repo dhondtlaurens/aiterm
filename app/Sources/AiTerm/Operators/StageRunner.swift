@@ -2,7 +2,7 @@ import Foundation
 import AiTermCore
 
 /// Persist stage and launch intents before effects. A stage never reaches a worker mid-turn and
-/// every await is followed by an ownership check, so Take Over invalidates late completions.
+/// every await is followed by an ownership check, so Take Over, which removes the record, invalidates late completions.
 @MainActor final class StageRunner {
     struct Ports {
         var workerIsWorking: @MainActor (UUID) -> Bool
@@ -87,7 +87,7 @@ import AiTermCore
             throw ActionUnavailable("This stage waits for its agent choice. Use choose_agent.")
         }
         guard !ports.workerIsWorking(id), !isStopped, workspace.canChangeWorkspace, workspace.state.operatorSession?.paused != true,
-              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask, !record.takenOver,
+              let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.canAct(in: workspace.state), let record = task.signalTask,
               record.phase == .blocked, let signal = record.configuration ?? workspace.state.signal(id: record.signal), signal.isRunnable else {
             throw ActionUnavailable("Only a blocked task of the Operator can be resumed.")
         }

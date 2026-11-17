@@ -570,14 +570,14 @@ import AiTermCore
             state.signalSeen = SignalSeen.pruned(state.signalSeen, liveItems: liveItems, now: at)
             state.operatorSession?.questions.removeAll { question in
                 guard question.resolvedAt != nil, question.workerQuestion != nil, let id = question.task else { return false }
-                guard let record = records[id], !record.takenOver else { return true }
+                guard let record = records[id] else { return true }
                 return question.stage != record.stage || question.ownership != record.ownership
             }
             state.operatorSession?.oracleRounds.removeAll { round in
                 guard ["answer_worker", AgentChoiceRounds.Scope.stage.rawValue, AgentChoiceRounds.Scope.tab.rawValue].contains(round.tool), let evidence = round.askedEvidence,
                       let binding = try? JSONDecoder().decode(JSONValue.self, from: Data(evidence.utf8)),
                       let id = binding["task"]?.stringValue.flatMap(UUID.init(uuidString:)) else { return false }
-                guard let record = records[id], !record.takenOver else { return true }
+                guard let record = records[id] else { return true }
                 return binding["stage"]?.intValue != record.stage || binding["ownership"]?.intValue != record.ownership
             }
             state.operatorSession?.prune(at: at)
@@ -716,40 +716,6 @@ import AiTermCore
         guard workspace.flush() else { return }
         await pause.reconcile()
         if !paused { await configure(refresh: Set(workspace.state.signals.filter(\.enabled).map(\.id))); await reconcile() }
-    }
-    func takeOver(_ id: UUID) async {
-        guard workspace.canChangeWorkspace, let task = workspace.state.task(id: id), let record = task.signalTask, !record.takenOver else { return }
-        await activity.during("releasing " + OperatorActivityTracker.name(task)) {
-            workspace.mutate { state in
-                state.updateSignalTask(id) { $0.takenOver = true; $0.ownership += 1; $0.currentAct = nil }
-                state.updateProject(id: task.projectId) { $0.collapsed = false }
-                state.operatorSession?.questions.removeAll { $0.task == id }
-                state.operatorSession?.pausedWorkers?.removeAll { $0.task == id }
-            }
-            guard workspace.flush() else { return }
-            let home = ports.home, executable = ports.workerGuardExecutable, slots = ["main"] + record.extraTabs.map(\.key), ownership = record.ownership + 1
-            var succeeded = true
-            do {
-                try await BackgroundWork.run {
-                    for slot in slots {
-                        if var scope = WorkerGuardLaunch.recordedScope(task: id, home: home, slot: slot) {
-                            scope.ownership = ownership
-                            _ = try WorkerGuardLaunch.prepare(scope: scope, home: home, slot: slot, executable: executable)
-                        }
-                    }
-                }
-            } catch {
-                succeeded = false
-                fail(.takeOver, "The task is yours, but its branch guard could not be refreshed: " + OperationIssue.reason(of: error))
-            }
-            do { try await journal.append(.ours("The person took over this task."), task: id) }
-            catch {
-                succeeded = false
-                fail(.takeOver, "The task is yours, but its journal entry could not be saved: " + OperationIssue.reason(of: error))
-            }
-            if succeeded { succeed(.takeOver) }
-            changed()
-        }
     }
     /// The Operator's chat opened, even while paused, when its row is chosen without a window; with no
     /// work there is nothing to open. Throws when it is still without one, with the session's issue as

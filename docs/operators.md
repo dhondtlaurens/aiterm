@@ -124,18 +124,19 @@ has **Switch Off** and **Switch On (starts n)**; switching it off pauses only it
 polling. Removing a signal leaves its existing tasks running with their saved instructions under
 a heading explaining that the source was removed.
 
-**Take Over** on a driven task moves it to its project and withdraws the Operator's authority and
-questions for it. Its worktree, branch and conversations stay. There is no Hand Back.
-Clicking it opens its window. If its worker never started, AiTerm creates or adopts its worktree
-and opens a shell; a merge-request task checks out the request's source branch. Saved conversations
-resume with their branch guards, without repeating the Signal's work instruction.
+**Take Over** on a driven task makes it an ordinary task in its project. The Operator lets go of it
+and of its questions, and later signals never continue it. Its worktree, branch and conversations
+stay; a worker still running finishes its turn under its branch guard. If its worker never started,
+Take Over makes its worktree first; a merge-request task checks out the request's source branch. From
+then on it opens, archives, restores and removes like any task, and its conversations resume without
+a branch guard. There is no Hand Back.
 
 The Operator row says **needs you** only while something needs you: its own chat waits on you (a
 permission prompt, or **waiting on you · n** for questions), or AiTerm cannot reach it. AiTerm
 tracks each of its own failures by source (waking the Operator, answering its calls, its activity
-log, its session, Take Over) and clears each when that same source next succeeds. A failure AiTerm
-retries by itself shows only after three failed attempts in a row; one from something you clicked
-shows at once until that action succeeds. Hover the row for the source and reason. Every failure
+log, its session) and clears each when that same source next succeeds. AiTerm retries each by
+itself, so a failure shows only after three failed attempts in a row. Hover the row for the source
+and reason. Every failure
 and recovery is written to the Operator's activity log with its time and source, except a failure
 to write the log itself: only its recovery is written.
 `run_status` lists the current ones under `appIssues`, so you can ask the Operator why. A wake held
@@ -151,8 +152,9 @@ two-line layout and badges under projects and signals. Reduce Motion uses a plai
 AiTerm keeps task journals, stages, questions, pending replies and source failures locally. The
 Operator reads status rather than relying on chat memory. Choosing, launching, working, watching
 for a done condition and blocked tasks keep the same chat, as do pending stages and outstanding
-closeout. Completed, archived, stopped or taken-over tasks do not keep it after their remaining work
-finishes. Questions from completed or superseded stages no longer ask for attention.
+closeout. Completed, archived or stopped tasks do not keep it after their remaining work finishes, and
+tasks you took over are no longer the Operator's. Questions from completed or superseded stages no
+longer ask for attention.
 
 Once no work remains, AiTerm waits for tools, deliveries and Oracle jobs, then closes the chat before
 revoking its token. A refused close leaves the current chat and its tools usable. A new match during

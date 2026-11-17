@@ -194,9 +194,8 @@ import Testing
         var task = sidebar.tasks[0]
         task.windowId = "header-worker"
         task.signalTask = SignalTask(signal: signal, item: world.ticket().item, startedAt: Date())
-        task.signalTask?.takenOver = true
         let session = SessionInfo.make("header-worker", window: "header-worker", task: task.id)
-        sidebar.controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks[0] = task }
+        sidebar.controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks[0] = task; $0.takeOver(task.id) }
         sidebar.controller.live.sessions = [session]
         // OPERATOR folded by default, so the rows are the projects' as before.
         sidebar.settleRows { sidebar.list.numberOfRows == 13 }

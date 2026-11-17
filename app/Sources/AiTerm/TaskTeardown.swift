@@ -297,8 +297,7 @@ final class TaskTeardown: CheckoutRemovals {
             guard let current = workspace.state.task(id: task.id), current.projectId == task.projectId,
                   current.worktreePath == task.worktreePath, current.branch == task.branch, current.baseBranch == task.baseBranch,
                   current.windowId == task.windowId, current.kind == task.kind,
-                  current.signalTask?.stage == task.signalTask?.stage, current.signalTask?.ownership == task.signalTask?.ownership,
-                  current.signalTask?.takenOver == task.signalTask?.takenOver else {
+                  current.signalTask?.stage == task.signalTask?.stage, current.signalTask?.ownership == task.signalTask?.ownership else {
                 throw ActionUnavailable("The task changed while its worktree was checked.")
             }
             guard stillAllowed() else { throw ActionUnavailable("Its finished record couldn’t be saved, so nothing was removed.") }

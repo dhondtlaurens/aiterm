@@ -13,11 +13,11 @@ final class RowWindows {
     private let work: WorkInFlight
     private let live: LiveSessions
     private let checkouts: CheckoutMonitor
-    /// Opens a task's window, a manual or driven one's (`TaskLauncher.open`) and a taken-over one's.
+    /// Opens a task's window, a manual or driven one's (`TaskLauncher.open`).
     private let launcher: TaskLauncher
     /// Opens a terminal's window: the one primitive a new terminal and a chosen row share.
     private let terminals: TerminalActions
-    /// Opens the Operator's chat, and resumes a taken-over task's conversations under their guards.
+    /// Opens the Operator's chat.
     private let signalController: SignalOperatorController
     private let notices: Notices
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -129,13 +129,12 @@ final class RowWindows {
     }
 
     /// Opens a chosen row's window with the opener its kind needs: a task's, manual or driven, in its
-    /// worktree with what its owner resumes (`TaskLauncher.open`), a taken-over task's through the
-    /// launcher's taken-over opener, a terminal's as a fresh shell in its project's folder, and the
-    /// Operator's chat through its controller. A second choose joins the open under way. Nil when
-    /// nothing opens now: the row has a window, is gone, busy, a driven task not started yet, its
-    /// worktree reads missing, the Operator has nothing to do, or no helper is there. With iTerm2 away
-    /// it is started, whatever window the row last had (one iTerm2 lost by crashing is reported gone
-    /// only once it is back), and the row is handed to `onPendingOpen` once it is synced.
+    /// worktree with what its owner resumes (`TaskLauncher.open`), a terminal's as a fresh shell in its
+    /// project's folder, and the Operator's chat through its controller. A second choose joins the open
+    /// under way. Nil when nothing opens now: the row has a window, is gone, busy, a driven task not
+    /// started yet, its worktree reads missing, the Operator has nothing to do, or no helper is there.
+    /// With iTerm2 away it is started, whatever window the row last had (one iTerm2 lost by crashing is
+    /// reported gone only once it is back), and the row is handed to `onPendingOpen` once it is synced.
     @discardableResult
     func open(_ row: WindowRow) -> Task<Void, Never>? {
         if let running = opening[row] { return running }
@@ -165,14 +164,8 @@ final class RowWindows {
         switch row {
         case .task(let id):
             guard let task = state.task(id: id), !checkouts.isMissing(id) else { return nil }
-            if let record = task.signalTask {
-                if record.takenOver {
-                    let opening = launcher.openTakenOverWindow(id, resume: signalController.native.takenOverResumeCommands)
-                    return run(row) { await opening.value }
-                }
-                // Nothing to open yet: the Operator has not made its checkout.
-                guard record.phase != .launching || task.hasCheckout else { return nil }
-            }
+            // Nothing to open yet: the Operator has not made its checkout.
+            if task.signalTask?.phase == .launching, !task.hasCheckout { return nil }
             guard work.operation(onTask: id) == nil else { return nil }
             return run(row) { [launcher, notices] in
                 do { try await launcher.open(id) }
