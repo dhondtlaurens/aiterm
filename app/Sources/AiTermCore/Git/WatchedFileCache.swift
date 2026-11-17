@@ -1,7 +1,7 @@
 import Foundation
 import Synchronization
 
-/// The cache behind ``BranchResolver``, ``RemoteResolver`` and ``DefaultBranchResolver``, cheap
+/// The cache behind ``BranchResolver`` and ``RemoteResolver``, cheap
 /// enough to be asked for every tab and every project on every refresh pass.
 ///
 /// A directory is resolved once and then re-validated by `stat`ing the files git itself rewrites —

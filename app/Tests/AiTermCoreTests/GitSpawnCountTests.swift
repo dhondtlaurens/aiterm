@@ -42,7 +42,7 @@ import Testing
     private struct Passes {
         let clock = TestClock()
         let workspace: Workspace
-        let branches: BranchResolver, remotes: RemoteResolver, diffs: DiffStatResolver, defaults: DefaultBranchResolver
+        let branches: BranchResolver, remotes: RemoteResolver, diffs: DiffStatResolver
 
         let stalls: StallGuardedGit
 
@@ -57,13 +57,12 @@ import Testing
             branches = BranchResolver(git: guarded, now: now, probe: probe)
             remotes = RemoteResolver(git: guarded, now: now, probe: probe)
             diffs = DiffStatResolver(git: guarded, now: now, ttl: 5)
-            defaults = DefaultBranchResolver(git: guarded, now: now, probe: probe)
         }
 
         func pass() -> WorkspaceScan {
             stalls.scope(projects: workspace.projects, tasks: workspace.tasks)
             return WorkspaceScan.run(cwds: workspace.cwds, projects: workspace.projects, tasks: workspace.tasks,
-                              branches: branches, remotes: remotes, diffs: diffs, defaultBranches: defaults)
+                              branches: branches, remotes: remotes, diffs: diffs)
         }
     }
 
@@ -72,18 +71,18 @@ import Testing
     }
 
     /// 9 `rev-parse` to find the files of the 8 checkouts and the folder that is not one, 4 to read the
-    /// remotes, 2 for the default branches, and 5 a task: where its base is (`rev-parse`, 2 `merge-base`),
+    /// remotes, and 5 a task: where its base is (`rev-parse`, 2 `merge-base`),
     /// then the diff and the untracked listing.
     @Test func theFirstPassSpawnsWhatEachDirectoryNeedsOnce() throws {
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let passes = Passes(try makeWorkspace(), runner: recording)
         let scan = passes.pass()
         #expect(scan.diffByTask.count == 6 && scan.diffByTask.values.allSatisfy { $0 == DiffStat(added: 2, removed: 0) })
-        #expect(scan.remotes.count == 2 && scan.defaultBranch.count == 2)
+        #expect(scan.remotes.count == 2)
         let spawned = commands(recording, since: 0)
-        #expect(spawned.count == 45, "\(spawned)")
+        #expect(spawned.count == 43, "\(spawned)")
         #expect(spawned.filter { $0 == "rev-parse --path-format=absolute" }.count == 9)
-        #expect(spawned.filter { $0 == "for-each-ref --format=%(refname) %(symref)" }.count == 2)
+        #expect(spawned.filter { $0 == "for-each-ref --format=%(refname) %(symref)" }.isEmpty)
     }
 
     /// The monitor ticks every two seconds and the diffs last five: most passes spawn nothing, and
@@ -106,7 +105,7 @@ import Testing
     }
 
     /// A folder that is not a repository, in every project's place and again every thirty seconds,
-    /// cost three `rev-parse` each time, one per resolver.
+    /// costs one `rev-parse` each time, shared by both resolvers.
     @Test func aProjectThatIsNotARepositoryCostsOneSpawnPerNegativeWindow() throws {
         let folder = try GitFixture.folder("not-a-repo-")
         let project = Project.make(name: "gone", path: folder, addedAt: Date())
@@ -194,7 +193,7 @@ import Testing
         let during = passes.pass()
         #expect(hung.timeouts == 1)
         #expect(during.diffByTask == before.diffByTask, "the diffs stand")
-        #expect(during.projectBranch == before.projectBranch && during.defaultBranch == before.defaultBranch)
+        #expect(during.projectBranch == before.projectBranch)
         #expect(during.remotes == before.remotes)
         hung.hanging = false
         passes.clock.advance(by: TimedOut.backoff)

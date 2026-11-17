@@ -40,8 +40,7 @@ struct RaceFixture {
                                    activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
                                    bringForward: bringForward, checkoutPollInterval: checkoutPollInterval, now: now,
                                    git: controllerGit ?? GitRunner.hermetic(), scan: scan ?? {
-                                       WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
-                                                         defaultBranches: $6)
+                                       WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
                                    }, confirmsRemoval: confirmsRemoval)
         try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }

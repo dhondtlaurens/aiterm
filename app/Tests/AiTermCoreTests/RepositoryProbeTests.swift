@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The one `rev-parse` that names the files the three resolvers watch.
+/// The one `rev-parse` that names the files the two resolvers watch.
 @Suite(.blocking) struct RepositoryProbeTests {
     private let git = GitRunner.hermetic()
 
@@ -15,17 +15,17 @@ import Testing
     }
 
     private func probes(_ runner: RecordingGitRunner) -> Int {
-        runner.calls.filter { $0.args.contains("--git-common-dir") }.count
+        runner.calls.filter { $0.args.contains("--git-path") }.count
     }
 
     @Test func namesTheFilesOfAnOrdinaryCheckout() throws {
         let repo = try GitFixture.makeRepo(prefix: "probe-", git: git)
         let found = try #require(try RepositoryProbe(git: git).locations(of: repo)), root = real(repo)
         #expect(found == RepositoryProbe.Locations(head: root + "/.git/HEAD",
-                                                   config: root + "/.git/config", commonDirectory: root + "/.git"))
+                                                   config: root + "/.git/config"))
     }
 
-    /// From a linked worktree `HEAD` is its own, and the config and refs the repository's.
+    /// From a linked worktree `HEAD` is its own, and the config the repository's.
     @Test func namesTheFilesOfALinkedWorktree() throws {
         let repo = try GitFixture.makeRepo(prefix: "probe-", git: git)
         let worktree = repo + "/.worktrees/feat"
@@ -33,12 +33,10 @@ import Testing
         let found = try #require(try RepositoryProbe(git: git).locations(of: worktree)), root = real(repo)
         #expect(found.head == root + "/.git/worktrees/feat/HEAD")
         #expect(found.config == root + "/.git/config")
-        #expect(found.commonDirectory == root + "/.git")
     }
 
-    /// The three resolvers asking about one project spawn one `rev-parse` between them where each
-    /// used to spawn its own, and the answers are the ones they gave.
-    @Test func theThreeResolversShareOneSpawn() throws {
+    /// Both resolvers share one `rev-parse` for a project without changing their answers.
+    @Test func theTwoResolversShareOneSpawn() throws {
         let repo = try GitFixture.makeRepo(prefix: "probe-", git: git)
         try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
         func spawns(shared: Bool) -> Int {
@@ -46,25 +44,22 @@ import Testing
             let probe = shared ? RepositoryProbe(git: recording) : nil
             #expect(BranchResolver(git: recording, probe: probe).branch(for: repo) == "main")
             #expect(RemoteResolver(git: recording, probe: probe).remote(for: repo) == .remote("git@example.com:app.git"))
-            #expect(DefaultBranchResolver(git: recording, probe: probe).defaultBranch(for: repo) == "main")
             return probes(recording)
         }
-        #expect(spawns(shared: false) == 3)
+        #expect(spawns(shared: false) == 2)
         #expect(spawns(shared: true) == 1)
     }
 
-    /// A folder that is not a repository costs one spawn for all three, and again once the negative
-    /// window is over — not three each time.
-    @Test func aFolderThatIsNotARepositoryIsProbedOnceForAllThree() throws {
+    /// A folder that is not a repository costs one spawn for both, and again once the negative
+    /// window is over — not two each time.
+    @Test func aFolderThatIsNotARepositoryIsProbedOnceForBoth() throws {
         let folder = try GitFixture.folder("probe-none-"), clock = TestClock()
         let recording = RecordingGitRunner(forwardingTo: .hermetic()), now: @Sendable () -> Date = { clock.now }
         let probe = RepositoryProbe(git: recording, now: now)
         let branches = BranchResolver(git: recording, now: now, probe: probe), remotes = RemoteResolver(git: recording, now: now, probe: probe)
-        let defaults = DefaultBranchResolver(git: recording, now: now, probe: probe)
         func ask() {
             #expect(branches.branch(for: folder) == nil)
             #expect(remotes.remote(for: folder) == .notARepository)
-            #expect(defaults.defaultBranch(for: folder) == nil)
         }
         ask(); ask()
         #expect(probes(recording) == 1)

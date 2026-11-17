@@ -32,8 +32,6 @@ final class CheckoutMonitor {
     /// Each task's checkout against its base, for the VS Code badge. Measured by the same pass as
     /// the branches, but at most every few seconds per worktree (``DiffStatResolver``).
     private(set) var diffByTask: [UUID: DiffStat] = [:]
-    /// Each project's default branch, which the menu's "Pull main" names.
-    private(set) var defaultBranch: [UUID: String] = [:]
     /// The pass in flight, if any; tests await it, or check that nothing started one.
     @ObservationIgnored private(set) var refreshTask: Task<Void, Never>?
     /// The title sync in flight, if any; tests await it. A pass hands its titles to it rather than
@@ -51,18 +49,16 @@ final class CheckoutMonitor {
     @ObservationIgnored private var sessionGate = WorkspaceScan.SessionGate()
     @ObservationIgnored private var monitor: PollLoop?
 
-    /// What a pass runs off the main actor: ``WorkspaceScan/run(cwds:projects:tasks:branches:remotes:diffs:defaultBranches:)``,
+    /// What a pass runs off the main actor: ``WorkspaceScan/run(cwds:projects:tasks:branches:remotes:diffs:)``,
     /// except in the tests that count passes.
     typealias Scanner = @Sendable (_ cwds: [String], _ projects: [Project], _ tasks: [TaskItem],
-                                   _ branches: BranchResolver, _ remotes: RemoteResolver, _ diffs: DiffStatResolver,
-                                   _ defaultBranches: DefaultBranchResolver) -> WorkspaceScan
+                                   _ branches: BranchResolver, _ remotes: RemoteResolver, _ diffs: DiffStatResolver) -> WorkspaceScan
     private let scan: Scanner
     /// The pause between one pass ending and the next starting.
     private let pollInterval: Duration
     private let branches: BranchResolver
     private let remotes: RemoteResolver
     private let diffs: DiffStatResolver
-    private let defaultBranches: DefaultBranchResolver
     private let stalls: StallGuardedGit
     private let live: LiveSessions
     /// The saved workspace a pass reads, and where what it finds for that workspace goes: remotes
@@ -81,11 +77,11 @@ final class CheckoutMonitor {
         self.scan = scan
         self.pollInterval = pollInterval
         // A pass runs git through a guard that gives up on a project once one of its commands times out.
-        // One probe for the three resolvers, so a directory's files are looked up once, not once each.
+        // One probe for the two resolvers, so a directory's files are looked up once, not once each.
         let guarded = StallGuardedGit(git), probe = RepositoryProbe(git: guarded)
         stalls = guarded
         branches = BranchResolver(git: guarded, probe: probe); remotes = RemoteResolver(git: guarded, probe: probe)
-        diffs = DiffStatResolver(git: guarded); defaultBranches = DefaultBranchResolver(git: guarded, probe: probe)
+        diffs = DiffStatResolver(git: guarded)
         self.workspace = workspace
         missingRows = PerRow(default: false, workspace: workspace)
         self.onTitles = onTitles
@@ -173,11 +169,10 @@ final class CheckoutMonitor {
                 trailingPassOwed = false
                 let inputs = ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd))
                 let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scanner = self.scan
-                let defaultBranches = self.defaultBranches
                 stalls.scope(projects: inputs.projects, tasks: inputs.tasks)
                 // A poll no one is waiting on: it yields to what the person asked for.
                 let scan = await BackgroundWork.run(priority: .utility) {
-                    scanner(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
+                    scanner(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs)
                 }
                 guard !Task.isCancelled else { return }
                 // Read again only when what the scan read moved; another change to a row leaves its answer as it was.
@@ -224,7 +219,6 @@ final class CheckoutMonitor {
     @discardableResult
     private func applyScan(_ scan: WorkspaceScan) -> Bool {
         if missingCheckouts != scan.missingCheckouts { missingCheckouts = scan.missingCheckouts }
-        if defaultBranch != scan.defaultBranch { defaultBranch = scan.defaultBranch }
         var moved = false
         if branchByCwd != scan.branchByCwd { branchByCwd = scan.branchByCwd; moved = true }
         if projectBranch != scan.projectBranch { projectBranch = scan.projectBranch; moved = true }

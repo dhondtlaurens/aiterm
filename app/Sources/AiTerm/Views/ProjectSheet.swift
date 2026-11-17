@@ -21,8 +21,10 @@ struct ProjectSheet: View {
                     Text(model.preparation.project.path).font(Typography.monoCode)
                         .lineLimit(1).truncationMode(.middle).layoutPriority(-1)
                         .help(model.preparation.project.path)
-                    Text("· " + providerName).font(Typography.caption)
-                    if let branch = model.preparation.defaultBranch { Text("· " + branch).font(Typography.monoCode) }
+                    if let branch = model.preparation.defaultBranch {
+                        Text("· " + providerName).font(Typography.caption)
+                        Text("· " + branch).font(Typography.monoCode)
+                    }
                 }.foregroundStyle(Palette.muted)
             }
         } content: {
@@ -63,6 +65,7 @@ struct ProjectSheet: View {
         }
         .interactiveDismissDisabled(model.saving)
         .task { await model.loadProjects() }
+        .task { await model.loadDefaultBranchName() }
         .task(id: model.folder) {
             do { try await Task.sleep(for: .milliseconds(250)); await model.inspectFolder() } catch {}
         }

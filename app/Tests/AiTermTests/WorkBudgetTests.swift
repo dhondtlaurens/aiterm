@@ -20,7 +20,7 @@ enum Budget {
     /// reads, prompt probes, branch and review passes, wake lines, launches, and the work those started.
 
     /// A checkout monitor's scan that reads nothing: no git runs, and no branch or diff moves.
-    static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _, _ in
+    static let noScan: CheckoutMonitor.Scanner = { _, _, _, _, _, _ in
         WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
     }
 

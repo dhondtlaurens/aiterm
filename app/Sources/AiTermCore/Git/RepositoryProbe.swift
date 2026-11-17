@@ -1,11 +1,8 @@
 import Foundation
 
 /// Where git keeps the files a checkout's answers are read from, asked once for a directory and
-/// shared by ``BranchResolver``, ``RemoteResolver`` and ``DefaultBranchResolver``.
-///
-/// Each of them watches a different file — `HEAD`, `config`, the refs — and used to find it with a
-/// `git rev-parse` of its own, so a project's directory cost three spawns on a cold pass, and again
-/// every `negativeTTL` seconds for a folder that is not a repository. One `rev-parse` names them all.
+/// shared by ``BranchResolver`` and ``RemoteResolver``. Each watches a different file, `HEAD`
+/// or `config`; one `rev-parse` names both.
 ///
 /// The paths do not change while the repository exists, so an answer is kept for as long as its
 /// `HEAD` and `config` do, and a directory that is not a repository for `negativeTTL` seconds. A
@@ -15,7 +12,7 @@ import Foundation
 public final class RepositoryProbe: Sendable {
     /// The files, absolute. `head` is the `HEAD` of the checkout asked about.
     struct Locations: Equatable, Sendable {
-        let head: String, config: String, commonDirectory: String
+        let head: String, config: String
 
         /// Whether the repository is still where it was: its `HEAD` and `config` exist.
         var exist: Bool {
@@ -52,13 +49,13 @@ public final class RepositoryProbe: Sendable {
 
     private func probe(_ directory: String) throws -> Locations? {
         let names = ["HEAD", "config"]
-        let args = ["rev-parse", "--path-format=absolute", "--git-common-dir"] + names.flatMap { ["--git-path", $0] }
+        let args = ["rev-parse", "--path-format=absolute"] + names.flatMap { ["--git-path", $0] }
         // 128 is git's `fatal: not a git repository`.
         guard let answer = try git.ask(args, in: directory, none: [128]), !answer.isEmpty else { return nil }
         let lines = answer.split(separator: "\n").map(String.init)
-        guard lines.count == names.count + 1 else {
-            throw GitError(args: args, code: 0, stderr: "git answered \(lines.count) lines to \(names.count + 1) questions")
+        guard lines.count == names.count else {
+            throw GitError(args: args, code: 0, stderr: "git answered \(lines.count) lines to \(names.count) questions")
         }
-        return Locations(head: lines[1], config: lines[2], commonDirectory: lines[0])
+        return Locations(head: lines[0], config: lines[1])
     }
 }

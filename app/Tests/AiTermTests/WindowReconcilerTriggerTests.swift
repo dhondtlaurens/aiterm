@@ -24,7 +24,7 @@ import Synchronization
 
     /// The checkout monitor reads the task's worktree missing while `missing` holds, and back once it does not.
     static func scan(_ missing: Missing) -> CheckoutMonitor.Scanner {
-        { _, _, tasks, _, _, _, _ in
+        { _, _, tasks, _, _, _ in
             WorkspaceScan(branchByCwd: [:], projectBranch: [:],
                           missingCheckouts: missing.value ? Set(tasks.filter(\.hasCheckout).map(\.id)) : [],
                           removedTasks: [], remotes: [:])

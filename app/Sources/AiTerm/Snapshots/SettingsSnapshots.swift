@@ -46,7 +46,7 @@ enum SettingsSnapshots {
         project.path = "/Users/sam/Sites/acme-storefront"
         let preparation = ProjectPreparation(project: project,
             worktrees: [Worktree(path: project.path + "/.worktrees/topic", branch: "feat/topic", lockReason: Worktree.taskLockReason)], defaultBranch: "main")
-        let model = ProjectSheetModel(preparation: preparation, editing: editing, canChange: { true }, inspect: { _ in preparation },
+        let model = ProjectSheetModel(preparation: preparation, editing: editing, git: Fixture.git, canChange: { true }, inspect: { _ in preparation },
                                      chooseFolder: { nil }, loadProjects: { jiraProjects }, commit: { _, _, _ in })
         model.seedProjects(jiraProjects)
         return ProjectSheet(model: model).seeded(open: open)

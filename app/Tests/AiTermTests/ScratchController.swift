@@ -66,7 +66,7 @@ extension AppController {
                      closedWindowHold: Duration = .zero, now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
                      git: any GitRunning = GitRunner.hermetic(),
                      scan: @escaping CheckoutMonitor.Scanner = {
-                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
+                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
                      },
                      confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
                      operatorPorts: OperatorPorts? = nil,

@@ -510,7 +510,7 @@ extension AppController {
                      backpackPorts: BackpackPorts = .live(),
                      machineSensor: any MachineSensor = LiveMachineSensor(),
                      scan: @escaping CheckoutMonitor.Scanner = {
-                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
+                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
                      }) -> AppController {
         // git with the login shell's PATH, so the hooks it runs (a lefthook pre-push) find Homebrew's node.
         let git = GitRunner(searchPath: { LoginShellLocator.shared.knownPath })

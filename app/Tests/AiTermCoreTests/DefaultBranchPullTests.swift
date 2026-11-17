@@ -24,6 +24,22 @@ import Darwin
     }
     deinit { for root in roots { try? FileManager.default.removeItem(atPath: root) } }
 
+    @Test func namesOriginsDefaultBranch() throws {
+        var roots: [String] = []
+        defer { for root in roots { try? FileManager.default.removeItem(atPath: root) } }
+        let checkout = try Self.clones(defaultBranch: "develop", git: git, into: &roots).other
+        #expect(try Repository(checkout, git: git).detectDefaultBranch() == "develop")
+    }
+
+    @Test func resolvesALinkedWorktreeToTheRepositorysDefault() throws {
+        var roots: [String] = []
+        defer { for root in roots { try? FileManager.default.removeItem(atPath: root) } }
+        let checkout = try Self.clones(defaultBranch: "develop", git: git, into: &roots).other
+        let worktree = checkout + "/.worktrees/feat"
+        try git.run(["worktree", "add", "-q", "-b", "feat/y", worktree], in: checkout)
+        #expect(try Repository(worktree, git: git).detectDefaultBranch() == "develop")
+    }
+
     @Test func testFastForwardsTheBranchWhereItIsCheckedOut() throws {
         try push(2, from: other)
         #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 2))

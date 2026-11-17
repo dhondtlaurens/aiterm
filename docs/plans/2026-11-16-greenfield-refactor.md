@@ -288,7 +288,7 @@ TS tests-scripts.
 - [x] 2a. **Codex.** Git: the per-key timeout back-off in the three resolvers (the project-level
   stall guard and "never store a failure" stay), reftable handling, the abandoned rebase scratch
   cleanup, the `.worktrees` symlink refusal (CG F4, F6, F9).
-- [ ] 2b. **Codex.** The default branch is asked from git when it is needed (when a project's
+- [x] 2b. **Codex.** The default branch is asked from git when it is needed (when a project's
   heading appears, after a pull, when a sheet opens); `DefaultBranchResolver`, its map and its
   poll go (CG F5).
 - [ ] 2c. **Codex.** The checkout cleanup trusts the scan's confirmation; the second disk check,
@@ -758,3 +758,15 @@ left.
   `WorktreesTests.testRefusesSymlinkedWorktreesDir` and
   `DefaultBranchPullTests.testRemovesTheCheckoutOfARebaseThatNeverFinished` (the brief did not
   list the last two; they tested the deleted behaviour).
+- 2b: `DefaultBranchResolver`, the scan's default-branch map and its poll went; `RepositoryProbe`
+  no longer asks for the common directory. `ProjectActions` reads a project's default branch when
+  its heading row appears and after each pull or rebase (a failed read leaves the last name), and
+  the Edit Project sheet reads it when it opens (the header shows the folder alone until git
+  answers: the accepted visible change). `GitSpawnCountTests` first pass: 45 to 43 spawns, no
+  default-branch query per pass (2i turns the numbers into ceilings). Tests deleted with the cache:
+  six `DefaultBranchResolverTests` (failure handling survives in the new `DefaultBranchNameTests`;
+  `namesOriginsDefaultBranch` and `resolvesALinkedWorktreeToTheRepositorysDefault` moved to
+  `DefaultBranchPullTests`), `UnbornRepositoryTests.theCachedDefaultFollowsAnUnbornBranchRename`
+  (survivor `theUnbornBranchIsOfferedAsTheBase`); `TaskCreatorTests.aDraftTakesTheDefaultBranchItIsGivenWithoutAskingGit`
+  is now `aDraftAsksGitForTheDefaultBranch`. Added `DefaultBranchNameTests`. A worker guard test
+  named `defaultBranches...` was renamed `defaultBranchNames...` (behaviour unchanged).

@@ -166,11 +166,10 @@ import Synchronization
     /// monitor reads it: the row waits for the monitor, whose pass then says the worktree is missing.
     @Test func aWorktreeFoundGoneIsLookedForOnceUntilTheMonitorReadsIt() async throws {
         let read = Mutex(false)
-        let fixture = try await RaceFixture(scan: { cwds, projects, tasks, branches, remotes, diffs, defaultBranches in
+        let fixture = try await RaceFixture(scan: { cwds, projects, tasks, branches, remotes, diffs in
             // Until `read`, a pass that has not seen the worktree go.
             read.withLock { $0 }
-                ? WorkspaceScan.run(cwds: cwds, projects: projects, tasks: tasks, branches: branches, remotes: remotes, diffs: diffs,
-                                    defaultBranches: defaultBranches)
+                ? WorkspaceScan.run(cwds: cwds, projects: projects, tasks: tasks, branches: branches, remotes: remotes, diffs: diffs)
                 : WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
         })
         let server = RecordingDaemon()

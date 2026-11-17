@@ -133,7 +133,7 @@ struct Fixture {
         let store = StateStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-snapshots-\(UUID().uuidString).json"))
         return AppController.live(store: store, preferences: preferences, harnessHome: home, claudeConfig: ClaudeConfig(), locateAgents: { nil },
                                   setBadge: { _ in }, activateIterm: {}, backpackPorts: .inert,
-                                  machineSensor: InertMachineSensor(), scan: { _, _, _, _, _, _, _ in scan })
+                                  machineSensor: InertMachineSensor(), scan: { _, _, _, _, _, _ in scan })
     }
 
     /// `SessionInfo`'s memberwise initialiser is internal to AiTermCore, so the fixtures come in
