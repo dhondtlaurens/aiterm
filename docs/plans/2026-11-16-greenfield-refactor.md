@@ -1023,3 +1023,8 @@ left.
   (21 seconds, no reason printed; the expectation now carries the banner's reason as its message);
   the next runs, including the orchestrator's, were green. Left: a fork found during the stage's read
   after a Take Over gives no banner (two unlikely things at once).
+- Review round 2: the same race with a failing request read (HTTP error, timeout) still left the
+  taken-over task with no checkout and no banner. Fixed by the 4e implementer: a checkout that fails
+  after its task was taken over meanwhile reports "The task is yours, but its worktree couldn’t be
+  made." on the task, once, in `checkOutWorker` (this also covers a fork found during that read). The
+  round-1 test runs for a 200 and a 500 answer (`readFails:`).

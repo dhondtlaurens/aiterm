@@ -224,6 +224,7 @@ final class TaskLauncher {
     /// (`AppState.takeOver`) has it made all the same, as Take Over leaves this checkout to finish, and once
     /// git has made it, it is saved on the task while it is still on the same project and branch without a
     /// checkout, even when `stillAllowed` then says no. Only then is that refusal thrown. Callers save nothing.
+    /// A failure after the person took the task over meanwhile is said on the task here, as its caller has lost it.
     func checkOutWorker(_ task: TaskItem, stillAllowed: @escaping @MainActor () -> Bool) async throws
         -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
         func check() throws {
@@ -240,39 +241,55 @@ final class TaskLauncher {
             work.end(token)
             if let projectToken { work.end(projectToken) }
         }
-        let made: TaskCreator.Made
-        if task.mr != nil {
-            let links = await connections()
-            try check()
-            let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl),
-                                                           gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
-            guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
-                throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
+        // Made and saved: everything that can fail before the worktree is the task's.
+        func make() async throws -> (task: TaskItem, includes: WorktreeInclude.Outcome) {
+            let made: TaskCreator.Made
+            if task.mr != nil {
+                let links = await connections()
+                try check()
+                let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl),
+                                                               gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
+                guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
+                    throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
+                }
+                try check()
+                made = try await workflow.checkOutRequest(task, project: project, source: request.sourceBranch, target: request.targetBranch,
+                                                          reserved: state.reservedWorktreeSlugs(projectId: project.id))
+            } else {
+                let git = git, path = project.path
+                let start = await BackgroundWork.run { Repository(path, git: git).defaultBranch() }
+                try check()
+                made = try await workflow.checkOutWorker(task, project: project, start: start,
+                                                         reserved: state.reservedWorktreeSlugs(projectId: project.id)).made
             }
-            try check()
-            made = try await workflow.checkOutRequest(task, project: project, source: request.sourceBranch, target: request.targetBranch,
-                                                      reserved: state.reservedWorktreeSlugs(projectId: project.id))
-        } else {
-            let git = git, path = project.path
-            let start = await BackgroundWork.run { Repository(path, git: git).defaultBranch() }
-            try check()
-            made = try await workflow.checkOutWorker(task, project: project, start: start,
-                                                     reserved: state.reservedWorktreeSlugs(projectId: project.id)).made
+            guard canChangeWorkspace, let current = state.task(id: task.id), current.projectId == task.projectId,
+                  current.branch == task.branch, !current.hasCheckout else {
+                throw ActionUnavailable("The task changed while its worktree was made.")
+            }
+            workspace.mutate { state in
+                guard let index = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
+                state.tasks[index].worktreePath = made.task.worktreePath
+                state.tasks[index].baseBranch = made.task.baseBranch
+            }
+            guard workspace.flush(), let saved = state.task(id: task.id) else {
+                throw ActionUnavailable("The checkout could not be saved. Recover the workspace before opening its window.")
+            }
+            return (saved, made.worktreeInclude)
         }
-        guard canChangeWorkspace, let current = state.task(id: task.id), current.projectId == task.projectId,
-              current.branch == task.branch, !current.hasCheckout else {
-            throw ActionUnavailable("The task changed while its worktree was made.")
-        }
-        workspace.mutate { state in
-            guard let index = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
-            state.tasks[index].worktreePath = made.task.worktreePath
-            state.tasks[index].baseBranch = made.task.baseBranch
-        }
-        guard workspace.flush(), let saved = state.task(id: task.id) else {
-            throw ActionUnavailable("The checkout could not be saved. Recover the workspace before opening its window.")
+        let result: (task: TaskItem, includes: WorktreeInclude.Outcome)
+        do { result = try await make() } catch {
+            // Its caller lost the task to the person, so no one else would say it.
+            if !task.takenOver && takenOverMeanwhile() { notices.report(Self.worktreeNotMade(error, about: task.id)) }
+            throw error
         }
         guard stillAllowed() else { throw ActionUnavailable("The task changed while its worktree was made.") }
-        return (saved, made.worktreeInclude)
+        return result
+    }
+
+    /// What a taken-over task's banner says when its worktree could not be made: Take Over's own checkout, or the
+    /// Operator's that it left to finish.
+    private static func worktreeNotMade(_ error: Error, about id: UUID) -> OperationIssue {
+        OperationIssue(title: "The task is yours, but its worktree couldn’t be made.", error: error, subject: id)
     }
 
     // -- Take Over ----------------------------------------------------------------------
@@ -311,7 +328,7 @@ final class TaskLauncher {
             checkouts.refresh()
             Self.report(made.includes, of: made.task, to: notices)
         } catch {
-            notices.report(OperationIssue(title: "The task is yours, but its worktree couldn’t be made.", error: error, subject: id))
+            notices.report(Self.worktreeNotMade(error, about: id))
         }
     }
 

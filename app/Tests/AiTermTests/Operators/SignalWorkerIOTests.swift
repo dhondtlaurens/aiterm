@@ -235,7 +235,9 @@ import Synchronization
     }
     /// A Take Over that lands while the stage still reads the request, before git runs, leaves that checkout to finish
     /// for the person: the task gets its worktree on the request's source branch, and the Operator opens no worker.
-    @Test(.blocking) func takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree() async throws {
+    /// A read that then fails is said on the task, as no one else would say it.
+    @Test(.blocking, arguments: [false, true])
+    func takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree(readFails: Bool) async throws {
         let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
         let controller = fixture.controller, server = RecordingDaemon()
         let read = HeldRead()
@@ -255,6 +257,7 @@ import Synchronization
         #expect(controller.workspace.flush())
         let stub = StubSession { _ in
             read.hold()
+            if readFails { return (500, Data("{}".utf8)) }
             return (200, Data(#"[{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","source_project_id":1,"target_project_id":1}]"#.utf8))
         }
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
@@ -268,6 +271,15 @@ import Synchronization
         await controller.takeOver(id)
         #expect(controller.state.task(id: id)?.hasCheckout == false, "The stage's checkout is still under way.")
         read.release(); await stage.value
+        #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
+                "The finished checkout cannot launch a worker after Take Over.")
+        if readFails {
+            let task = try #require(controller.state.task(id: id))
+            #expect(task.signalTask == nil && task.takenOver && !task.hasCheckout)
+            #expect(controller.issue?.title == "The task is yours, but its worktree couldn’t be made." && controller.issue?.subject == id)
+            #expect(controller.issue?.reason != nil)
+            return
+        }
         try #require(await eventually(describing: "the checkout saved") { controller.state.task(id: id)?.hasCheckout == true })
         let task = try #require(controller.state.task(id: id))
         #expect(task.signalTask == nil && task.takenOver)
@@ -275,8 +287,6 @@ import Synchronization
         let path = task.worktreePath
         let head = try await BackgroundWork.run { try setup.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) }
         #expect(head.trimmingCharacters(in: .whitespacesAndNewlines) == "work")
-        #expect(server.requests("window.createTask").isEmpty && server.requests("tab.create").isEmpty,
-                "The finished checkout cannot launch a worker after Take Over.")
         #expect(controller.issue == nil)
     }
     /// A stage for a request item checks out the request's source branch through the app's checkout, and refuses a
