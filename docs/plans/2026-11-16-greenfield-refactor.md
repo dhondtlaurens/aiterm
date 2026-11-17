@@ -730,3 +730,15 @@ left.
   the daemon's event broadcasting, Jira's own "board" in sheet copy, the frozen brief's "you do not
   plan a board of tasks", negative assertions and a worker-message sample in `WorkerTurnTests`.
   `AgentCommand.resumeWorker` is still called only by tests.
+- Phase close: plain `scripts/test.sh all` green on `e65ecd4d` (daemon suite and lint, 1043 app
+  and 1391 core Swift tests, snapshots). Snapshots captured into `build/refactor-phase1`: against
+  `build/refactor-before`, only `settings-agents.png` (Help with problems gone, planned) and
+  `marks.png` (known variant) differ; the eleven Find a Fix images are gone and three plain banner
+  and footer images are new. Bundle: `scripts/make-app.sh`, then `scripts/test-app-bundle.sh
+  build/AiTerm.app` verified executable, resources, pinned helper dependencies and signature. Codex
+  adversarial review: no findings, "ready on static review" (its base was `origin/main`, so it read
+  phases 0 and 1 together). `main` had not moved beyond phase 0's merge; merged to `main`.
+- Owed to the maintainer for phase 1: `scripts/compat-check.sh` (the Claude driver lost its
+  `PostModelSwitch` hook, `compat/launch.json` lost the fixer entries) and the live Operator eval
+  (`AITERM_LIVE_OPERATOR=1`: the gate's refusals and Oracle prompt and the reasons changed in 1j,
+  the eval runs the current brief only since 1a).
