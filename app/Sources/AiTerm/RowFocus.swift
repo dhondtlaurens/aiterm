@@ -22,11 +22,21 @@ enum RowSelection: Equatable {
         case .operation(let run): self = .operation(run)
         }
     }
+
+    /// A row that owns a window, selected.
+    init(_ row: WindowRow) {
+        switch row {
+        case .task(let id): self = .task(id)
+        case .terminal(let id): self = .terminal(id)
+        case .operatorChat: self = .operation(OperatorSession.rowID)
+        }
+    }
 }
 
-/// Which sidebar row is selected, and bringing its window forward. Browsing — an arrow key, a new
-/// row, a notification raising a window — changes the selection only; an activation owns a
-/// cancelable request that checks, after each suspension, that it still serves the latest
+/// Which sidebar row is selected, a peek at its window, and raising it: nothing else. Opening a row's
+/// window is `RowWindows`', and what choosing a row does is `AppController.choose`'s. Browsing — an
+/// arrow key, a new row, a notification raising a window — changes the selection only; an activation
+/// owns a cancelable request that checks, after each suspension, that it still serves the latest
 /// selection, so a slow request for an earlier row can never take focus from a later one.
 ///
 /// Every activation returns its `Task`, so a caller — a test above all — awaits it rather than
@@ -62,16 +72,6 @@ final class RowFocus {
     private let isRemoving: @MainActor (UUID) -> Bool
     @ObservationIgnored private let windowGoneHooks = HookList<String>()
     @ObservationIgnored private let selectionHooks = HookList<RowSelection?>()
-    /// Who restores a row's window when the row is chosen without one: `WindowReconciler`, which adds
-    /// itself as it is built. Its answer is the restore under way, or nil when nothing opens now.
-    @ObservationIgnored private var restoreOwed: (@MainActor (RowSelection) -> Task<Void, Never>?)?
-    /// Who brings back the Operator's chat, in front, when its row is chosen without a window — one you
-    /// closed, an operator gone offline: the operator controller, which the app adds as it is built.
-    @ObservationIgnored private var operatorWindowOwed: (@MainActor (UUID) -> Task<Void, Never>?)?
-    /// Who brings back the window of a task an operator drives when its row is chosen without one: the
-    /// operator controller, resuming its conversation — never the reconciler, which would plan a fresh
-    /// agent beside one that may still be alive.
-    @ObservationIgnored private var operatedTaskOwed: (@MainActor (UUID) -> Task<Void, Never>?)?
     /// Where a window that would not come forward is reported.
     private let notices: Notices
     /// The selection's own workspace hook, taken out again when the selection goes, as `PerRow`'s is.
@@ -112,32 +112,6 @@ final class RowFocus {
     @discardableResult
     func onSelectionChanged(_ hook: @escaping @MainActor (RowSelection?) -> Void) -> HookList<RowSelection?>.Token {
         selectionHooks.add(hook)
-    }
-
-    /// Sets who restores a row's window when the row is chosen — a click or Return — without one. A single slot:
-    /// a later call replaces the one before.
-    func setRestoreOwedRow(_ restore: @escaping @MainActor (RowSelection) -> Task<Void, Never>?) {
-        restoreOwed = restore
-    }
-
-    /// Sets who reopens the Operator's window, in front, when its row is chosen — a click or Return —
-    /// without one. A single slot, as `setRestoreOwedRow`.
-    func setReopenOperatorWindow(_ open: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
-        operatorWindowOwed = open
-    }
-
-    /// Sets who opens a Signal task's window, driven or taken over, when chosen without one.
-    /// A single slot, as `setRestoreOwedRow`.
-    func setReopenWorkerWindow(_ reopen: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
-        operatedTaskOwed = reopen
-    }
-
-    /// Signal tasks use their driven or taken-over opener; other rows use the reconciler.
-    /// A row on its way out gets none.
-    private func owedRestore(_ row: RowSelection) -> Task<Void, Never>? {
-        if isRemoving(row.id) { return nil }
-        if case .task(let id) = row, workspace.state.task(id: id)?.signalTask != nil { return operatedTaskOwed?(id) }
-        return restoreOwed?(row)
     }
 
     /// Whether the row with this id is selected — a header, a task or a terminal. What a row's body
@@ -187,46 +161,26 @@ final class RowFocus {
         selectionHooks(row)
     }
 
-    /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a
-    /// task seen. A row whose window is owed has it restored first (`setRestoreOwedRow`), then raised
-    /// as any other — unless the selection has moved on by then; with nothing restoring it, it is only
-    /// selected, as it has no window to raise nor tab to mark seen. A project's header is
-    /// only selected: it has no window. So is a task the Operator has queued: nothing opens,
-    /// not even the error a window it does not have yet would raise. The Operator's row without a window, or
-    /// whose window turns out gone, asks the operator controller for it, in front
-    /// (`setReopenOperatorWindow`). A Signal task uses its driven or taken-over opener
-    /// (`setReopenWorkerWindow`), and its opened window is then raised as any other.
+    /// A click or Return, as `AppController.choose` decides it: selects the row and brings its window
+    /// forward, iTerm2 with it, once `opening` (an open of the row's window under way) has ended, unless
+    /// the selection has moved on by then. A task raised with no open before it is marked seen. A row
+    /// with no window to raise is only selected; so is a project's or a signal's heading.
     @discardableResult
-    func select(_ row: RowSelection) -> Task<Void, Never>? {
+    func select(_ row: RowSelection, after opening: Task<Void, Never>? = nil) -> Task<Void, Never>? {
         switch row {
         case .project, .signal:
             browse(row)
             return nil
-        case .task(let id) where workspace.state.task(id: id).map({ $0.signalTask?.takenOver == false && $0.signalTask?.phase == .launching && !$0.hasCheckout }) == true:
-            browse(row)
-            return nil
-        default:
-            break
-        }
-        if case .operation(let id) = row, window(for: row) == nil {
-            browse(row)
-            return operatorWindowOwed?(id)
-        }
-        if window(for: row) == nil {
-            let restoring = owedRestore(row)
-            return activate(row, failure: "Couldn’t activate the window", after: restoring)
-        }
-        switch row {
-        case .task(let id):
+        case .task(let id) where opening == nil && window(for: row) != nil:
             return activate(row, failure: "Couldn’t activate the window") { daemon in
                 await Log.daemon.attempt("Marking task \(id) as seen") { try await daemon.markSeen(taskId: id.uuidString) }
             }
+        case .task:
+            return activate(row, failure: "Couldn’t activate the window", after: opening)
         case .terminal:
-            return activate(row, failure: "Couldn’t activate the terminal")
+            return activate(row, failure: "Couldn’t activate the terminal", after: opening)
         case .operation:
-            return activate(row, failure: "Couldn’t activate the operator’s window")
-        case .project, .signal:
-            return nil
+            return activate(row, failure: "Couldn’t activate the operator’s window", after: opening)
         }
     }
 
@@ -248,22 +202,22 @@ final class RowFocus {
     func peek(id: UUID?) -> Task<Void, Never>? { peek(id.flatMap(row(id:))) }
 
     /// Selects a row and brings its window forward — re-snapped beside the sidebar, then activated,
-    /// then iTerm2 too unless this is a peek — and then runs `then`. `restoring` is a restore of the
+    /// then iTerm2 too unless this is a peek — and then runs `then`. `opening` is an open of the
     /// row's window to wait for first; the window it opened is the one raised. Each step checks it
     /// still serves the latest selection. A click on the row already selected starts a new request
     /// too, superseding its last one. A row being removed is selected and nothing more.
     @discardableResult
-    private func activate(_ row: RowSelection, failure: String, focus: Bool = true, after restoring: Task<Void, Never>? = nil,
+    private func activate(_ row: RowSelection, failure: String, focus: Bool = true, after opening: Task<Void, Never>? = nil,
                           then: ((any DaemonCommands) async -> Void)? = nil) -> Task<Void, Never>? {
         setSelection(row)
         let known = window(for: row)
-        guard !isRemoving(row.id), let daemon = daemon(), known != nil || then != nil || restoring != nil else { return nil }
+        guard !isRemoving(row.id), let daemon = daemon(), known != nil || then != nil || opening != nil else { return nil }
         let delay = focus ? nil : peekDelay
         return activation.run { [self] isCurrent in
             var window = known
-            if let restoring {
-                // The restore is the reconciler's and runs to its end; only raising its window is this row's.
-                await restoring.value
+            if let opening {
+                // The open is `RowWindows`' and runs to its end; only raising its window is this row's.
+                await opening.value
                 guard isCurrent() else { return }
                 window = self.window(for: row)
             }
@@ -280,9 +234,6 @@ final class RowFocus {
                 } catch let error as DaemonError where error.isNotFound {
                     if selfRaised == window { selfRaised = nil }
                     windowGoneHooks(window)
-                    // An operator's window closed before the app heard: on a click — not a peek — its
-                    // chat is asked back, as a missing one is.
-                    if case .operation(let id) = row, focus, isCurrent() { _ = operatorWindowOwed?(id) }
                 } catch is CancellationError { return }
                 catch {
                     if selfRaised == window { selfRaised = nil }

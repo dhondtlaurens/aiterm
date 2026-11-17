@@ -229,7 +229,7 @@ import Testing
         controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await controller.focus.select(.task(task.id))?.value
+        await controller.choose(.task(task.id))?.value
 
         #expect(controller.issue == nil)
     }
@@ -246,7 +246,7 @@ import Testing
         controller.notices.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await controller.focus.select(.task(task.id))?.value
+        await controller.choose(.task(task.id))?.value
 
         #expect(controller.issue == nil)
     }
@@ -258,7 +258,7 @@ import Testing
         fixture.controller.workspace.mutate { $0.tasks[0].windowId = "w" }
         let issue = fixture.controller.issue
 
-        fixture.controller.windows.handleWindowClosed("w")
+        fixture.controller.windows.windowGone("w")
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == nil)
         #expect(fixture.controller.issue == issue && issue != nil)

@@ -17,7 +17,7 @@ import Testing
             daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         var counts: [Int] = []
         root.keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { false }, ports: .init(
-            canOpen: { true }, windowIsOpen: { $0.window != nil }, close: { _ in }, revoke: { _ in },
+            canOpen: { true }, close: { _ in }, revoke: { _ in },
             open: { _, digest in counts.append(digest.waitingOnYou); return "operator-window" }))
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
         #expect(counts == [0])

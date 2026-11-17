@@ -49,7 +49,7 @@ struct SignalOperatorRow: View {
         #endif
         let line = value.line, status = value.status
         SelectableRow(id: row, selected: controller.focus.isSelected(row), washed: true,
-                      activate: { controller.focus.select(.operation(OperatorSession.rowID)) }) {
+                      activate: { controller.choose(.operation(OperatorSession.rowID)) }) {
             SidebarRowContent(avatars: AvatarGroup(marks: [.claude], overflow: 0)) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle("Operator")

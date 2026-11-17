@@ -18,7 +18,7 @@ import Testing
         }
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         let window = try #require(server.requests("window.createTask").first)
         #expect(window.params["agentCommand"] as? String == "codex resume thread-1 --dangerously-bypass-approvals-and-sandbox -m model")
@@ -42,7 +42,7 @@ import Testing
         }
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(server.requests("tab.create").map { $0.params["agentCommand"] as? String } == ["claude --resume conv-2", "pi --session p-3"])
         #expect(server.requests("tab.create").map { $0.params["windowId"] as? String } == ["reopened", "reopened"])
@@ -57,7 +57,7 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(server.requests("window.createTask").first?.params["agentCommand"] == nil)
         #expect(server.requests("tab.create").isEmpty)
@@ -78,7 +78,7 @@ import Testing
         }
 
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened")
         #expect(server.requests("tab.create").count == 1)

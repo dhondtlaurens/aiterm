@@ -636,7 +636,7 @@ import Testing
         state.items = [.project(project)]; state.tasks = [task]; state.terminals = [terminal]
         controller.workspace.mutate { $0 = state }
         controller.focus.browse(.task(task.id))
-        controller.windows.handleWindowClosed("w1")
+        controller.windows.windowGone("w1")
         #expect(controller.focus.selectedTaskId == task.id, "the row stays, and so does its selection")
         #expect(controller.state.tasks.map(\.windowId) == [nil])
         #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil])
@@ -645,18 +645,18 @@ import Testing
         var replacement = task
         replacement.windowId = "w3"
         controller.workspace.mutate { $0.tasks = [replacement] }
-        controller.windows.handleWindowClosed(task.windowId)
+        controller.windows.windowGone(task.windowId)
         #expect(controller.state.tasks[0].windowId == "w3")
         controller.focus.browse(.terminal(terminal.id))
         // Observations still update memory when saving is blocked.
         try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: true)
-        controller.windows.handleWindowClosed("w2")
+        controller.windows.windowGone("w2")
         #expect(controller.state.terminals.map(\.windowId) == [nil], "the terminal stays, owed")
         #expect(controller.focus.selectedTerminalId == terminal.id)
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
-        controller.windows.handleWindowClosed("w2")
-        controller.windows.handleWindowClosed(nil)
+        controller.windows.windowGone("w2")
+        controller.windows.windowGone(nil)
         try FileManager.default.removeItem(at: store.backupURL)
         #expect(controller.workspace.flush())
         #expect(try store.load() == controller.state)

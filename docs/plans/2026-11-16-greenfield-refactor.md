@@ -322,7 +322,7 @@ TS tests-scripts.
   and bringing AiTerm forward go. The window plan only adopts tagged windows. Choosing a row
   without a window opens it and reports a failure on the click. Terminals follow the same rule
   (WD F1, F3 moot, F6 moot; TL F5 moot).
-- [ ] 3b. **Opus.** One owner for "this row has or needs a window" for every row kind: manual task,
+- [x] 3b. **Opus.** One owner for "this row has or needs a window" for every row kind: manual task,
   driven task, terminal and the Operator chat, each adopted by its tag, with one `open(row)` that
   picks the opener. `RowFocus` keeps selection, peek and raising; its three opener slots, the five
   copies of "a signal task is not restored here" and the Operator's 180-second "opened" grace go.
@@ -873,3 +873,20 @@ left.
   (not named) relied on the deleted missing-changed trigger and now expects the kept task without a
   window. The second Done-when grep still matches an unrelated `"settled: "` message in
   `OperatorBadgeTests`. Left for 3b: `RowFocus`'s restore names.
+- 3b: one owner for every row's window. `WindowReconciler` is `RowWindows`; `open(row)` picks the
+  opener for a manual task, a taken-over task, a driven task, a terminal and the Operator chat (new
+  `WindowRow.operatorChat`, adopted by its session's tag and never during a keeper handover).
+  `RowFocus` keeps selection, peek and raising; its three opener slots, the copies of "a signal task
+  is not restored here" and the Operator's 180-second "opened" grace went. What choosing a row does is
+  decided in `AppController.choose` alone; a notification's Open and a restore from the Archive go
+  through it. The chat reopens by itself only when a wake is pending or unread. Issue sources
+  `.openWindow` and `.reopenWorker` went (a failed reopen is reported on the click). No test deleted;
+  added `RowWindowsControllerTests` (8) and cases in `WindowPlanTests`, `WindowReconciliationTests`,
+  `ModelsTests`, `SignalSessionKeeperTests`. Snapshots in `build/refactor-3b` RGB-identical to
+  `build/refactor-3a`. Differences: a row chosen while iTerm2 is away is handed back to
+  `AppController` through a new `onPendingOpen` hook (only `AppController` may select); the four
+  taken-over `ItermFocusControllerTests` send a connected snapshot first (the uniform check order);
+  choosing the Operator row with no work still starts nothing. Noticed and left: a chat closed before
+  its conversation was recorded starts a new generation on the next reconcile (unchanged keeper logic,
+  rare); a closed chat whose workload ended retires at the next scheduled pass. `docs/architecture.md`
+  still names `WindowReconciler` (3e).

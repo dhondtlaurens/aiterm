@@ -307,6 +307,22 @@ import Foundation
         #expect(rows.first?.tasks.map(\.id) == [task.id])
     }
 
+    /// The Operator's chat window closing leaves the chat without one, except while a handover runs:
+    /// the handover writes it.
+    @Test func aClosedWindowClearsTheOperatorsChatOnlyOutsideAHandover() {
+        var state = AppState.empty
+        state.operatorSession = OperatorSession(createdAt: Date(timeIntervalSince1970: 0))
+        state.operatorSession?.window = "chat"
+        state.operatorSession?.handover = .closing
+        let duringHandover = state.closeWindow("chat")
+        #expect(!duringHandover && state.operatorSession?.window == "chat")
+        state.operatorSession?.handover = nil
+        let other = state.closeWindow("other")
+        #expect(!other)
+        let closed = state.closeWindow("chat")
+        #expect(closed && state.operatorSession?.window == nil)
+    }
+
     /// The regression guard for the whole saved workspace. Both new properties must stay `Optional`:
     /// Swift's synthesized decoder uses `decodeIfPresent` for an Optional, but a non-optional with a
     /// default value (`var isReview = false`) throws `keyNotFound` instead of falling back — which

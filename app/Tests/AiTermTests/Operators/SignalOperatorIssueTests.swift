@@ -158,7 +158,7 @@ import Testing
         try Data().write(to: journals)
         await r.root.takeOver(r.task); await r.ports.work.settled()
         #expect(r.root.statusIssue?.hasPrefix("Take Over:") == true)
-        await r.root.openOperator()
+        try? await r.root.openChat()
         #expect(r.daemon.requests("window.createTask").isEmpty, "A Take Over issue without work must not start a throwaway chat.")
         try FileManager.default.removeItem(at: journals)
         await r.pass()

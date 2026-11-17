@@ -84,7 +84,7 @@ final class TerminalActions {
     /// Closing a terminal touches nothing on disk — there is no worktree behind it — so it needs no
     /// confirmation, unlike removing a task. The row's copy is as old as the click, so the window
     /// closed is the one the terminal has when the close runs: choosing it can have given it one since.
-    /// A close while the window is still reopening (`WindowReconciler.open`) says so rather than
+    /// A close while the window is still reopening (`RowWindows.open`) says so rather than
     /// racing it.
     @discardableResult
     func close(terminal: TerminalItem) -> Task<Void, Never>? {

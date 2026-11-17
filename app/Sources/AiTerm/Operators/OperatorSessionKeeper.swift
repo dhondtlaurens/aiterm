@@ -13,7 +13,6 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
 @MainActor @Observable final class OperatorSessionKeeper {
     struct Ports {
         var canOpen: @MainActor () -> Bool
-        var windowIsOpen: @MainActor (OperatorSession) -> Bool
         var close: @MainActor (String) async throws -> Void
         var revoke: @MainActor (UUID) async throws -> Void
         var open: @MainActor (OperatorSession, OperatorDigest) async throws -> String
@@ -37,9 +36,12 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
         self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
     }
     func stop() { pass = nil }
-    func ensure(allowPaused: Bool = false) async {
+    /// Keeps the chat as its workload needs it: a new generation opens, and an established chat whose
+    /// window was closed opens again only when `reopen` (the person chose its row, or the Operator has
+    /// something to type into it).
+    func ensure(allowPaused: Bool = false, reopen: Bool = false) async {
         guard workspace.state.operatorSession?.finishing != true else { return }
-        await transition(finishing: false, allowPaused: allowPaused)
+        await transition(finishing: false, allowPaused: allowPaused, reopen: reopen)
     }
     /// Keep source polling and its saved metadata, but release the chat when its workload ends.
     /// Once closing was saved, finish that generation even if a new match arrived during the close.
@@ -49,9 +51,9 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
             guard !workspace.state.operatorHasWork, idle, !wakePending,
                   session.window != nil || session.conversation != nil || session.startingFresh else { return }
         }
-        await transition(finishing: true, allowPaused: true)
+        await transition(finishing: true, allowPaused: true, reopen: false)
     }
-    private func transition(finishing: Bool, allowPaused: Bool) async {
+    private func transition(finishing: Bool, allowPaused: Bool, reopen: Bool) async {
         guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), (allowPaused || workspace.state.operatorSession?.paused != true) else { return }
         let key = UUID(); pass = key
         defer { if pass == key { pass = nil } }
@@ -134,7 +136,10 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                 if finishing { succeeded(); finished(); return }
             }
             if case .unknown = session.handover { return }
-            if session.handover == nil, ports.windowIsOpen(session) { succeeded(); return }
+            if session.handover == nil {
+                if session.window != nil { succeeded(); return }
+                guard reopen else { return }
+            }
             let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
             let window: String
             if let activity { window = try await activity.during("starting its session") { try await ports.open(session, digest) } }

@@ -284,7 +284,7 @@ import Testing
         // waits for one instead.
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await controller.archiver.restore(task.id)?.value
+        await controller.restoreFromArchive(task.id)?.value
 
         #expect(controller.state.archive.isEmpty)
         #expect(controller.state.tasks.map(\.id) == [task.id])
@@ -311,6 +311,7 @@ import Testing
         #expect(prompter.asked.last?.detail.contains("no longer exists here or on origin") == true)
         #expect(fixture.controller.state.archive.map(\.id) == [task.id])
         #expect(fixture.controller.state.tasks.isEmpty)
+        #expect(fixture.controller.focus.selection == nil)
     }
 
     @Test func aProjectCannotBeRemovedWhileOneOfItsArchivedRowsIsRestoring() async throws {
@@ -329,6 +330,7 @@ import Testing
         #expect(controller.state.project(id: fixture.project.id) != nil)
         await restoring?.value
         #expect(controller.state.tasks.map(\.id) == [task.id])
+        #expect(controller.focus.selection == nil, "the restore alone chooses nothing")
     }
 
     /// Git's removal of the worktree has no seam to hold, so the row is put where an archive leaves it

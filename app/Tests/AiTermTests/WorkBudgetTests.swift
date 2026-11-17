@@ -103,7 +103,7 @@ enum Budget {
 
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         mark = git.calls.count
-        await controller.archiver.restore(task.id)?.value
+        await controller.restoreFromArchive(task.id)?.value
         let restore = Budget.commands(git, since: mark)
         #expect(controller.state.tasks.map(\.id) == [task.id], "restored")
 

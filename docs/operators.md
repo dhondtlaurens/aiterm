@@ -133,11 +133,11 @@ resume with their branch guards, without repeating the Signal's work instruction
 The Operator row says **needs you** only while something needs you: its own chat waits on you (a
 permission prompt, or **waiting on you · n** for questions), or AiTerm cannot reach it. AiTerm
 tracks each of its own failures by source (waking the Operator, answering its calls, its activity
-log, its session, opening its window, reopening a worker, Take Over) and clears each when that same
-source next succeeds. A failure AiTerm retries by itself shows only after three failed attempts in
-a row; one from something you clicked shows at once until that action succeeds. Hover the row for
-the source and reason. Every failure and recovery is written to the Operator's activity log with
-its time and source, except a failure to write the log itself: only its recovery is written.
+log, its session, Take Over) and clears each when that same source next succeeds. A failure AiTerm
+retries by itself shows only after three failed attempts in a row; one from something you clicked
+shows at once until that action succeeds. Hover the row for the source and reason. Every failure
+and recovery is written to the Operator's activity log with its time and source, except a failure
+to write the log itself: only its recovery is written.
 `run_status` lists the current ones under `appIssues`, so you can ask the Operator why. A wake held
 because you are typing in its chat waits without counting; one pasted but not sent, or text left
 unsent in its chat, asks you to send or clear it there.

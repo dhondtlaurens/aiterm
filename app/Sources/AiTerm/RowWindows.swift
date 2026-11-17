@@ -1,63 +1,67 @@
 import Foundation
 import AiTermCore
 
-/// The rows and their iTerm2 windows, where a window is only a view of its row. A window iTerm2
-/// reports gone leaves its row without one, and nothing else changes; a row takes a window its tag
-/// is in (`AppState.windowPlan`); and a chosen row without a window has it opened, its conversations
-/// resumed. Nothing opens by itself: not after a close, not when iTerm2 or AiTerm restarts.
+/// Every row's iTerm2 window, where a window is only a view of its row: a task's, a terminal's and the
+/// Operator's chat. A window iTerm2 reports gone leaves its row without one, and nothing else changes;
+/// a row takes a window its tag is in (`AppState.windowPlan`); and a chosen row without a window has it
+/// opened by the opener its kind needs (`open(_:)`). Nothing opens by itself: not after a close, not
+/// when iTerm2 or AiTerm restarts. The chat's window is the Operator's own to write while a handover
+/// runs, and is left be then.
 @MainActor
-final class WindowReconciler {
+final class RowWindows {
     private let workspace: WorkspaceStore
     private let work: WorkInFlight
     private let live: LiveSessions
     private let checkouts: CheckoutMonitor
-    private let focus: RowFocus
-    /// Opens a task's window: the one primitive creation and a chosen row share.
+    /// Opens a task's window: the one primitive creation and a chosen row share; and a taken-over task's.
     private let launcher: TaskLauncher
     /// Opens a terminal's window: the one primitive a new terminal and a chosen row share.
     private let terminals: TerminalActions
+    /// Resumes a driven task's worker, and opens the Operator's chat.
+    private let signalController: SignalOperatorController
     private let notices: Notices
     private let daemon: @MainActor () -> (any DaemonCommands)?
     /// Starts iTerm2 when a row is chosen while it is away: the person asking for it.
     private let launchIterm: @MainActor () -> Void
     /// Each row's open while it runs: choosing the row meanwhile joins it.
-    private var opening: [UUID: Task<Void, Never>] = [:]
+    private var opening: [WindowRow: Task<Void, Never>] = [:]
     /// The tabs as the last pass read them, where they are and which row each belongs to (`LiveSessions.rowSessions`): a
     /// session event that leaves them as they were has nothing for a pass to find.
     private var passedSessions: [SessionInfo]?
     /// Whether a connected snapshot has come since iTerm2 was last out of reach: until one has, the
     /// rows' windows are not known, and a chosen row waits for it.
     private(set) var itermSynced = false
-    /// The row chosen while iTerm2 was not synced, chosen again when it is if it is still the selection.
+    /// The row chosen while iTerm2 was not synced, handed to `pendingHooks` when it is.
     private var pendingOpen: WindowRow?
+    private let pendingHooks = HookList<WindowRow>()
 
     init(helper: HelperLink, workspace: WorkspaceStore, work: WorkInFlight, live: LiveSessions, checkouts: CheckoutMonitor,
-         focus: RowFocus, launcher: TaskLauncher, terminals: TerminalActions, notices: Notices,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?, launchIterm: @escaping @MainActor () -> Void) {
+         focus: RowFocus, launcher: TaskLauncher, terminals: TerminalActions, signalController: SignalOperatorController,
+         notices: Notices, daemon: @escaping @MainActor () -> (any DaemonCommands)?, launchIterm: @escaping @MainActor () -> Void) {
         self.workspace = workspace
         self.work = work
         self.live = live
         self.checkouts = checkouts
-        self.focus = focus
         self.launcher = launcher
         self.terminals = terminals
+        self.signalController = signalController
         self.notices = notices
         self.daemon = daemon
         self.launchIterm = launchIterm
         helper.onEvent { [weak self] in self?.handle($0) }
         // Retries the checkout cleanup that waited for a daemon to close a window with.
         helper.onAttach { [weak checkouts] in checkouts?.refresh() }
-        focus.onWindowGone { [weak self] in self?.handleWindowClosed($0) }
-        focus.setRestoreOwedRow { [weak self] selection in
-            switch selection {
-            case .task(let id): self?.open(.task(id))
-            case .terminal(let id): self?.open(.terminal(id))
-            case .project, .signal, .operation: nil
-            }
-        }
+        focus.onWindowGone { [weak self] in self?.windowGone($0) }
     }
 
     private var state: AppState { workspace.state }
+
+    /// Adds `hook` to what hears, at the first connected snapshot, of the row chosen while iTerm2 was not
+    /// synced: the app chooses it again if it is still the selection.
+    @discardableResult
+    func onPendingOpen(_ hook: @escaping @MainActor (WindowRow) -> Void) -> HookList<WindowRow>.Token {
+        pendingHooks.add(hook)
+    }
 
     /// Quit: iTerm2 as it was is forgotten, so after a later start a chosen row waits for the next
     /// connected snapshot.
@@ -75,13 +79,14 @@ final class WindowReconciler {
             let next = state.reconciled(with: snapshot).rememberingConversations(from: snapshot.sessions)
             if next != state { workspace.mutate { $0 = next } }
             pass()
-            if snapshot.connected { openPending() }
+            if snapshot.connected, let row = pendingOpen {
+                pendingOpen = nil
+                pendingHooks(row)
+            }
         case .itermConnected, .itermDisconnected, .itermAuthFailed:
             // Until the snapshot that follows, the rows' windows are not known.
             itermSynced = false
-        case .itermCookieRequested: break
-        case .windowActivated(let wid): focus.windowActivated(wid)
-        case .windowClosed(let wid): handleWindowClosed(wid)
+        case .windowClosed(let wid): windowGone(wid)
         case .sessionOpened(let session), .sessionChanged(let session):
             // A tab naming a new conversation saves it with its task: what a later open resumes. A tab
             // that moved to another window may hand its row that window.
@@ -90,13 +95,14 @@ final class WindowReconciler {
             }
             // A context fill, a model, a title: nothing a pass reads moved (`LiveSessions.rowSessions`).
             if live.rowSessions != passedSessions { pass() }
-        case .sessionClosed, .usageChanged, .operatorRequest, .unknown: break // `live`'s, the operators', or nobody's
+        case .itermCookieRequested, .windowActivated, .sessionClosed, .usageChanged, .operatorRequest, .unknown:
+            break // the app's, `live`'s, the operators', or nobody's
         }
     }
 
     /// A window gone — `window.closed`, or a request that found it gone: its row is left without one,
     /// and takes at once another window its tag is in.
-    func handleWindowClosed(_ windowId: String?) {
+    func windowGone(_ windowId: String?) {
         guard let windowId else { return }
         var next = state
         guard next.closeWindow(windowId) else { return }
@@ -115,41 +121,28 @@ final class WindowReconciler {
                     if let i = state.tasks.firstIndex(where: { $0.id == id }) { state.tasks[i].windowId = adoption.windowId }
                 case .terminal(let id):
                     if let i = state.terminals.firstIndex(where: { $0.id == id }) { state.terminals[i].windowId = adoption.windowId }
+                case .operatorChat:
+                    state.operatorSession?.window = adoption.windowId
                 }
             }
         }
     }
 
-    /// The row chosen while iTerm2 was away, now that it is synced: chosen again if it is still the
-    /// selection, so its window opens and is raised as a click's is; dropped otherwise.
-    private func openPending() {
-        guard let row = pendingOpen else { return }
-        pendingOpen = nil
-        let selection: RowSelection = switch row {
-        case .task(let id): .task(id)
-        case .terminal(let id): .terminal(id)
-        }
-        guard focus.selection == selection else { return }
-        focus.select(selection)
-    }
-
-    /// Opens a chosen row's window: a task's in its worktree with each remembered conversation resumed
-    /// — the first in the window's own tab, each other in a tab of its own — a terminal's as a fresh
-    /// shell in its project's folder. The row is busy meanwhile (`.reopening`), and a second choose
-    /// joins the open under way. Nil when nothing opens now: the row has a window, is gone, busy or
-    /// driven, its worktree reads missing, or no helper is there. With iTerm2 away it is started, and
-    /// the row is chosen again once it is synced.
+    /// Opens a chosen row's window with the opener its kind needs: a task's in its worktree with each
+    /// remembered conversation resumed — the first in the window's own tab, each other in a tab of its
+    /// own — a taken-over task's through the launcher, a driven task's by resuming its worker, a
+    /// terminal's as a fresh shell in its project's folder, and the Operator's chat through its
+    /// controller. A second choose joins the open under way. Nil when nothing opens now: the row has a
+    /// window, is gone, busy, a driven task not started yet, its worktree reads missing, the Operator has
+    /// nothing to do, or no helper is there. With iTerm2 away it is started, and the row is handed to
+    /// `onPendingOpen` once it is synced.
     @discardableResult
     func open(_ row: WindowRow) -> Task<Void, Never>? {
-        if let running = opening[row.id] { return running }
-        let task: TaskItem?, terminal: TerminalItem?
+        if let running = opening[row] { return running }
         switch row {
-        case .task(let id):
-            guard let found = state.task(id: id), found.windowId == nil else { return nil }
-            (task, terminal) = (found, nil)
-        case .terminal(let id):
-            guard let found = state.terminal(id: id), found.windowId == nil else { return nil }
-            (task, terminal) = (nil, found)
+        case .task(let id): guard let task = state.task(id: id), task.windowId == nil else { return nil }
+        case .terminal(let id): guard let terminal = state.terminal(id: id), terminal.windowId == nil else { return nil }
+        case .operatorChat: guard state.operatorHasWork, state.operatorSession?.window == nil else { return nil }
         }
         guard let daemon = daemon() else { notices.report(.disconnected("again")); return nil }
         guard itermSynced else {
@@ -157,21 +150,48 @@ final class WindowReconciler {
             pendingOpen = row
             return nil
         }
-        let token: WorkInFlight.Token?
-        if let task {
-            // Driven and taken-over tasks open through their worker opener (`RowFocus`).
-            guard task.signalTask == nil, !checkouts.isMissing(task.id) else { return nil }
-            token = work.begin(.reopening, onTask: task.id)
-        } else {
-            token = work.begin(.reopening, onTerminal: row.id)
+        switch row {
+        case .task(let id):
+            guard let task = state.task(id: id), !checkouts.isMissing(id) else { return nil }
+            if let record = task.signalTask {
+                if record.takenOver {
+                    let opening = launcher.openTakenOverWindow(id, prepareRequest: signalController.native.prepareTakenOverRequest,
+                                                               resume: signalController.native.takenOverResumeCommands)
+                    return run(row) { await opening.value }
+                }
+                // Nothing to open yet: the Operator has not made its checkout.
+                guard record.phase != .launching || task.hasCheckout else { return nil }
+                return run(row) { [signalController, notices] in
+                    do {
+                        try await signalController.reopenWorker(id)
+                        notices.dropIssues(about: id)
+                    } catch {
+                        notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error, subject: id))
+                    }
+                }
+            }
+            guard let token = work.begin(.reopening, onTask: id) else { return nil }
+            return run(row, ending: token) { [self] in await open(task, with: daemon) }
+        case .terminal(let id):
+            guard let terminal = state.terminal(id: id), let token = work.begin(.reopening, onTerminal: id) else { return nil }
+            return run(row, ending: token) { [self] in await open(terminal, with: daemon) }
+        case .operatorChat:
+            return run(row) { [signalController, notices] in
+                do { try await signalController.openChat() }
+                catch { notices.report(OperationIssue(title: "Couldn’t open the Operator’s chat.", error: error)) }
+            }
         }
-        guard let token else { return nil }
+    }
+
+    /// `body` as the row's open under way until it ends, and then the row's work `token` with it.
+    private func run(_ row: WindowRow, ending token: WorkInFlight.Token? = nil,
+                     _ body: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let running = Task {
-            if let task { await open(task, with: daemon) } else if let terminal { await open(terminal, with: daemon) }
-            opening[row.id] = nil
-            work.end(token)
+            await body()
+            opening[row] = nil
+            if let token { work.end(token) }
         }
-        opening[row.id] = running
+        opening[row] = running
         return running
     }
 

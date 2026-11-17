@@ -32,6 +32,7 @@ import Testing
         }
         controller.workspace.mutate { $0.tasks = [task] }
         #expect(controller.workspace.flush())
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
         await controller.choose(task: task.id)?.value
 
@@ -67,6 +68,7 @@ import Testing
         task.signalTask = SignalTask(signal: UUID(), item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         task.signalTask?.takenOver = true
         controller.workspace.mutate { $0.tasks = [task] }
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
         let first = controller.choose(task: task.id)
         try await server.received("window.createTask")
@@ -95,6 +97,8 @@ import Testing
         task.signalTask?.takenOver = true
         task.conversations = [.init(agent: task.agent, id: "still-running")]
         controller.workspace.mutate { $0.tasks = [task] }
+        // iTerm2's windows read with none of the task's yet; the opener's own lookup then finds the live one.
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         server.snapshotValue = DaemonSnapshot(protocolVersion: 1, connected: connected,
             sessions: connected ? [.stub("live", window: "still-open", task: task, state: .working)] : [], usage: .empty)
 
@@ -137,6 +141,7 @@ import Testing
         task.signalTask = SignalTask(signal: UUID(), item: .request(remote: "git@git.example:shop/web.git", number: 7), startedAt: Date())
         task.signalTask?.takenOver = true
         controller.workspace.mutate { $0.tasks = [task] }
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
         await controller.choose(task: task.id)?.value
 

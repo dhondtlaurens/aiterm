@@ -19,9 +19,9 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        let first = fixture.controller.focus.select(.task(task.id))
+        let first = fixture.controller.choose(.task(task.id))
         try await server.received("window.createTask")
-        let second = fixture.controller.focus.select(.task(task.id))
+        let second = fixture.controller.choose(.task(task.id))
         #expect(first != nil && second != nil, "each choice waits on the open under way")
         server.release()
         await first?.value
@@ -43,7 +43,7 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        let choice = fixture.controller.focus.select(.task(task.id))
+        let choice = fixture.controller.choose(.task(task.id))
         try await server.received("window.createTask")
         fixture.controller.focus.browse(nil)
         server.release()
@@ -67,7 +67,7 @@ import Testing
         fixture.controller.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1")] }
         fixture.controller.helper.handle(.sessionChanged(.stub("a", window: "other", task: task)))
 
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(server.requests("window.createTask").isEmpty)
         #expect(server.requests("tab.create").isEmpty)
@@ -85,7 +85,7 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         fixture.controller.remover.seedSnapshotRemoval(.removing, of: task.id)
 
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(server.requests("window.createTask").isEmpty)
         #expect(fixture.controller.focus.selectedTaskId == task.id)
@@ -101,7 +101,7 @@ import Testing
         fixture.controller.checkouts.seedSnapshotFixture(WorkspaceScan(branchByCwd: [:], projectBranch: [:],
                                                                        missingCheckouts: [task.id], removedTasks: [], remotes: [:]))
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(server.requests("window.createTask").isEmpty)
         #expect(fixture.controller.focus.selectedTaskId == task.id)
@@ -122,7 +122,7 @@ import Testing
         try await server.received("window.createTask")
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         let id = try #require(controller.state.tasks.first?.id)
-        let choice = controller.focus.select(.task(id))
+        let choice = controller.choose(.task(id))
         server.release()
         try await create.value
         await choice?.value
@@ -142,7 +142,7 @@ import Testing
         try fixture.git.run(["worktree", "remove", task.worktreePath], in: fixture.repo.path)
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(server.requests("window.createTask").isEmpty)
         #expect(fixture.controller.issue == nil)
@@ -160,13 +160,13 @@ import Testing
         let task = try await fixture.addTask(windowId: nil)
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
         #expect(fixture.controller.issue?.title == "Couldn’t reopen the window.")
         #expect(fixture.controller.issue?.subject == task.id)
         #expect(focus.seen.isEmpty)
 
         server.failing = [:]
-        await fixture.controller.focus.select(.task(task.id))?.value
+        await fixture.controller.choose(.task(task.id))?.value
 
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
         #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened-2"])
@@ -183,7 +183,7 @@ import Testing
         fixture.controller.workspace.mutate { $0.terminals = [terminal] }
         fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
 
-        await fixture.controller.focus.select(.terminal(terminal.id))?.value
+        await fixture.controller.choose(.terminal(terminal.id))?.value
 
         #expect(fixture.controller.issue?.title == "Couldn’t reopen “Shell”.")
         #expect(fixture.controller.issue?.subject == terminal.id)
@@ -217,7 +217,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let task = try await fixture.addTask(windowId: nil)
 
-        #expect(fixture.controller.focus.select(.task(task.id)) == nil)
+        #expect(fixture.controller.choose(.task(task.id)) == nil)
 
         #expect(fixture.controller.focus.selectedTaskId == task.id)
         #expect(fixture.controller.issue == .disconnected("again"))
@@ -233,7 +233,7 @@ import Testing
         fixture.controller.helper.setDaemonClient(server)
         let task = try await fixture.addTask(windowId: nil)
 
-        #expect(fixture.controller.focus.select(.task(task.id)) == nil)
+        #expect(fixture.controller.choose(.task(task.id)) == nil)
 
         #expect(launches.count == 1)
         #expect(server.requests("window.createTask").isEmpty)
@@ -256,15 +256,15 @@ import Testing
         controller.workspace.mutate { $0.terminals = [terminal] }
 
         // Chosen, then the selection moves to a project: dropped at the snapshot.
-        controller.focus.select(.terminal(terminal.id))
+        controller.choose(.terminal(terminal.id))
         controller.focus.browse(.project(fixture.project.id))
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         #expect(server.requests("window.createTerminal").isEmpty)
 
         // Away again; the terminal, then the task, chosen: only the task, still selected, opens.
         controller.helper.handle(.itermDisconnected)
-        controller.focus.select(.terminal(terminal.id))
-        controller.focus.select(.task(task.id))
+        controller.choose(.terminal(terminal.id))
+        controller.choose(.task(task.id))
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         await controller.windows.open(.task(task.id))?.value
         await eventually(describing: "the opened window raised") { !focus.seen.isEmpty }

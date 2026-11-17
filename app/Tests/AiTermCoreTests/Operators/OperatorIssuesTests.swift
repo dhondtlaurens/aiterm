@@ -19,11 +19,11 @@ import Testing
     }
     @Test func aPersonStartedActionNeedsYouAtOnceUntilThatSameActionSucceeds() {
         var issues = OperatorIssues()
-        _ = issues.fail(.openWindow, "The window is gone.", at: t0)
-        #expect(issues.attention?.source == .openWindow)
+        _ = issues.fail(.takeOver, "Its journal entry could not be saved.", at: t0)
+        #expect(issues.attention?.source == .takeOver)
         _ = issues.succeed(.wake, at: t0 + 1)
-        #expect(issues.attention?.source == .openWindow, "An unrelated success cannot hide it.")
-        _ = issues.succeed(.openWindow, at: t0 + 2)
+        #expect(issues.attention?.source == .takeOver, "An unrelated success cannot hide it.")
+        _ = issues.succeed(.takeOver, at: t0 + 2)
         #expect(issues.attention == nil)
     }
     @Test func twoSourcesFailingAndOneRecoveringKeepsTheOther() {

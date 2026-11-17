@@ -141,7 +141,7 @@ final class TaskLauncher {
         let result = try await checkout()
         let task = result.task
         // The row is in the workspace before its window: until this create has opened it — or given
-        // up — the row is this work's, and choosing it opens no second window (`WindowReconciler`).
+        // up — the row is this work's, and choosing it opens no second window (`RowWindows`).
         let opening = work.begin(.opening, onTask: task.id)
         defer { if let opening { work.end(opening) } }
         workspace.mutate { state in
@@ -260,7 +260,7 @@ final class TaskLauncher {
     /// window opened — it cannot adopt it, so the window is closed rather than left behind with nothing
     /// to show it. `command` is what the window's first tab runs: the agent at creation, a resumed
     /// conversation when a chosen row opens its window again, or nothing — the first prompt is never
-    /// replayed. `WindowReconciler.open` opens a chosen task's window through it too.
+    /// replayed. `RowWindows.open` opens a chosen task's window through it too.
     @discardableResult
     func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)

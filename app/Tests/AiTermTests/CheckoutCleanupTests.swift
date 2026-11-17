@@ -85,7 +85,7 @@ import Testing
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")
         // The window's own `window.closed` finds the row windowless already: it stays while the removal runs.
-        controller.windows.handleWindowClosed("alive")
+        controller.windows.windowGone("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless before the close was sent")
 
@@ -205,7 +205,7 @@ import Testing
         try await server.received("window.close")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)], usage: .empty)))
-        controller.windows.handleWindowClosed("alive")
+        controller.windows.windowGone("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
 
         server.release()
@@ -255,7 +255,7 @@ import Testing
 
         controller.checkouts.refresh()
         try await server.received("window.close")
-        controller.windows.handleWindowClosed("alive")
+        controller.windows.windowGone("alive")
         #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless while the close is answered")
         server.release()
 

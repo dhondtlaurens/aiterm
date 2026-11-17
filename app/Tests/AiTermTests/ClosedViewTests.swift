@@ -57,7 +57,7 @@ import Testing
         #expect(fixture.prompter.asked.isEmpty)
         #expect(server.requests("window.createTerminal").isEmpty)
 
-        await controller.focus.select(.terminal(terminal.id))?.value
+        await controller.choose(.terminal(terminal.id))?.value
 
         #expect(server.requests("window.createTerminal").map { $0.params["terminalId"] as? String } == [terminal.id.uuidString])
         #expect(server.requests("window.createTerminal").first?.params["cwd"] as? String == fixture.project.path)
@@ -82,9 +82,9 @@ import Testing
                                                           sessions: [.stub("a", window: "alive", task: task)], usage: .empty)))
         controller.helper.handle(.windowClosed("alive"))
 
-        let first = controller.focus.select(.task(task.id))
+        let first = controller.choose(.task(task.id))
         try await server.received("window.createTask")
-        let second = controller.focus.select(.task(task.id))
+        let second = controller.choose(.task(task.id))
         server.release()
         await first?.value
         await second?.value
@@ -169,7 +169,7 @@ import Testing
         #expect(controller.state.task(id: imported.id)?.windowId == nil)
         #expect(server.requests("window.createTask").isEmpty)
 
-        await controller.focus.select(.task(imported.id))?.value
+        await controller.choose(.task(imported.id))?.value
 
         #expect(server.requests("window.createTask").count == 1)
         #expect(controller.state.task(id: imported.id)?.windowId == "reopened")
@@ -186,7 +186,7 @@ import Testing
         controller.helper.handle(.snapshot(ControllerSnapshots.empty))
         #expect(controller.issue == nil)
 
-        await controller.focus.select(.task(task.id))?.value
+        await controller.choose(.task(task.id))?.value
 
         #expect(controller.issue?.title == "Couldn’t reopen the window.")
         #expect(controller.issue?.subject == task.id)

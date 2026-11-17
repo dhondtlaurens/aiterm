@@ -39,4 +39,20 @@ import Testing
         #expect(next.tasks.map(\.windowId) == ["w1", nil])
         #expect(next.terminals.map(\.windowId) == ["w2", nil])
     }
+
+    /// The Operator's chat is a row like any other: a connected snapshot without its window clears it, a
+    /// disconnected one does not, and during a handover, whose own record it is, neither does.
+    @Test func theOperatorsChatWindowIsClearedOnlyByAConnectedSnapshotOutsideAHandover() {
+        var state = AppState.empty
+        state.operatorSession = OperatorSession(createdAt: Date(timeIntervalSince1970: 0))
+        state.operatorSession?.window = "chat"
+        #expect(state.reconciled(with: snapshot([], connected: false)) == state)
+        #expect(state.reconciled(with: snapshot([SessionInfo.make("o", window: "chat")])) == state)
+        #expect(state.reconciled(with: snapshot([])).operatorSession?.window == nil)
+        for handover in [OperatorHandover.closing, .revoking, .opening] {
+            state.operatorSession?.handover = handover
+            #expect(state.reconciled(with: snapshot([])) == state, "\(handover)")
+            #expect(state.reconciled(with: snapshot([], connected: false)) == state, "\(handover)")
+        }
+    }
 }

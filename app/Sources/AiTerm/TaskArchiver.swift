@@ -6,8 +6,8 @@ import AiTermCore
 /// Archive puts the worktree away; the branch is never touched. The row is saved into the archive
 /// before git removes the worktree, so a crash in between leaves an archived row whose worktree still
 /// exists — which restore adopts — rather than a task whose checkout the cleanup would forget. Restore
-/// recreates the worktree, puts the row back and chooses it, which opens its window with its
-/// conversations resumed.
+/// recreates the worktree and puts the row back; choosing it, which opens its window with its
+/// conversations resumed, is `AppController.restoreFromArchive`'s.
 @MainActor
 final class TaskArchiver {
     private let workspace: WorkspaceStore
@@ -17,15 +17,14 @@ final class TaskArchiver {
     private let prompter: Prompter
     private let checkouts: CheckoutMonitor
     private let remover: TaskRemover
-    private let focus: RowFocus
     private let teardown: WorktreeTeardown
     private let now: @MainActor () -> Date
 
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
-         checkouts: CheckoutMonitor, remover: TaskRemover, focus: RowFocus, teardown: WorktreeTeardown,
+         checkouts: CheckoutMonitor, remover: TaskRemover, teardown: WorktreeTeardown,
          now: @escaping @MainActor () -> Date) {
         self.workspace = workspace; self.work = work; self.workflow = workflow; self.notices = notices
-        self.prompter = prompter; self.checkouts = checkouts; self.remover = remover; self.focus = focus
+        self.prompter = prompter; self.checkouts = checkouts; self.remover = remover
         self.teardown = teardown; self.now = now
     }
 
@@ -170,18 +169,15 @@ final class TaskArchiver {
 
     // -- restore ------------------------------------------------------------------------
     /// Archived row `id`'s worktree back at its own path, then the row back in the sidebar — saved —
-    /// its project opened, and the row chosen as a click chooses it: its window opens, resuming its
-    /// conversations, and is raised, and the task ends once it has. A refusal before the worktree is
-    /// back says why and leaves the row archived; a window that then fails is reported as a click's
-    /// is. Nil when nothing started.
+    /// and its project opened; the row's work ends with the task. A refusal before the worktree is
+    /// back says why and leaves the row archived. Nil when nothing started.
     @discardableResult
     func restore(_ id: UUID) -> Task<Void, Never>? {
         let state = workspace.state
         guard workspace.canChangeWorkspace, let entry = state.archived(id: id), let project = state.project(id: entry.task.projectId),
               let token = work.begin(.restoring, onTask: id) else { return nil }
         return Task {
-            var holding: WorkInFlight.Token? = token
-            defer { if let holding { work.end(holding) } }
+            defer { work.end(token) }
             let made: TaskCreator.Made
             do { made = try await workflow.restore(entry.task, project: project) }
             catch {
@@ -201,11 +197,7 @@ final class TaskArchiver {
             checkouts.refresh()
             workspace.flush()
             TaskLauncher.report(made.worktreeInclude, of: made.task, to: notices)
-            // Free before it is chosen: a busy row opens nothing.
-            work.end(token)
-            holding = nil
             if workspace.persistenceError == nil { notices.showToast("\(entry.task.kindName) restored.", symbol: "tray.and.arrow.up") }
-            await focus.select(.task(id))?.value
         }
     }
 
