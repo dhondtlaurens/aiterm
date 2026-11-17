@@ -23,11 +23,12 @@ import AiTermCore
     private let now: () -> Date
     private let oracle: OracleConsult
     private let ports: Ports
+    private let effects: OperatorInFlight
     private var running: Set<String> = []
-    private var activeQuestions: Set<String> = []
     var changed: () -> Void = {}
-    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports) {
-        self.workspace = workspace; self.journal = journal; self.now = now; self.oracle = oracle; self.ports = ports
+    init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports,
+         effects: OperatorInFlight = OperatorInFlight()) {
+        self.workspace = workspace; self.journal = journal; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects
     }
     func answer(task id: UUID, key: String, proposal: String, tab: String = "main", challenge: String? = nil,
                 fromQuestion: String? = nil, person: Bool = false) async throws -> JSONValue {
@@ -50,14 +51,15 @@ import AiTermCore
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
                                       "session": .string(question.session), "conversation": question.conversation.map(JSONValue.string) ?? .null,
                                       "tab": .string(question.tab), "fingerprint": .string(question.identity)])
-        guard !activeQuestions.contains(binding) else { return ["status": "pending"] }
         func stillAsks() -> Bool {
             claim.allows(in: workspace)
                 && ports.question(id, tab) == question && workspace.state.operatorSession?.startingFresh == false
                 && workspace.state.operatorSession?.id == operatorID && workspace.state.operatorSession?.generation == operatorGeneration
         }
-        running.insert(ledgerKey); activeQuestions.insert(binding)
-        defer { running.remove(ledgerKey); activeQuestions.remove(binding) }
+        // The round holds the task from its start through delivering the agreed answer.
+        guard effects.claim(id) else { return ["status": "pending"] }
+        running.insert(ledgerKey)
+        defer { running.remove(ledgerKey); effects.release(id) }
         var humanAnswer = false
         if let fromQuestion {
             guard let asked = workspace.state.operatorSession?.questions.first(where: { $0.id == fromQuestion }),

@@ -27,13 +27,15 @@ import AiTermCore
     let journal: SignalJournal
     let now: () -> Date
     let ports: Ports
+    /// The tasks an Operator effect runs on: `message_task` and `open_tab` hold theirs while they type or open.
+    let effects: OperatorInFlight
     private var running: Set<String> = []
     var changed: () -> Void = {}
     var recorded: (OperatorRequest, ToolAnswer) -> Void = { _, _ in }
     init(workspace: WorkspaceStore, stages: StageRunner, questions: QuestionRounds, choices: AgentChoiceRounds, journal: SignalJournal,
-         now: @escaping () -> Date, ports: Ports) {
+         now: @escaping () -> Date, ports: Ports, effects: OperatorInFlight = OperatorInFlight()) {
         self.workspace = workspace; self.stages = stages; self.questions = questions; self.choices = choices
-        self.journal = journal; self.now = now; self.ports = ports
+        self.journal = journal; self.now = now; self.ports = ports; self.effects = effects
     }
     func respond(_ request: OperatorRequest) async -> ToolAnswer {
         let answer: ToolAnswer

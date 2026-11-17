@@ -14,56 +14,61 @@ import AiTermCore
     private let stages: StageRunner
     private let now: () -> Date
     private let ports: Ports
-    private var running: Set<UUID> = []
-    init(workspace: WorkspaceStore, journal: SignalJournal, stages: StageRunner, now: @escaping () -> Date, ports: Ports) {
-        self.workspace = workspace; self.journal = journal; self.stages = stages; self.now = now; self.ports = ports
+    private let effects: OperatorInFlight
+    init(workspace: WorkspaceStore, journal: SignalJournal, stages: StageRunner, now: @escaping () -> Date, ports: Ports,
+         effects: OperatorInFlight = OperatorInFlight()) {
+        self.workspace = workspace; self.journal = journal; self.stages = stages; self.now = now; self.ports = ports; self.effects = effects
     }
+    /// Applies Then holding the task, then, with the task released, starts a stage that arrived meanwhile: that
+    /// stage's launch claims the task itself.
     func apply(_ id: UUID) async {
-        guard !running.contains(id), !ports.workerIsWorking(id), let task = workspace.state.task(id: id),
-              let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask, record.canRunThen, record.thenApplied != true else { return }
+        guard !ports.workerIsWorking(id), let task = workspace.state.task(id: id),
+              let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask, record.canRunThen, record.thenApplied != true,
+              effects.claim(id) else { return }
         let signal = record.current.configuration
         let allowed: @MainActor () -> Bool = { [self] in
             claim.allows(in: workspace) && workspace.state.signalItem(id: id)?.signalTask?.canRunThen == true
                 && !ports.workerIsWorking(id)
         }
-        running.insert(id)
-        defer {
-            running.remove(id)
-            if claim.holds(in: workspace.state) { workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = nil } } }
-        }
         do {
-            try await journal.append(.ours("Applying Then: " + signal.finish.then.rawValue + "."), task: id)
-            guard allowed() else { return }
-            switch signal.finish.then {
-            case .unknown: return
-            case .keep: break
-            case .archive:
-                workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "archiving it" } }
-                guard workspace.flush() else { return }
-                guard let current = workspace.state.task(id: id) else { return }
-                try await ports.archive(current, allowed)
-                if allowed() {
-                    try workspace.mutate { state in
-                        try state.updateSignalTask(id) { $0 = try SignalTransitions.apply(.archive, to: $0, at: now()) }
+            defer {
+                effects.release(id)
+                if claim.holds(in: workspace.state) { workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = nil } } }
+            }
+            do {
+                try await journal.append(.ours("Applying Then: " + signal.finish.then.rawValue + "."), task: id)
+                guard allowed() else { return }
+                switch signal.finish.then {
+                case .unknown: return
+                case .keep: break
+                case .archive:
+                    workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "archiving it" } }
+                    guard workspace.flush() else { return }
+                    guard let current = workspace.state.task(id: id) else { return }
+                    try await ports.archive(current, allowed)
+                    if allowed() {
+                        try workspace.mutate { state in
+                            try state.updateSignalTask(id) { $0 = try SignalTransitions.apply(.archive, to: $0, at: now()) }
+                        }
                     }
+                case .remove:
+                    workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "removing it" } }
+                    guard workspace.flush() else { return }
+                    guard let current = workspace.state.task(id: id) else { return }
+                    try await ports.remove(current, allowed)
                 }
-            case .remove:
-                workspace.mutate { $0.updateSignalTask(id) { $0.currentAct = "removing it" } }
-                guard workspace.flush() else { return }
-                guard let current = workspace.state.task(id: id) else { return }
-                try await ports.remove(current, allowed)
-            }
-            if allowed() || workspace.state.archived(id: id)?.task.signalTask?.phase == .archived {
-                workspace.mutate { $0.updateSignalTask(id) { $0.thenApplied = true } }
-                workspace.flush()
-            }
-        } catch {
-            guard claim.allows(in: workspace) else { return }
-            // A person's or worker's turn, and a disconnected helper, are retried. Unsaved work
-            // stays for the person, as the existing prompt-free removal does.
-            if !(error is ClosingWait), workspace.state.signalItem(id: id)?.signalTask?.pendingStages.isEmpty == true {
-                workspace.mutate { $0.updateSignalTask(id) { $0.thenApplied = true; $0.blockedReason = OperationIssue.reason(of: error) } }
-                workspace.flush()
+                if allowed() || workspace.state.archived(id: id)?.task.signalTask?.phase == .archived {
+                    workspace.mutate { $0.updateSignalTask(id) { $0.thenApplied = true } }
+                    workspace.flush()
+                }
+            } catch {
+                guard claim.allows(in: workspace) else { return }
+                // A person's or worker's turn, and a disconnected helper, are retried. Unsaved work
+                // stays for the person, as the existing prompt-free removal does.
+                if !(error is ClosingWait), workspace.state.signalItem(id: id)?.signalTask?.pendingStages.isEmpty == true {
+                    workspace.mutate { $0.updateSignalTask(id) { $0.thenApplied = true; $0.blockedReason = OperationIssue.reason(of: error) } }
+                    workspace.flush()
+                }
             }
         }
         if let current = workspace.state.signalItem(id: id)?.signalTask, current.phase.canContinue, !current.pendingStages.isEmpty {

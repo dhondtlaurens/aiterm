@@ -15,9 +15,10 @@ public enum OperatorTiming {
     /// App only: seconds `jira_search` waits for Jira before it answers that Jira didn't, inside `operatorRequestTimeout`. The
     /// app's Jira client ends each request by then too (`JiraClient.resourceDeadline`).
     public static let jiraSearchBudget: TimeInterval = 20
-    /// App only: seconds after its window was seen, else asked for, that a first worker which has named no conversation yet
-    /// still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
-    public static let firstWorkerOpening: TimeInterval = 180
+    /// App only: how long AiTerm waits for an opened window, a launched worker or a delivered message to show its agent or
+    /// reply before it treats the launch or delivery as failed. Until then a first worker that has named no conversation
+    /// yet still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
+    public static let openingGrace: TimeInterval = 180
     /// How long `read_task` keeps a task's source descriptions.
     public static let hostReadCache: TimeInterval = 30
 }

@@ -73,6 +73,55 @@ import Testing
         await root.reconcile(); await ports.work.settled()
         #expect(entries().count == 2 && daemon.requests("session.deliver").count == 2)
     }
+    /// Polling needs no iTerm2: the tick reads a configured source while it is not connected.
+    @Test func theTickPollsAConfiguredSourceWhileITerm2IsNotConnected() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var ports = OperatorPorts.scratch(); let clock = TestClock(world.now)
+        ports.clock.now = { clock.now }
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let reader = CountingSignalReader()
+        root.sourceRegistrations = { signals in signals.map {
+            SignalPoller.Registration(id: $0.id, sourceHost: "jira.example", readKey: "tickets", isJira: true, reader: reader)
+        } }
+        root.start(); await ports.work.settled()
+        defer { root.stop() }
+        #expect(!root.tabsKnown)
+        #expect(await reader.calls.count == 1)
+        clock.advance(by: 61)
+        await root.reconcile(); await ports.work.settled()
+        #expect(await reader.calls.count == 2)
+    }
+    /// A save that lands while a tick runs reads the edited signal's source at once, not a minute later.
+    @Test func aSaveWhileATickRunsReadsTheEditedSignalBeforeTheNextMinute() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var ports = OperatorPorts.scratch(); let clock = TestClock(world.now)
+        ports.clock.now = { clock.now }
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let reader = CountingSignalReader(), entered = TestLatch(), release = TestLatch()
+        var holdNext = false
+        root.sourceRegistrations = { signals in
+            if holdNext { holdNext = false; entered.signal(); await release.wait() }
+            return signals.map { SignalPoller.Registration(id: $0.id, sourceHost: "jira.example", readKey: "tickets", isJira: true, reader: reader) }
+        }
+        root.tabsKnown = true; root.start(); await ports.work.settled()
+        defer { root.stop() }
+        #expect(await reader.calls.count == 1)
+        // A reattached helper makes the settings step due at once; the tick holds there.
+        holdNext = true; root.daemonAttached()
+        let tick = Task { await root.reconcile() }
+        await entered.wait()
+        var edited = h.workspace.state.signals[0]; edited.name = "Plan tickets again"
+        try await root.save(edited); await ports.work.settled()
+        #expect(await reader.calls.map(\.full) == [true, true], "The edit reads its source again in full, with the clock unchanged.")
+        release.signal(); await tick.value; await ports.work.settled()
+        #expect(await reader.calls.count == 2)
+    }
     @Test func unsupportedPersistedSettingsCannotBeCreatedThroughTheSignalSaveBoundary() async throws {
         var world = SignalWorld(); _ = world.signal()
         let h = try SignalHarness(world); defer { h.cleanUp() }
@@ -228,4 +277,13 @@ import Testing
         #expect(h.workspace.state.tasks.isEmpty)
     }
 
+}
+
+private actor CountingSignalReader: SignalSourceReader {
+    struct Call: Sendable { var since: Date?; var full: Bool }
+    var calls: [Call] = []
+    func poll(since: Date?, full: Bool) async throws -> SignalRead {
+        calls.append(Call(since: since, full: full))
+        return SignalRead(items: [], complete: true, full: full)
+    }
 }

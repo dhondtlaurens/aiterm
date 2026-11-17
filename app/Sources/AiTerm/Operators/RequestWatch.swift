@@ -38,14 +38,14 @@ import AiTermCore
     private let stages: StageRunner
     private let then: ThenRunner
     private let ports: Ports
-    private var running = false
+    private let effects: OperatorInFlight
     var changed: (UUID, String) -> Void = { _, _ in }
-    init(workspace: WorkspaceStore, stages: StageRunner, then: ThenRunner, ports: Ports) {
-        self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports
+    init(workspace: WorkspaceStore, stages: StageRunner, then: ThenRunner, ports: Ports, effects: OperatorInFlight = OperatorInFlight()) {
+        self.workspace = workspace; self.stages = stages; self.then = then; self.ports = ports; self.effects = effects
     }
+    /// One pass over the working and watching tasks. A task whose worker is at work or that another effect holds is
+    /// skipped this pass; the merge holds its task from the Oracle's veto through the confirming read.
     func pass() async {
-        guard !running else { return }
-        running = true; defer { running = false }
         var cache: [String: Snapshot] = [:]
         let ids = workspace.state.tasks.compactMap { task -> UUID? in
             guard let record = task.signalTask else { return nil }
@@ -55,7 +55,7 @@ import AiTermCore
         }
         for id in ids {
             guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask,
-                  !ports.workerIsWorking(id) else { continue }
+                  !ports.workerIsWorking(id), !effects.holds(id) else { continue }
             let signal = record.current.configuration
             let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.current.item.identity ?? id.uuidString
             let snapshot: Snapshot
@@ -93,6 +93,8 @@ import AiTermCore
         } }
         if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
         if merges, snapshot.canMerge, workspace.state.operatorSession?.startingFresh != true {
+            guard effects.claim(task.id) else { return }
+            defer { effects.release(task.id) }
             let generation = workspace.state.operatorSession?.generation
             workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" } }
             guard workspace.flush() else { return }

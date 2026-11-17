@@ -28,6 +28,8 @@ extension AppController {
     /// the next save fails, and a change is saved into it — the sidebar's frame, which no test of
     /// a locked workspace reads.
     func breakSaving() throws {
+        // A save still waiting is made first, so none can write the backup between its removal and the directory.
+        workspace.flush()
         let backup = workspace.file.backupURL
         try? FileManager.default.removeItem(at: backup)
         try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)

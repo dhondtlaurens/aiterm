@@ -98,7 +98,7 @@ import AiTermCore
     /// What the row says about the session itself: the tab's stop reason, then a window that never started the chat.
     var sessionIssue: String? {
         if let stopped = operatorTab()?.stoppedOn { return "The Operator " + stopped.reason(now: ports.now()) + "." }
-        if let opened, ports.now().timeIntervalSince(opened.at) >= 180,
+        if let opened, ports.now().timeIntervalSince(opened.at) >= OperatorTiming.openingGrace,
            live.sessions.contains(where: { $0.windowId == opened.window && $0.taskUUID == workspace.state.operatorSession?.id && $0.agent == .shell }) {
             return "The Operator did not start in its window. Open the chat to inspect it."
         }

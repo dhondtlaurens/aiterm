@@ -39,7 +39,9 @@ import Synchronization
             workerIsWorking: io.busy, prepare: { task, _ in task }, launch: { _, _ in "worker" }, restore: { $0 }))
         await #expect(throws: SignalTransitionError.self) { try await stages.finish(id, action: .finish(.operatorJudges), judged: true) }
         #expect(wakes.isEmpty && h.workspace.state.task(id: id)?.signalTask?.phase == .working)
-        // The refusal can occur between reconciliations: no earlier refresh observed this turn.
+        // The tick every tool reply triggers observes the companion's work.
+        await io.refreshTurns()
+        #expect(wakes.isEmpty)
         live.sessions[1].state = .done
         await io.refreshTurns()
         #expect(wakes == [id])
@@ -47,6 +49,29 @@ import Synchronization
         #expect(wakes == [id])
         try await stages.finish(id, action: .finish(.operatorJudges), judged: true)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .done)
+    }
+    /// `busy` only answers. The `worker_ended` wake comes from the ticks: work one tick saw that the next does not.
+    @Test func busyChangesNothingAndWorkTwoTicksSawEndGetsOneWake() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        live.sessions = [OperatorServiceFixtures.session("primary", tag: id, state: .working)]
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        var wakes: [UUID] = []; io.onTurn = { wakes.append($0) }
+        #expect(io.busy(id) && io.busy(id))
+        live.sessions[0].state = .done
+        await io.refreshTurns()
+        #expect(wakes.isEmpty, "No tick saw the work that busy was asked about.")
+        live.sessions[0].state = .working
+        await io.refreshTurns()
+        #expect(wakes.isEmpty)
+        live.sessions[0].state = .done
+        await io.refreshTurns()
+        #expect(wakes == [id])
+        await io.refreshTurns()
+        #expect(wakes == [id])
     }
     enum ActiveWorker: CaseIterable { case primary, companion, companionPrompt }
     @Test(arguments: ActiveWorker.allCases) func aSignalWaitsForAnOrdinaryTasksTurnThenContinuesItsConversation(active: ActiveWorker) async throws {
@@ -189,11 +214,20 @@ import Synchronization
         await #expect(throws: (any Error).self) { try await io.launch(stale, prompt: "Run.") }
         #expect(daemon.requests("window.createTask").isEmpty)
     }
+    /// The checkout monitor's pass as the app runs it, except that it finds each project's remote as the project has
+    /// it. The fixture's repository stands for the request's GitLab project but has no origin, and a pass that read
+    /// that would make the project a plain git one; one landing before the stage reads the project (the helper's
+    /// attach asks for one) would leave the stage no host to find its request on.
+    nonisolated static let keepingTheRequestsRemote: CheckoutMonitor.Scanner = { cwds, projects, tasks, branches, remotes, diffs in
+        var scan = WorkspaceScan.run(cwds: cwds, projects: projects, tasks: tasks, branches: branches, remotes: remotes, diffs: diffs)
+        scan.remotes = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, WorkspaceScan.Remote(provider: $0.provider, url: $0.remoteUrl)) })
+        return scan
+    }
     /// The stage's checkout is the app's (`TaskLauncher.checkOutWorker`): a Take Over that lands while git makes a
     /// request task's worktree leaves the task with that worktree's folder and launches no worker.
     @Test(.blocking) func takeOverDuringARequestCheckoutKeepsItsFolderAndBaseBranchWithoutLaunchingAWorker() async throws {
         let git = CheckoutHeldGit()
-        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git", controllerGit: git)
+        let fixture = try await RaceFixture(scan: Self.keepingTheRequestsRemote, provider: .gitlab, remoteUrl: "git@git.example:shop/web.git", controllerGit: git)
         let controller = fixture.controller, server = RecordingDaemon()
         defer { git.release(); controller.shutdown(); fixture.cleanUp() }
         let repo = fixture.repo.path, setup = fixture.git
@@ -215,6 +249,8 @@ import Synchronization
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
         controller.signalController.readConnections = { links }
         controller.helper.setDaemonClient(server)
+        // The attach asks the checkout monitor for a pass: it lands before the stage starts, not at a moment of the host's choosing.
+        await controller.checkouts.refreshTask?.value
         let root = controller.signalController
         root.sourceRegistrations = { _ in [] }
         root.start(); await root.ports.work.settled()
@@ -238,7 +274,7 @@ import Synchronization
     /// A read that then fails is said on the task, as no one else would say it.
     @Test(.blocking, arguments: [false, true])
     func takeOverWhileTheStageReadsTheRequestStillLeavesTheTaskItsWorktree(readFails: Bool) async throws {
-        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        let fixture = try await RaceFixture(scan: Self.keepingTheRequestsRemote, provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
         let controller = fixture.controller, server = RecordingDaemon()
         let read = HeldRead()
         defer { read.release(); controller.shutdown(); fixture.cleanUp() }
@@ -263,6 +299,8 @@ import Synchronization
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
         controller.signalController.readConnections = { links }
         controller.helper.setDaemonClient(server)
+        // The attach asks the checkout monitor for a pass: it lands before the stage starts, not at a moment of the host's choosing.
+        await controller.checkouts.refreshTask?.value
         let root = controller.signalController
         root.sourceRegistrations = { _ in [] }
         root.start(); await root.ports.work.settled()
@@ -292,7 +330,7 @@ import Synchronization
     /// A stage for a request item checks out the request's source branch through the app's checkout, and refuses a
     /// fork's, whose source branch is not in this repository.
     @Test(.blocking, arguments: [false, true]) func aRequestStageChecksOutItsSourceBranchAndRefusesAFork(fork: Bool) async throws {
-        let fixture = try await RaceFixture(provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
+        let fixture = try await RaceFixture(scan: Self.keepingTheRequestsRemote, provider: .gitlab, remoteUrl: "git@git.example:shop/web.git")
         let controller = fixture.controller
         defer { controller.shutdown(); fixture.cleanUp() }
         let repo = fixture.repo.path, setup = fixture.git

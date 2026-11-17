@@ -19,13 +19,15 @@ import AiTermCore
     private let now: () -> Date
     private let oracle: OracleConsult
     private let ports: Ports
-    private var active: Set<String> = []
-    init(workspace: WorkspaceStore, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports) {
-        self.workspace = workspace; self.now = now; self.oracle = oracle; self.ports = ports
+    private let effects: OperatorInFlight
+    init(workspace: WorkspaceStore, now: @escaping () -> Date, oracle: OracleConsult, ports: Ports,
+         effects: OperatorInFlight = OperatorInFlight()) {
+        self.workspace = workspace; self.now = now; self.oracle = oracle; self.ports = ports; self.effects = effects
     }
 
     /// Settles one call. The caller validated `proposal` against `rows` and `projects`. A
-    /// critique returns `challenged` with its `challengeId`; the next proposal names it.
+    /// critique returns `challenged` with its `challengeId`; the next proposal names it. The round holds
+    /// the task and releases it before it returns, so the caller's launch or tab can claim it.
     func decide(task: TaskItem, scope: Scope, rows: [AgentChoice], projects: [UUID]?, proposal: Proposal,
                 challenge: String?, work: String? = nil) async throws -> Outcome {
         guard workspace.state.operatorSession?.startingFresh == false, let claim = SignalClaim(task), claim.allows(in: workspace) else {
@@ -38,7 +40,8 @@ import AiTermCore
         // One project and one row: only the project was open, and the Operator decides it alone.
         if rows.count == 1 { return decided(.operatorAlone) }
         let binding = try Self.json(["task": .string(task.id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership)])
-        guard !active.contains(binding) else { return .reply(["status": "pending"]) }
+        guard effects.claim(task.id) else { return .reply(["status": "pending"]) }
+        defer { effects.release(task.id) }
         var previous: OracleRound?
         if let open = oracle.saved(tool: scope.rawValue, key: binding) {
             guard challenge == open.id else {
@@ -53,7 +56,6 @@ import AiTermCore
         }
         let arguments = try Self.json(["row": try JSONValue(encoding: proposal.row), "project": proposal.project.map { .string($0.uuidString) } ?? .null,
                                        "reason": .string(proposal.reason)])
-        active.insert(binding); defer { active.remove(binding) }
         workspace.mutate { $0.updateSignalTask(task.id) { $0.currentAct = "consulting the Oracle" } }
         guard workspace.flush() else { throw ActionUnavailable("The choice couldn’t be saved.") }
         defer { workspace.mutate { state in if claim.holds(in: state) { state.updateSignalTask(task.id) { $0.currentAct = nil } } } }

@@ -5,9 +5,11 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite struct SignalWatchTests {
-    private func stages(_ h: SignalHarness, at: Date) -> StageRunner {
+    private func stages(_ h: SignalHarness, at: Date, effects: OperatorInFlight = OperatorInFlight(),
+                        launched: @escaping @MainActor () -> Void = {}) -> StageRunner {
         StageRunner(workspace: h.workspace, journal: h.journal, now: { at }, ports: .init(
-            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in "worker-window" }, restore: { $0 }))
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in launched(); return "worker-window" }, restore: { $0 }),
+            effects: effects)
     }
     private func ready(merged: Bool = false) -> RequestWatch.Snapshot {
         var facts = DoneCheck.Facts()
@@ -226,6 +228,31 @@ import Testing
         release.signal(); await pass.value
         #expect(merged && h.workspace.state.operatorSession?.oracleRounds.isEmpty == true)
         #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .done)
+    }
+
+    /// Then holds its task: a stage queued meanwhile waits for it, and starts once Then lets go.
+    @Test func aStageQueuedWhileThenRunsWaitsAndStartsAfterThenReleases() async throws {
+        var world = SignalWorld(); let first = world.signal(then: .archive), next = world.signal(age: 1), task = world.workingTask(signal: first)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalTask(task) { $0.phase = .done } }
+        let effects = OperatorInFlight(), entered = TestLatch(), release = TestLatch()
+        var launches = 0
+        let runner = stages(h, at: world.now, effects: effects, launched: { launches += 1 })
+        let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, archive: { _, _ in entered.signal(); await release.wait() }, remove: { _, _ in }),
+            effects: effects)
+        let closing = Task { await then.apply(task) }
+        await entered.wait()
+        h.workspace.mutate { $0.updateSignalTask(task) { record in
+            record.pendingStages.append(SignalStage(signal: next, item: world.ticket().item, matchedAt: world.now,
+                                                   configuration: world.state.signal(id: next)!, prompt: "/psg:review"))
+        } }
+        await #expect(throws: SignalTransitionError.workerIsWorking) { try await runner.finish(task, action: .advancePending) }
+        #expect(launches == 0 && h.workspace.state.task(id: task)?.signalTask?.phase == .done)
+        release.signal(); await closing.value
+        #expect(launches == 1)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.current.signal == next)
+        #expect(h.workspace.state.task(id: task)?.signalTask?.phase == .working)
     }
 
     @Test func pendingWorkThatArrivesDuringCleanupPreventsThenAndContinuesTheSameTask() async throws {

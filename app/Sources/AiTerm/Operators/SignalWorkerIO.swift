@@ -8,22 +8,25 @@ import AiTermCore
     let daemon: @MainActor () -> (any DaemonCommands)?
     let frame: @MainActor () -> Frame
     let transcripts: TranscriptLocator
-    private(set) var inFlight: Set<UUID> = []
+    /// The tasks an Operator effect runs on. `launch`, `message` and `openTab` run under their caller's claim.
+    let effects: OperatorInFlight
     private(set) var replies: [UUID: [String: WorkerTranscript.Reply]] = [:]
-    private var reading = false
+    /// The tasks the last `refreshTurns` saw with live work; one that has none at the next gets a `worker_ended` wake.
     private var awaitingLiveWork: Set<UUID> = []
     var enabled: @MainActor () -> Bool = { true }
     var additionalContext: @MainActor (TaskItem) async throws -> String = { _ in "" }
-    var recoveryAllowed: @MainActor (UUID) -> Bool = { _ in true }
     var onBlocked: @MainActor (UUID) -> Void = { _ in }
     var onTurn: (UUID) -> Void = { _ in }
     /// Journals a fallback row's launch-time agent switch for `run_status` and the person.
     var recordSwitch: @MainActor (UUID, AgentChoice) async throws -> Void = { _, _ in }
     init(workspace: WorkspaceStore, live: LiveSessions, work: WorkInFlight, ports: OperatorPorts,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame) {
+         daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame,
+         effects: OperatorInFlight = OperatorInFlight()) {
         self.workspace = workspace; self.live = live; self.work = work; self.ports = ports; self.daemon = daemon; self.frame = frame
+        self.effects = effects
         transcripts = TranscriptLocator(home: ports.home, claudeConfig: ports.claudeConfig)
     }
+    /// Whether `id`'s workers are at work, asking, paused, stopped or owe a reply. It changes nothing.
     func busy(_ id: UUID) -> Bool {
         guard let task = workspace.state.signalItem(id: id) else { return false }
         // StageRunner saves its intent before prepare/launch. Only a sent launch can be
@@ -39,10 +42,9 @@ import AiTermCore
         let anyLiveWork = live.sessions.contains { session in
             session.taskUUID == id && isLiveWork(session)
         }
-        if anyLiveWork { awaitingLiveWork.insert(id) }
         return anyLiveWork || workspace.state.operatorSession?.questions.contains { $0.task == id && $0.resolvedAt == nil } == true
             || workspace.state.operatorSession?.pausedWorkers?.contains { $0.task == id } == true
-            || inFlight.contains(id) || (task.signalTask?.phase.isActive == true && !(task.signalTask?.pendingReplies?.isEmpty ?? true))
+            || (task.signalTask?.phase.isActive == true && !(task.signalTask?.pendingReplies?.isEmpty ?? true))
             || tabs.contains { (task.signalTask?.phase.isActive == true || $0.session?.agent.agentKind != nil) && ($0.isStillAtWork || $0.status == .needsInput) }
             || (task.signalTask?.phase == .working && tabs.contains { $0.session?.stoppedOn != nil })
             || (task.signalTask?.phase == .working && tabs.contains { tab in
@@ -56,7 +58,7 @@ import AiTermCore
             || !session.background.isEmpty || session.testActivity?.isActive == true
     }
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
-        guard !inFlight.contains(id), workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
+        guard workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
               let session = worker.session, session.stoppedOn == nil, let reply = replies[id]?[tab], WorkerTurn.endsWithQuestion(reply.text) else { return nil }
         return .init(session: session.sessionId, tab: tab, text: WorkerTurn.question(reply.text), message: reply.text, conversation: worker.conversation, fingerprint: reply.fingerprint)
@@ -66,7 +68,7 @@ import AiTermCore
     func recoverLaunches() {
         guard enabled(), workspace.canChangeWorkspace else { return }
         for task in workspace.state.tasks {
-            guard recoveryAllowed(task.id), !inFlight.contains(task.id), SignalClaim(task) != nil,
+            guard !effects.holds(task.id), SignalClaim(task) != nil,
                   let record = task.signalTask, let launch = record.launch, launch.workerPending == true,
                   launch.openedAt == nil, record.phase == .launching || record.phase == .blocked,
                   live.sessions.contains(where: { $0.taskUUID == task.id }) else { continue }
@@ -88,21 +90,20 @@ import AiTermCore
             workspace.flush()
         }
     }
+    /// The tick's worker reads. Unkeyed companion tabs have no transcript the Operator owns, but a task whose live work
+    /// the last tick saw and this one does not is woken, so a stage that waited on that work moves on.
     func refreshTurns() async {
-        guard !reading else { return }; reading = true; defer { reading = false }
         let tasks = workspace.state.tasks.filter { $0.signalTask?.needsWorkerReads == true }
         let ids = Set(tasks.map(\.id))
-        let liveWork = Set(live.sessions.filter(isLiveWork).compactMap(\.taskUUID))
-        // Include work observed by a refused action between ticks. Unkeyed companion tabs do
-        // not have transcripts owned by the Operator, but ending their work must release its wait.
+        let liveWork = Set(live.sessions.filter(isLiveWork).compactMap(\.taskUUID)).intersection(ids)
         let ended = awaitingLiveWork.intersection(ids).subtracting(liveWork)
-        awaitingLiveWork = awaitingLiveWork.union(liveWork).intersection(ids).subtracting(ended)
+        awaitingLiveWork = liveWork
         for id in ended { onTurn(id) }
         for task in tasks {
             guard let claim = SignalClaim(task) else { continue }
             let workers = task.workerTabs(in: live.sessions)
             let failedOpening = task.signalTask?.pendingReplies?.contains { key, pending in
-                guard ports.now().timeIntervalSince(pending.at) >= 180 else { return false }
+                guard ports.now().timeIntervalSince(pending.at) >= OperatorTiming.openingGrace else { return false }
                 let worker = workers.first { $0.reference.name == key }
                 // A live CLI may legitimately work longer than the opening grace period.
                 return worker?.session?.agent.agentKind == nil || worker?.conversation == nil
@@ -136,7 +137,7 @@ import AiTermCore
                 if let pending {
                     if let reply, reply.fingerprint != pending.fingerprint {
                         workspace.mutate { $0.updateSignalTask(task.id) { $0.pendingReplies?[key] = nil } }
-                    } else if ports.now().timeIntervalSince(pending.at) >= 180 {
+                    } else if ports.now().timeIntervalSince(pending.at) >= OperatorTiming.openingGrace {
                         workspace.mutate { $0.updateSignalTask(task.id) { record in
                             if let next = try? SignalTransitions.apply(.block("Its worker has not replied to the saved message. Inspect its window before resuming."),
                                                                        to: record, at: ports.now()) { record = next }
@@ -192,9 +193,9 @@ import AiTermCore
                 _ = try require(current); task = current
             }
         }
-        guard !inFlight.contains(task.id), let daemon = daemon(), task.hasCheckout,
+        guard let daemon = daemon(), task.hasCheckout,
               let token = work.begin(.opening, onTask: task.id) else { throw ActionUnavailable("Its worker cannot open now.") }
-        inFlight.insert(task.id); defer { inFlight.remove(task.id); work.end(token) }
+        defer { work.end(token) }
         try await checkDelivery(for: task, agent: task.agent)
         let fullPrompt = prompt + (try await additionalContext(task))
         _ = try require(task)
@@ -258,10 +259,9 @@ import AiTermCore
     }
     func message(_ task: TaskItem, text: String, tab: String, allowed: @escaping @MainActor () -> Bool) async throws {
         _ = try require(task)
-        guard allowed(), !inFlight.contains(task.id), !(task.signalTask?.pendingReplies?.keys.contains(tab) ?? false),
+        guard allowed(), !(task.signalTask?.pendingReplies?.keys.contains(tab) ?? false),
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
               let session = worker.session, let daemon = daemon() else { throw ActionUnavailable("This worker is not idle and ready for a message.") }
-        inFlight.insert(task.id); defer { inFlight.remove(task.id) }
         try await daemon.setOwnership(sessionId: session.sessionId, ownership: task.signalTask?.ownership ?? 0)
         guard allowed() else { throw ActionUnavailable("The task changed before delivery.") }
         try await markPending(task, tab: tab, conversation: worker.conversation, workRequested: true)
@@ -303,8 +303,8 @@ import AiTermCore
                   old.brief == prompt, old.modelReason == why else { throw ActionUnavailable("That tab key names another launch.") }
             if let session = old.sessionId { return ["status": "opened", "session": .string(session), "tab": .string(key)] }
         }
-        guard !inFlight.contains(task.id), let token = work.begin(.reviewing, onTask: task.id) else { throw ActionUnavailable("This task is busy.") }
-        inFlight.insert(task.id); defer { inFlight.remove(task.id); work.end(token) }
+        guard let token = work.begin(.reviewing, onTask: task.id) else { throw ActionUnavailable("This task is busy.") }
+        defer { work.end(token) }
         if workspace.state.task(id: task.id)?.signalTask?.extraTabs.contains(where: { $0.key == key }) != true {
             let extra = ExtraTab(key: key, agent: choice.agent, model: choice.model, reasoning: choice.reasoning,
                 modelReason: why, brief: prompt, launch: LaunchAttempt(number: 1, requestedAt: ports.now()))

@@ -129,7 +129,7 @@ public extension TaskItem {
     }
 
     /// Whether its first worker's launch is under way at `now`: a working task whose window was seen, else asked for, less
-    /// than `OperatorTiming.firstWorkerOpening` ago, its worker not listed yet or not at work or asking. Bounded so a launch
+    /// than `OperatorTiming.openingGrace` ago, its worker not listed yet or not at work or asking. Bounded so a launch
     /// that failed is not starting forever; one that never starts is still caught as possibly stalled.
     private func isLaunching(_ worker: SessionInfo?, now: Date?) -> Bool {
         guard let now, worker.map({ $0.state.turnEnded }) ?? true else { return false }
@@ -139,6 +139,6 @@ public extension TaskItem {
             launch = signalTask.launch
         } else { return false }
         guard let launch else { return false }
-        return now.timeIntervalSince(launch.openedAt ?? launch.requestedAt) < OperatorTiming.firstWorkerOpening
+        return now.timeIntervalSince(launch.openedAt ?? launch.requestedAt) < OperatorTiming.openingGrace
     }
 }

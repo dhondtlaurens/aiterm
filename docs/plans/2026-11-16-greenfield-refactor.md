@@ -375,7 +375,7 @@ TS tests-scripts.
 - [x] 5d. **Opus.** The controller composes owners and runs one ordered reconcile. Wake policy,
   the chat's window and session, the activity writer and retention each get one owner; Take Over
   already left in phase 4 (RT F1).
-- [ ] 5e. **Opus.** One tick with the existing event triggers: source polling, the host watch and
+- [x] 5e. **Opus.** One tick with the existing event triggers: source polling, the host watch and
   settings are steps that ask whether they are due; one in-flight set per task shared by stage,
   Then, delivery and rounds; the 180-second grace has one name (RT F2). `busy` becomes a pure
   question and the live-work set is computed once per tick (RT F13).
@@ -1107,3 +1107,21 @@ left.
   `SignalWorkerIOTests.takeOverDuringARequestCheckoutKeepsItsFolderAndBaseBranchWithoutLaunchingAWorker`
   (its wait for the checkout reaching git timed out at a load average near 10); the rerun was green.
   That test is timing-sensitive on a loaded machine.
+- 5e: one tick: `reconcile()` (name kept) runs the settings step, then the poll step (`poller.tick()`,
+  even while iTerm2 is not connected), then the host watch when due, then 5d's steps; the per-host poll
+  loops and `TickPass` went. One in-flight set per task, `OperatorInFlight`, shared by stage, Then,
+  delivery, question and agent-choice rounds and the tool handler's message and open_tab; `busy` is a
+  pure question and the live-work set is computed once per tick. The 180-second grace is
+  `OperatorTiming.openingGrace`. No test deleted (`TickPass` behaviour stays in
+  `SignalPollerTests.stopDropsALateReadAndOverlappingTicksStartNoDuplicate`); added five tests
+  (tick polls while iTerm2 is away, a save mid-tick reads the edited signal, a worker-answer round
+  holds its task, a stage queued during Then waits, busy has no side effect). Differences: a signal
+  edited outside Save also polls at once (as before); `canPoll` also requires the workspace to be
+  changeable. Two older test races, exposed under load (load average up to 10.6), were fixed test-side
+  in this step after the gate went red: (attempt 1) attaching the daemon starts a checkout pass that
+  adopted the fixture repository's real remote (none) over the declared GitLab remote, so a request stage
+  that read the project afterwards refused before git; the three request-stage tests now use a scanner
+  that keeps the declared remote and await the attach's pass; (attempt 2) tests that swap the workspace
+  backup for a directory raced the teardown's debounced save; `ArchiveTests`, `CheckoutCleanupTests`
+  and `ScratchController.breakSaving()` now flush first. Five filtered runs of each and the plain gate
+  were green.

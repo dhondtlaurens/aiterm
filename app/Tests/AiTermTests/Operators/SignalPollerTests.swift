@@ -7,7 +7,7 @@ import Testing
 @Suite @MainActor struct SignalPollerTests {
     @Test func differentQueriesPublishOneCompletePassAndAnEditForcesACurrentFullRead() async {
         let reader = SignalPollReader(), work = OperatorWork(), clock = SignalPollClock()
-        let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
+        let poller = SignalPoller(work: work, now: { clock.date })
         let a = UUID(), b = UUID()
         var batches: [[UUID]] = []
         poller.onPass = { batches.append($0.flatMap(\.signals)) }
@@ -24,7 +24,7 @@ import Testing
 
     @Test func equalQueriesShareAReadAndJiraSweepsEveryTenMinutes() async {
         let clock = SignalPollClock(), reader = SignalPollReader(), work = OperatorWork()
-        let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
+        let poller = SignalPoller(work: work, now: { clock.date })
         let a = UUID(), b = UUID()
         var batches: [[UUID]] = []
         poller.onPass = { batches.append($0.flatMap(\.signals)) }
@@ -44,7 +44,7 @@ import Testing
     @Test func incompleteReadsBackOffAndAdvanceNoCursor() async {
         let clock = SignalPollClock(), reader = SignalPollReader(), work = OperatorWork()
         await reader.setComplete(false)
-        let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
+        let poller = SignalPoller(work: work, now: { clock.date })
         var published = 0
         poller.onPass = { _ in published += 1 }
         poller.replace([.init(id: UUID(), sourceHost: "jira", readKey: "query", isJira: true, reader: reader)])
@@ -63,7 +63,7 @@ import Testing
     @Test func stopDropsALateReadAndOverlappingTicksStartNoDuplicate() async {
         let clock = SignalPollClock(), entered = TestLatch(), release = TestLatch(), work = OperatorWork()
         let reader = SignalHeldReader(entered: entered, release: release)
-        let poller = SignalPoller(work: work, automatic: false, now: { clock.date })
+        let poller = SignalPoller(work: work, now: { clock.date })
         var published = 0
         poller.onPass = { _ in published += 1 }
         poller.replace([.init(id: UUID(), sourceHost: "host", readKey: "query", isJira: false, reader: reader)])

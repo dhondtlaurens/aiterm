@@ -3,7 +3,8 @@ import Observation
 import AiTermCore
 
 /// The Operator, composed for AppController: it builds the Signal owners and the one Operator chat,
-/// wires them, routes daemon events and Operator requests to them, and runs one ordered reconcile.
+/// wires them, routes daemon events and Operator requests to them, and runs one ordered reconcile: the
+/// Operator's tick, each minute and on the events that call it, whose steps each run when they are due.
 @Observable @MainActor final class SignalOperatorController {
     let workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts
     let daemon: @MainActor () -> (any DaemonCommands)?
@@ -13,6 +14,8 @@ import AiTermCore
     /// The activity log and the Operator's issues.
     let log: ActivityWriter
     let native: SignalWorkerIO, host: SignalHostIO, journal: SignalJournal, poller: SignalPoller
+    /// The tasks an Operator effect runs on, one effect per task, shared by every owner that acts on a task.
+    let effects: OperatorInFlight
     var tabsKnown = false
     private(set) var profile = OperatorProfile(model: "", reasoning: nil)
     /// What the Operator row shows as "needs you": an issue that needs the person, then the session's own.
@@ -36,6 +39,8 @@ import AiTermCore
     @ObservationIgnored private var jobs: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var reconciling = false
     @ObservationIgnored private var hostDue = Date.distantPast
+    /// The host watch's pass still running; the next starts only once it ended.
+    @ObservationIgnored private var hostPass: Task<Void, Never>?
     @ObservationIgnored private var settingsDue = Date.distantPast
     @ObservationIgnored private var activeTools = 0
     @ObservationIgnored private var hooks: [() -> Void] = []
@@ -62,7 +67,8 @@ import AiTermCore
         tab: { [weak self] in self?.chat.operatorTab() }, running: { [weak self] in self?.isStopped == false })
     @ObservationIgnored lazy var pause = SignalPauseSignaller(workspace: workspace, live: live, native: native,
         enabled: { [weak self] in self?.isStopped == false }, now: ports.now)
-    @ObservationIgnored lazy var router = ItemRouter(workspace: workspace, now: ports.now, workerIsWorking: native.busy)
+    @ObservationIgnored lazy var router = ItemRouter(workspace: workspace, now: ports.now,
+        workerIsWorking: { [native, effects] id in native.busy(id) || effects.holds(id) })
     @ObservationIgnored lazy var stages = StageRunner(workspace: workspace, journal: journal, now: ports.now,
         ports: .init(workerIsWorking: native.busy, prepare: { [weak self] task, signal in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
@@ -80,7 +86,7 @@ import AiTermCore
                 guard self.native.allows(task) else { throw ActionUnavailable("The task changed hands or the Operator is paused.") }
                 return try await self.restore(task.id)
             }
-        }))
+        }), effects: effects)
     @ObservationIgnored lazy var then = ThenRunner(workspace: workspace, journal: journal, stages: stages, now: ports.now,
         ports: .init(workerIsWorking: native.busy, archive: { [weak self] task, allowed in
             guard let self else { return }
@@ -90,7 +96,7 @@ import AiTermCore
             try await self.activity.during("removing " + OperatorActivityTracker.name(task)) {
                 try await self.remove(task, allowed); await self.host.deleteMergedBranch(of: task)
             }
-        }))
+        }), effects: effects)
     @ObservationIgnored lazy var watch = RequestWatch(workspace: workspace, stages: stages, then: then,
         ports: .init(workerIsWorking: native.busy, read: { [weak self] task in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
@@ -103,17 +109,17 @@ import AiTermCore
         }, merge: { [weak self] task, snapshot in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
             try await self.activity.during("merging " + OperatorActivityTracker.name(task)) { try await self.host.merge(task, snapshot: snapshot) }
-        }))
+        }), effects: effects)
     @ObservationIgnored lazy var questions = QuestionRounds(workspace: workspace, journal: journal, now: ports.now, oracle: oracle,
         ports: .init(question: native.question, deliver: { [weak self] task, question, text in
                 guard let self, let claim = SignalClaim(task) else { throw ActionUnavailable("The Operator stopped.") }
                 try await self.native.message(task, text: text, tab: question.tab, allowed: {
                     !self.isStopped && claim.holds(in: self.workspace.state)
                 })
-            }))
+            }), effects: effects)
     @ObservationIgnored lazy var choices = AgentChoiceRounds(workspace: workspace, now: ports.now, oracle: oracle, ports: .init(
         weeklyUsage: { [weak self] in self.map { SidebarModel.weeklyUsage($0.live.usage, now: $0.ports.now()) } ?? [:] },
-        installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }))
+        installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }), effects: effects)
     @ObservationIgnored lazy var tools: SignalOperatorToolHandler = makeTools()
     private func makeTools() -> SignalOperatorToolHandler {
         return SignalOperatorToolHandler(workspace: workspace, stages: stages, questions: questions, choices: choices,
@@ -145,7 +151,7 @@ import AiTermCore
             }, actionsAllowed: { [weak self] in self?.isStopped == false },
             sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.currentInstructions }, usage: { [weak self] in self?.live.usage ?? .empty },
             installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] },
-            issues: { [weak self] in self?.log.issues.current ?? [] }))
+            issues: { [weak self] in self?.log.issues.current ?? [] }), effects: effects)
     }
     @ObservationIgnored lazy var gate = SignalShellGate(workspace: workspace, folder: OperatorLaunch.folder(home: ports.home),
         now: ports.now, validate: { [weak self] request in
@@ -159,18 +165,20 @@ import AiTermCore
          daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame, automatic: Bool = true) {
         self.workspace = workspace; self.live = live; self.ports = ports; self.daemon = daemon; self.frame = frame; self.automatic = automatic
         let activity = OperatorActivityTracker(); self.activity = activity
+        let effects = OperatorInFlight(); self.effects = effects
         log = ActivityWriter(folder: OperatorLaunch.folder(home: ports.home), work: ports.work, now: ports.now, activity: activity)
-        native = SignalWorkerIO(workspace: workspace, live: live, work: work, ports: ports, daemon: daemon, frame: frame)
+        native = SignalWorkerIO(workspace: workspace, live: live, work: work, ports: ports, daemon: daemon, frame: frame, effects: effects)
         host = SignalHostIO(workspace: workspace, git: ports.git, connections: { SignalConnections() })
         journal = SignalJournal(workspace: workspace, folder: OperatorLaunch.folder(home: ports.home).appendingPathComponent("journals"), now: ports.now)
-        poller = SignalPoller(work: ports.work, automatic: automatic, now: ports.now)
-        poller.canPoll = { [weak self] in self.map { !$0.isStopped && $0.workspace.state.operatorSession?.paused != true } ?? false }
+        poller = SignalPoller(work: ports.work, now: ports.now)
+        poller.canPoll = { [weak self] in
+            self.map { !$0.isStopped && $0.workspace.canChangeWorkspace && $0.workspace.state.operatorSession?.paused != true } ?? false
+        }
         native.enabled = { [weak self] in self?.isStopped == false }
         native.additionalContext = { [weak self] task in try await self?.host.additionalContext(task) ?? "" }
         host.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
         host.now = ports.now
         host.enabled = { [weak self] in self?.isStopped == false }
-        native.recoveryAllowed = { [weak self] id in self.map { !$0.stages.isRunning(id) } ?? false }
         native.onBlocked = { [weak self] id in self?.waker.wake(.taskBlocked, id: id) }
         native.onTurn = { [weak self] id in self?.waker.wake(.workerEnded, id: id) }
         activity.changed = { [weak self] in self?.reconcileIfIdle(); self?.changed() }
@@ -236,7 +244,7 @@ import AiTermCore
         }
         workspace.onChange { [weak self] in
             guard let self, !self.isStopped else { return }
-            if self.normalized(self.workspace.state.signals) != self.lastSignals { self.schedule { await self.configure() } }
+            if self.normalized(self.workspace.state.signals) != self.lastSignals { self.schedule { await self.configure(); self.poller.tick() } }
             self.reconcileIfIdle()
             self.changed()
         }
@@ -279,7 +287,7 @@ import AiTermCore
         }
     }
     func stop() {
-        isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); chat.stop()
+        isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); chat.stop(); hostPass?.cancel()
         for job in jobs.values { job.cancel() }; jobs.removeAll()
         if let savedObserver { NotificationCenter.default.removeObserver(savedObserver); self.savedObserver = nil }
     }
@@ -301,7 +309,7 @@ import AiTermCore
         let edited = Set(expected.filter { value in lastSignals.first(where: { $0.id == value.id }) != value }.map(\.id)).union(requested)
         let keys = registrations.map { $0.id.uuidString + ":" + $0.sourceHost + ":" + $0.readKey }.sorted()
         if keys != registrationKeys || !edited.isEmpty { poller.replace(registrations, refresh: edited); registrationKeys = keys }
-        lastSignals = expected; poller.tick()
+        lastSignals = expected
     }
     func save(_ signal: Signal) async throws {
         guard workspace.canChangeWorkspace, signal.source.isSupported, signal.finish.isValid(for: signal.source) else { throw ActionUnavailable("This signal cannot be saved.") }
@@ -310,7 +318,8 @@ import AiTermCore
             else { state.signals.append(signal) }
         }
         guard workspace.flush() else { throw ActionUnavailable("The signal could not be saved.") }
-        await pause.reconcile(); await configure(refresh: [signal.id]); await reconcile()
+        // The edited signal reads now, even while a tick runs and would drop this call's reconcile.
+        await pause.reconcile(); await configure(refresh: [signal.id]); poller.tick(); await reconcile()
     }
     func daemonAttached() { tabsKnown = false; settingsDue = .distantPast }
     func handle(_ event: DaemonEvent) {
@@ -375,10 +384,12 @@ import AiTermCore
         reconciling = true; defer { reconciling = false; changed() }
         let now = ports.now()
         if now >= settingsDue {
-            settingsDue = now.addingTimeInterval(60)
+            settingsDue = now.addingTimeInterval(OperatorTiming.reconcileInterval)
             workspace.mutate { $0.pruneOperator(at: ports.now()) }
             await loadProfile(); await configure()
         }
+        // Polling needs no iTerm2. The poller skips it while paused or stopped.
+        poller.tick()
         guard !isStopped, tabsKnown else { return }
         if workspace.mutate({ $0.withdrawObsoleteQuestions(at: ports.now()) }) { workspace.flush() }
         // A durable retirement must complete before a new generation can serve a later match.
@@ -406,7 +417,10 @@ import AiTermCore
         for task in workspace.state.tasks where task.signalTask?.canRunThen == true && task.signalTask?.thenApplied != true {
             schedule { await self.activity.during("finishing " + OperatorActivityTracker.name(task)) { await self.then.apply(task.id) } }
         }
-        if now >= hostDue { hostDue = now.addingTimeInterval(60); schedule { await self.watch.pass() } }
+        if now >= hostDue, hostPass == nil, !isStopped {
+            hostDue = now.addingTimeInterval(OperatorTiming.reconcileInterval)
+            hostPass = ports.work.start { [weak self] in await self?.watch.pass(); self?.hostPass = nil }
+        }
         waker.dropWhenNoWork()
         await waker.deliver()
         await finishChatWhenNoWork()
@@ -440,6 +454,6 @@ import AiTermCore
         }
         guard workspace.flush() else { return }
         await pause.reconcile()
-        if !paused { await configure(refresh: Set(workspace.state.signals.filter(\.enabled).map(\.id))); await reconcile() }
+        if !paused { await configure(refresh: Set(workspace.state.signals.filter(\.enabled).map(\.id))); poller.tick(); await reconcile() }
     }
 }

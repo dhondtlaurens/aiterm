@@ -19,6 +19,8 @@ extension SignalOperatorToolHandler {
             let text = try call.string("text")
             try await journal.append(.quoted(SignalQuote(source: "operator instruction", text: text)), task: task.id)
             guard allowed() else { throw ToolRefusal("The task changed before delivery.") }
+            guard effects.claim(task.id) else { throw ToolRefusal("This worker is not idle and ready for a message.") }
+            defer { effects.release(task.id) }
             try await ports.message(task, text, tab, allowed)
             return ["status": "sent"]
         case .openTab:
@@ -39,6 +41,8 @@ extension SignalOperatorToolHandler {
                     guard allowed() else { throw ToolRefusal("The task changed before its work tab opened.") }
                 }
             }
+            guard effects.claim(task.id) else { throw ToolRefusal("This task is busy.") }
+            defer { effects.release(task.id) }
             return try await ports.openTab(task, key!, row, prompt, reason, allowed)
         case .askYou:
             try questions.askYou(key: key!, task: task?.id, text: try call.string("text"), tab: call.optionalString("tab") ?? "main")
