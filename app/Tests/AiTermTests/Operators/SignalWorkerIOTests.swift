@@ -364,6 +364,27 @@ import Synchronization
         #expect(current.signalTask?.pendingReplies?["check"] != nil)
         try? FileManager.default.removeItem(at: io.ports.home)
     }
+    /// A work tab that opened but whose agent command was never typed is no launch: the Operator gets the daemon's
+    /// reason, and the tab's launch stays unopened.
+    @Test func anExtraWorkTabWhoseCommandWasNotTypedStaysUnopened() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalItem(id) { $0.worktreePath = h.folder.path } }
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()
+        daemon.commandErrors["tab.create"] = "The session ended before the command was typed."
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: .scratch(),
+                                daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        defer { try? FileManager.default.removeItem(at: io.ports.home) }
+        let task = try #require(h.workspace.state.task(id: id))
+        var refusal: String?
+        do {
+            _ = try await io.openTab(task, key: "check", choice: SignalWorld.agent, prompt: "Inspect the failure.", why: "Second task", allowed: { true })
+        } catch let error as ActionUnavailable { refusal = error.message }
+        #expect(refusal == "The session ended before the command was typed.")
+        #expect(daemon.requests("tab.create").count == 1)
+        let tab = try #require(h.workspace.state.task(id: id)?.signalTask?.extraTabs.first { $0.key == "check" })
+        #expect(tab.sessionId == nil && tab.launch.openedAt == nil)
+    }
     @Test func anEndedWorkerQuestionKeepsItsStageBusyUntilAnAgreedAnswerIsSent() async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }

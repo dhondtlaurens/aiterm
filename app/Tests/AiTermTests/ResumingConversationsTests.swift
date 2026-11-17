@@ -86,6 +86,29 @@ import Testing
         #expect(fixture.controller.issue?.subject == task.id)
     }
 
+    /// A conversation's tab that opened but whose command was never typed is a plain shell: said as a tab that would
+    /// not open is, and the rest wait for the person.
+    @Test func aConversationWhoseCommandWasNotTypedSaysSo() async throws {
+        let fixture = try await RaceFixture()
+        let server = RecordingDaemon()
+        server.commandErrors["tab.create"] = "The session ended before the command was typed."
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try await fixture.addTask(windowId: nil)
+        fixture.controller.workspace.mutate {
+            $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2"),
+                                         TaskConversation(agent: .pi, id: "p-3")]
+        }
+
+        fixture.controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+        await fixture.controller.choose(.task(task.id))?.value
+
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened")
+        #expect(server.requests("tab.create").count == 1)
+        #expect(fixture.controller.issue == OperationIssue(title: "Reopened the window, but not every conversation.",
+                                                           reason: "The session ended before the command was typed.", subject: task.id))
+    }
+
     /// Never a resume command for an empty id, or one the CLI would read as a flag, whatever a workspace holds.
     @Test func noResumeCommandIsBuiltForAnEmptyIdOrOneThatReadsAsAFlag() async throws {
         let fixture = try await RaceFixture()

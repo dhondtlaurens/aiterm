@@ -135,9 +135,12 @@ Some windows close because AiTerm closed them:
   other window one of the task's tabs was moved to, before deleting the worktree. A task with a
   window needs iTerm2 connected to close it: without, it stops before closing or deleting anything,
   and the row says **Not removed: iTerm2 isn’t connected**. A task with no window is removed either
-  way.
+  way. A window that would close holding other work (another row's tab in the task's window, or
+  any tab not the task's in the window one of its tabs was moved to) stops it the same way, and
+  the row says **Not removed**; move that tab to its own window or close it, then try again.
 - **Archive Task** does the same, then moves the row to the Archive. Without iTerm2 connected, a
-  task with a window says **Not archived: iTerm2 isn’t connected**.
+  task with a window says **Not archived: iTerm2 isn’t connected**, and a window shared with other
+  work says **Not archived**.
 - **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
   branch is kept.
 - **Remove Terminal** closes the terminal's window and removes its row.

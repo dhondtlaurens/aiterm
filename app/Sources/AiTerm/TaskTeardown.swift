@@ -553,13 +553,25 @@ final class TaskTeardown: CheckoutRemovals {
     /// worktree. The row drops its window first, so that window's own `window.closed` finds it windowless already; a
     /// row that takes another of them meanwhile holds a window this closes too. A window that will not close is given
     /// back, and nothing is deleted. A task with no window has nothing to close and needs no helper; one with a window
-    /// and no helper to close it stops the teardown.
+    /// and no helper to close it stops the teardown, as does a window holding another row's tab, or any tab not the
+    /// task's in a window other than the row's own.
     private func closeWindow(of task: TaskItem) async throws {
         guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
         var windows = workspace.state.tasks[i].windowId.map { [$0] } ?? []
         for tab in live.sessions where tab.taskUUID == task.id && !windows.contains(tab.windowId) { windows.append(tab.windowId) }
         guard !windows.isEmpty else { return }
         guard let daemon = daemon() else { throw TeardownStop.noDaemon }
+        // A window closes with every tab in it, and a tab can be dragged between windows: one that holds other work
+        // stops the teardown before anything changes. The row's own window may hold the person's plain tabs, as it
+        // always has; any other window holds only the task's.
+        let own = workspace.state.tasks[i].windowId
+        guard !live.sessions.contains(where: { tab in
+            guard windows.contains(tab.windowId), tab.taskUUID != task.id else { return false }
+            return tab.windowId != own || tab.taskId != nil || tab.terminalId != nil
+        }) else {
+            throw ActionUnavailable("One of its tabs shares an iTerm2 window with other work. "
+                                    + "Move that tab to its own window or close it, then try again.")
+        }
         // Windowless at once, so the window's own `window.closed` finds it so; a snapshot no longer drops a row, so this
         // need not be on disk before the window closes.
         workspace.mutate { $0.tasks[i].windowId = nil }
