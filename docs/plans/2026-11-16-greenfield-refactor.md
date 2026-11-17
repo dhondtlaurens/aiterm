@@ -1154,3 +1154,10 @@ left.
   `SignalWorkerIOTests.onlyAFallbackRowMovesOffAnAgentAtItsWeeklyLimit` (survivor of the same name in
   `SignalAgentChoiceTests`); added `onlyAGlobalStatusAcknowledgesAnUnreadWake`. No fixture changed.
   Noticed and left: `OracleRound.askedArguments` is written and never read.
+- 5h decision (orchestrator, before implementation): Codex stopped because 5h's shared helper for
+  kind-tagged enums throws "Missing … value" while 5f's `OperatorSession.Lifecycle` (written after the
+  5h brief) decodes a known kind with a missing or invalid value as `.unknown(raw)` and keeps its bytes,
+  protected by `OperatorLifecycleTests`. Decided within the plan's intent (the workspace file tolerates
+  what it does not know; 5f's behaviour is decided and tested): the lifecycle keeps its behaviour. The
+  helper applies the brief's rule to the enums the brief lists; the lifecycle uses the helper only if
+  the helper can express "missing or invalid value becomes `.unknown`", else keeps its own decoder.
