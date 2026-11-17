@@ -1186,3 +1186,11 @@ left.
   implementer: the watch captures the phase before the first read (only working or watching) and every
   check from the read on requires the stage still in it. Added
   `SignalWatchTests.aStageBlockedWhileThePassReadsTheRequestIsNeverMerged` (fails without the fix).
+- Review round 3: no findings, "ready". Plain `scripts/test.sh all` green on `e90cbbb1`. No bundle
+  check is due after phase 5. `main` had only the refactor's own merges; merged to `main`.
+- Owed to the maintainer for phase 5: the live Operator eval (`AITERM_LIVE_OPERATOR=1`): the Oracle's
+  prompts moved into `OracleLaunch` (byte for byte), `answer_worker` and `ask_oracle` can now answer
+  `retry`, the shell gate denies when the Oracle was switched off mid-read, `run_status` lost
+  `tasks[].currentAct`, and two refusal texts of `answer_worker` changed (5c, 5f, 5g). Also for 9c: the
+  hosted-only Operator section snapshot poses (they need `AITERM_SNAPSHOT_HOSTED=1`, which opens
+  windows) were not captured during this phase.
