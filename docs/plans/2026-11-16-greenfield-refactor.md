@@ -312,7 +312,7 @@ TS tests-scripts.
   fail, guards behind controls that cannot send the input, one paging helper for the hosts, the
   duplicate Backpack rejoin delays and turn-off block, the release feed as constants
   (SS F16, HO F5 item 3, PL F6, F8).
-- [ ] 2i. **Codex.** The workspace backup is a plain second write; git-spawn budgets become
+- [x] 2i. **Codex.** The workspace backup is a plain second write; git-spawn budgets become
   ceilings; the two notes no test reads go (TL F8, TS F5).
 
 ### Phase 3. Windows (after 2)
@@ -831,3 +831,10 @@ left.
   the brief did not name it), and `ReleaseFeedTests` (anonymous requests survive in
   `GitHubReleaseSourceTests`; a missing version in `aBuildWithoutAVersionSaysSo`). The bundle check
   no longer looks for the feed key.
+- 2i: the workspace backup is a plain atomic second write of the validated previous bytes (the
+  clone, staging and `copyfile` path went); files written per save is back to 2, on purpose.
+  `WorkMeter.workerTabs` and `stateSave` and the `WorkerTabs` note went. Spawn budgets in
+  `WorkBudgetTests` and `GitSpawnCountTests` are ceilings at the measured counts: archive 8, restore
+  4, remove 7 (worktree listings 4, 1, 3); first checkout pass 43, path probes 9; expired pass 12,
+  diffs 6, untracked listings 6. No test deleted. `docs/testing.md` says ceilings and names the
+  four budget suites that exist.

@@ -55,10 +55,11 @@ rather than hangs. Join Operator work with `settled()` (or `settled(leaving:)`) 
 not an owner's last-task handle. When consolidating safety tests, establish which surviving test
 detects the same failure rather than deleting by name or assertion sign.
 
-Prefer deterministic work budgets for hot paths. Swift budgets count through `WorkMeter`, a
-task-local a test binds, and assert exact numbers in `WorkBudgetTests`, `OperatorWorkBudgetTests`
-and `ViewWorkBudgetTests`; the daemon's steady-tick budgets in `test_tick_budgets.py` fix the scan's
-local and UTC dates. A change lowers a number with the work that earned it and never raises it.
+Prefer deterministic work budgets for hot paths. Swift budgets use `WorkMeter`, a task-local a test
+binds, or a recording git runner. Ceilings are asserted in `WorkBudgetTests`, `GitSpawnCountTests`,
+`SignalStatusBudgetTests` and `ViewWorkBudgetTests`; the daemon's steady-tick budgets in
+`test_tick_budgets.py` fix the scan's local and UTC dates. A change lowers a ceiling with the work
+that earned it and never raises it.
 `AITERM_MEASURE=1` prints fixture timings and asserts nothing; keep them separate from installed-app
 latency claims.
 
