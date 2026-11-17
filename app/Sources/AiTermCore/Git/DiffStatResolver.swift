@@ -21,9 +21,8 @@ public struct DiffStat: Equatable, Sendable {
 /// lines came to is kept against the file's `lstat`, so an expired answer reads only the files that
 /// changed, not everything an agent's fixture folder holds.
 ///
-/// A git that runs out of time is not an answer: the last known diff stands, and the worktree is
-/// left alone for `failureBackoff` seconds, so a dead mount costs its deadline once in a while
-/// rather than on every pass.
+/// A git that runs out of time is not an answer: the last known diff stands, its age stays the
+/// same, and the next call asks again. ``StallGuardedGit`` decides whether git runs.
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git, with the lock on
 /// what is kept released meanwhile.
@@ -47,7 +46,6 @@ public final class DiffStatResolver: Sendable {
     private let now: @Sendable () -> Date
     private let ttl: TimeInterval
     private let cap: UntrackedCap
-    private let failureBackoff: TimeInterval
     /// Reads an untracked file to count its lines: ``contents(of:size:)``, which a test wraps to
     /// count what is read.
     private let contents: @Sendable (_ path: String, _ size: Int) -> Data?
@@ -57,8 +55,6 @@ public final class DiffStatResolver: Sendable {
         var mergeBases: [String: MergeBase] = [:]
         /// Per checkout, the files the last pass counted, by path.
         var counted: [String: [String: Counted]] = [:]
-        /// When git last ran out of time on a checkout.
-        var timeouts: [String: TimedOut] = [:]
     }
     private let kept = Mutex(Kept())
 
@@ -71,9 +67,8 @@ public final class DiffStatResolver: Sendable {
     }
 
     init(git: any GitRunning, now: @escaping @Sendable () -> Date = MonotonicDate.now, ttl: TimeInterval = 5, untrackedCap: UntrackedCap,
-         failureBackoff: TimeInterval = TimedOut.backoff,
          contents: @escaping @Sendable (_ path: String, _ size: Int) -> Data? = DiffStatResolver.contents(of:size:)) {
-        self.git = git; self.now = now; self.ttl = ttl; self.cap = untrackedCap; self.failureBackoff = failureBackoff
+        self.git = git; self.now = now; self.ttl = ttl; self.cap = untrackedCap
         self.contents = contents
     }
 
@@ -82,21 +77,19 @@ public final class DiffStatResolver: Sendable {
     public func diff(for worktree: String, base: String) -> DiffStat? {
         guard !worktree.isEmpty, !base.isEmpty else { return nil }
         let key = Self.key(worktree, base)
-        // A fresh answer stands, and so does the last known one while git is left alone.
+        // A fresh answer stands until its TTL expires.
         let (known, stands): (Entry?, Bool) = kept.withLock { kept in
             let known = kept.entries[key]
             let fresh = known.map { now().timeIntervalSince($0.at) < ttl } ?? false
-            return (known, fresh || kept.timeouts[key]?.isPending(now: now(), backoff: failureBackoff) == true)
+            return (known, fresh)
         }
         if stands { return known?.value }
         do {
             let value = try read(worktree, base: base, key: key)
-            kept.withLock { $0.entries[key] = Entry(value: value, at: now()); $0.timeouts[key] = nil }
+            kept.withLock { $0.entries[key] = Entry(value: value, at: now()) }
             return value
         } catch {
-            // Git ran out of time, which is no answer: the diff last known stands, and is not
-            // asked about again until the backoff is over.
-            kept.withLock { $0.timeouts[key] = TimedOut(error, at: now()) }
+            // A timeout leaves the last known diff and its age unchanged, so the next call retries.
             return known?.value
         }
     }
@@ -109,7 +102,6 @@ public final class DiffStatResolver: Sendable {
             kept.entries = kept.entries.filter { live.contains($0.key) }
             kept.mergeBases = kept.mergeBases.filter { live.contains($0.key) }
             kept.counted = kept.counted.filter { live.contains($0.key) }
-            kept.timeouts = kept.timeouts.filter { live.contains($0.key) }
         }
         var out: [UUID: DiffStat] = [:]
         for task in tasks where !missing.contains(task.id) {
@@ -157,13 +149,10 @@ public final class DiffStatResolver: Sendable {
 
     /// Every file whose change can move the merge-base: `HEAD` (a checkout, a rebase), the branch
     /// it is on (a merge or reset there leaves `HEAD` alone), `<base>` and `origin/<base>`, and
-    /// `packed-refs`, where any of those refs may live instead of its own file. A reftable
-    /// repository keeps none of them in a file: every update rewrites a stack's `tables.list`
-    /// instead — the checkout's own, which holds its HEAD, and the shared one beside
-    /// `packed-refs`, which holds the branches. One git call, and `nil` when `worktree` is not a
-    /// checkout with a commit.
+    /// `packed-refs`, where any of those refs may live instead of its own file. One git call,
+    /// and `nil` when `worktree` is not a checkout with a commit.
     private static func refFiles(_ worktree: String, base: String, git: any GitRunning) throws -> [String]? {
-        let names = ["HEAD", "packed-refs", "refs/heads/" + base, "refs/remotes/origin/" + base, "reftable/tables.list"]
+        let names = ["HEAD", "packed-refs", "refs/heads/" + base, "refs/remotes/origin/" + base]
         guard let answer = try ask(["rev-parse", "--symbolic-full-name", "HEAD"] + names.flatMap { ["--git-path", $0] },
                                    in: worktree, git: git) else { return nil }
         var lines = answer.split(separator: "\n").map(String.init)
@@ -171,9 +160,8 @@ public final class DiffStatResolver: Sendable {
         let head = lines.removeFirst()
         var files = lines.map { FileStamps.absolute($0, in: worktree) }
         // The shared directory, where `packed-refs` is: a branch's ref sits in it, as `<base>`'s
-        // does, and so does the shared reftable stack. A detached HEAD is its own file.
+        // does. A detached HEAD is its own file.
         let shared = (files[1] as NSString).deletingLastPathComponent
-        files.append(shared + "/reftable/tables.list")
         if head.hasPrefix("refs/") { files.append(shared + "/" + head) }
         return files
     }

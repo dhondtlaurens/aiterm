@@ -6,8 +6,8 @@ import Testing
 @Suite(.blocking) struct RemoteResolverTests {
     private func makeRepo() throws -> String { try GitFixture.makeRepo(prefix: "rr-") }
 
-    @Test(arguments: ["files", "reftable"]) func followsTheCheckedOutBranchesUpstream(refFormat: String) throws {
-        let repo = try GitFixture.makeRepo(prefix: "rr-", refFormat: refFormat)
+    @Test func followsTheCheckedOutBranchesUpstream() throws {
+        let repo = try GitFixture.makeRepo(prefix: "rr-")
         defer { try? FileManager.default.removeItem(atPath: repo) }
         let git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
         for remote in ["origin", "fork"] {
@@ -94,7 +94,6 @@ extension RemoteResolverTests {
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .unavailable)
         flaky.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.remote(for: repo) == .remote("git@gitlab.example.com:group/app.git"))
     }
 
@@ -107,7 +106,6 @@ extension RemoteResolverTests {
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .remote(nil), "the last answer stands while git cannot be asked")
         flaky.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.remote(for: repo) == .remote("git@example.com:app.git"), "the failed re-read is retried, not remembered")
     }
 
@@ -118,7 +116,6 @@ extension RemoteResolverTests {
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .unavailable)
         flaky.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.remote(for: repo) == .remote(nil))
     }
 }

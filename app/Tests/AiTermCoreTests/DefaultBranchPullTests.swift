@@ -168,23 +168,6 @@ import Darwin
         #expect(log.split(separator: "\n").first == "smudge 1", "the new checkout's files are not smudged")
     }
 
-    /// A rebase's checkout the app died before removing still has the branch checked out, which
-    /// makes every `git checkout` of it fail and would have the next pull merge there. The next pull
-    /// or rebase removes it first.
-    @Test(arguments: [false, true]) func testRemovesTheCheckoutOfARebaseThatNeverFinished(rebase: Bool) throws {
-        let stale = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-rebase-\(UUID().uuidString)").path
-        defer { try? FileManager.default.removeItem(atPath: stale) }
-        if rebase { try change("file.txt", to: "mine\n", in: repo) }
-        _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
-        _ = try git.run(["worktree", "add", "-q", stale, "main"], in: repo)
-        try push(1, from: other)
-
-        if rebase { #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1)) }
-        else { #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1)) }
-        #expect(try Repository(repo, git: git).worktrees().count == 1)
-        #expect(!FileManager.default.fileExists(atPath: stale))
-    }
-
     /// A rebase in its own checkout that git refuses for a reason other than a conflict — here a
     /// `pre-rebase` hook — throws git's reason, and the checkout still goes.
     @Test func testRemovesItsOwnCheckoutWhenTheRebaseIsRefused() throws {

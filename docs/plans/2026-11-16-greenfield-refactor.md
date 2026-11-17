@@ -285,7 +285,7 @@ TS tests-scripts.
 
 ### Phase 2. Delete speculative handling (after 1)
 
-- [ ] 2a. **Codex.** Git: the per-key timeout back-off in the three resolvers (the project-level
+- [x] 2a. **Codex.** Git: the per-key timeout back-off in the three resolvers (the project-level
   stall guard and "never store a failure" stay), reftable handling, the abandoned rebase scratch
   cleanup, the `.worktrees` symlink refusal (CG F4, F6, F9).
 - [ ] 2b. **Codex.** The default branch is asked from git when it is needed (when a project's
@@ -742,3 +742,19 @@ left.
   `PostModelSwitch` hook, `compat/launch.json` lost the fixer entries) and the live Operator eval
   (`AITERM_LIVE_OPERATOR=1`: the gate's refusals and Oracle prompt and the reasons changed in 1j,
   the eval runs the current brief only since 1a).
+
+### Phase 2
+
+- 2a: the per-key timeout back-off in `WatchedFileCache`, `RepositoryProbe` and `DiffStatResolver`,
+  reftable handling, the abandoned rebase scratch cleanup and the `.worktrees` symlink refusal went;
+  "never store a failure" stays in every resolver and `StallGuardedGit` stays the one guard.
+  `GitSpawnCountTests` numbers unchanged. Tests deleted: `WatchedFileCacheTests.aTimeoutIsNotAskedAgainUntilItsBackoffIsOver`
+  (survivors `StallGuardedGitTests.theProjectIsAskedAgainOnceTheBackoffIsOver`,
+  `GitSpawnCountTests.aHungMountCostsOneTimeoutAndHoldsUpNoOtherProject`),
+  `BranchResolverTests.aFailedReadKeepsTheLastBranchAndIsRetried` (survivors
+  `WatchedFileCacheTests.theKnownValueStandsAfterAFailedReadAndIsRetried`,
+  `RemoteResolverTests.aFailedReReadKeepsTheLastAnswerAndIsRetried`), and with their behaviour the
+  reftable tests in `BranchResolverTests`, `DiffStatResolverTests`, `DefaultBranchResolverTests`,
+  `WorktreesTests.testRefusesSymlinkedWorktreesDir` and
+  `DefaultBranchPullTests.testRemovesTheCheckoutOfARebaseThatNeverFinished` (the brief did not
+  list the last two; they tested the deleted behaviour).

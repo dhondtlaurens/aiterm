@@ -14,7 +14,7 @@ public enum RepoRemote: Equatable, Sendable {
 
 /// Maps a project's directory to the remote it points at, cheaply enough to be asked for every
 /// project on every refresh pass: the answer is cached against the shared `config` and the
-/// checkout's `HEAD` (or reftable list). Switching upstreams invalidates it even without a config edit.
+/// checkout's `HEAD`. Switching upstreams invalidates it even without a config edit.
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class RemoteResolver: Sendable {
@@ -54,7 +54,7 @@ public final class RemoteResolver: Sendable {
     }
 
     private func answer(for repo: String) throws -> WatchedFileCache<CachedRemote>.Answer {
-        try resolver.answer(for: repo, locate: { [$0.config, $0.head, $0.reftableList] }, read: { repo, _, git in
+        try resolver.answer(for: repo, locate: { [$0.config, $0.head] }, read: { repo, _, git in
             let url = try Repository(repo, git: git).remoteUrl()
             return (url, ProviderDetector.detect(remoteUrl: url))
         })

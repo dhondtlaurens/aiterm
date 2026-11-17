@@ -8,8 +8,8 @@ import Testing
     private let git = GitRunner.hermetic()
 
     /// A repo on `main` with one tracked file of three lines, and a task worktree off it.
-    private func makeRepo(refFormat: String = "files") throws -> (repo: String, worktree: String) {
-        let repo = try GitFixture.makeRepo(prefix: "diff-", refFormat: refFormat, git: git)
+    private func makeRepo() throws -> (repo: String, worktree: String) {
+        let repo = try GitFixture.makeRepo(prefix: "diff-", git: git)
         try write("one\ntwo\nthree\n", to: repo + "/a.txt")
         try git.run(["add", "."], in: repo)
         try git.run(["commit", "-q", "-m", "add a.txt"], in: repo)
@@ -208,32 +208,6 @@ import Testing
         #expect(commands.since.contains("merge-base"), "the rebase rewrote HEAD")
     }
 
-    /// A reftable repository keeps no ref in a file of its own: every update adds a table and
-    /// rewrites the stack's list — the worktree's own for its HEAD, the shared one for branches.
-    @Test func aReftableMergeBaseIsRecomputedWhenARefMoves() throws {
-        let clock = TestClock()
-        let (repo, worktree) = try makeRepo(refFormat: "reftable")
-        let recording = RecordingGitRunner(forwardingTo: .hermetic()), commands = Commands(recording)
-        let resolver = DiffStatResolver(git: recording, now: { clock.now }, ttl: 5)
-        func expired() -> DiffStat? { commands.reset(); clock.advance(by: 6); return resolver.diff(for: worktree, base: "main") }
-        try write("mine\nmine\n", to: worktree + "/mine.txt")
-        try commit("task", in: worktree)
-        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
-        #expect(expired() == DiffStat(added: 2, removed: 0))
-        #expect(commands.since == ["diff", "ls-files"])
-
-        try write("one\ntwo\nthree\nmain only\n", to: repo + "/a.txt")
-        try commit("main moves on", in: repo)
-        try git.run(["merge", "-q", "--no-edit", "main"], in: worktree)
-        #expect(expired() == DiffStat(added: 2, removed: 0), "main's line is not the task's")
-        #expect(commands.since.contains("merge-base"), "the refs moved")
-
-        let root = try git.run(["rev-list", "--max-parents=0", "HEAD"], in: repo)
-        try git.run(["checkout", "-q", "-b", "old", root], in: worktree)
-        #expect(expired() == DiffStat(added: 0, removed: 0))
-        #expect(commands.since.contains("merge-base"), "HEAD moved to another branch")
-    }
-
     /// Git renames a new ref file into place, so a rewrite shows as a new inode even where the
     /// filesystem's clock has not ticked.
     @Test func aFileReplacedWithinTheSameSecondIsAChange() throws {
@@ -358,10 +332,9 @@ import Testing
         #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0))
     }
 
-    /// Git running out of time says nothing about the diff: the last one stands rather than the badge
-    /// going blank for a ttl, and the checkout is left alone for the backoff instead of costing its
-    /// deadline on every pass.
-    @Test func aGitThatRanOutOfTimeLeavesTheLastDiffAndIsLeftAlone() throws {
+    /// Git running out of time says nothing about the diff: the last one stands, and the next
+    /// call retries without refreshing the cached answer's age.
+    @Test func aGitThatRanOutOfTimeLeavesTheLastDiffAndIsRetried() throws {
         let clock = TestClock()
         let (_, worktree) = try makeRepo()
         try write("x\n", to: worktree + "/new.txt")
@@ -375,15 +348,11 @@ import Testing
         #expect(flaky.calls > calls)
         let asked = flaky.calls
         flaky.failing = false
-        clock.advance(by: 6)
-        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 1, removed: 0))
-        #expect(flaky.calls == asked, "within the backoff git is not asked")
-        clock.advance(by: TimedOut.backoff)
-        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0), "and after it, it is")
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0), "the next call asks again")
+        #expect(flaky.calls > asked)
     }
 
-    /// With no diff known yet a timeout is no answer either: nothing is stored, so the first ask
-    /// after the backoff finds the diff.
+    /// With no diff known yet a timeout is no answer either: the next call finds the diff.
     @Test func aFirstTimeoutIsNotKeptAsNoDiff() throws {
         let clock = TestClock()
         let (_, worktree) = try makeRepo()
@@ -391,7 +360,6 @@ import Testing
         flaky.failing = true
         #expect(resolver.diff(for: worktree, base: "main") == nil)
         flaky.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
     }
 
@@ -404,7 +372,6 @@ import Testing
         runner.failing = true
         #expect(resolver.diff(for: worktree, base: "main") == nil)
         runner.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
     }
 

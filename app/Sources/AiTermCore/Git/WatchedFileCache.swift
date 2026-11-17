@@ -19,17 +19,13 @@ final class WatchedFileCache<Value: Sendable>: Sendable {
 
     /// `stamps` is `nil` for a directory that is not a repository.
     private struct Entry { var stamps: FileStamps?; var value: Value?; var probedAt: Date }
-    private struct State { var entry: Entry?; var timeout: TimedOut? }
 
     private let now: @Sendable () -> Date
     private let negativeTTL: TimeInterval
-    private let failureBackoff: TimeInterval
-    private let states = KeyedStates<State>(State())
+    private let states = KeyedStates<Entry?>(nil)
 
-    /// `failureBackoff` is how long a directory whose git ran out of time is left alone (see
-    /// ``answer(for:locate:read:)``).
-    init(now: @escaping @Sendable () -> Date, negativeTTL: TimeInterval, failureBackoff: TimeInterval = TimedOut.backoff) {
-        self.now = now; self.negativeTTL = negativeTTL; self.failureBackoff = failureBackoff
+    init(now: @escaping @Sendable () -> Date, negativeTTL: TimeInterval) {
+        self.now = now; self.negativeTTL = negativeTTL
     }
 
     /// `locate` names the files to watch in `directory`, or `nil` when it is not a repository; `read`
@@ -41,25 +37,13 @@ final class WatchedFileCache<Value: Sendable>: Sendable {
     /// Either throws when git could not be asked — a timeout, say — which is not an answer and is
     /// never stored: the entry is left as it was, so the next call asks again. Meanwhile the value
     /// already known, if there is one, stands; with none, the error is thrown on to the caller.
-    ///
-    /// A git that *ran out of time* is not asked again at once: a hung mount costs its whole
-    /// deadline on every ask, which every pass would pay. For `failureBackoff` seconds the directory
-    /// is answered as it was after the failure — the known value, or the same error — without
-    /// running git. That is a pause in asking, not a stored answer: the first call after it asks.
     func answer(for directory: String, locate: (String) throws -> [String]?,
                 read: (_ directory: String, _ files: [String]) throws -> Value) throws -> Answer {
-        try states.withState(for: directory) { state in
-            if let timeout = state.timeout, timeout.isPending(now: now(), backoff: failureBackoff) {
-                if let known = state.entry?.value { return .found(known) }
-                throw timeout.error
-            }
+        try states.withState(for: directory) { entry in
             do {
-                let answer = try lookup(directory, in: &state.entry, locate: locate, read: read)
-                state.timeout = nil
-                return answer
+                return try lookup(directory, in: &entry, locate: locate, read: read)
             } catch {
-                state.timeout = TimedOut(error, at: now())
-                if let known = state.entry?.value { return .found(known) }
+                if let known = entry?.value { return .found(known) }
                 throw error
             }
         }

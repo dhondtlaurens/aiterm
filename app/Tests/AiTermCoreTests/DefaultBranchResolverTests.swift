@@ -18,16 +18,16 @@ import Testing
         return resolved
     }
 
-    private func makeRepo(branch: String = "main", refFormat: String? = nil) throws -> String {
+    private func makeRepo(branch: String = "main") throws -> String {
         let repo = try folder("dbr-")
-        try GitFixture.initRepo(at: repo, branch: branch, refFormat: refFormat, git: git)
+        try GitFixture.initRepo(at: repo, branch: branch, git: git)
         return repo
     }
 
     /// A clone of `origin`, so `origin/HEAD` names origin's default.
-    private func clone(_ origin: String, refFormat: String? = nil) throws -> String {
+    private func clone(_ origin: String) throws -> String {
         let dir = try folder("dbr-clone-") + "/checkout"
-        try git.run(["clone", "-q"] + (refFormat.map { ["--ref-format=\($0)"] } ?? []) + [origin, dir], in: "/")
+        try git.run(["clone", "-q", origin, dir], in: "/")
         return dir
     }
 
@@ -62,18 +62,6 @@ import Testing
         #expect(resolver.defaultBranch(for: checkout) == "main")
         #expect(counting.calls == afterFirst, "a second lookup must not shell out again")
 
-        try git.run(["branch", "-q", "trunk"], in: origin)
-        try git.run(["fetch", "-q", "origin"], in: checkout)
-        try git.run(["remote", "set-head", "origin", "trunk"], in: checkout)
-        #expect(resolver.defaultBranch(for: checkout) == "trunk")
-    }
-
-    /// A reftable repository keeps no ref in a file of its own and has no `packed-refs`: every
-    /// update rewrites `reftable/tables.list` instead, so that is what is watched there.
-    @Test func aReftableRepositoryIsReadAgainWhenOriginsHeadMoves() throws {
-        let origin = try makeRepo(branch: "main", refFormat: "reftable"), checkout = try clone(origin, refFormat: "reftable")
-        let resolver = DefaultBranchResolver(git: git)
-        #expect(resolver.defaultBranch(for: checkout) == "main")
         try git.run(["branch", "-q", "trunk"], in: origin)
         try git.run(["fetch", "-q", "origin"], in: checkout)
         try git.run(["remote", "set-head", "origin", "trunk"], in: checkout)
@@ -117,7 +105,6 @@ extension DefaultBranchResolverTests {
         flaky.failing = true
         #expect(resolver.defaultBranch(for: checkout) == nil)
         flaky.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.defaultBranch(for: checkout) == "develop")
     }
 
@@ -132,7 +119,6 @@ extension DefaultBranchResolverTests {
         flaky.failing = true
         #expect(resolver.defaultBranch(for: checkout) == "develop")
         flaky.failing = false
-        clock.advance(by: TimedOut.backoff)
         #expect(resolver.defaultBranch(for: checkout) == "main", "origin/HEAD is gone, so the usual names decide: local main")
     }
 }

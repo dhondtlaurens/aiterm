@@ -21,19 +21,17 @@ import Testing
     @Test func namesTheFilesOfAnOrdinaryCheckout() throws {
         let repo = try GitFixture.makeRepo(prefix: "probe-", git: git)
         let found = try #require(try RepositoryProbe(git: git).locations(of: repo)), root = real(repo)
-        #expect(found == RepositoryProbe.Locations(head: root + "/.git/HEAD", reftableList: root + "/.git/reftable/tables.list",
+        #expect(found == RepositoryProbe.Locations(head: root + "/.git/HEAD",
                                                    config: root + "/.git/config", commonDirectory: root + "/.git"))
     }
 
-    /// From a linked worktree `HEAD` and the reftable stack are the worktree's own, and the config
-    /// and the refs the repository's.
+    /// From a linked worktree `HEAD` is its own, and the config and refs the repository's.
     @Test func namesTheFilesOfALinkedWorktree() throws {
         let repo = try GitFixture.makeRepo(prefix: "probe-", git: git)
         let worktree = repo + "/.worktrees/feat"
         try git.run(["worktree", "add", "-q", "-b", "feat/x", worktree], in: repo)
         let found = try #require(try RepositoryProbe(git: git).locations(of: worktree)), root = real(repo)
         #expect(found.head == root + "/.git/worktrees/feat/HEAD")
-        #expect(found.reftableList == root + "/.git/worktrees/feat/reftable/tables.list")
         #expect(found.config == root + "/.git/config")
         #expect(found.commonDirectory == root + "/.git")
     }
@@ -94,18 +92,16 @@ import Testing
         #expect(probes(recording) == 2)
     }
 
-    /// A timeout is thrown, not kept as an answer, and git is left alone for the backoff.
-    @Test func aTimeoutIsNotKeptAndIsNotAskedAgainAtOnce() throws {
+    /// A timeout is thrown, not kept as an answer, and the next call asks again.
+    @Test func aTimeoutIsNotKeptAndTheNextCallAsksAgain() throws {
         let repo = try GitFixture.makeRepo(prefix: "probe-", git: git), clock = TestClock()
         let flaky = FlakyGitRunner()
         let probe = RepositoryProbe(git: flaky, now: { clock.now })
         flaky.failing = true
         #expect(throws: GitError.self) { try probe.locations(of: repo) }
         flaky.failing = false
-        #expect(throws: GitError.self) { try probe.locations(of: repo) }
-        #expect(flaky.calls == 1, "within the backoff git is not asked")
-        clock.advance(by: TimedOut.backoff)
         #expect(try probe.locations(of: repo)?.head == real(repo) + "/.git/HEAD")
+        #expect(flaky.calls == 2)
     }
 
     /// What `retain` drops is looked up again.

@@ -35,7 +35,7 @@ extension Repository {
             throw WorktreeError.branchDiverged(branch, local: count(remote, local), remote: count(local, remote))
         }
         let commits = count(local, remote)
-        if let holder = try checkoutsLessAbandonedScratch().first(where: { $0.branch == branch }) {
+        if let holder = try worktrees().first(where: { $0.branch == branch }) {
             // No autostash, whatever the config says: stashed, the changes git cannot put back end
             // as conflict markers in the files, and the merge still exits 0.
             try git.run(["merge", "--ff-only", "--no-autostash", "--quiet", remote], in: holder.path, timeout: GitRunner.checkoutTimeout)
@@ -59,13 +59,12 @@ extension Repository {
     /// branch as it was. Nothing is pushed.
     public func rebaseOntoOrigin(_ branch: String) throws -> BranchRebase {
         let (_, remote) = try fetchFromOrigin(tipsOf: branch)
-        if let holder = try checkoutsLessAbandonedScratch().first(where: { $0.branch == branch }) {
+        if let holder = try worktrees().first(where: { $0.branch == branch }) {
             try rebase(branch, onto: remote, in: holder.path)
         } else {
             let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(Self.scratchPrefix + UUID().uuidString).path
             try git.run(["-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", scratch, branch], in: path,
                         timeout: GitRunner.checkoutTimeout, environment: ["GIT_LFS_SKIP_SMUDGE": "1"])
-            // One left behind is removed before the next pull or rebase (`checkoutsLessAbandonedScratch`).
             defer {
                 Log.git.attempt("Removing the rebase checkout \(scratch)") {
                     try git.run(["worktree", "remove", "--force", scratch], in: path, timeout: GitRunner.checkoutTimeout)
@@ -80,27 +79,6 @@ extension Repository {
 
     /// What names the checkouts `rebaseOntoOrigin` makes for itself in the temporary directory.
     private static let scratchPrefix = "aiterm-rebase-"
-
-    /// Every checkout, once the rebase checkouts an app that died mid-rebase never removed are
-    /// gone. Each is still registered with the branch checked out, so every `git checkout` of it
-    /// fails, and the next pull would merge in there; they are removed before a pull or rebase
-    /// looks for where the branch is. Listed once, and again only when there was one to remove.
-    private func checkoutsLessAbandonedScratch() throws -> [Worktree] {
-        let temporary = FileManager.default.temporaryDirectory.path
-        let prefixes = Set([temporary, Worktree.resolved(temporary)].map { ($0.hasSuffix("/") ? $0 : $0 + "/") + Self.scratchPrefix })
-        let listed = try worktrees()
-        let abandoned = listed.filter { worktree in
-            prefixes.contains { worktree.path.hasPrefix($0) || Worktree.resolved(worktree.path).hasPrefix($0) }
-        }
-        guard !abandoned.isEmpty else { return listed }
-        for worktree in abandoned {
-            Log.git.attempt("Removing the abandoned rebase checkout \(worktree.path)") {
-                try git.run(["worktree", "remove", "--force", worktree.path], in: path, timeout: GitRunner.checkoutTimeout)
-            }
-        }
-        Log.git.attempt("Pruning the worktrees of \(path)") { try git.run(["worktree", "prune"], in: path) }
-        return try worktrees()
-    }
 
     /// `git rebase` in `checkout`, aborted if it stops on a conflict. A rebase already under way
     /// there is someone else's: git refuses this one, and theirs is not aborted. What it does is

@@ -237,15 +237,11 @@ extension Repository {
     }
 
     /// Where a worktree goes, made ready for `git worktree add`: inside the project's `.worktrees/`,
-    /// never through a symlink, with `.worktrees/` in the repository's exclude file so it does not
-    /// show as untracked.
+    /// with `.worktrees/` in the repository's exclude file so it does not show as untracked.
     private func prepareWorktree(at worktreePath: String) throws {
         let dir = path + "/" + Worktree.directoryName
         guard URL(fileURLWithPath: worktreePath).deletingLastPathComponent().path == dir else {
             throw WorktreeError.notAWorktree(worktreePath)
-        }
-        for p in [dir, worktreePath] where (try? FileManager.default.destinationOfSymbolicLink(atPath: p)) != nil {
-            throw WorktreeError.symlinkRefused(p)
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         if let exclude = ExcludeFile.url(forWorktreeOrRepo: path, git: git) { try ExcludeFile.append(Worktree.directoryName + "/", to: exclude) }

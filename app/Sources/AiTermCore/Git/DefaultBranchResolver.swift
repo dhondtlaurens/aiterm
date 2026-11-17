@@ -5,20 +5,18 @@ import Foundation
 /// "Pull main".
 ///
 /// Unlike ``RemoteResolver`` there is no one file git rewrites: the answer comes from `origin/HEAD`,
-/// else whichever of the usual names exists, then an unborn HEAD. Any ref can be a file of its own, a
-/// line in `packed-refs` or, in a reftable repository, an entry in a table. So it is kept against
-/// the stamps of all of them (``FileStamps``), a missing one included, which costs a `stat` per
-/// ref (see ``WatchedFileCache``).
+/// else whichever of the usual names exists, then an unborn HEAD. Any ref can be a file of its own
+/// or a line in `packed-refs`. So it is kept against the stamps of all of them (``FileStamps``), a
+/// missing one included, which costs a `stat` per ref (see ``WatchedFileCache``).
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class DefaultBranchResolver: Sendable {
     /// The default's refs relative to the common git directory; `watched` adds the checkout's HEAD.
-    /// A reftable repository keeps none of them in a file: every update rewrites its stack's
-    /// `tables.list` instead, as ``BranchResolver`` watches for HEAD. `config` is not read, but every
-    /// repository has one: a repository whose default is none of the usual names, and has no origin,
+    /// `config` is not read, but every repository has one: a repository whose default is none of
+    /// the usual names, and has no origin,
     /// has none of the rest, and all of them missing is what says a checkout went away.
     private static let refs = ["refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master",
-                               "refs/heads/main", "refs/heads/master", "packed-refs", "reftable/tables.list", "config"]
+                               "refs/heads/main", "refs/heads/master", "packed-refs", "config"]
 
     private let resolver: RepositoryResolver<String>
 
