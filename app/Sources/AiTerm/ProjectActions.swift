@@ -222,16 +222,14 @@ final class ProjectActions {
         workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
     }
 
-    /// Whether the project has a task, review or terminal row — anything to fold. The live broadcast's
-    /// tasks are drawn under it, not here, so a project with only those has none.
+    /// Whether the project has a task, review or terminal row, anything to fold.
     func hasRows(_ project: Project) -> Bool {
         return state.tasks.contains(where: { $0.projectId == project.id && ($0.signalTask == nil || $0.signalTask?.takenOver == true) })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
-    /// Stores `layout`'s collapsed states — Focus View's or List View's, a broadcast's group's by its
-    /// id among them — in one change to the workspace, which saves only if one changed. Whether it was
-    /// stored: not in a locked workspace.
+    /// Stores Focus View's or List View's collapsed project states in one workspace change.
+    /// Saves only if a state changed; a locked workspace refuses the change.
     @discardableResult
     func setCollapsed(_ layout: [UUID: Bool]) -> Bool {
         guard canChangeWorkspace else { return false }
@@ -254,7 +252,7 @@ final class ProjectActions {
     }
 
     // -- removing a project -----------------------------------------------------------------
-    /// Plan self-review (spec 4.6): removing a project only forgets it. Worktrees created for its
+    /// Plan self-review: removing a project only forgets it. Worktrees created for its
     /// tasks stay on disk — the alert says so, and how many tasks go — and no git command runs.
     func confirmRemove(project: Project) async {
         guard canChangeWorkspace else { return }
@@ -272,11 +270,8 @@ final class ProjectActions {
         workspace.mutate { $0.removeProject(id: project.id) }
     }
 
-    /// The Remove Project alert's detail: what goes from AiTerm — its tasks, and the archived rows it
-    /// forgets — and what stays on disk. Archive never changes git, so forgetting an archived row
-    /// loses nothing but AiTerm's memory of it. `operatorWorktrees` are the worktrees the live broadcast
-    /// holds in it, which its tasks count and its header's tooltip names: said so, since its rows are drawn
-    /// under the broadcast and not under the project.
+    /// The Remove Project alert says which tasks and Archive rows AiTerm forgets and what stays on disk.
+    /// Archive never changes git, so forgetting an archived row loses only AiTerm's memory of it.
     static func removalDetail(tasks: Int, archived: [ArchivedTask], operatorWorktrees: Int = 0) -> String {
         let forgets: String
         switch archived.count {

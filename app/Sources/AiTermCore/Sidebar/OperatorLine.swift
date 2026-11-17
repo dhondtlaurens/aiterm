@@ -19,7 +19,6 @@ public struct OperatorLine: Equatable, Sendable {
     public static let working = OperatorLine("working", look: .acting)
     /// The Operator row's line while its window is closed.
     public static let windowClosed = OperatorLine("window closed")
-    /// A broadcast you paused: a working task's line once its workers stopped, and the Operator row's once every task's
-    /// did. Both rows wear the pause sign with it.
+    /// A paused worker's line once it has stopped. The row wears the pause sign with it.
     public static let paused = OperatorLine("paused")
 }

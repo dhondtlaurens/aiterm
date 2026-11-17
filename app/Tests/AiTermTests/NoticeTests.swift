@@ -4,7 +4,7 @@ import Testing
 import AiTermUI
 @testable import AiTerm
 
-/// The Notice (spec §6.1, §13): an amber mark carries the tone and the words stay ink. Read off the
+/// The Notice: an amber mark carries the tone and the words stay ink. Read off the
 /// rendered pixels, since the rule is about what is drawn: a longer title adds ink, never amber.
 @MainActor
 struct NoticeTests {

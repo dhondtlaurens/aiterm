@@ -50,7 +50,7 @@ import Foundation
     }
 
     @Test func testClaudeModelsFromSettingsOrDefaults() {
-        // Spec 4.3: the aliases are always offered, `availableModels` is added after them.
+        // The aliases are always offered, `availableModels` is added after them.
         let ids = { (models: [AgentModel]) in models.map(\.id) }
         #expect(ids(ModelFiles.claudeModels(catalogJSON: nil, settingsJSON: Data(#"{"availableModels":["claude-opus-5","claude-fable-5-1"]}"#.utf8), claudeJSON: nil))
                 == ["opus", "sonnet", "fable", "haiku", "claude-opus-5", "claude-fable-5-1"])

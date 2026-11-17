@@ -56,7 +56,7 @@ enum BackpackSheetPresentation {
         }
     }
 
-    /// The permission ask, while one is missing (spec §6.1): a `Notice` whose title is what the Mac
+    /// The permission ask, while one is missing: a `Notice` whose title is what the Mac
     /// card's status says is missing, and whose description is its steps, then where else to find them.
     /// Allow… is its one link. Nil once both are granted.
     static func permissionNotice(_ setup: BackpackSetup) -> (title: String, description: String)? {

@@ -4,10 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// `DebouncedSearch` took the place of two hand-rolled searches (phase 7): the pickers' (`CreationModel`) and New
-/// Review's ticket field (`ReviewCreationModel`). Each is kept here as it was, as the reference, and driven through the
-/// same steps as the shared type in the matching mode: what the field shows after each step — its rows and its error
-/// line, in order — is the same, and so is the pause before a typed query is searched for.
+/// The pickers and New Review share debounce timing; reference searches verify their observable behaviour.
 @MainActor @Suite struct DebouncedSearchTests {
     /// A search's answers, held until the test gives them, in the order they were asked for.
     @MainActor final class HeldLookup {
@@ -39,7 +36,7 @@ import Testing
 
     struct Shown: Equatable { var results: [String]; var error: String? }
 
-    /// The pickers' search as it was before phase 7 (`CreationModel.setQuery`, `cancelSearch`, `search`).
+    /// The reference picker search, with its query, cancellation and result ordering.
     @MainActor final class PickerReference: Driven {
         var results: [String] = [], searchError: String?
         private(set) var typing: Task<Void, Never>?
@@ -68,7 +65,7 @@ import Testing
         }
     }
 
-    /// New Review's ticket field as it was before phase 7 (`setTicketQuery`, `pickTicket`'s cancel, `searchTickets`).
+    /// The reference New Review ticket search, with cancellation on a new query or selection.
     @MainActor final class TicketReference: Driven {
         var results: [String] = [], searchError: String?
         private(set) var typing: Task<Void, Never>?

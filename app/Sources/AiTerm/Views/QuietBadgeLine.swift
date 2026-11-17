@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 
 /// One quiet badge's existing words, artwork and optional link. Callers choose their
-/// surface's mark: a sidebar row inks it with its words (`markInk: .label`); board and question
+/// surface's mark: a sidebar row inks it with its words (`markInk: .label`); sheet and question
 /// ticket marks deliberately remain their own.
 struct QuietBadgeValue {
     var label: String?

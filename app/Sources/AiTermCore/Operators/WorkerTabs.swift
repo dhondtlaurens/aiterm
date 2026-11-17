@@ -104,11 +104,8 @@ public extension TaskItem {
         }
     }
 
-    /// The tab a click on its row brings forward (P5 A, 21 Oct 2026), its tabs as `sessions` list them: the worker tab
-    /// that asks, a request of `requests` naming it (`BroadcastRequest.tab`) or its tab at a prompt not recorded yet;
-    /// of several, the most urgent (`BroadcastRequest.Kind.rank`), then by tab order (`main`, then the extra tabs as they
-    /// opened). With none asking, the tab of the task last in front in its window, else its first worker. Nil while
-    /// none is listed: its window comes back as a row's click brings it.
+    /// The tab a row's click brings forward: the first worker tab that needs input, then the task's
+    /// active tab, otherwise its first worker. Nil while no tab is listed; the row's click restores its window.
     func tabToBring(sessions: [SessionInfo]) -> SessionInfo? {
         let tabs = workerTabs(in: sessions)
         return tabs.compactMap(\.session).first { $0.state == .needsInput }

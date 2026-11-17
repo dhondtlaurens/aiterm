@@ -119,9 +119,7 @@ import Testing
         }
     }
 
-    /// A change to the broadcast redraws its group's rows alone, and of those only what draws it: the Operator's
-    /// own question changes its row; its progress showing, the OPERATOR heading's, no row at all; a change neither
-    /// draws anything of, a decision recorded, redraws nothing. The projects are folded into OPERATOR meanwhile.
+    /// An Operator question redraws the Operator's row; a decision that changes no visible value redraws nothing.
     @Test func aSessionQuestionRedrawsOnlyTheOperatorAndBookkeepingRedrawsNothing() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }

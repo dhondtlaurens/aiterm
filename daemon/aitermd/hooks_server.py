@@ -22,7 +22,7 @@ MAX_HEAD_BYTES = 32 << 10
 # How long a client may take to send its whole request before the connection is dropped.
 READ_TIMEOUT_SECONDS = 5.0
 # The operator's MCP server (operator_mcp.OperatorRoute): apart from the hook routes and the Codex
-# hook MCP, and opened by a run's token rather than by anything a hook may send.
+# hook MCP, and opened by the Operator's token rather than by anything a hook may send.
 OPERATOR_ROUTE = "/operator"
 # The operator's PreToolUse hook on its Bash calls (OperatorRoute.gate): answered in Claude's hook
 # JSON, after the app has decided, so it waits as long as GATE_TIMEOUT.

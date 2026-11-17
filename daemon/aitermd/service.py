@@ -74,18 +74,18 @@ class Service:
         self.windows = WindowManager(iterm, self.registry, self.tick, typed_in=lambda sid: self.typing.typed_in(sid))
         self.supervisor.on_connected = self.windows.forget_titles
         self.supervisor.on_launched_connected = self.windows.capture_startup_window
-        # The delivery adapter (Operators spec §7.1), and when you last typed in each session, which
-        # holds back an operator's wake line (§7.4). The policy is read on every delivery, so the
+        # The delivery adapter, and when you last typed in each session, which
+        # holds back an operator's wake line. The policy is read on every delivery, so the
         # delivery check that writes it needs no restart.
         self._monotonic = monotonic
         self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         self.hook_router.typed_by_you = self._typed_by_you
         self.readers = CorroboratingReaders(self.registry, self.status, self.resolver, iterm, clock)
-        # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
+        # The operator's MCP server, on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
-        # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
-        # (spec §11); None keeps tokens in memory only.
+        # `operator_folder` is where the app keeps the Operator's token file, which a restarted daemon loads;
+        # None keeps tokens in memory only.
         self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorSessionTokens(operator_folder))
         self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None

@@ -1,5 +1,5 @@
 # daemon/tools/delivery_check.py
-"""The delivery check (Operators spec §7.1, §12): whether AiTerm may type into each agent CLI, run
+"""The delivery check: whether AiTerm may type into each agent CLI, run
 by hand against the real iTerm2 and real, logged-in Claude Code and Codex, each in a scratch
 folder. Its verdicts go into ~/Library/Application Support/AiTerm/delivery-policy.json, which the
 daemon's delivery adapter reads on every delivery (aitermd.delivery.load_policy): a CLI gets
@@ -66,8 +66,7 @@ ITERM_CHECKS = ("keystrokesPassThrough", "backgroundWindow")
 RUN_ORDER = ("startupPaste", "updatePaste", "idleSubmit", "multiLine", "busyQueue", "takeover", "menuPaste",
              "approvalRace", "permissionPaste")
 AGENTS: tuple[AgentKind, ...] = ("claude", "codex")
-# Pasted into an open prompt: the keys that answer one -- Codex's y, a and p (p chose "always allow"
-# in the spike, §2.2), Claude's digits.
+# Pasted into an open prompt: the keys that answer one -- Codex's y, a and p, and Claude's digits.
 HAZARD = "please wait 1 2 3 y a p"
 # The footer while a turn runs ("esc to interrupt"), without whitespace and case-folded: Codex's, and
 # Claude's until 2.1.30x, whose turn shows none. Only `idle` reads it, as a backstop: every scenario
@@ -159,8 +158,7 @@ def merged_policy(existing: Any, entries: Mapping[str, dict[str, Any]]) -> dict[
 
 def scratch_codex_home(real: Path, into: Path) -> Path:
     """A CODEX_HOME holding only a copy of the real one's login and its screen settings, so an allow
-    rule a failing scenario writes (its `rules/`) lands here and never in ~/.codex (the spike's
-    hazard, §2.2)."""
+    rule a failing scenario writes (its `rules/`) lands here and never in ~/.codex."""
     home = into / "codex-home"
     home.mkdir(parents=True)
     if (real / "auth.json").is_file():

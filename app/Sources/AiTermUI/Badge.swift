@@ -20,7 +20,7 @@ import SwiftUI
 /// read as clutter; everywhere else a badge keeps its box. `markInk: .label` inks the mark with the
 /// text — the sidebar's badge line, where a row of brand colours competed with the status marks,
 /// until its Brand colours setting is turned on — and the default `.own` keeps the vendor's colour:
-/// a board card, a picker.
+/// a sheet card, a picker.
 ///
 /// What this is *not*: a status count. `StatusCountChip` varies its tint, its ink and both its
 /// fill and stroke opacity by status — a deliberate three-dimensional progression keyed to

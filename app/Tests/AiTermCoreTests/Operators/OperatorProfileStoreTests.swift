@@ -38,7 +38,7 @@ import Foundation
         #expect(defaults.data(forKey: "operator.profile") != nil, "kept as JSON under operator.profile")
     }
 
-    /// What is saved but cannot be read starts over from the defaults, rather than failing a broadcast.
+    /// What is saved but cannot be read starts over from the defaults, rather than blocking the Operator.
     @Test func anUnreadableProfileLoadsTheDefaults() {
         let defaults = ScratchDefaults.make()
         defaults.set(Data("not json".utf8), forKey: "operator.profile")

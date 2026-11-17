@@ -36,7 +36,7 @@ public extension AppState {
     /// - A row in `waiting` (held, busy, asked about, restoring, failed, its checkout missing) is
     ///   neither asked about, dropped nor restored, though it may still adopt; a task in `lettingGo`,
     ///   whose removal let its window go, does nothing at all.
-    /// - A row with no checkout yet is not planned; an operated row is only adopted.
+    /// - A row with no checkout yet is not planned; a signal's row is only adopted.
     func windowPlan(sessions: [SessionInfo], settled: Bool, due: Set<UUID>, waiting: Set<UUID>,
                     lettingGo: Set<UUID>) -> [WindowStep] {
         var tagged: [UUID: [String]] = [:]

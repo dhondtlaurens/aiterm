@@ -79,12 +79,19 @@ public struct OperatorSnag: Codable, Equatable, Sendable {
     }
 }
 
-public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case running, ready, delivered, unchallenged }
+public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
+    public enum Stage: String, Codable, CaseIterable, Sendable {
+        case running, ready, delivered
+        case unanswered = "unchallenged"
+    }
+    private enum CodingKeys: String, CodingKey {
+        case id, tool, stage, critique, askedArguments, askedEvidence, result, askedAt, round, reply
+        case unansweredReason = "unchallengedReason"
+    }
 
-public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var tool: String
-    public var stage: ChallengeStage
+    public var stage: OracleRound.Stage
     /// The Oracle's answer, once it gave one.
     public var critique: String?
     /// The proposed call's arguments as canonical JSON.
@@ -92,7 +99,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// The evidence binding this round to its task or question.
     public var askedEvidence: String?
     /// Why the action proceeded without the Oracle's agreement: it was missing, failed or too slow.
-    public var unchallengedReason: String?
+    public var unansweredReason: String?
     /// The call's answer, as the JSON the Operator read.
     public var result: String?
     public var askedAt: Date
@@ -101,12 +108,12 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     /// The Operator's proposal or reply to the Oracle, which the next round reads.
     public var reply: String?
 
-    public init(id: String, tool: String, stage: ChallengeStage = .running, critique: String? = nil,
-                askedArguments: String? = nil, unchallengedReason: String? = nil,
+    public init(id: String, tool: String, stage: OracleRound.Stage = .running, critique: String? = nil,
+                askedArguments: String? = nil, unansweredReason: String? = nil,
                 result: String? = nil, askedAt: Date, askedEvidence: String? = nil, round: Int? = nil) {
         self.id = id; self.tool = tool; self.stage = stage; self.critique = critique
         self.askedArguments = askedArguments
-        self.unchallengedReason = unchallengedReason; self.result = result
+        self.unansweredReason = unansweredReason; self.result = result
         self.askedAt = askedAt; self.askedEvidence = askedEvidence; self.round = round
     }
 }

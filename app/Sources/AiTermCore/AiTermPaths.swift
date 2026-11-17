@@ -4,7 +4,7 @@ import Foundation
 /// Both the app and the daemon supervisor read these, so a change here cannot leave the hook
 /// installer and the daemon arguing about a port, or the log and the socket in different folders.
 public enum AiTermPaths {
-    /// Hook HTTP receiver port (daemon plan §1). The drivers install it: the agents' hook URLs
+    /// Hook HTTP receiver port. The drivers install it: the agents' hook URLs
     /// carry it, PI's extension is written with it, and Claude's status-line shim reads it from
     /// `hookPortURL` (`ShimPort`). The supervisor passes it to `aitermd run --hook-port`.
     public static let hookPort = 47821

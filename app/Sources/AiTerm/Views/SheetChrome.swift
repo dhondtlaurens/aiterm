@@ -37,7 +37,7 @@ struct SheetLayout<Accessory: View, Header: View, Content: View, Footer: View>: 
     /// The header ends in a `TabBar`, whose selected underline lies on the header's rule.
     let headerEndsInTabs: Bool
     /// The axes the content scrolls on, as one, between the rules and from edge to edge, its margins inside the
-    /// scroll: down for a form, down and sideways for the board's row of columns.
+    /// scroll: down for a form, down and sideways for a row of columns.
     let scrolls: Axis.Set
     /// The content's inset from the rules above and below it: a sheet's margin, or less for a list of
     /// rows whose own pills already pad them (the Archive sheet's).

@@ -71,7 +71,7 @@ async def test_status_and_create_task_window(stack):
 
 async def test_an_operators_command_is_typed_as_the_app_quoted_it(stack):
     """The Operator's command, quoted by the app, is typed as it is: nothing stripped or escaped
-    again. Its first message stays in the run folder's file, read by the shell, never typed."""
+    again. Its first message stays in the Operator's folder's file, read by the shell, never typed."""
     svc, it, files, r, w = stack
     folder = "/Users/me/Library/Application Support/AiTerm/operators/runs/R"
     cmd = ("claude --model 'claude-fable-5-1[1m]' --effort high --append-system-prompt-file"
@@ -771,8 +771,7 @@ async def test_concurrent_ticks_emit_window_closed_once(stack):
 
 
 async def test_user_tab_in_a_terminal_window_is_tagged_and_redirected(stack):
-    # Spec 2.4's redirect was gated on a task tag alone, so Cmd+T in a window
-    # opened by window.createTerminal landed in $HOME instead of the project.
+    # Cmd+T in a terminal window inherits its project's directory and tags.
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTerminal", {"projectId": "p1", "cwd": "/repo", "frame": FRAME}))["result"]["windowId"]
     sid = await it.user_opens_tab(wid, cwd="/Users/me")

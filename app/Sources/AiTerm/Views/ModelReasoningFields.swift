@@ -10,7 +10,7 @@ struct ModelReasoningFields: View {
     var prefix = ""
     var disabled = false
     var reasoningOptions: [String]? = nil
-    /// Off, the two `Select`s go without their labels: New Broadcast's Agents rows label their columns once.
+    /// Off, the two `Select`s go without their labels: New Signal's Agents rows label their columns once.
     var labelled = true
     let selectModel: (AgentModel) -> Void
 

@@ -8,7 +8,7 @@ import AiTermCore
 @MainActor
 @Observable
 final class AgentIntegrations {
-    /// Spec 8: which agent CLIs are actually on the login shell's `PATH`. Probed once at launch,
+    /// which agent CLIs are actually on the login shell's `PATH`. Probed once at launch,
     /// and joined by any CLI Settings installs; until the probe answers, every agent is assumed
     /// present so the sheet is never wrongly blocked. Written only by `probe()` and Settings'
     /// installs, and by tests that need an agent missing; the creation sheets read it live.

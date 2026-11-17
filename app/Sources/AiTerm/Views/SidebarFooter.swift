@@ -42,7 +42,7 @@ struct SidebarFooter: View {
     let rows: [UsageVendorRow]
     /// The Mac's readings, in their order (`MachineMonitor`). Empty, the row draws its mark alone.
     var machine: [UsageLine] = []
-    /// The Mac's mode, as one drawn line (spec 2026-10-05). The defaults draw a Mac at its desk.
+    /// The Mac's mode, as one drawn line. The defaults draw a Mac at its desk.
     var mac: MacModeLine = MacModePresentation.line(mode: .desk, hotspot: nil, wifi: nil)
     /// A click on the Mac's rows.
     var toggleMac: () -> Void = {}

@@ -191,7 +191,7 @@ import Testing
         #expect(BackpackSheetPresentation.looking == "Looking for hotspots…")
     }
 
-    /// The permission ask is a Notice (spec §6.1): what is missing as its title, the steps and where
+    /// The permission ask is a Notice: what is missing as its title, the steps and where
     /// else to find them as its description, Allow… its one link. Nothing missing, no Notice.
     @Test func theMissingPermissionsAreANotice() {
         func setup(_ sleep: Bool, _ location: Bool) -> BackpackSetup { BackpackSetup(sleepRule: sleep, location: location, network: nil) }

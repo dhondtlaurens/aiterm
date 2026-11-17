@@ -321,7 +321,7 @@ import AiTermCore
         let remote = workspace.state.project(id: task.projectId)?.remoteUrl
         return try await BackgroundWork.run {
             let command = try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
-                worktreePath: task.worktreePath, git: git, operated: !record.takenOver, promptFile: "signal-" + UUID().uuidString + ".md",
+                worktreePath: task.worktreePath, git: git, worker: !record.takenOver, promptFile: "signal-" + UUID().uuidString + ".md",
                 publishing: true, resuming: conversation)
             return try WorkerGuardLaunch.command(command, task: task, remote: remote, home: home,
                 executable: executable, git: git, slot: slot, publishes: task.kind != .review)

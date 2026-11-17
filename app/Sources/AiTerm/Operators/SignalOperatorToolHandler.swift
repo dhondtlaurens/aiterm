@@ -43,7 +43,7 @@ import AiTermCore
         return answer
     }
     private func perform(_ request: OperatorRequest) async throws -> JSONValue {
-        guard let tool = SignalOperatorTool(rawValue: request.tool) else { throw ToolRefusal("Unknown Operator tool: \(request.tool).") }
+        guard let tool = OperatorTool(rawValue: request.tool) else { throw ToolRefusal("Unknown Operator tool: \(request.tool).") }
         try requireSession(request, mutating: tool.mutating)
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let key = tool.requiresKey ? try call.string("key") : nil
@@ -98,7 +98,7 @@ import AiTermCore
         let result = try await execute(tool, call: call, task: task, key: key, allowed: allowed)
         // Stage owners intentionally advance authority. They check their own effects after every await.
         try requireSession(request, mutating: tool.mutating)
-        let advancesStage: Set<SignalOperatorTool> = [.resumeTask, .finishStage, .chooseAgent]
+        let advancesStage: Set<OperatorTool> = [.resumeTask, .finishStage, .chooseAgent]
         if advancesStage.contains(tool), let task, workspace.state.signalItem(id: task.id).flatMap(SignalClaim.init) == nil {
             throw ToolRefusal("The task is no longer the Operator’s.")
         }
@@ -110,7 +110,7 @@ import AiTermCore
         return result
     }
     func requireSession(_ request: OperatorRequest, mutating: Bool) throws {
-        guard let session = workspace.state.operatorSession, session.id.uuidString == request.runId,
+        guard let session = workspace.state.operatorSession, session.id.uuidString == request.operatorId,
               session.generation == request.generation, !session.startingFresh else { throw ToolRefusal("This Operator session is no longer current.") }
         if mutating {
             guard ports.actionsAllowed(), workspace.canChangeWorkspace, !session.paused, !Task.isCancelled else { throw ToolRefusal("The Operator is paused or the workspace is unavailable.") }

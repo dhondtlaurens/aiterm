@@ -30,9 +30,9 @@ import Foundation
     @Test func appendsAndReadsInOrder() throws {
         let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2, tool: "log_decision")
-        try ActivityLog.append(first, runFolder: dir)
-        try ActivityLog.append(second, runFolder: dir)
-        let read = ActivityLog.read(runFolder: dir)
+        try ActivityLog.append(first, folder: dir)
+        try ActivityLog.append(second, folder: dir)
+        let read = ActivityLog.read(folder: dir)
         #expect(read.entries == [first, second])
         #expect(read.end == UInt64(try Data(contentsOf: dir.appendingPathComponent(ActivityLog.file)).count))
     }
@@ -41,7 +41,7 @@ import Foundation
         let dir = try ScratchFolder.make("activity-")
         let first = entry(1), second = entry(2)
         try write(try line(first) + "\n{\"x\":\n" + (try line(second)) + "\n", in: dir)
-        #expect(ActivityLog.read(runFolder: dir).entries == [first, second])
+        #expect(ActivityLog.read(folder: dir).entries == [first, second])
     }
 
     @Test func aTornLastLineWaits() throws {
@@ -51,16 +51,16 @@ import Foundation
         let secondLine = try line(second)
         let half = secondLine.index(secondLine.startIndex, offsetBy: secondLine.count / 2)
         try write(firstLine + String(secondLine[..<half]), in: dir)
-        let torn = ActivityLog.read(runFolder: dir)
+        let torn = ActivityLog.read(folder: dir)
         #expect(torn.entries == [first])
         #expect(torn.end == UInt64(firstLine.utf8.count))
         try write(String(secondLine[half...]) + "\n", in: dir)
-        let next = ActivityLog.read(runFolder: dir, from: torn.end)
+        let next = ActivityLog.read(folder: dir, from: torn.end)
         #expect(next.entries == [second])
     }
 
     @Test func aMissingFileIsEmpty() throws {
-        let read = ActivityLog.read(runFolder: try ScratchFolder.make("activity-"))
+        let read = ActivityLog.read(folder: try ScratchFolder.make("activity-"))
         #expect(read.entries.isEmpty)
         #expect(read.end == 0)
     }
@@ -68,8 +68,8 @@ import Foundation
     @Test func fiveHundredAppends() throws {
         let dir = try ScratchFolder.make("activity-")
         let all = (0..<500).map { entry($0) }
-        for entry in all { try ActivityLog.append(entry, runFolder: dir) }
-        #expect(ActivityLog.read(runFolder: dir).entries == all)
+        for entry in all { try ActivityLog.append(entry, folder: dir) }
+        #expect(ActivityLog.read(folder: dir).entries == all)
     }
 
     @Test func aResultIsTrimmedToItsLimit() {

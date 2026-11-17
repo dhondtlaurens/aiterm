@@ -286,7 +286,7 @@ import AiTermTestSupport
     }
 
     /// Pasted text goes in as it was copied, every kind a person pastes (`TypedText`), and the
-    /// binding New Broadcast reads holds the same bytes.
+    /// binding New Signal reads holds the same bytes.
     @Test func pastedTextGoesInWhole() throws {
         let text = TextBox()
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),

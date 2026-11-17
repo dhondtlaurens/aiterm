@@ -1,7 +1,7 @@
 import Foundation
 
 /// Sorts a shell command the Operator wants to run into a read that goes ahead at once or one the Oracle
-/// judges first (spec §A.1). It is a pure function of the text: nothing is run, and whenever it is unsure,
+/// judges first. It is a pure function of the text: nothing is run, and whenever it is unsure,
 /// which is the answer for anything it does not know by name, the command is `.oracle`, never `.read`.
 ///
 /// Every program's options are an allowlist: a flag that is not named, including a clustered short flag
@@ -23,7 +23,7 @@ public enum ShellGate {
         """
 
     /// `directory` is where the command runs; every file it names has to sit under one of `roots`, once `resolve`
-    /// has followed its symlinks. `hosts` are the hosts the broadcast's projects' origins are on: the only ones a gh or
+    /// has followed its symlinks. `hosts` are the hosts the signals' projects' origins are on: the only ones a gh or
     /// glab read may name, as they send their token to it.
     public static func route(_ command: String, in directory: String, roots: [String], hosts: Set<String> = [],
                              resolve: (String) -> String = { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }) -> Route {
@@ -233,7 +233,7 @@ public enum ShellGate {
         /// URL with `::` runs a helper) and no leading `-`.
         private static func plainName(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/-]*$"#) }
         private static func plainPattern(_ value: String) -> Bool { ShellGate.matches(value, #"^[A-Za-z0-9][A-Za-z0-9._/*-]*$"#) }
-        /// A host gh or glab may send its token to: one of the broadcast's projects' origins, by name alone (no scheme,
+        /// A host gh or glab may send its token to: one of the projects' origins, by name alone (no scheme,
         /// user or port).
         private func knownHost(_ value: String) -> Bool { hosts.contains(value.lowercased()) }
         /// A repository for `-R`/`--repo`: a plain path, `owner/repo` or `group/sub/repo`, never a URL or one with a user.

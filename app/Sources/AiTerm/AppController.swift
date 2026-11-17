@@ -64,7 +64,7 @@ final class AppController {
     /// The agent CLIs on this machine and AiTerm's hooks into them; probed at `start()`.
     let agents: AgentIntegrations
     /// Whether AiTerm may type into Claude Code and Codex, as the delivery check last wrote it: their
-    /// cards' Messaging in Settings › Agents, and part of what New Broadcast waits for.
+    /// cards' Messaging in Settings › Agents, and part of what New Signal waits for.
     let messaging: MessagingChecks
     /// Every modal question the app asks goes through here, so tests answer them from a script.
     let prompter: Prompter
@@ -160,8 +160,7 @@ final class AppController {
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
-        // The agents a task may run, their model lists and the profile a broadcast freezes are Settings › Agents', unless
-        // the caller made its own ports.
+        // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
         let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
                                                     agents: agents, preferences: preferences.defaults)
         // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
@@ -222,7 +221,7 @@ final class AppController {
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
-        // A notification's click: a broadcast's board opens over the sidebar, a task's window comes forward.
+        // A notification's click selects the Operator's row or brings a task's window forward.
         operatorPorts.notifications.onOpen = { [weak self] target in
             guard let self else { return }
             switch target {
@@ -230,8 +229,7 @@ final class AppController {
             case .task(let id): self.focus.select(.task(id))
             }
         }
-        // The broadcast's group and the driven task rows read what the Operator is acting on, which the
-        // operator controller owns; a change to it derives the rows again.
+        // Rows read the Operator's current activity and issues from its controller; a change derives the rows again.
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         signalController.onChange { [weak self] in self?.refreshRows() }
@@ -322,12 +320,9 @@ final class AppController {
         setBadge(label)
     }
 
-    // -- Focus View and List View -----------------------------------------------------
-    /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
-    /// would otherwise land, and with no project that has rows and no broadcast (`SidebarModel.focusView`).
+    // Whether Focus View would change any project's collapsed state. A sheet keeps ⌘F for its search fields.
     var canShowFocusView: Bool { canApplyView(signalLayout(focus: true)) }
-    /// Whether List View would do anything: off behind a sheet, as Focus View, and with no project
-    /// that has rows to open and no broadcast.
+    /// Whether List View would open any project with rows. A sheet keeps the command disabled.
     var canShowListView: Bool { canApplyView(signalLayout(focus: false)) }
 
     /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
@@ -343,7 +338,7 @@ final class AppController {
         else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
-    /// ⌘L: opens every project with rows, and the broadcast's group, in one save.
+    /// ⌘L: opens every project with rows in one save.
     func showListView() { applyView(signalLayout(focus: false)) }
 
     private func signalLayout(focus: Bool) -> [UUID: Bool] {
@@ -465,12 +460,9 @@ final class AppController {
         }
     }
 
-    /// A task row's click or ↩. An unresolved Operator question about the task opens the Operator's
-    /// window, unless a worker prompt needs attention first. Otherwise a task the live broadcast drives brings its tab that asks, else the one last in
-    /// front (`TaskItem.tabToBring(sessions:requests:)`, P5 A), through `bringTab`, so with several worker tabs
-    /// the one that needs you stands in front. Any other task, a driven one with no tab listed (its window comes
-    /// back as `RowFocus.select` brings it), one being removed and a queued one, which opens nothing, go to
-    /// `RowFocus.select` as they are.
+    /// A task row's click or ↩ opens an unresolved question in the Operator's window unless a worker needs attention.
+    /// A signal's task brings forward its tab that asks, otherwise its last foreground tab.
+    /// `RowFocus.select` restores a closed window, selects a queued task without opening it, and handles other rows.
     @discardableResult
     func choose(task id: UUID) -> Task<Void, Never>? {
         if let task = state.task(id: id), task.signalTask != nil, remover.removal(of: id)?.inProgress != true,

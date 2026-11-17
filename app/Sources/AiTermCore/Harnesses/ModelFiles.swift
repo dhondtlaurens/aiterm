@@ -11,7 +11,7 @@ public enum ModelFiles {
 
     // -- claude ---------------------------------------------------------------------
 
-    /// Spec 4.3, widened twice by real runs. Claude Code 2.1.251+ drives its own `/model` picker
+    /// Claude Code 2.1.251+ drives its own `/model` picker
     /// from a signed catalogue it caches under `~/.claude/cache/model-catalog/<org>-<hash>-cc.json`
     /// — real ids, the CLI's names and one-liners, and the effort levels each model publishes. That
     /// file is the list, so the sheet reads it exactly as it reads Codex's `models_cache.json`.

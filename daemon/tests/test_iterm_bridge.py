@@ -1482,7 +1482,7 @@ async def test_a_window_is_returned_even_if_setting_it_up_times_out(creating_app
 
 
 async def test_a_background_window_is_placed_and_tagged_but_not_activated(creating_app):
-    """A task an operator starts opens behind your work (Operators spec §10.9)."""
+    """A task an operator starts opens behind your work."""
     bridge, app = creating_app()
     frame = iterm_bridge.Frame(0, 0, 10, 10)
     assert await bridge.create_window("/wt", "x", {"aiterm_task": "t1"}, frame, background=True) == ("w1", "s2")

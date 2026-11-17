@@ -69,7 +69,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     /// the Operator row shows it to the person.
     public var appIssues: [OperatorIssues.Issue]
     public var snags: [OperatorSnag]
-    public var oracleRounds: [ChallengeRecord]
+    public var oracleRounds: [OracleRound]
     public var skipped: [SignalSeen]
     public var sourceFailures: [String: String]
     public var workers: [WorkerLine]
@@ -87,7 +87,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     public init(state: AppState, at: Date, oracleOn: Bool, task: UUID? = nil,
                 sessions: [SessionInfo] = [], instructions: String? = nil, usage: UsageSnapshot = .empty, installed: Set<AgentKind> = [],
                 issues: [OperatorIssues.Issue] = []) {
-        installedAgents = AgentCommand.operatedAgents.filter(installed.contains); appIssues = issues
+        installedAgents = AgentCommand.workerAgents.filter(installed.contains); appIssues = issues
         weeklyUsage = Dictionary(uniqueKeysWithValues: SidebarModel.weeklyUsage(usage, now: at).map { ($0.key.rawValue, $0.value) })
         snags = Array((state.operatorSession?.snags ?? []).suffix(100))
         oracleRounds = state.operatorSession?.oracleRounds ?? []

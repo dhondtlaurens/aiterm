@@ -1,7 +1,7 @@
 import Foundation
 
 /// The signal Operator's complete MCP surface. Transport registration is separate until activation.
-public enum SignalOperatorTool: String, CaseIterable, Sendable {
+public enum OperatorTool: String, CaseIterable, Sendable {
     case runStatus = "run_status", readTask = "read_task", messageTask = "message_task", openTab = "open_tab"
     case askYou = "ask_you", resolveQuestion = "resolve_question", reportSnag = "report_snag", jiraSearch = "jira_search"
     case resumeTask = "resume_task", finishStage = "finish_stage", note, answerWorker = "answer_worker", askOracle = "ask_oracle"

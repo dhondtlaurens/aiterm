@@ -37,28 +37,28 @@ import AiTermCore
         }), let asked = state.operatorSession?.questions[index] {
             workspace.mutate { $0.operatorSession?.questions[index].gateConsumedAt = now() }
             guard workspace.flush() else { return answer("deny", "The person's decision could not be saved.") }
-            let allowed = asked.answer.map { ChallengeLaunch.gateVerdict($0) == .allow || $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "allow" } ?? false
+            let allowed = asked.answer.map { OracleLaunch.gateVerdict($0) == .allow || $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "allow" } ?? false
             return answer(allowed ? "allow" : "deny", allowed ? "Allowed once by the person." : "The person did not allow this command.")
         }
         if let asked = state.operatorSession?.questions.first(where: { $0.gate == gate && $0.resolvedAt == nil }) {
             return answer("deny", "Ask the person in your chat, then resolve_question with question \(asked.id) and their exact answer.")
         }
-        guard oracleEnabled() else { return answer("allow", "unchallenged: the Oracle is off") }
+        guard oracleEnabled() else { return answer("allow", "unchecked: the Oracle is off") }
         let status = (try? SignalOperatorToolHandler.json(JSONValue(encoding: OperatorDigest(state: state, at: now(), oracleOn: true)))) ?? "{}"
-        let prompt = ChallengeLaunch.gatePrompt(command: command, directory: directory,
+        let prompt = OracleLaunch.gatePrompt(command: command, directory: directory,
                                                reason: request.arguments["description"]?.stringValue, run: status)
         let response: String?
         do { response = try await oracle(prompt) }
         catch {
             if error is SignalOracleSettingsChanged, oracleEnabled() { return answer("deny", "The Oracle settings changed. Check this command again.") }
             do { try validate(request) } catch { return answer("deny", OperationIssue.reason(of: error)) }
-            return answer("allow", "unchallenged: the Oracle could not answer")
+            return answer("allow", "unchecked: the Oracle could not answer")
         }
         do { try validate(request) } catch { return answer("deny", OperationIssue.reason(of: error)) }
-        guard oracleEnabled() else { return answer("allow", "unchallenged: the Oracle is off") }
-        switch response.map(ChallengeLaunch.gateVerdict) ?? .unparsed {
+        guard oracleEnabled() else { return answer("allow", "unchecked: the Oracle is off") }
+        switch response.map(OracleLaunch.gateVerdict) ?? .unparsed {
         case .allow: return answer("allow", "The Oracle said yes.")
-        case .unparsed: return answer("allow", "unchallenged: the Oracle gave no clear answer")
+        case .unparsed: return answer("allow", "unchecked: the Oracle gave no clear answer")
         case .redirect(let reason): return answer("deny", "Send this to a worker with message_task. " + reason)
         case .escalate(let reason):
             let key = "gate-" + UUID().uuidString

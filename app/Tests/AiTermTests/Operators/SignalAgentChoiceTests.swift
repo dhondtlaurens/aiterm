@@ -50,7 +50,7 @@ import Testing
             let record = record(id)
             var args: [String: JSONValue] = ["task": .string(id.uuidString), "stage": .int(record?.stage ?? 1), "ownership": .int(record?.ownership ?? 0), "key": .string(key)]
             args.merge(extra) { _, new in new }
-            return await handler.respond(OperatorRequest(requestId: UUID().uuidString, runId: h.workspace.state.operatorSession!.id.uuidString,
+            return await handler.respond(OperatorRequest(requestId: UUID().uuidString, operatorId: h.workspace.state.operatorSession!.id.uuidString,
                                                          tool: tool, arguments: .object(args), generation: h.workspace.state.operatorSession!.generation))
         }
         func choose(_ id: UUID, key: String, row: AgentChoice, project: UUID? = nil, reason: String = "Codex has room this week.",

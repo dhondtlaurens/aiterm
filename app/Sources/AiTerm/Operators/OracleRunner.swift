@@ -1,35 +1,34 @@
 import Foundation
 import AiTermCore
 
-/// Runs the second opinion and says what came of it. It never blocks the act (spec §4.4): a CLI that is
-/// missing, a run that fails, says nothing or outlasts `timeout` is `unchallenged`, with the reason the
-/// board shows. Interactive review tabs are owned separately by TabOpener.
-struct SecondOpinionRunner: Sendable {
-    enum Verdict: Equatable, Sendable { case critique(String), unchallenged(String) }
+/// Runs the Oracle and returns its critique, or `unanswered` with a reason when its CLI is missing, fails,
+/// says nothing or outlasts `timeout`. `TabOpener` owns interactive review tabs.
+struct OracleRunner: Sendable {
+    enum Verdict: Equatable, Sendable { case critique(String), unanswered(String) }
 
     typealias Run = @Sendable (_ executable: String, _ arguments: [String], _ environment: [String: String], _ directory: String,
                                _ timeout: Duration) async throws -> ProcessOutput
 
     var locate: @Sendable (String) -> String?
     var run: Run
-    var timeout: Duration = .seconds(OperatorTiming.challengeTimeout)
+    var timeout: Duration = .seconds(OperatorTiming.oracleTimeout)
 
     /// The app's: the CLIs where the launch probe found them, in a process group with a timeout.
-    static let live = SecondOpinionRunner(locate: { HarnessCommandRunner.live.locate($0) },
+    static let live = OracleRunner(locate: { HarnessCommandRunner.live.locate($0) },
                                           run: { try await AgentProcess.run($0, $1, environment: $2, in: $3, timeout: $4) })
-    /// No second opinion at all: every challenged act proceeds unchallenged. What a test's ports start with.
-    static let unavailable = SecondOpinionRunner(locate: { _ in nil }, run: { _, _, _, _, _ in throw CancellationError() })
+    /// The Oracle is unavailable; each request returns unanswered. What a test's ports start with.
+    static let unavailable = OracleRunner(locate: { _ in nil }, run: { _, _, _, _, _ in throw CancellationError() })
 
-    func challenge(_ opinion: OracleSetting, prompt: String, runFolder: URL, projects: [String]) async -> Verdict {
-        let answerFile = runFolder.appendingPathComponent("challenge-\(UUID().uuidString).txt").path
+    func ask(_ opinion: OracleSetting, prompt: String, folder: URL, projects: [String]) async -> Verdict {
+        let answerFile = folder.appendingPathComponent("oracle-\(UUID().uuidString).txt").path
         defer { try? FileManager.default.removeItem(atPath: answerFile) }
-        let invocation = ChallengeLaunch.invocation(opinion, prompt: prompt, runFolder: runFolder.path, projects: projects,
+        let invocation = OracleLaunch.invocation(opinion, prompt: prompt, folder: folder.path, projects: projects,
                                                     answerFile: answerFile)
-        switch await perform(invocation, in: runFolder.path, timeout: timeout) {
-        case .failure(let why): return .unchallenged(why.text(of: "The second opinion"))
+        switch await perform(invocation, in: folder.path, timeout: timeout) {
+        case .failure(let why): return .unanswered(why.text(of: "The Oracle"))
         case .success(let output):
-            guard let critique = ChallengeLaunch.critique(opinion.agent, output: output, answerFile: invocation.answerFile) else {
-                return .unchallenged("The second opinion gave no critique (exit \(output.status)).")
+            guard let critique = OracleLaunch.critique(opinion.agent, output: output, answerFile: invocation.answerFile) else {
+                return .unanswered("The Oracle gave no critique (exit \(output.status)).")
             }
             return .critique(critique)
         }

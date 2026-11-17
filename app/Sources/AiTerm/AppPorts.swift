@@ -14,7 +14,7 @@ import AiTermCore
 /// `bringForward` brings AiTerm forward for Remove's question about a window the person closed; `launchIterm` starts
 /// iTerm2 when AiTerm starts while `itermRunning` says it is not, and when a row is chosen while it is away.
 /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`). `operatorPorts` are what the
-/// operators reach: run folders, the agents' home, notifications; nil is the app's own (`OperatorPorts.live`), from
+/// Operator reaches: its folder, the agents' home, notifications; nil is the app's own (`OperatorPorts.live`), from
 /// `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
 struct AppPorts {
     var store: StateStore

@@ -275,7 +275,7 @@ TS tests-scripts.
   fields on issues and creation failures, the Settings switch, tests, README and configuration
   lines. `AgentProcess` and `RegularFile` move to a process folder; the Oracle runner and the
   worker guard keep using them (PL F1).
-- [ ] 1j. **Codex.** One vocabulary. `OperatorCommand` and `SignalOperatorCommand` become one
+- [x] 1j. **Codex.** One vocabulary. `OperatorCommand` and `SignalOperatorCommand` become one
   `OperatorLaunch`; `SignalOperatorTool` becomes `OperatorTool`; the saved round record becomes
   `OracleRound`; the second-opinion runner is named for the Oracle; `runId` and `runFolder` become
   the Operator session's id and folder, on the wire too; `operated` becomes worker. Comments that
@@ -708,3 +708,25 @@ left.
   `marks.png` is its known variant. The pull suite is named `PullDefaultControllerTests`, not
   `PullDefaultTests`. One plain gate run failed in `StatusLineShimTests` with 50 to 90 second
   timeouts under load (load average about 4.5); the next plain run was green with no change.
+- 1j: one vocabulary. `OperatorCommand` and `SignalOperatorCommand` are one `OperatorLaunch`
+  (`gate.json` bytes identical, `idleCompaction` encoded directly; the private-file writer is
+  `PrivateFile`); `SignalOperatorTool` is `OperatorTool`; `ChallengeRecord` is `OracleRound` (saved
+  keys and raw values unchanged, including `unchallenged`); `ChallengeLaunch` is `OracleLaunch`;
+  `SecondOpinionRunner` is `OracleRunner`; `runId` is `operatorId` on the wire; `operated` is
+  `worker`; comments across the tree stop narrating broadcasts, boards, runs or spec sections.
+  Model-facing strings changed: the push, host and API refusals (they name `message_task` and the
+  signal's merge choice; a new `ShellGateTests` case proves every tool-like word in a refusal is an
+  `OperatorTool`), the gate's Oracle prompt (exactly the brief's lines), the gate's four reasons
+  (`unchecked: ...`), the daemon's "AiTerm ran this command unchecked: {why}", the Oracle runner's
+  failure texts ("The Oracle" for "The second opinion"). Fixture re-recorded:
+  `daemon/tests/wire/event.operator.request.json` only, provenance paragraph added. No test deleted;
+  `ChallengeLaunchTests` is `OracleLaunchTests`, `SecondOpinionRunnerTests` is `OracleRunnerTests`.
+  Differences: `ChallengeKind`, `challengeReplyBudget` and the dead Oracle prompt APIs were already
+  gone (1d). The orchestrator's note to Codex forbade any change under `operator-signals/`, so the
+  orchestrator renamed `SignalOperatorCommand.brief` to `OperatorLaunch.brief` in its PROVENANCE.md
+  itself (one docs line). Left for 9a: `docs/architecture.md` (two lines) and `docs/operators.md`
+  (the upgrade paragraph) still narrate broadcasts, and `docs/keyboard.md` says what there is no
+  board for; the brief leaves docs beyond the renamed lines to phase 9. Allowed sweep hits that stay:
+  the daemon's event broadcasting, Jira's own "board" in sheet copy, the frozen brief's "you do not
+  plan a board of tasks", negative assertions and a worker-message sample in `WorkerTurnTests`.
+  `AgentCommand.resumeWorker` is still called only by tests.

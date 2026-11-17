@@ -46,8 +46,8 @@ enum OperatorEvalRunner {
             try encoder.encode(job.scenario.replies).write(to: replies)
             let (stub, port) = try startStub(tools: job.brief.tools, replies: replies, log: log, in: folder)
             defer { stub.terminate(); stub.waitUntilExit() }
-            let mcp = folder.appendingPathComponent(OperatorCommand.mcpFile)
-            try Data(OperatorCommand.mcpConfig(hookPort: port, token: OperatorCommand.makeToken()).utf8).write(to: mcp)
+            let mcp = folder.appendingPathComponent(OperatorLaunch.mcpFile)
+            try Data(OperatorLaunch.mcpConfig(hookPort: port, token: OperatorLaunch.makeToken()).utf8).write(to: mcp)
             let arguments = words + ["-p", "--append-system-prompt-file", job.brief.brief.path, "--tools", "Read,Grep,Glob",
                                      "--mcp-config", mcp.path, "--allowedTools", "mcp__aiterm__*", "--max-turns", String(maxTurns),
                                      "--output-format", job.stream ? "stream-json" : "json", "--no-session-persistence",

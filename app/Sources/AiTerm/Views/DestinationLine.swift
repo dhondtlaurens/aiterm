@@ -28,8 +28,7 @@ struct Destination: Equatable {
         Destination(place: "\(owner.kind == .review ? "review" : "task") “\(owner.title)”", branch: owner.branch)
     }
 
-    /// A broadcast's: the Operator's own window. Its tasks open wherever the Operator plans them, so no
-    /// branch is named.
+    /// The Operator's own window, outside the projects. Its destination names no branch.
 
     var text: String {
         (["Opens in iTerm2", place] + (branch.isEmpty ? [] : [branch])).joined(separator: " · ")
@@ -37,7 +36,7 @@ struct Destination: Equatable {
 }
 
 /// The line that ends the content of every sheet that opens a window — New Task and New Review on
-/// steps 1 and 3, New Broadcast on steps 1 and 4, and New Terminal — saying where it opens. One `HelpText`, wrapping onto a second
+/// steps 1 and 3, New Signal on steps 1 and 4, and New Terminal — saying where it opens. One `HelpText`, wrapping onto a second
 /// line for a long worktree path and its branch; past that it is cut in the middle, so the branch
 /// at its end survives, and the tooltip has the whole line.
 struct DestinationLine: View {

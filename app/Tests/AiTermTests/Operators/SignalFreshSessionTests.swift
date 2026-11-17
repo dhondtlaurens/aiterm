@@ -20,14 +20,14 @@ import Testing
         root.native.onTurn(first); root.native.onTurn(second)
         await root.reconcile(); await ports.work.settled()
         #expect(h.workspace.state.operatorSession?.wakeAwaitingRead == true)
-        root.handle(.operatorRequest(.init(requestId: "scoped", runId: session.id.uuidString, tool: "run_status",
+        root.handle(.operatorRequest(.init(requestId: "scoped", operatorId: session.id.uuidString, tool: "run_status",
             arguments: ["task": .string(first.uuidString)], generation: 1)))
         await ports.work.settled()
         #expect(h.workspace.state.operatorSession?.wakeAwaitingRead == true)
         #expect((daemon.requests("operator.reply").last?.params["error"] as? String)?.contains("without task") == true)
-        let recorded = ActivityLog.read(runFolder: SignalOperatorCommand.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
+        let recorded = ActivityLog.read(folder: OperatorLaunch.folder(home: ports.home)).entries.last { $0.tool == "run_status" }
         #expect(recorded?.outcome != .ok && recorded?.result.contains("without task") == true)
-        root.handle(.operatorRequest(.init(requestId: "all", runId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
+        root.handle(.operatorRequest(.init(requestId: "all", operatorId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
         await ports.work.settled()
         let result = daemon.requests("operator.reply").last?.params["result"] as? JSONValue
         #expect(result?["tasks"]?.arrayValue?.count == 2)
@@ -56,7 +56,7 @@ import Testing
         #expect(h.workspace.state.operatorSession?.handover == (certain ? nil : .closing))
         #expect(h.workspace.state.operatorSession?.generation == 1 && h.workspace.state.operatorSession?.window == "operator-window")
         #expect(daemon.requests("operator.revoke").isEmpty)
-        let answer = await root.tools.respond(.init(requestId: "reply", runId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
+        let answer = await root.tools.respond(.init(requestId: "reply", operatorId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1))
         #expect((answer.message == nil) == certain)
         root.stop(); await ports.work.settled()
     }
@@ -66,7 +66,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: ports.home) }; nonisolated(unsafe) let defaults = ports.preferences
         let profile = OperatorProfile(model: "opus", reasoning: "high", oracle: .init(isOn: true, agent: .claude, model: "oracle", reasoning: nil), instructions: "Never move tickets to Done.")
         try OperatorProfileStore.save(profile, defaults); ports.profile = { profile }
-        ports.secondOpinion = SecondOpinionRunner(locate: { _ in "/synthetic/claude" }, run: { _, arguments, _, _, _ in
+        ports.oracle = OracleRunner(locate: { _ in "/synthetic/claude" }, run: { _, arguments, _, _, _ in
             #expect(arguments.joined(separator: " ").contains(profile.instructions))
             try await MainActor.run { var changed = profile; changed.instructions = "Ask before any merge."; try OperatorProfileStore.save(changed, defaults) }
             return ProcessOutput(status: 0, stdout: #"{"result":"YES"}"#, stderr: "", timedOut: false)
@@ -75,7 +75,7 @@ import Testing
             daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         root.start(); await ports.work.settled()
         let session = try #require(h.workspace.state.operatorSession)
-        let answer = await root.gate.respond(.init(requestId: "shell", runId: session.id.uuidString, tool: "gate_command",
+        let answer = await root.gate.respond(.init(requestId: "shell", operatorId: session.id.uuidString, tool: "gate_command",
             arguments: ["command": "./deploy", "directory": .string(h.folder.path)], generation: session.generation))
         #expect(answer["decision"] == "deny")
         root.stop(); await ports.work.settled()
@@ -102,7 +102,7 @@ import Testing
         var session = OperatorSession(createdAt: world.now)
         session.window = "old-window"; session.conversation = "old-conversation"
         session.questions = [.init(id: "scope", task: id, text: "Which scope?", openedAt: world.now)]
-        var round = ChallengeRecord(id: "waiting-round", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
+        var round = OracleRound(id: "waiting-round", tool: "answer_worker", askedArguments: "{}", askedAt: world.now)
         round.stage = .delivered; round.critique = "Check the original scope before answering."
         session.oracleRounds = [round]
         world.state.operatorSession = session
@@ -123,7 +123,7 @@ import Testing
         let open = try #require(names.firstIndex(of: "window.createTask"))
         #expect(close < revoke && revoke < open)
         #expect(h.workspace.state.operatorSession?.generation == 2)
-        let folder = SignalOperatorCommand.folder(home: ports.home)
+        let folder = OperatorLaunch.folder(home: ports.home)
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         let text = try files.filter { $0.pathExtension == "json" || $0.pathExtension == "md" }.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
         #expect(text.contains("Which scope?") && text.contains("waiting-round"))
@@ -138,7 +138,7 @@ import Testing
         let profile = OperatorProfile(model: "opus", reasoning: "high", oracle: .init(isOn: true, agent: .claude, model: "oracle", reasoning: nil))
         try OperatorProfileStore.save(profile, defaults)
         ports.profile = { profile }
-        ports.secondOpinion = SecondOpinionRunner(locate: { _ in "/synthetic/claude" }, run: { _, _, _, _, _ in
+        ports.oracle = OracleRunner(locate: { _ in "/synthetic/claude" }, run: { _, _, _, _, _ in
             try await MainActor.run {
                 var changed = profile; changed.oracle.isOn = false
                 try OperatorProfileStore.save(changed, defaults)
@@ -150,7 +150,7 @@ import Testing
             daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
         let session = try #require(h.workspace.state.operatorSession)
-        let request = OperatorRequest(requestId: "opinion", runId: session.id.uuidString,
+        let request = OperatorRequest(requestId: "opinion", operatorId: session.id.uuidString,
             tool: shell ? "gate_command" : "ask_oracle", arguments: shell
                 ? ["command": "./deploy", "directory": .string(h.folder.path)]
                 : ["key": "check", "question": "Is this sound?", "context": "Inspect the current head."], generation: 1)
@@ -176,7 +176,7 @@ import Testing
         await root.reconcile(); await ports.work.settled()
         #expect(!daemon.requests("session.deliver").isEmpty)
         #expect(daemon.requests("session.closeIdle").isEmpty, "The delivered wake has not been read yet.")
-        root.handle(.operatorRequest(.init(requestId: "read", runId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
+        root.handle(.operatorRequest(.init(requestId: "read", operatorId: session.id.uuidString, tool: "run_status", arguments: [:], generation: 1)))
         await ports.work.settled(); await root.reconcile(); await ports.work.settled()
         #expect(!daemon.requests("session.closeIdle").isEmpty)
         root.stop()

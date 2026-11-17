@@ -37,7 +37,7 @@ import AiTermCore
         #expect(AlertPrompt(message: "m", buttons: ["Keep Task", "Delete Changes and Remove"], escape: 0).escapeButton == 0)
     }
 
-    /// The table in the consistency spec's section 9, as the app asks it.
+    /// The app's alert prompts, with their title and detail.
     @Test func theRemoveTaskAlertHasARedDefaultAndCancelOnEscape() async throws {
         let prompter = ScriptedPrompter(answering: "⎋")
         let fixture = try await RaceFixture(prompter: prompter)

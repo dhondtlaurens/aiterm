@@ -228,8 +228,8 @@ public struct UsageTaskRow: Equatable, Sendable {
     }
 }
 
-/// A sidebar row that can have a window: a task (or review), a terminal, or the Operator's row, by its
-/// broadcast's id. Focus View steps through them, and the Dock badge counts them.
+/// A sidebar row that can have a window: a task (or review), a terminal, or the Operator's stable row.
+/// Focus View steps through them, and the Dock badge counts them.
 public enum RowID: Hashable, Sendable {
     case task(UUID), terminal(UUID), operation(UUID)
 
@@ -315,17 +315,13 @@ public enum SidebarModel {
         }
     }
 
-    /// Focus View (⌘F): the collapsed state each project with rows should store — open when a row
-    /// needs attention, folded otherwise — and the broadcast's group's, by its id, on the same rule: open, it
-    /// folds the projects into PROJECTS, folded it opens them. Empty projects are left out: they draw collapsed
-    /// whatever they stored. With no row needing attention, every project folds to its header and the broadcast's
-    /// section into OPERATOR.
+    /// Focus View (⌘F): open each project with a row that needs attention, fold the others.
+    /// Empty projects draw collapsed regardless of their saved state.
     public static func focusView(_ sections: [ProjectSection]) -> [UUID: Bool] {
         collapsedStates(sections) { !$0.needsAttention }
     }
 
-    /// List View (⌘L): every project with rows open, and so the broadcast's section folded into OPERATOR, since the
-    /// two are open one at a time. Empty ones are left out, as in `focusView`.
+    /// List View (⌘L): open every project with rows. Empty projects are left out, as in `focusView`.
     public static func listView(_ sections: [ProjectSection]) -> [UUID: Bool] {
         collapsedStates(sections) { _ in false }
     }

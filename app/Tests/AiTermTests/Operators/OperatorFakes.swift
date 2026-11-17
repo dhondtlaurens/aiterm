@@ -6,7 +6,7 @@ import Synchronization
 @testable import AiTermTestSupport
 
 enum OperatorServiceFixtures {
-    /// The profile a broadcast froze: Claude on Opus, every slice off, the Oracle off unless asked for.
+    /// The test Operator profile: Claude on Opus, with the Oracle off unless requested.
     static func profile(oracle: Bool = false, oracleAgent: AgentKind = .codex) -> OperatorProfile {
         OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
                         oracle: OracleSetting(isOn: oracle, agent: oracleAgent, model: oracleAgent == .codex ? "gpt-6-astra" : "claude-opus-5-5",
@@ -18,7 +18,6 @@ enum OperatorServiceFixtures {
         .make(name: name, path: path, jiraProjects: jira)
     }
 
-    /// A legacy run, unless given the Agents rows, task settings or a goal: then a run set up with those steps.
 
 
     /// Agents rows on the scratch ports' model lists: Claude's first model, then Codex's.
@@ -28,7 +27,7 @@ enum OperatorServiceFixtures {
 
 
 
-    /// A tab tagged with `tag`: a task's id, or a run's for the operator's own tab.
+    /// A tab tagged with `tag`: a task's id, or the session's id for the Operator's own tab.
     static func session(_ id: String, window: String = "w1", tag: UUID, agent: SessionAgent = .claude, state: SessionState = .idle,
                         conversation: String? = nil, cwd: String = "/") -> SessionInfo {
         .make(id, window: window, task: tag, agent: agent, state: state, cwd: cwd, conversation: conversation)
@@ -110,8 +109,7 @@ extension OperatorPorts {
 }
 
 extension WorkspaceStore {
-    /// A loaded workspace holding `state`, saved to a file nothing else uses: a broadcast's start
-    /// waits for its run to be on disk.
+    /// A loaded workspace holding `state`, saved to a file nothing else uses. The Operator's launch waits for its save.
     static func saving(_ state: AppState) throws -> WorkspaceStore {
         let store = WorkspaceStore(file: StateStore(url: ScratchFolder.path("aiterm-operators-state-", suffix: ".json")))
         try store.load()

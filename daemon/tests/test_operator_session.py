@@ -1,4 +1,4 @@
-"""Single-Operator authority beside the frozen per-run transport."""
+"""Single Operator authority for the socket and HTTP transport."""
 import asyncio
 import hashlib
 import json
@@ -77,7 +77,7 @@ async def test_single_authority_serves_only_new_tools_and_forwards_its_generatio
     assert invalid["error"]["code"] == -32602
     calling = asyncio.create_task(route.serve("POST", AUTH, call("note", {"task": "t", "key": "n"})))
     request = await answer_with(app, route, result={"status": "recorded"})
-    assert request["runId"] == ID and request["generation"] == 3
+    assert request["operatorId"] == ID and request["generation"] == 3
     assert (await calling)[0] == 200
 
 
@@ -120,12 +120,12 @@ def test_unknown_context_stays_unknown_and_estimation_needs_a_valid_window(cw, e
 async def test_register_and_revoke_use_generation_over_the_socket_surface():
     app, sessions = App(), OperatorSessionTokens()
     route = OperatorRoute(app.broadcast, lambda: 1, sessions)
-    await route.register({"runId": ID, "generation": 1, "token": TOKEN})
+    await route.register({"operatorId": ID, "generation": 1, "token": TOKEN})
     assert sessions.owner_for(TOKEN) == (ID, 1)
-    await route.register({"runId": ID, "generation": 2, "token": OTHER})
-    await route.revoke({"runId": ID, "generation": 1})
+    await route.register({"operatorId": ID, "generation": 2, "token": OTHER})
+    await route.revoke({"operatorId": ID, "generation": 1})
     assert sessions.owner_for(OTHER) == (ID, 2)
-    await route.revoke({"runId": ID, "generation": 2})
+    await route.revoke({"operatorId": ID, "generation": 2})
     assert sessions.owner_for(OTHER) is None
 
 
@@ -153,4 +153,4 @@ async def test_per_run_registration_is_retired():
     from aitermd.rpc_server import RpcError
     route = OperatorRoute(App().broadcast, lambda: 1)
     with pytest.raises(RpcError):
-        await route.register({"runId": ID, "token": TOKEN})
+        await route.register({"operatorId": ID, "token": TOKEN})

@@ -1,10 +1,10 @@
 import Foundation
 
-/// What a person types or pastes into a broadcast's prompt, Review, Done or Instructions, every kind
+/// What a person types or pastes into a signal's prompt, Review, Done or Instructions, every kind
 /// of it: quotes and backticks, dollar signs as a shell reads them, backslashes, `!` and history-like
 /// text, `#` and `-` at line starts, tabs, CRLF line ends, blank lines, non-ASCII, and lines several
 /// thousand characters long. Each text starts with a bullet and ends on a word, so trimming what a
-/// person typed (`OperatorCommand.said`) leaves it as it is.
+/// person typed (`Optional<String>.said`) leaves it as it is.
 public enum TypedText {
     public static let kinds = [
         #"It's "double" and 'single' quoted, with a `backtick`, ``two`` and an unclosed " and '."#,

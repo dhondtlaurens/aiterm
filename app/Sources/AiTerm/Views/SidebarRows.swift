@@ -381,10 +381,8 @@ struct RowTitle: View {
     }
 }
 
-/// One task or review: its agents, title, badges and branch, and, when there is something to say, why
-/// its window could not come back, or, on a task the Operator drives, its status line as the operator
-/// badge. A driven task’s menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
-/// of an ended broadcast is yours, and its menu is any task's.
+/// One task or review: its agents, title, badges, branch and any window or worker status.
+/// A signal's task offers Take Over; a task you own has the usual task menu.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
@@ -909,7 +907,7 @@ struct TaskRowBadges: Equatable {
 }
 
 /// A header's mark, centred in a ``Size/avatar`` square so the name after it lines up with the avatars in
-/// the rows below: a project's provider, or a broadcast's glyph (`IconSource` alone). No tile behind it:
+/// the rows below: a project's provider, or the Operator's glyph (`IconSource` alone). No tile behind it:
 /// the header sits on the sidebar's own ground. A vendor's mark is drawn at ``logoSize`` in its colour, an
 /// SF Symbol at ``glyphSize`` in the surface's secondary ink.
 struct ProviderIcon: View {
@@ -920,7 +918,7 @@ struct ProviderIcon: View {
     init(provider: Provider) { source = Self.source(of: provider) }
     init(_ source: IconSource) { self.source = source }
 
-    /// A project's host as its header marks it, and New Broadcast's pickers with it.
+    /// A project's host as its header marks it, and New Signal's pickers with it.
     static func source(of provider: Provider) -> IconSource {
         switch provider {
         case .gitlab: .gitlabTanuki

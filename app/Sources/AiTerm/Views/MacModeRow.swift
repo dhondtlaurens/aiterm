@@ -6,8 +6,7 @@ import AiTermCore
 /// one that will turn the mode off.
 enum BackpackNeed: Equatable { case lostHotspot, lowBattery(level: Int) }
 
-/// The Mac's mode in SYSTEM, decided apart from the view so a test reads it (spec 2026-10-05;
-/// proposal 2A and 3A, 6 Oct 2026). At the desk it draws no line of its own — the Mac's readings
+/// The Mac's mode in SYSTEM, decided apart from the view so a test reads it. At the desk it draws no line of its own — the Mac's readings
 /// row is its row — and in the backpack a `ToneRing` and its words.
 enum MacMode: Equatable {
     case desk

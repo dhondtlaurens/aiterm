@@ -79,24 +79,24 @@ final class DaemonOperatorWireTests {
     @Test func theSessionAndOperatorRequestsNameWhatTheyAreAbout() async throws {
         try connect { _ in [String: Any]() }
         try await client.setOwnership(sessionId: "s1", ownership: 4)
-        try await client.registerOperator(runId: "R", token: "tok", generation: 1)
-        try await client.revokeOperator(runId: "R", generation: 1)
+        try await client.registerOperator(operatorId: "R", token: "tok", generation: 1)
+        try await client.revokeOperator(operatorId: "R", generation: 1)
         #expect((0..<3).map { method($0) } == ["session.setOwnership", "operator.register", "operator.revoke"])
         #expect(params(0)["ownership"] as? Int == 4)
         #expect(params(1)["token"] as? String == "tok")
-        #expect(params(2)["runId"] as? String == "R")
+        #expect(params(2)["operatorId"] as? String == "R")
     }
 
     @Test func aSingleOperatorsRequestRetainsTheTokensGeneration() throws {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","generation":3,"tool":"run_status","arguments":{}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","operatorId":"R","generation":3,"tool":"run_status","arguments":{}}}"#.utf8)
         let event = try DaemonClient.decodeEvent("operator.request", from: line)
-        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", runId: "R", tool: "run_status", arguments: [:], generation: 3)))
+        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", operatorId: "R", tool: "run_status", arguments: [:], generation: 3)))
     }
 
     @Test func singleOperatorAuthorityCarriesItsGenerationOnRegisterAndRevoke() async throws {
         try connect { _ in [String: Any]() }
-        try await client.registerOperator(runId: "R", token: "tok", generation: 2)
-        try await client.revokeOperator(runId: "R", generation: 2)
+        try await client.registerOperator(operatorId: "R", token: "tok", generation: 2)
+        try await client.revokeOperator(operatorId: "R", generation: 2)
         #expect(params(0)["generation"] as? Int == 2)
         #expect(params(1)["generation"] as? Int == 2)
     }
@@ -114,13 +114,13 @@ final class DaemonOperatorWireTests {
     }
 
     @Test func anOperatorRequestArrivesWithItsArguments() throws {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","generation":2,"tool":"read_task","arguments":{"task":"task-id","stage":1,"ownership":0}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","operatorId":"R","generation":2,"tool":"read_task","arguments":{"task":"task-id","stage":1,"ownership":0}}}"#.utf8)
         let event = try DaemonClient.decodeEvent("operator.request", from: line)
-        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", runId: "R", tool: "read_task",
+        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-1", operatorId: "R", tool: "read_task",
             arguments: ["task": "task-id", "stage": 1, "ownership": 0], generation: 2)))
     }
     @Test func aRequestWithoutSingleOperatorAuthorityIsRefused() {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","runId":"R","tool":"run_status","arguments":{}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-1","operatorId":"R","tool":"run_status","arguments":{}}}"#.utf8)
         #expect(throws: (any Error).self) { try DaemonClient.decodeEvent("operator.request", from: line) }
     }
 

@@ -6,7 +6,7 @@ import Testing
 import AiTermTestSupport
 @testable import AiTerm
 
-/// `ModelReasoningFields` labels its two `Select`s by default; unlabelled, as New Broadcast's Agents rows have them under
+/// `ModelReasoningFields` labels its two `Select`s by default; unlabelled, as New Signal's Agents rows have them under
 /// one row of column labels, it is the pop-ups alone, a control tall.
 @MainActor
 struct ModelReasoningFieldsTests {

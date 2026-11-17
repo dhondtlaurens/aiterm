@@ -4,7 +4,7 @@ import Synchronization
 import AiTermCore
 
 /// The last thing a worker said, read from its agent's own conversation file — never the screen, where
-/// Claude's grey suggestion reads as typed text (spec §2.2). Claude keeps a conversation in
+/// Claude's grey suggestion reads as typed text. Claude keeps a conversation in
 /// `projects/<folder>/<id>.jsonl` under its configuration folder (`ClaudeConfig`: `~/.claude` unless
 /// `CLAUDE_CONFIG_DIR` names another), Codex in `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-…-<id>.jsonl`;
 /// both are named by the conversation id the daemon reports (`SessionInfo.conversationId`).

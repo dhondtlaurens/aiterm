@@ -25,11 +25,11 @@ import Testing
     static func launches() -> [String: [String: [String]]] {
         let (model, reasoning) = ("{model}", "{reasoning}")
         func oracle(_ agent: AgentKind) -> [String] {
-            let run = ChallengeLaunch.invocation(OracleSetting(isOn: true, agent: agent, model: model, reasoning: reasoning),
-                                                 prompt: "{prompt}", runFolder: "{folder}", projects: ["{project}"], answerFile: "{answer}")
+            let run = OracleLaunch.invocation(OracleSetting(isOn: true, agent: agent, model: model, reasoning: reasoning),
+                                                 prompt: "{prompt}", folder: "{folder}", projects: ["{project}"], answerFile: "{answer}")
             return [run.executable] + run.arguments
         }
-        let runFolder = URL(fileURLWithPath: "/{run}")
+        let folder = URL(fileURLWithPath: "/{run}")
         var result: [String: [String: [String]]] = [:]
         for agent in AgentKind.allCases {
             let harness = agent.harness
@@ -38,13 +38,13 @@ import Testing
                 "resume": harness.resumeWords(conversation: "{conversation}", model: model, reasoning: reasoning),
                 "challenge": oracle(agent),
             ]
-            if AgentCommand.operatedAgents.contains(agent) {
+            if AgentCommand.workerAgents.contains(agent) {
                 uses["worker"] = AgentCommand.workerWords(agent: agent, model: model, reasoning: reasoning)
                 uses["review"] = AgentCommand.workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: true)
             }
             if agent == .claude {
-                uses["operator"] = OperatorCommand.launchWords(model: model, effort: reasoning, runFolder: runFolder, projectPaths: ["{project}"])
-                uses["operatorResume"] = OperatorCommand.launchWords(model: model, effort: reasoning, runFolder: runFolder,
+                uses["operator"] = OperatorLaunch.launchWords(model: model, effort: reasoning, folder: folder, projectPaths: ["{project}"])
+                uses["operatorResume"] = OperatorLaunch.launchWords(model: model, effort: reasoning, folder: folder,
                                                                      projectPaths: ["{project}"], resuming: "{conversation}")
             }
             result[agent.rawValue] = uses
@@ -156,12 +156,12 @@ import Testing
     private static func ran(_ stdout: String) -> ProcessOutput { ProcessOutput(status: 0, stdout: stdout, stderr: "", timedOut: false) }
 
     @Test func eachHeadlessAnswerReadsAsTheAppReadsIt() throws {
-        let claude = ChallengeLaunch.critique(.claude, output: Self.ran(try Self.text(.claude, "headless/challenge.json")), answerFile: nil)
+        let claude = OracleLaunch.critique(.claude, output: Self.ran(try Self.text(.claude, "headless/challenge.json")), answerFile: nil)
         #expect(claude?.contains("OK") == true, "Claude's -p --output-format json answer no longer reads: \(String(describing: claude))")
         let answer = Self.captures.appendingPathComponent("codex/headless/challenge-answer.txt").path
-        let codex = ChallengeLaunch.critique(.codex, output: Self.ran(try Self.text(.codex, "headless/challenge.jsonl")), answerFile: answer)
+        let codex = OracleLaunch.critique(.codex, output: Self.ran(try Self.text(.codex, "headless/challenge.jsonl")), answerFile: answer)
         #expect(codex?.contains("OK") == true, "codex exec's -o answer no longer reads: \(String(describing: codex))")
-        let pi = ChallengeLaunch.critique(.pi, output: Self.ran(try Self.text(.pi, "headless/challenge.txt")), answerFile: nil)
+        let pi = OracleLaunch.critique(.pi, output: Self.ran(try Self.text(.pi, "headless/challenge.txt")), answerFile: nil)
         #expect(pi?.contains("OK") == true, "PI's -p answer no longer reads: \(String(describing: pi))")
     }
 

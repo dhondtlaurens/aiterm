@@ -13,8 +13,7 @@ public enum OperatorProfileStore {
 
     public static func oracleRevision(_ defaults: UserDefaults) -> Int { defaults.integer(forKey: oracleRevisionKey) }
 
-    /// The saved profile; before the first save, or when what is saved cannot be read, Claude's default
-    /// model with every slice off, the standard Oracle and no instructions.
+    /// The default Operator profile uses the standard Oracle and no standing instructions.
     public static func load(_ defaults: UserDefaults = .standard, claudeDefault: (model: String, reasoning: String?), installed: Set<AgentKind> = Set(AgentKind.allCases)) -> OperatorProfile {
         if let data = defaults.data(forKey: key), let saved = try? JSONDecoder().decode(OperatorProfile.self, from: data) { return saved }
         var profile = OperatorProfile(model: claudeDefault.model, reasoning: claudeDefault.reasoning)

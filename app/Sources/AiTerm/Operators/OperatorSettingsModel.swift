@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import AiTermCore
 
-/// Settings › Operator's edits (spec §8), staged until the sheet's Save writes them through
+/// Settings › Operator's edits, staged until the sheet's Save writes them through
 /// `OperatorProfileStore.save`; Cancel drops the model and with it every edit. Each part of the
 /// profile is its own property, so a keystroke in Instructions redraws that group alone.
 @MainActor
@@ -17,7 +17,7 @@ final class OperatorSettingsModel {
         var skills: [AgentCompletion]
     }
 
-    /// The agents that can be the Oracle: every one, since `ChallengeLaunch` runs each headless.
+    /// The agents that can be the Oracle: every one, since `OracleLaunch` runs each headless.
     nonisolated static let oracleAgents: [AgentKind] = AgentKind.allCases
 
     private(set) var isLoaded = false

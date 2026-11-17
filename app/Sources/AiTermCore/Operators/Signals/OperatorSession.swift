@@ -45,7 +45,7 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var finishing: Bool?
     public var handover: OperatorHandover?
     public var questions: [Question] = []
-    public var oracleRounds: [ChallengeRecord] = []
+    public var oracleRounds: [OracleRound] = []
     public var ledger: [LedgerEntry] = []
     public var snags: [OperatorSnag] = []
     public init(id: UUID = UUID(), createdAt: Date) { self.id = id; self.createdAt = createdAt }

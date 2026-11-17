@@ -549,8 +549,7 @@ import Testing
 }
 
 @MainActor @Suite(.blocking) struct BackpackAppControllerTests {
-    /// The sheet's actual popup follows workspace broadcasts, including one starting after the
-    /// sheet opens. Ending a broadcast enables the option again and Connect carries that choice.
+    /// The sheet's popup follows workspace changes while it is open. Connect carries the selected option.
     @Test func backpackChoicesFollowEnabledSignals() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }

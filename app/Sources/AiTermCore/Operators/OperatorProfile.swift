@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Oracle (spec §4.1, §8): another model that checks the Operator, on or off with its agent kept.
+/// The Oracle: another model that checks the Operator, on or off with its agent kept.
 public struct OracleSetting: Codable, Equatable, Sendable {
     public var isOn: Bool
     public var agent: AgentKind

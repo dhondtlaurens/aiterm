@@ -13,18 +13,18 @@ struct OperatorPorts {
     var workerGuardExecutable: URL = Bundle.main.executableURL!
     var notifications: any OperatorNotifications
     /// The Oracle's runner.
-    var secondOpinion: SecondOpinionRunner = .unavailable
+    var oracle: OracleRunner = .unavailable
     var clock = OperatorClock()
     var now: @Sendable () -> Date { clock.now }
     /// What every owner starts its work through, so that a test waits for all of it at once (`OperatorWork.settled`).
     let work = OperatorWork()
-    /// How often the run reconciler looks at the real tabs.
+    /// How often the session reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// How long the host's view of a task's request is waited for (`OperatorTiming.hostReadTimeout`) and kept (`hostReadCache`):
     /// what `run_status` and `read_task` show of each request.
     var hostTimeout: Duration = .seconds(OperatorTiming.hostReadTimeout)
     var hostCache: TimeInterval = OperatorTiming.hostReadCache
-    /// The agents the login shell found, which a task may run (spec §15): the app's `AgentIntegrations.availableAgents`.
+    /// The agents the login shell found, which a task may run: the app's `AgentIntegrations.availableAgents`.
     var installedAgents: @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) }
     /// An agent's model list in Settings › Agents (`ModelCatalogue.models(for:)`). Blocking: read through `BackgroundWork`.
     var agentModels: @Sendable (AgentKind) -> [AgentModel] = { _ in [] }
@@ -43,7 +43,7 @@ struct OperatorPorts {
                                 claudeConfig: ClaudeConfig = ClaudeConfig(), agents: AgentIntegrations,
                                 preferences: UserDefaults) -> OperatorPorts {
         var ports = OperatorPorts(home: home, claudeConfig: claudeConfig, git: git, notifications: LiveOperatorNotifications(),
-                                  secondOpinion: .live)
+                                  oracle: .live)
         ports.installedVersions = { AgentVersions.shared.current($0) }
         ports.installedAgents = { [weak agents] in agents?.availableAgents ?? [] }
         let catalogue = agents.catalogue

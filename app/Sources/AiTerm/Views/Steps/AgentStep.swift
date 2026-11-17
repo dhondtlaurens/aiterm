@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// The last step of New Task and New Review. Spec 8: an agent whose CLI is not on the login shell's `PATH` cannot be
+/// The last step of New Task and New Review. an agent whose CLI is not on the login shell's `PATH` cannot be
 /// picked, and the sheet says which one and where to install it instead of letting the task open a
 /// window that prints "command not found". With none installed, Continue stays disabled.
 struct AgentStep: View {

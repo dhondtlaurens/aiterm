@@ -243,7 +243,7 @@ struct SettingsView: View {
 
     /// Jira, GitLab and GitHub are optional. Validate them before committing the Operator's profile and
     /// harness defaults so a failed save can still be cancelled without changing the models used by
-    /// new tasks or the next broadcast.
+    /// new tasks or the next signal.
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
         saveInterface()

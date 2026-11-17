@@ -3,7 +3,7 @@
 Captured deliberately on 15 November 2026 while implementing the tool-set to-do of
 `docs/plans/2026-11-14-operator-signals.md`, after engine revision `2b22846c`.
 
-`brief.md` is the complete stable role prompt from `SignalOperatorCommand.brief`, without
+`brief.md` is the complete stable role prompt from `OperatorLaunch.brief`, without
 house instructions. `tools.json` is a byte copy of the new, not yet served
 `daemon/aitermd/signal_tools.json`. It has thirteen tools and no host or Jira writes.
 No private workspace or host data is used.

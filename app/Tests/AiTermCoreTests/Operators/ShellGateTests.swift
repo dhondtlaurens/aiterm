@@ -135,8 +135,8 @@ import Testing
     }
 
     /// gh and glab send their token to the host they talk to: `-R` names a plain repository path, and `--hostname` or a
-    /// path's host part one of the hosts the broadcast's projects are on. Anything else is the Oracle's.
-    @Test func ghAndGlabReadOnlyFromTheBroadcastsHosts() {
+    /// path's host part one of the hosts the signals' projects are on. Anything else is the Oracle's.
+    @Test func ghAndGlabReadOnlyFromTheSignalsHosts() {
         let hosts: Set<String> = ["gitlab.com", "github.com"]
         func route(_ command: String) -> ShellGate.Route { ShellGate.route(command, in: directory, roots: roots, hosts: hosts) }
         for command in ["glab mr view 3 -R team/shop", "glab mr list --repo team/shop -R gitlab.com/group/shop", "gh pr view 12 -R a/b",
@@ -211,7 +211,7 @@ import Testing
         }
     }
 
-    @Test func pathsStayInsideTheBroadcast() {
+    @Test func pathsStayInsideTheProjects() {
         for command in ["cat ../../.ssh/id_rsa", "cat ~/.npmrc", "cat /etc/hosts", "cat ~root/x", "ls /", "cat package.json /etc/hosts",
                         "head -n 3 /etc/hosts", "cat /code/shop/../../etc/hosts", "cat *", "ls src/*.ts", "cat {a,b}",
                         "grep -r x /etc", "rg x ../other", "cat /code/shopfront/x"] {
@@ -272,9 +272,29 @@ import Testing
         #expect(lines.contains("NOTE=line") && lines.contains("MORE=text"))
     }
 
-    // MARK: Hard denials (spec §A.2)
+    // MARK: Hard denials
 
-    @Test func everyPushIsRefusedForFinishTask() {
+    @Test func hostAndAPIDenialsNameTheWorkerAndTheSignalsMergeChoice() {
+        for denial in [ShellGate.hostDenial("gh pr merge"), ShellGate.apiDenial("glab")] {
+            #expect(denial.contains("message_task") && denial.contains("Merge it when it’s ready"))
+            for retired in ["update_request", "retry_pipeline", "resolve_thread", "reply_thread", "finish_task"] {
+                #expect(!denial.contains(retired))
+            }
+        }
+    }
+
+    @Test func denialSentencesNameOnlyExistingOperatorTools() {
+        let denials = [ShellGate.pushDenial, ShellGate.workerDenial("git commit"),
+                       ShellGate.hostDenial("gh pr edit"), ShellGate.apiDenial("glab")]
+        let tools = Set(OperatorTool.allCases.map(\.rawValue))
+        for denial in denials {
+            for word in denial.matches(of: /[a-z]+_[a-z]+(_[a-z]+)*/) {
+                #expect(tools.contains(String(word.output.0)), "\(word.output.0) is no Operator tool")
+            }
+        }
+    }
+
+    @Test func everyPushIsRefusedForTheWorker() {
         for command in ["git push", "git push origin feat/x", "git push --force-with-lease", "git -C /code/shop push", "git -c a=b push",
                         "git --no-pager push", "git --git-dir=/code/shop/.git push", "git --git-dir /code/shop/.git push origin",
                         "/usr/bin/git push", "cd /code/shop && git push", "git status; git push", "git status | git push",
@@ -285,7 +305,7 @@ import Testing
                         "git 2>/dev/null push", "if true; then git push; fi"] {
             #expect(ShellGate.hardDenial(command) == ShellGate.pushDenial, "\(command)")
         }
-        #expect(ShellGate.pushDenial.contains("finish_task"))
+        #expect(ShellGate.pushDenial.contains("message_task"))
     }
 
     @Test func aWorkersChangesToACheckoutAreRefused() {
@@ -317,28 +337,24 @@ import Testing
         for (command, what) in cases {
             #expect(ShellGate.hardDenial(command) == ShellGate.hostDenial(what), "\(command)")
         }
-        #expect(ShellGate.hostDenial("gh pr merge").contains("finish_task"))
+        #expect(ShellGate.hostDenial("gh pr merge").contains("message_task"))
     }
 
-    /// Snag !62 ("Aikido findings 2026-11"): the Operator's correction of a request was refused with nowhere to turn, since
-    /// finish_task takes no title, description or assignee. It stays refused, and the refusal names the tool that does it.
-    @Test func aRefusedChangeToARequestNamesUpdateRequest() {
+    /// A refused request edit directs the Operator to the task's worker.
+    @Test func aRefusedChangeToARequestNamesTheWorker() {
         for command in ["glab mr update 62 --title 'PLUTO-231: Add gift card'", "glab mr update 62 --assignee nathan", "gh pr edit 12 --body x"] {
-            #expect(ShellGate.hardDenial(command)?.contains("update_request") == true, "\(command)")
+            #expect(ShellGate.hardDenial(command)?.contains("message_task") == true, "\(command)")
         }
-        #expect(ShellGate.apiDenial("glab").contains("update_request"))
+        #expect(ShellGate.apiDenial("glab").contains("message_task"))
     }
 
-    /// Snag G ("Aikido findings 2026-11"): six request pipelines failed on the runner, and the gate refused the Operator's
-    /// retry with no tool to turn to; a thread could not be resolved either. The API call stays refused, and the refusal
-    /// names the tools that do it.
-    @Test func aRefusedPipelineRetryOrThreadWriteNamesItsTool() {
+    /// Pipeline retries and thread writes stay refused, with the worker named as the owner.
+    @Test func aRefusedPipelineRetryOrThreadWriteNamesTheWorker() {
         for command in ["glab api -X POST projects/web%2Facme-web/pipelines/5501/retry",
                         "gh api -X POST repos/acme/web/actions/runs/31/rerun-failed-jobs",
                         "glab api -X PUT projects/1/merge_requests/64/discussions/d1 -f resolved=true"] {
             let refusal = ShellGate.hardDenial(command)
-            #expect(refusal?.contains("retry_pipeline") == true, "\(command)")
-            #expect(refusal?.contains("resolve_thread") == true && refusal?.contains("reply_thread") == true, "\(command)")
+            #expect(refusal?.contains("message_task") == true, "\(command)")
         }
     }
 
@@ -355,11 +371,11 @@ import Testing
         }
     }
 
-    /// Claude's backstop names nothing the gate lets through: each `OperatorCommand.shellDenials` pattern, its wildcards
+    /// Claude's backstop names nothing the gate lets through: each `OperatorLaunch.shellDenials` pattern, its wildcards
     /// filled, is a hard denial. A reset is the hard one: Claude's prefix match can't find `--hard` after `-C <dir>` or
     /// `-c k=v`, so those two patterns refuse every reset, where the gate sends a soft one to the Oracle
     /// (`readsAndOtherCommandsAreNoHardDenial`).
-    @Test(arguments: OperatorCommand.shellDenials)
+    @Test(arguments: OperatorLaunch.shellDenials)
     func everyBackstopPatternIsAHardDenial(_ pattern: String) throws {
         let inner = try #require(pattern.wholeMatch(of: /Bash\((.+):\*\)/)?.1, "\(pattern) is no Bash(…:*) pattern")
         var command = String(inner.replacing("-C *", with: "-C /code/shop").replacing("-c *", with: "-c core.pager=cat")

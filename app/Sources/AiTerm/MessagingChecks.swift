@@ -3,8 +3,8 @@ import AiTermCore
 
 /// Whether AiTerm may type into each agent CLI, as the delivery check last wrote it
 /// (`DeliveryCheck`): each Claude Code and Codex card's Messaging check in Settings › Agents, and part
-/// of what New Broadcast waits for. It reads the policy file and the installed versions while someone
-/// looks (`watch`, for as long as Settings or New Broadcast is open): a check run by hand reaches the
+/// of what New Signal waits for. It reads the policy file and the installed versions while someone
+/// looks (`watch`, for as long as Settings or New Signal is open): a check run by hand reaches the
 /// card within `interval`, and one Run check opened again as its window closes.
 ///
 /// Run check opens an iTerm2 window in front, in the helper's own folder, running the check for that
@@ -100,7 +100,7 @@ final class MessagingChecks {
         self.versions = found
     }
 
-    /// Reads at once, then again every `interval` until the task is cancelled: Settings and New Broadcast
+    /// Reads at once, then again every `interval` until the task is cancelled: Settings and New Signal
     /// run it for as long as they are open.
     func watch() async {
         await refresh(force: true)

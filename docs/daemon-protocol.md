@@ -69,7 +69,7 @@ The single Operator's `operator.request` includes the token's required `generati
 it before acting. The token serves fourteen Signal tools. Task actions also carry stage/ownership;
 the shell gate is a separate private route. A missing/revoked token always denies `/operator/gate`,
 including revocation while waiting for the app. The app also returns a real gate denial for stale
-session/claim data. An unavailable Oracle follows the explicit unchallenged shell policy; it never
+session/claim data. An unavailable Oracle follows the explicit unchecked shell policy; it never
 counts as agreement to a worker answer or automatic merge.
 
 An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read

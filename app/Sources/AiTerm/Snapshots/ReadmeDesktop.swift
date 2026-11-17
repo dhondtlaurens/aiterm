@@ -14,7 +14,7 @@ struct ReadmeDesktop: View {
     let tabs: Int
 
     /// Its own workspace — a home folder, then aiterm under Personal and acme under Work, two tasks
-    /// each, one of them a review, a broadcast driving two more of acme's, and the Mac in Backpack
+    /// each, one of them a review, signals driving two more of acme's, and the Mac in Backpack
     /// Mode — so the fixture the regression set shares stays small. Hosted only: `ImageRenderer`
     /// never materialises a `List`.
     /// `scripts/readme-picture.sh` draws it to `docs/desktop.png`, and `scripts/release.sh` refuses
@@ -90,8 +90,7 @@ struct ReadmeDesktop: View {
             state.signals = [signal]
             state.operatorSession = operatorSession
 
-            // The selected task is a project's, so the projects are open and the broadcast folds into OPERATOR, its
-            // progress and its amber chip for the flag's question.
+            // The selected task belongs to an open project; the Operator's row shows its pending question.
         }
         controller.live.sessions = [
             // The selected task: Claude Code in front, its context the footer's `ctx` row.
@@ -121,7 +120,7 @@ struct ReadmeDesktop: View {
     }
 
     /// The windows' size: as wide as they were on the 1512 × 982 pt desktop the picture used to sit
-    /// on, and tall enough for every project's rows under the folded broadcast.
+    /// on, and tall enough for every project's rows under the Operator's row.
     static let windowHeight: CGFloat = 990, windowsWidth: CGFloat = 1300, gap: CGFloat = 12
     /// The transparent margin around the windows, the same on every side and wide enough that
     /// `DesktopWindow`'s shadow has faded out before the picture's edge.

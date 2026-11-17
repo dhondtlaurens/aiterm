@@ -230,7 +230,7 @@ import AiTermCore
         #expect(self.field(Self.branchPlaceholder, in: h.host)?.stringValue == "chore-drop-importer")
     }
 
-    /// Spec §3.4's key contract, and the part that is this sheet's alone: it is the only sheet in
+    /// The key contract, and the part that is this sheet's alone: it is the only sheet in
     /// the app with two pickers, so ⎋ has three things it could mean. It closes the merge-request
     /// list first, then the branch list, and only then does it reach the sheet.
     @Test func escapeClosesTheMergeRequestListBeforeTheBranchList() throws {

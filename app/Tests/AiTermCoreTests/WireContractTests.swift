@@ -70,7 +70,7 @@ import Testing
         case (.usageChanged, .usageChanged(let usage)): try Self.expectSame(usage, payload)
         case (.operatorRequest, .operatorRequest(let request)):
             #expect(request.requestId == payload["requestId"] as? String)
-            #expect(request.runId == payload["runId"] as? String)
+            #expect(request.operatorId == payload["operatorId"] as? String)
             #expect(request.tool == payload["tool"] as? String)
         case (_, let event): Issue.record("\(name.rawValue) read as \(event)")
         }

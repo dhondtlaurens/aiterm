@@ -1,7 +1,7 @@
 import Foundation
 
-/// The agent and model a task starts on (spec §15). The Operator may only step to a model in the
-/// broadcast's allowed Agents rows, and it moves a task to the other agent only when the
+/// The agent and model a task starts on. The Operator may only step to a model in the
+/// signal's permitted Agents rows, and it moves a task to the other agent only when the
 /// planned one is close to its weekly limit.
 public enum ModelChoice {
     /// The weekly use, in percent, at which new tasks move to the other agent: AiTerm's amber line.

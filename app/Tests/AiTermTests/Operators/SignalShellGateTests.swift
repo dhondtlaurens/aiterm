@@ -15,6 +15,9 @@ import Testing
         let request = request(h, command: "git push origin HEAD")
         #expect(await gate.respond(request)["decision"] == "deny")
         #expect(await gate.respond(self.request(h, command: "cat README.md"))["decision"] == "allow")
+        let unchecked = await gate.respond(self.request(h, command: "./inspect"))
+        #expect(unchecked["decision"] == "allow")
+        #expect(unchecked["reason"] == "unchecked: the Oracle is off")
         current = false
         #expect(await gate.respond(self.request(h, command: "cat README.md"))["decision"] == "deny")
     }
@@ -33,7 +36,7 @@ import Testing
         #expect(await gate.respond(self.request(h, command: "git push origin HEAD"))["decision"] == "deny")
     }
     private func request(_ h: SignalHarness, command: String) -> OperatorRequest {
-        OperatorRequest(requestId: UUID().uuidString, runId: h.workspace.state.operatorSession!.id.uuidString,
+        OperatorRequest(requestId: UUID().uuidString, operatorId: h.workspace.state.operatorSession!.id.uuidString,
                         tool: "gate_command", arguments: ["command": .string(command), "directory": .string(h.folder.path)], generation: 1)
     }
 }

@@ -6,7 +6,7 @@ import Foundation
     /// The contract's table, value for value.
     @Test func theTimingsAreTheContractsValues() {
         #expect(OperatorTiming.reconcileInterval == 60)
-        #expect(OperatorTiming.challengeTimeout == 180)
+        #expect(OperatorTiming.oracleTimeout == 180)
         #expect(OperatorTiming.gateTimeout == 200)
         #expect(OperatorTiming.operatorRequestTimeout == 30)
     }
@@ -48,6 +48,6 @@ import Foundation
         return first * (number(2) ?? 1)
     }
 
-    /// Each end as the plan, the board and a refusal say it.
+    /// Each end as the stage and its refusal say it.
 
 }

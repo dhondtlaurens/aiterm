@@ -4,11 +4,11 @@ import Foundation
 /// `aitermd/delivery.py`, and the two must agree (`OperatorTimingTests` pins both the values and
 /// their names in the Python file).
 public enum OperatorTiming {
-    /// Sessions and branches are reconciled this often, and on every reconnect (spec §7.3).
+    /// Sessions and branches are reconciled this often, and on every reconnect.
     public static let reconcileInterval: TimeInterval = 60
-    /// An Oracle that takes longer is abandoned, and the act proceeds unchallenged (§4.4).
-    public static let challengeTimeout: TimeInterval = 180
-    /// The Oracle's answer on a shell command takes longer than this and the command runs, unchallenged (spec §A.3).
+    /// An Oracle that takes longer is abandoned and its round stays unanswered.
+    public static let oracleTimeout: TimeInterval = 180
+    /// The Oracle's answer on a shell command takes longer than this and the command runs unchecked.
     public static let gateTimeout: TimeInterval = 200
     /// How long the daemon waits for the app's reply to a forwarded tool call.
     public static let operatorRequestTimeout: TimeInterval = 30

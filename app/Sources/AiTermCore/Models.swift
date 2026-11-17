@@ -256,7 +256,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// `kind` as the file has it, written back as it was: none for a task saved without one, and a
     /// raw value a newer build saved, which this build reads as `.task`.
     private var savedKind: String?
-    /// What an operator adds to the task (spec §5.1); nil for every task you made yourself.
+    /// What an operator adds to the task; nil for every task you made yourself.
     public var signalTask: SignalTask?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {

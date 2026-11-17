@@ -10,7 +10,7 @@ import Synchronization
 /// `Any` nor a `SecretStore` is `Sendable`.)
 public final class BackpackSettings: @unchecked Sendable {
     /// The battery level, in percent, at or below which the mode turns itself off on battery power.
-    /// Fixed (spec 2026-10-05): nobody tunes it, so nothing shows it.
+    /// Fixed: nobody tunes it, so nothing shows it.
     public static let cutoff = 10
 
     private enum Key {

@@ -35,8 +35,8 @@ TASK_ID = "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F"
 PROJECT_ID = "7D6E5F4A-3B2C-4D1E-8F9A-0B1C2D3E4F5A"
 WORKTREE = "/repo/.worktrees/feat-wire"
 REFUSAL = "execution error: Not authorized to send Apple events to iTerm2. (-1743)"
-RUN_ID = "5B8A2C1D-9E7F-4A6B-8C3D-2E1F0A9B8C7D"
-RUN_TOKEN = "3f9a" * 16
+OPERATOR_ID = "5B8A2C1D-9E7F-4A6B-8C3D-2E1F0A9B8C7D"
+OPERATOR_TOKEN = "3f9a" * 16
 OTHER_TASK_ID = "8E1D2C3B-4A5F-4E6D-9C8B-7A6F5E4D3C2B"
 # A reply's variants beside its plain fixture: `<method>.<variant>`.
 VARIANTS = (".refused", ".commandError")
@@ -201,15 +201,16 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["delivery.policy"] = await app.call("delivery.policy")
 
         # The operator asks for run_status over /operator; the app answers the request it is sent.
-        replies["operator.register"] = await app.call("operator.register", {"runId": RUN_ID, "generation": 1, "token": RUN_TOKEN})
+        replies["operator.register"] = await app.call("operator.register", {
+            "operatorId": OPERATOR_ID, "generation": 1, "token": OPERATOR_TOKEN})
         mark = app.mark()
         calling = asyncio.ensure_future(operator_post(svc.hooks.port, {
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "run_status", "arguments": {}}}, token=RUN_TOKEN))
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "run_status", "arguments": {}}}, token=OPERATOR_TOKEN))
         events[protocol.OPERATOR_REQUEST] = await app.event(protocol.OPERATOR_REQUEST, mark)
         replies["operator.reply"] = await app.call("operator.reply", {
             "requestId": events[protocol.OPERATOR_REQUEST]["payload"]["requestId"], "result": {"revision": 3}, "error": None})
         assert (await calling)[1]["result"]["structuredContent"] == {"revision": 3}
-        replies["operator.revoke"] = await app.call("operator.revoke", {"runId": RUN_ID, "generation": 1})
+        replies["operator.revoke"] = await app.call("operator.revoke", {"operatorId": OPERATOR_ID, "generation": 1})
         replies["interface.setMatchItermBackground"] = await app.call("interface.setMatchItermBackground", {"matchItermBackground": True})
         # The Claude worker's turn ended on its usage limit, whose reset its transcript gave (the tick reads it there):
         # its session says so until it works again.

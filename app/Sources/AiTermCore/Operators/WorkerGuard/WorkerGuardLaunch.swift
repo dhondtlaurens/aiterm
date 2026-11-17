@@ -21,7 +21,7 @@ public enum WorkerGuardLaunch {
         public func wrap(_ command: String, agent: AgentKind) throws -> String {
             let script = folder.appendingPathComponent("launch-" + agent.rawValue + ".sh")
             let content = WorkerGuardLaunch.launchScript(command: command, folder: folder)
-            try OperatorCommand.writePrivate(Data(content.utf8), to: script)
+            try PrivateFile.write(Data(content.utf8), to: script)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
             return "/bin/sh " + AgentCommand.shellQuote(script.path)
         }
@@ -53,17 +53,17 @@ public enum WorkerGuardLaunch {
         }
         let config = folder.appendingPathComponent("scope.json"), settings = folder.appendingPathComponent("settings.json")
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        try OperatorCommand.writePrivate(encoder.encode(scope), to: config)
+        try PrivateFile.write(encoder.encode(scope), to: config)
         let check = AgentCommand.shellQuote(executable.path) + " --worker-guard hook " + AgentCommand.shellQuote(config.path)
         let hooks: JSONValue = ["hooks": ["PreToolUse": [["matcher": "Bash", "hooks": [["type": "command", "command": .string(check), "timeout": 30]]]]]]
-        try OperatorCommand.writePrivate(encoder.encode(hooks), to: settings)
+        try PrivateFile.write(encoder.encode(hooks), to: settings)
         for tool in ["git", "gh", "glab", "claude", "codex"] {
             let path = folder.appendingPathComponent("bin/" + tool)
-            try OperatorCommand.writePrivate(Data(shim(tool, folder: folder, executable: executable).utf8), to: path)
+            try PrivateFile.write(Data(shim(tool, folder: folder, executable: executable).utf8), to: path)
             try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
         }
         let hook = folder.appendingPathComponent("hooks/pre-push")
-        try OperatorCommand.writePrivate(Data(pushHook(folder: folder, executable: executable).utf8), to: hook)
+        try PrivateFile.write(Data(pushHook(folder: folder, executable: executable).utf8), to: hook)
         try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hook.path)
         return Prepared(folder: folder, settings: settings, scopeFile: config, executable: executable)
     }

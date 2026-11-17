@@ -1,5 +1,5 @@
 # daemon/tests/test_delivery.py
-"""The delivery adapter (Operators spec §7.1): what it reads off a screen, the policy it obeys, and
+"""The delivery adapter: what it reads off a screen, the policy it obeys, and
 how it types."""
 from __future__ import annotations
 

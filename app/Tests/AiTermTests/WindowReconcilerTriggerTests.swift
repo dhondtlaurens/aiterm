@@ -5,9 +5,8 @@ import Synchronization
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// What starts a window reconciler pass (phase 7). A session event passes only when it moves something a row draws; the
-/// two inputs that waited on any session event before — a checkout read back, the workspace able to change again — pass
-/// themselves; and while a row is owed a window and not restored, the checkout monitor's poll passes too.
+/// A session event starts a window pass when it changes a value the pass reads. Checkout changes and
+/// workspace recovery start their own passes; polls retry while a row is owed a window.
 @MainActor @Suite(.blocking) struct WindowReconcilerTriggerTests {
     /// A connected snapshot with one tab no row owns, whose context fill a later event moves.
     static let unrelated = SessionInfo.make("unrelated", window: "elsewhere", cwd: "/")
@@ -32,9 +31,7 @@ import Synchronization
         }
     }
 
-    /// An owed row held back because its checkout reads missing gets its window once the monitor reads it back: at that
-    /// read, with no session event. Before phase 7 only the rows a restore had found gone were passed for, and every
-    /// other owed row waited for the next session event of any kind.
+    /// An owed row whose checkout was missing gets its window when the monitor reads the checkout back.
     @Test func anOwedRowWhoseCheckoutComesBackIsRestoredAtThatRead() async throws {
         let missing = Missing(true)
         let fixture = try await RaceFixture(scan: Self.scan(missing))
@@ -57,8 +54,7 @@ import Synchronization
         #expect(controller.state.task(id: task.id)?.windowId == "reopened", "restored at the read, with no session event")
     }
 
-    /// An owed row waiting on a workspace that could not save gets its window once a save succeeds again: then, with no
-    /// session event. Before phase 7 it waited for the next session event of any kind.
+    /// An owed row held by a workspace that could not save gets its window once saving succeeds again.
     @Test func anOwedRowWaitingOnTheWorkspaceLockIsRestoredOnceItLifts() async throws {
         let fixture = try await RaceFixture(scan: Budget.noScan)
         let server = RecordingDaemon()
@@ -133,9 +129,7 @@ import Synchronization
         #expect(work[.reconcilerPass, default: 0] == 0, "passes for \(polls) polls: \(work)")
     }
 
-    /// Worktrees imported when a project is added come in as rows owed their windows, with no session event and no
-    /// checkout read changing: they are restored at the import (phase 7, review round 1). Before, they waited for the
-    /// next session event of any kind.
+    /// Imported worktrees arrive as rows owed their windows and are restored without a session or checkout event.
     @Test func importedWorktreesGetTheirWindowsAtTheImport() async throws {
         let fixture = try await RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
         let server = RecordingDaemon(holding: "window.createTask")

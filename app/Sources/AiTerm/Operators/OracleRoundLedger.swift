@@ -11,13 +11,13 @@ import AiTermCore
     let tool: String
 
     /// The saved round for this binding, if any.
-    func open(binding: String) -> ChallengeRecord? {
+    func open(binding: String) -> OracleRound? {
         workspace.state.operatorSession?.oracleRounds.first { $0.tool == tool && $0.askedEvidence == binding }
     }
     /// Saves round `previous.round + 1` (or 1) for `proposal`, replacing the round it continues.
-    func begin(binding: String, arguments: String, proposal: String, previous: ChallengeRecord?) throws -> (id: String, round: Int, discussion: [String]) {
+    func begin(binding: String, arguments: String, proposal: String, previous: OracleRound?) throws -> (id: String, round: Int, discussion: [String]) {
         let round = (previous?.round ?? 0) + 1, id = UUID().uuidString
-        var record = ChallengeRecord(id: id, tool: tool, askedArguments: arguments, askedAt: now(), askedEvidence: binding, round: round)
+        var record = OracleRound(id: id, tool: tool, askedArguments: arguments, askedAt: now(), askedEvidence: binding, round: round)
         record.reply = proposal
         let discussion = Self.discussion(of: previous)
         record.result = String(decoding: try JSONEncoder().encode(discussion), as: UTF8.self)
@@ -46,21 +46,21 @@ import AiTermCore
         }
     }
     /// Ends the discussion without agreement; the record stays so a retry gets the same outcome.
-    func unchallenged(_ id: String, reason: String) {
+    func unanswered(_ id: String, reason: String) {
         workspace.mutate { state in
             guard let index = state.operatorSession?.oracleRounds.firstIndex(where: { $0.id == id }) else { return }
-            state.operatorSession?.oracleRounds[index].stage = .unchallenged
-            state.operatorSession?.oracleRounds[index].unchallengedReason = reason
+            state.operatorSession?.oracleRounds[index].stage = .unanswered
+            state.operatorSession?.oracleRounds[index].unansweredReason = reason
         }
     }
     /// A marker that no Oracle round ran for this binding, with why.
     func marker(binding: String, arguments: String, reason: String) {
-        let marker = ChallengeRecord(id: UUID().uuidString, tool: tool, stage: .unchallenged,
-                                     askedArguments: arguments, unchallengedReason: reason, askedAt: now(), askedEvidence: binding, round: 0)
+        let marker = OracleRound(id: UUID().uuidString, tool: tool, stage: .unanswered,
+                                     askedArguments: arguments, unansweredReason: reason, askedAt: now(), askedEvidence: binding, round: 0)
         workspace.mutate { $0.operatorSession?.oracleRounds.append(marker) }
     }
     func clear(_ id: String) { workspace.mutate { $0.operatorSession?.oracleRounds.removeAll { $0.id == id } } }
-    static func discussion(of record: ChallengeRecord?) -> [String] {
+    static func discussion(of record: OracleRound?) -> [String] {
         record?.result.flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
     }
 }

@@ -482,8 +482,8 @@ public final class DaemonClient: Sendable {
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
     struct SessionParams: Encodable { var sessionId: String }
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
-    struct RegisterParams: Encodable { var runId, token: String; var generation: Int }
-    struct RunParams: Encodable { var runId: String; var generation: Int }
+    struct RegisterParams: Encodable { var operatorId, token: String; var generation: Int }
+    struct OperatorParams: Encodable { var operatorId: String; var generation: Int }
     struct DeliveryPolicyResult: Decodable { var agents: [String: DeliveryVerdict] }
     /// `result` and `error` are both always sent, `null` when absent, as the daemon reads them.
     struct OperatorReplyParams: Encodable {
@@ -596,11 +596,11 @@ public final class DaemonClient: Sendable {
         _ = try await request(.sessionSetOwnership, params: OwnershipParams(sessionId: sessionId, ownership: ownership), as: Empty.self)
     }
 
-    public func registerOperator(runId: String, token: String, generation: Int) async throws {
-        _ = try await request(.operatorRegister, params: RegisterParams(runId: runId, token: token, generation: generation), as: Empty.self)
+    public func registerOperator(operatorId: String, token: String, generation: Int) async throws {
+        _ = try await request(.operatorRegister, params: RegisterParams(operatorId: operatorId, token: token, generation: generation), as: Empty.self)
     }
-    public func revokeOperator(runId: String, generation: Int) async throws {
-        _ = try await request(.operatorRevoke, params: RunParams(runId: runId, generation: generation), as: Empty.self)
+    public func revokeOperator(operatorId: String, generation: Int) async throws {
+        _ = try await request(.operatorRevoke, params: OperatorParams(operatorId: operatorId, generation: generation), as: Empty.self)
     }
 
     public func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {

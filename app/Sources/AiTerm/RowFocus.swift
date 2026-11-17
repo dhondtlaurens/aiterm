@@ -1,14 +1,12 @@
 import Foundation
 import AiTermCore
 
-/// The one sidebar row that is selected: a project header, a task (or review), a terminal, or the Operator's
-/// row, `operation`, by its broadcast's id, whose window is the Operator's. A header has no window: selecting it
-/// shows nothing and raises nothing.
+/// The selected sidebar row: a project header, a task (or review), a terminal, or the Operator's stable row.
+/// A header has no window: selecting it shows nothing and raises nothing.
 enum RowSelection: Equatable {
     case project(UUID), signal(UUID), task(UUID), terminal(UUID), operation(UUID)
 
-    /// The row's id in the list, which keys each row by one UUID: the Operator's row has one of its own
-    /// (`OperatorRow.id(of:)`), never its broadcast's.
+    /// The row's UUID in the list. The Operator uses `OperatorSession.rowID`, independent of its session id.
     var id: UUID {
         switch self {
         case .project(let id), .signal(let id), .task(let id), .terminal(let id): return id
@@ -161,8 +159,7 @@ final class RowFocus {
         return nil
     }
 
-    /// The row with this id, whichever kind it is — what the list's own selection hands over:
-    /// `OperatorRow.id(of:)` is the live broadcast's Operator's row's.
+    /// The row with this id, whichever kind it is. The Operator uses `OperatorSession.rowID`.
     func row(id: UUID) -> RowSelection? {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
@@ -194,7 +191,7 @@ final class RowFocus {
     /// task seen. A row whose window is owed has it restored first (`setRestoreOwedRow`), then raised
     /// as any other — unless the selection has moved on by then; with nothing restoring it, it is only
     /// selected, as it has no window to raise nor tab to mark seen. A project's header is
-    /// only selected: it has no window. So is a task the Operator has queued (2B, 21 Oct 2026): nothing opens,
+    /// only selected: it has no window. So is a task the Operator has queued: nothing opens,
     /// not even the error a window it does not have yet would raise. The Operator's row without a window, or
     /// whose window turns out gone, asks the operator controller for it, in front
     /// (`setReopenOperatorWindow`). A Signal task uses its driven or taken-over opener

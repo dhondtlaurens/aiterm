@@ -101,7 +101,7 @@ import AiTermCore
         let current = AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)
         if let project, project != task.projectId { throw ActionUnavailable("resume_task keeps the task's project. Use choose_agent to change it.") }
         if let agent, agent != current { throw ActionUnavailable("resume_task keeps the decided agent row. Use choose_agent to change it.") }
-        guard signal.agents.contains(current), AgentCommand.operatedAgents.contains(current.agent), !current.model.isEmpty else {
+        guard signal.agents.contains(current), AgentCommand.workerAgents.contains(current.agent), !current.model.isEmpty else {
             throw ActionUnavailable("Its agent row is no longer permitted. Use choose_agent to choose one.")
         }
         let next = try SignalTransitions.apply(.resume, to: record, at: now())

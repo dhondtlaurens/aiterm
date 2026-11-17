@@ -4,7 +4,7 @@ import Foundation
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// Settings › Operator (spec §8): its agent, its autonomy, the Oracle and its instructions, staged in
+/// Settings › Operator: its agent, its autonomy, the Oracle and its instructions, staged in
 /// `OperatorSettingsModel` and written by the sheet's Save through `OperatorProfileStore.save`.
 @MainActor struct OperatorSettingsPaneTests {
     nonisolated static let opus = AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "high")

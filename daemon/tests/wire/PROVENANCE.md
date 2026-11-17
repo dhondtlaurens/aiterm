@@ -24,3 +24,8 @@ On 17 Nov 2026, greenfield refactor step 1g removed `model`, `reasoning`, `title
 `session.dismissStartup` from the manifest and reply fixtures. Re-recorded with
 `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py` through the synthetic
 Service and FakeIterm; no live account or iTerm2 used. All other frames retain their bytes.
+
+On 17 Nov 2026, greenfield refactor step 1j renamed `runId` to `operatorId` in the
+`operator.request` event and the `operator.register`/`operator.revoke` params. Re-recorded with
+`AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py` through the synthetic
+Service and FakeIterm; no other frame changed and no live account was used.

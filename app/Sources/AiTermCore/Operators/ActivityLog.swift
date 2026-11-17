@@ -36,18 +36,18 @@ public struct ActivityEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// The run's `activity.jsonl`: one JSON line per Operator tool call, oldest first, written as each call is
+/// The Operator's `activity.jsonl`: one JSON line per Operator tool call, oldest first, written as each call is
 /// made and read by whoever shows it.
 public enum ActivityLog {
     public static let file = "activity.jsonl"
 
-    /// Adds `entry` as the last line of the run's log, creating the file with the first.
-    public static func append(_ entry: ActivityEntry, runFolder: URL) throws {
+    /// Adds `entry` as the last line of the Operator's log, creating the file with the first.
+    public static func append(_ entry: ActivityEntry, folder: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         var data = try encoder.encode(entry)
         data.append(0x0A)
-        let path = runFolder.appendingPathComponent(file).path
+        let path = folder.appendingPathComponent(file).path
         if !FileManager.default.fileExists(atPath: path) {
             guard FileManager.default.createFile(atPath: path, contents: nil) else {
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: path])
@@ -64,8 +64,8 @@ public enum ActivityLog {
     /// The entries from byte `offset` on, in file order, and the offset after the last complete line, to read
     /// from next time. A line that does not decode is skipped; a last line still missing its newline is
     /// left for the next read; a missing file has nothing.
-    public static func read(runFolder: URL, from offset: UInt64 = 0) -> (entries: [ActivityEntry], end: UInt64) {
-        let path = runFolder.appendingPathComponent(file).path
+    public static func read(folder: URL, from offset: UInt64 = 0) -> (entries: [ActivityEntry], end: UInt64) {
+        let path = folder.appendingPathComponent(file).path
         guard let handle = FileHandle(forReadingAtPath: path) else { return ([], offset) }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: offset)) != nil, let data = try? handle.readToEnd(), !data.isEmpty,
