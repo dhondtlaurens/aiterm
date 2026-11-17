@@ -1,6 +1,7 @@
 import pytest
 from aitermd.models import Usage, UsageWindow
-from aitermd.usage import UsageStore, parse_codex_rate_limits
+from aitermd.agents.codex import parse_codex_rate_limits
+from aitermd.usage import UsageStore
 
 
 def test_store_reports_change_and_snapshot():

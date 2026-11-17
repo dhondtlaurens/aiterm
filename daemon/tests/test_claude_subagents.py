@@ -2,8 +2,8 @@ import os
 
 import pytest
 
-from aitermd import claude_subagents
-from aitermd.claude_subagents import SubagentTranscripts
+from aitermd.agents import claude
+from aitermd.agents.claude import SubagentTranscripts
 
 from tests.builders import (
     write_child_transcript as write,
@@ -66,7 +66,7 @@ def test_a_subagent_stop_after_a_prompt_the_child_has_yet_to_answer_has_not_ende
 
 def test_a_stop_stands_when_the_tail_cannot_show_what_came_before_it(tmp_path, monkeypatch):
     # A final message longer than the tail window: nothing shows a prompt waiting on the child.
-    monkeypatch.setattr(claude_subagents, "TAIL_BYTES", 256)
+    monkeypatch.setattr(claude, "TAIL_BYTES", 256)
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, {**ASSISTANT, "pad": "x" * 1000}, STOPPED)
     assert has_ended(path)
 
@@ -82,7 +82,7 @@ def test_a_record_still_being_written_has_not_ended(tmp_path):
 
 def test_only_the_tail_is_read(tmp_path, monkeypatch):
     # A last record longer than the tail window is neither of the small records that end a child.
-    monkeypatch.setattr(claude_subagents, "TAIL_BYTES", 256)
+    monkeypatch.setattr(claude, "TAIL_BYTES", 256)
     big = {"type": "user", "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}, "pad": "x" * 1000}
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, big)
     assert not has_ended(path)
@@ -102,7 +102,7 @@ def test_an_unchanged_transcript_is_not_read_again(tmp_path, monkeypatch):
     path = write(tmp_path / "agent-c1.jsonl", PROMPT, INTERRUPTED)
     transcripts = SubagentTranscripts()
     first = transcripts.read(path)
-    monkeypatch.setattr(claude_subagents, "_ending", lambda _tail: pytest.fail("reparsed an unchanged file"))
+    monkeypatch.setattr(claude, "_ending", lambda _tail: pytest.fail("reparsed an unchanged file"))
     assert transcripts.read(path) == first
 
 
@@ -153,7 +153,7 @@ def test_a_tail_ending_in_a_record_without_a_time_ends_at_its_write(tmp_path):
 
 
 def test_a_nested_transcript_path_is_remembered_but_a_missing_target_is_retried(tmp_path, monkeypatch):
-    from aitermd.claude_subagents import SubagentTranscripts
+    from aitermd.agents.claude import SubagentTranscripts
 
     requested = tmp_path / "agent-a.jsonl"
     nested = tmp_path / "run" / requested.name

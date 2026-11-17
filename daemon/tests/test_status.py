@@ -1,11 +1,11 @@
 import pytest
 from aitermd import status
-from aitermd.claude_subagents import TranscriptTail
-from aitermd.hook_events import HookEvent, parse_claude_hook
-from aitermd.models import BackgroundJob, RawSession
+from aitermd.agents import claude, codex
+from aitermd.agents.claude import ShellReading, ShellTask, TranscriptTail, parse_claude_hook
+from aitermd.hook_events import HookEvent
+from aitermd.models import BackgroundJob, RawSession, StoppedOn
 from aitermd.sessions import SessionRegistry
-from aitermd.status import StatusEngine
-from aitermd.claude_background import ShellReading, ShellTask
+from aitermd.status import Evidence, StatusEngine
 
 
 class Clock:
@@ -24,6 +24,23 @@ FRESH = 1000.0
 def hook(kind, subagent_id=None, **fields):
     """A hook that reports `kind`: the engine reads only what it says of the turn, not whose it is."""
     return HookEvent("claude", kind, None, None, subagent_id=subagent_id, **fields)
+
+
+def claude_file(engine, session_id, file_status, written_at):
+    """A Claude session file written at `written_at` with `file_status`, as the tick maps it: a status
+    Claude's mapping does not know applies nothing."""
+    evidence = claude.file_evidence(file_status, written_at)
+    return [] if evidence is None else engine.apply_evidence(session_id, evidence)
+
+
+def codex_title(engine, session_id, title):
+    """A Codex tab's title, read by the tick now."""
+    return engine.apply_evidence(session_id, codex.title_evidence(title, engine._clock()))
+
+
+def codex_rollout(engine, session_id, state, at):
+    """A turn boundary a Codex rollout recorded at `at`."""
+    return engine.apply_evidence(session_id, codex.rollout_evidence((state, at)))
 
 
 @pytest.fixture
@@ -187,13 +204,13 @@ def test_a_stop_shell_the_reader_saw_end_holds_the_turn_until_the_next_hook(eng,
 
 def test_claude_file_status_mapping(eng):
     engine, reg = eng
-    assert engine.apply_claude_file_status("s1", "idle", FRESH) == []          # idle at start: nothing
-    engine.apply_claude_file_status("s1", "thinking", FRESH)
+    assert claude_file(engine, "s1", "idle", FRESH) == []          # idle at start: nothing
+    claude_file(engine, "s1", "thinking", FRESH)
     assert reg.get("s1").state == "working"
-    engine.apply_claude_file_status("s1", "waiting", FRESH)
+    claude_file(engine, "s1", "waiting", FRESH)
     assert reg.get("s1").state == "needsInput"
-    engine.apply_claude_file_status("s1", "busy", FRESH)
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "busy", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "done"
 
 
@@ -208,25 +225,25 @@ def test_claude_file_status_mapping(eng):
 def test_claude_file_status_tracks_resume_after_input(eng, start_state, file_status, expected):
     engine, reg = eng
     reg.set_state("s1", start_state)
-    engine.apply_claude_file_status("s1", file_status, FRESH)
+    claude_file(engine, "s1", file_status, FRESH)
     assert reg.get("s1").state == expected
 
 
 def test_codex_title_spinner(eng):
     engine, reg = eng
-    engine.apply_codex_title("s2", "⠋ acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
     assert reg.get("s2").state == "working"
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "done"
-    assert engine.apply_codex_title("s2", "acme-web") == []
+    assert codex_title(engine, "s2", "acme-web") == []
 
 
 def test_codex_title_without_spinner_waits_for_background_subagent(eng):
     engine, reg = eng
-    engine.apply_codex_title("s2", "⠋ acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
     engine.apply_event("s2", hook("subagentStart", "child-1"))
     engine.apply_event("s2", hook("subagentStart", "child-2"))
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "working"
     engine.apply_event("s2", hook("subagentStop", "child-1"))
     assert reg.get("s2").state == "working"
@@ -238,7 +255,7 @@ def test_claude_idle_file_waits_for_background_subagent(eng):
     engine, reg = eng
     engine.apply_event("s1", hook("working"))
     engine.apply_event("s1", hook("subagentStart", "child-1"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "working"
     engine.apply_event("s1", hook("subagentStop", "child-1"))
     assert reg.get("s1").state == "done"
@@ -259,7 +276,7 @@ def test_session_start_forgets_a_subagent_whose_stop_was_lost(eng):
     engine.apply_event("s1", hook("working"))
     engine.apply_event("s1", hook("subagentStart", "lost"))
     engine.apply_event("s1", hook("sessionStart"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "done"
 
 
@@ -270,17 +287,27 @@ def test_a_replaced_process_forgets_the_previous_turns_subagents(eng):
     engine.apply_event("s1", hook("done"))
     engine.reset_turn("s1")
     engine.apply_event("s1", hook("working"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "done"
     engine.apply_event("s1", hook("subagentStop", "lost"))
     assert reg.get("s1").state == "done"
+
+
+@pytest.mark.parametrize("start_state", ["idle", "done"])
+def test_a_claude_file_saying_done_changes_nothing_on_a_turn_not_under_way_without_children(eng, clock, start_state):
+    engine, reg = eng
+    reg.set_state("s1", start_state)
+    reg.set_stopped_on("s1", StoppedOn("rate_limit", at=clock.now))
+    assert engine.apply_evidence("s1", Evidence("done", FRESH, "claude_file")) == []
+    assert (reg.get("s1").state, reg.get("s1").stopped_on) == (start_state, StoppedOn("rate_limit", at=clock.now))
+    assert engine.turn("s1") is None
 
 
 @pytest.mark.parametrize("start_state", ["working", "needsInput", "done"])
 def test_an_unknown_claude_file_status_is_ignored(eng, start_state):
     engine, reg = eng
     reg.set_state("s1", start_state)
-    assert engine.apply_claude_file_status("s1", "compacting", FRESH) == []
+    assert claude_file(engine, "s1", "compacting", FRESH) == []
     assert reg.get("s1").state == start_state
 
 
@@ -299,21 +326,21 @@ def test_claude_idle_file_does_not_hide_needs_input_while_child_runs(eng):
     engine.apply_event("s1", hook("working"))
     engine.apply_event("s1", hook("subagentStart", "child-1"))
     engine.apply_event("s1", hook("needsInput"))
-    engine.apply_claude_file_status("s1", "idle", FRESH)
+    claude_file(engine, "s1", "idle", FRESH)
     assert reg.get("s1").state == "needsInput"
 
 
 def test_codex_spinner_restores_working_after_input(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("needsInput"))
-    engine.apply_codex_title("s2", "⠋ acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
     assert reg.get("s2").state == "working"
 
 
 def test_codex_title_without_spinner_keeps_needs_input(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("needsInput"))
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "needsInput"
 
 
@@ -447,8 +474,8 @@ def test_a_hook_during_a_prompt_supersedes_the_state_it_interrupted(eng):
 def test_a_session_file_older_than_the_last_hook_does_not_override_it(eng, clock, kind, file_status):
     engine, reg = eng
     engine.apply_event("s1", hook(kind))
-    assert engine.apply_claude_file_status("s1", file_status, clock.now - 0.5) == []
-    assert engine.apply_claude_file_status("s1", file_status, clock.now) == []
+    assert claude_file(engine, "s1", file_status, clock.now - 0.5) == []
+    assert claude_file(engine, "s1", file_status, clock.now) == []
     assert reg.get("s1").state == kind
 
 
@@ -456,26 +483,26 @@ def test_a_session_file_written_after_the_last_hook_still_moves_the_row(eng, clo
     engine, reg = eng
     engine.apply_event("s1", hook("needsInput"))
     # The prompt was answered: Claude marks its file busy again and no hook says so.
-    assert engine.apply_claude_file_status("s1", "busy", clock.now + 0.5) == ["s1"]
+    assert claude_file(engine, "s1", "busy", clock.now + 0.5) == ["s1"]
     assert reg.get("s1").state == "working"
 
 
 def test_a_codex_prompt_is_not_ended_before_its_spinner_first_appears(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
-    assert engine.apply_codex_title("s2", "acme-web") == []
+    assert codex_title(engine, "s2", "acme-web") == []
     assert reg.get("s2").state == "working"
-    engine.apply_codex_title("s2", "⠋ acme-web")
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "done"
 
 
 def test_the_previous_turns_spinner_does_not_end_the_next_prompt(eng):
     engine, reg = eng
-    engine.apply_codex_title("s2", "⠋ acme-web")
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
+    codex_title(engine, "s2", "acme-web")
     engine.apply_event("s2", hook("working"))
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "working"
 
 
@@ -483,8 +510,8 @@ def test_a_spinner_after_an_answered_prompt_lets_its_absence_end_the_turn(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
     engine.apply_event("s2", hook("needsInput"))
-    engine.apply_codex_title("s2", "⠋ acme-web")
-    engine.apply_codex_title("s2", "acme-web")
+    codex_title(engine, "s2", "⠋ acme-web")
+    codex_title(engine, "s2", "acme-web")
     assert reg.get("s2").state == "done"
 
 
@@ -930,16 +957,16 @@ def test_an_agent_exiting_from_its_trust_prompt_forgets_it(eng):
 def test_codex_rollout_completion_recovers_missed_stop_and_spinner(eng, clock):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
-    assert engine.apply_codex_title("s2", "Codex") == [], "no spinner was observed"
-    assert engine.apply_codex_rollout("s2", "done", 101.25) == ["s2"]
+    assert codex_title(engine, "s2", "Codex") == [], "no spinner was observed"
+    assert codex_rollout(engine, "s2", "done", 101.25) == ["s2"]
     assert reg.get("s2").state == "done"
-    assert engine.apply_codex_rollout("s2", "done", 101.25) == [], "one completion event"
-    assert engine.apply_codex_rollout("s2", "working", 102.5) == ["s2"]
+    assert codex_rollout(engine, "s2", "done", 101.25) == [], "one completion event"
+    assert codex_rollout(engine, "s2", "working", 102.5) == ["s2"]
     assert reg.get("s2").state == "working"
-    assert engine.apply_codex_rollout("s2", "done", 101.25) == [], "old completion cannot undo a later start"
+    assert codex_rollout(engine, "s2", "done", 101.25) == [], "old completion cannot undo a later start"
     clock.now = 104.0
     engine.apply_event("s2", hook("needsInput"))
-    assert engine.apply_codex_rollout("s2", "done", 103.0) == []
+    assert codex_rollout(engine, "s2", "done", 103.0) == []
     assert reg.get("s2").state == "needsInput", "a newer hook wins"
 
 
@@ -948,7 +975,7 @@ def test_resumed_codex_ignores_completion_from_before_session_start(eng, clock):
     engine.apply_event("s2", hook("working"))
     clock.now = 110.0
     engine.apply_event("s2", hook("sessionStart"))
-    assert engine.apply_codex_rollout("s2", "done", 105.0) == []
+    assert codex_rollout(engine, "s2", "done", 105.0) == []
     assert reg.get("s2").state == "working"
 
 
@@ -956,7 +983,7 @@ def test_rollout_start_clears_the_previous_turns_deferred_completion(eng):
     engine, reg = eng
     engine.apply_event("s2", hook("working"))
     engine.apply_event("s2", hook("subagentStart", "child"))
-    engine.apply_codex_rollout("s2", "done", 101.0)
-    engine.apply_codex_rollout("s2", "working", 102.0)
+    codex_rollout(engine, "s2", "done", 101.0)
+    codex_rollout(engine, "s2", "working", 102.0)
     engine.apply_event("s2", hook("subagentStop", "child"))
     assert reg.get("s2").state == "working"

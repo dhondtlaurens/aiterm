@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from aitermd import codex_sessions, jsonl
-from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
+from aitermd import jsonl
+from aitermd.agents import codex
+from aitermd.agents.codex import LIST_SECONDS, CodexSessionFiles, rollout_evidence, title_evidence
+from aitermd.status import Evidence
 
 
 from tests.builders import (
@@ -222,7 +224,7 @@ def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_pa
         return json.loads(line, *args, **kwargs)
 
     # The module's own name for json, not the json module every other caller shares.
-    monkeypatch.setattr(codex_sessions, "json", SimpleNamespace(loads=counting_loads))
+    monkeypatch.setattr(codex, "json", SimpleNamespace(loads=counting_loads))
 
     assert context_percent(CodexSessionFiles(root), "thread-1") == 42
     assert len(parsed) == 1
@@ -348,6 +350,23 @@ def test_structured_turn_state_tracks_completion_and_later_start(tmp_path):
     assert turn_state(files, "turn-thread") == ("working", 102.5)
 
 
+@pytest.mark.parametrize("kind,state", [("task_started", "working"), ("task_complete", "done")])
+def test_a_rollout_boundary_is_evidence_of_its_state_at_the_records_time(tmp_path, kind, state):
+    write_rollout(tmp_path, "turn-thread", [
+        {"type": "event_msg", "timestamp": "1970-01-01T00:01:41.250Z", "payload": {"type": kind}},
+    ])
+    boundary = CodexSessionFiles(tmp_path).reading("turn-thread").turn
+    assert rollout_evidence(boundary) == Evidence(state, 101.25, "codex_rollout")
+
+
+@pytest.mark.parametrize("title,state", [
+    ("⠋ acme-web", "working"), ("⣿ acme-web", "working"),
+    ("acme-web", "done"), ("Codex", "done"), ("", "done"),
+])
+def test_a_codex_title_is_working_evidence_while_it_spins_and_done_evidence_otherwise(title, state):
+    assert title_evidence(title, 50.0) == Evidence(state, 50.0, "codex_title")
+
+
 def test_plain_assistant_text_is_not_a_completed_turn(tmp_path):
     write_rollout(tmp_path, "turn-thread", [{"type": "response_item", "timestamp": "1970-01-01T00:01:41Z",
         "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Done."}]}}])
@@ -438,7 +457,7 @@ def test_large_rollouts_report_the_expected_version_and_turn(tmp_path, case, exp
 
 @pytest.mark.parametrize("meta_first", [False, True])
 def test_large_rollout_first_sight_read_budget(tmp_path, monkeypatch, meta_first):
-    from aitermd.codex_sessions import READ_BYTES
+    from aitermd.agents.codex import READ_BYTES
 
     chatter = json.dumps({"type": "response_item", "payload": {"text": "x" * 1024}}) + "\n"
     boundary = {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}

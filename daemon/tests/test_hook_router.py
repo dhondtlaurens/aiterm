@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from aitermd.claude_sessions import ClaudeSessionFiles
-from aitermd.codex_threads import CodexThreads
+from aitermd.agents.claude import ClaudeSessionFiles
+from aitermd.agents.codex import CodexThreads
 from aitermd.hook_router import HookRouter
 from aitermd.models import RawSession
 from aitermd.publisher import Publisher

@@ -409,7 +409,7 @@ TS tests-scripts.
   the six hand-written identity checks and `Turn.generation` go (DM F6).
 - [x] 6e. **Opus.** One owner for Codex thread identity: restored from the tab's tag, bound by
   hooks, asked by the readers, written back after the tick (DM F5). The tag's format stays.
-- [ ] 6f. **Opus.** Telemetry grouped by agent (Claude, Codex, PI), each turning its readings into
+- [x] 6f. **Opus.** Telemetry grouped by agent (Claude, Codex, PI), each turning its readings into
   evidence for one status entry point; the engine loses its agent-specific methods (DM F4). The
   Codex title stays a source.
 
@@ -1252,3 +1252,26 @@ left.
   tests moved to the new `test_codex_threads.py`, plus `test_a_thread_restored_after_a_helper_restart_is_not_written_again`.
   Behaviour note: at a helper restart, each Codex tab restored from its tag gets one `session.changed`
   after its `session.opened` (identical payload).
+- 6f: `aitermd/agents/` holds `claude.py`, `codex.py` and `pi.py`, each mapping its readings to
+  `status.Evidence`, which `StatusEngine.apply_evidence` takes as the one tick entry point. The per-source rules sit in
+  `_apply_state`, keyed by source, and the freshness ordering is unchanged. `apply_claude_progress` became
+  `apply_progress`; `Harness.corroboration` and the six old modules went. Wire and compat captures are unchanged, and
+  no assertion changed. Differences from the brief:
+  - Its third Done-when grep cannot be empty as written: `\.corroboration\b` matches the two imports of the
+    `corroboration` module the brief keeps. `corroboration=` and `_corroborate` have no hits.
+  - The Codex thread capture moved out of the snapshot pass into `codex.tab_threads`. The service calls it right
+    after the pass with no await between, so the timing is the same.
+  - The rollout read failure now logs on `aitermd.agents.codex`, still under the `aitermd` handler.
+  - Each plan function takes only what it uses.
+  - The title evidence's time is the readers' clock, read once per snapshot (the same clock).
+  Tests deleted: the `h.corroboration` assertion in `test_models.py` (the field is gone). Which agent gets which tick
+  reading is still proved by `test_service.py` `test_tick_uses_claude_file_status_and_agent_exit`,
+  `test_a_title_only_change_is_not_broadcast_yet_still_drives_a_codex_turn` and
+  `test_tick_recovers_codex_completion_without_stop_or_seen_spinner`. Added: one mapping test each for Claude file
+  status, the Codex title and the rollout boundary, plus the idle Claude-file "done" no-op. The step's bundle check
+  passed (it holds `aitermd/agents/`).
+  Noticed and left: `scripts/make-app.sh` does not clear `daemon/build/lib`, so a bundle built in a tree that once
+  held the deleted modules still carries them, unimported. `docs/status-model.md` names `Service._apply_trust_prompts`
+  (stale before this step; for 9a).
+  Gate: the first plain run failed once in `GitLabClientTests.aCancelledRequestThrowsCancellation` (Swift, untouched
+  here; it took 20.9 s under load, and the implementer's own run passed it); the rerun was green.

@@ -8,11 +8,9 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from . import protocol
-from .claude_sessions import ClaudeSessionFiles
-from .claude_subagents import SubagentTranscripts
-from .claude_background import BackgroundTranscripts
-from .codex_sessions import CODEX_READ, CodexSessionFiles
-from .codex_threads import CodexThreads
+from .agents import claude, codex
+from .agents.claude import BackgroundTranscripts, ClaudeSessionFiles, StopTranscripts, SubagentTranscripts
+from .agents.codex import CODEX_READ, CodexSessionFiles, CodexThreads
 from .connection import ItermSupervisor
 from .corroboration import CorroboratingReaders, ReadPlan, logged as _logged
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
@@ -30,9 +28,8 @@ from .rpc_server import RpcError, RpcServer
 from .models import HARNESS_BY_AGENT, AgentKind, RawSession, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine
-from .stop_failures import StopTranscripts
 from .test_activity import TestActivityReader
-from .usage import UsageReadFailure, UsageStore, parse_codex_rate_limits
+from .usage import UsageReadFailure, UsageStore
 from .windows import WindowManager
 
 log = logging.getLogger(__name__)
@@ -82,7 +79,7 @@ class Service:
         self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         self.hook_router.typed_by_you = self._typed_by_you
-        self.readers = CorroboratingReaders(self.registry, self.status, self.codex_threads, iterm, clock)
+        self.readers = CorroboratingReaders(self.registry, self.status, iterm, clock)
         # The operator's MCP server, on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.
         # `operator_folder` is where the app keeps the Operator's token file, which a restarted daemon loads;
@@ -346,15 +343,18 @@ class Service:
             self.windows.forget_window(wid)
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
-        threads, screens = self.readers.snapshot(sessions, changed)
-        changed += await self.observe(self.readers.claude(self.claude_files, sessions, screens))
+        self.readers.snapshot(sessions, changed)
+        threads = codex.tab_threads(self.codex_threads, sessions)
+        screens: list[str] = []
+        changed += await self.observe(claude.session_file_plan(self.registry, self.status, self.claude_files, sessions, screens))
         # Fixed order: hooks arriving during a read supersede the request that reader captured.
         observations: tuple[tuple[str, Callable[[], Awaitable[list[str]]]], ...] = (
             ("reading the screens for trust prompts", lambda: self.readers.trust_prompts(screens)),
             ("reading the Codex rollouts", lambda: self.observe_codex(threads)),
-            ("releasing dead subagents", lambda: self.observe(self.readers.subagents(self.subagent_transcripts))),
+            ("releasing dead subagents", lambda: self.observe(claude.subagent_plan(self.status, self.subagent_transcripts))),
             ("reading Claude background shells", lambda: self.observe_background(sessions)),
-            ("reading stopped workers' recovery and usage resets", lambda: self.observe(self.readers.stops(self.stop_transcripts))),
+            ("reading stopped workers' recovery and usage resets",
+             lambda: self.observe(claude.stop_plan(self.registry, self.status, self.stop_transcripts, self.clock))),
             ("reading worktree test activity", lambda: self.observe(self.readers.tests(self.test_activity, sessions))),
         )
         for name, observe in observations:
@@ -376,10 +376,10 @@ class Service:
         return plan.apply(reading)
 
     async def observe_background(self, sessions: list[SessionInfo]) -> list[str]:
-        return await self.observe(self.readers.background(self.background_transcripts, sessions))
+        return await self.observe(claude.background_plan(self.status, self.background_transcripts, sessions))
 
     async def observe_codex(self, threads: dict[str, str]) -> list[str]:
-        return await self.observe(self.readers.codex(self.codex_files, threads))
+        return await self.observe(codex.rollout_plan(self.registry, self.status, self.codex_threads, self.codex_files, threads))
 
     async def run_check(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within
@@ -440,7 +440,7 @@ class Service:
         if found is None:
             return
         limits, written_at = found
-        usage = parse_codex_rate_limits(limits, written_at if written_at is not None else int(self.clock()))
+        usage = codex.parse_codex_rate_limits(limits, written_at if written_at is not None else int(self.clock()))
         if self.usage.set("codex", usage):
             await self.publisher.usage_changed()
 

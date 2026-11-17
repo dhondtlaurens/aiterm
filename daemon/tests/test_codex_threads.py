@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from aitermd.codex_threads import CodexThreads
+from aitermd.agents.codex import CodexThreads
 from aitermd.models import RawSession
 from aitermd.sessions import SessionRegistry
 

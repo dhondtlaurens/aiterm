@@ -13,13 +13,11 @@ from typing import Any
 
 import pytest
 
-from aitermd.claude_background import BackgroundTranscripts
-from aitermd.claude_sessions import ClaudeSessionFiles
-from aitermd.claude_subagents import SubagentTranscripts
-from aitermd.codex_sessions import CodexSessionFiles
-from aitermd.hook_events import parse_claude_hook, parse_claude_statusline, parse_codex_hook, parse_pi_hook
-from aitermd.status import CLAUDE_FILE_STATUS, _has_spinner
-from aitermd.usage import parse_codex_rate_limits
+from aitermd.agents.claude import (
+    FILE_STATUS, BackgroundTranscripts, ClaudeSessionFiles, SubagentTranscripts, parse_claude_hook, parse_claude_statusline,
+)
+from aitermd.agents.codex import CodexSessionFiles, has_spinner, parse_codex_hook, parse_codex_rate_limits
+from aitermd.agents.pi import parse_pi_hook
 
 CAPTURES = Path(__file__).parent / "fixtures" / "compat"
 # Where each CLI's scratch config sat in the capture's own paths (tools/compat_capture.py), and so
@@ -128,7 +126,7 @@ def test_claude_session_file_names_its_process_version_and_a_known_status():
         parsed = ClaudeSessionFiles._parse(path, 0.0)
         assert parsed is not None, f"{path.name} no longer reads"
         assert parsed.version == note("claude")["version"]
-        assert parsed.status in CLAUDE_FILE_STATUS, f"unknown status {parsed.status!r}"
+        assert parsed.status in FILE_STATUS, f"unknown status {parsed.status!r}"
 
 
 def first_session(agent: str) -> str:
@@ -207,7 +205,7 @@ def test_codex_rollout_gives_version_context_turn_and_rate_limits():
 
 def test_codex_tab_title_spins_while_it_works():
     titles = json.loads((CAPTURES / "codex" / "titles.json").read_text())
-    assert any(_has_spinner(title) for title in titles), titles
+    assert any(has_spinner(title) for title in titles), titles
 
 
 # -- PI ------------------------------------------------------------------------------------------------

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aitermd.hook_events import parse_claude_statusline
+from aitermd.agents.claude import parse_claude_statusline
 from aitermd.operator_session import OperatorSessionTokens
 from aitermd.operator_mcp import OperatorRoute
 from tests.test_operator_mcp import App, answer_with, call, message

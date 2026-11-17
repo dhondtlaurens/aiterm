@@ -62,8 +62,9 @@ below do the correcting.
 Hooks are the primary source; two corroborating ones run on the daemon's tick so a missed post
 cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` → working, `waiting`
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
-the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Which
-harness has which is its `corroboration` in the `HARNESSES` table; PI has neither.
+the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Each
+agent's module under `daemon/aitermd/agents/` maps its own readings to the engine's `Evidence`; PI
+has neither.
 
 Claude Code's folder-trust dialog ("Yes, I trust this folder") comes before all of these: Claude
 loads no hooks and writes no session file until the folder is trusted, so the tab's screen is the

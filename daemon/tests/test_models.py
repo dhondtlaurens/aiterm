@@ -10,9 +10,6 @@ def test_the_harness_table_derives_what_each_agent_is():
     # Claude's posts are placed by the agent's pid, everyone else's by the tab the header names.
     assert {a: h.placement for a, h in HARNESS_BY_AGENT.items()} == {
         "claude": "pid_file", "codex": "header", "pi": "header"}
-    # PI has no tick signal: what its hooks say stands.
-    assert {a: h.corroboration for a, h in HARNESS_BY_AGENT.items()} == {
-        "claude": "claude_file", "codex": "codex_title", "pi": None}
     assert USAGE_VENDORS == ("claude", "codex")
 
 

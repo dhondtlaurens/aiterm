@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .claude_sessions import ClaudeSessionFiles
+from .agents.claude import ClaudeSessionFiles
 from .offload import run_detached
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry

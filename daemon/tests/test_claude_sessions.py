@@ -2,7 +2,8 @@ import os
 
 import pytest
 
-from aitermd.claude_sessions import ClaudeSessionFiles
+from aitermd.agents.claude import FILE_STATUS, ClaudeSessionFiles, file_evidence
+from aitermd.status import Evidence
 
 from tests.builders import (
     write_claude_session as write,
@@ -131,3 +132,18 @@ def test_known_session_lookup_stats_only_its_file(tmp_path, monkeypatch):
     monkeypatch.setattr(type(tmp_path), "stat", counted)
     assert files.pid_for_session("sid-2") == 2
     assert inspected == ["2.json"]
+
+
+@pytest.mark.parametrize("status,state", [
+    ("busy", "working"), ("thinking", "working"), ("running", "working"),
+    ("waiting", "needsInput"),
+    ("idle", "done"), ("shell", "done"),
+])
+def test_each_session_file_status_is_evidence_of_its_state_at_the_files_write(status, state):
+    assert file_evidence(status, 1234.5) == Evidence(state, 1234.5, "claude_file")
+
+
+@pytest.mark.parametrize("status", ["compacting", "", "Busy"])
+def test_a_session_file_status_claude_has_not_been_seen_to_write_is_no_evidence(status):
+    assert status not in FILE_STATUS
+    assert file_evidence(status, 1234.5) is None

@@ -5,7 +5,6 @@ from typing import Any
 
 from .models import USAGE_VENDORS, Usage, UsageWindow
 
-FIVE_HOUR_MINS, WEEK_MINS = 300, 10080
 # How far `updatedAt` may advance before an otherwise unchanged `Usage` is news again. The
 # footer greys a number whose age passes a threshold, so its idea of the age has to keep up
 # with the daemon's -- but not at the rate a status line ticks.
@@ -79,39 +78,10 @@ def clamped_percent(value: Any) -> int | None:
     return max(0, min(100, round(number))) if number is not None else None
 
 
-def _window(d: Any, percent_key: str) -> UsageWindow | None:
-    """One rate-limit window: a used percentage (a float) and `resets_at` (epoch seconds). Anything
-    that is not a number is not a window."""
+def usage_window(d: Any, percent_key: str) -> UsageWindow | None:
+    """One rate-limit window, as Claude's and Codex's parsers both read it: a used percentage (a float,
+    under `percent_key`) and `resets_at` (epoch seconds). Anything that is not a number is not a window."""
     if not isinstance(d, dict) or (used := finite_number(d.get(percent_key))) is None:
         return None
     resets = finite_number(d.get("resets_at"))
     return UsageWindow(round(used), int(resets) if resets is not None else None)
-
-
-def parse_claude_rate_limits(rl: Any, updated_at: int) -> Usage:
-    """The `rate_limits` block of Claude Code's status-line payload, windows keyed by name."""
-    if not isinstance(rl, dict):
-        rl = {}
-    five_hour, seven_day, spend = (_window(rl.get(key), "used_percentage") for key in ("five_hour", "seven_day", "spend_limit"))
-    return Usage(five_hour, seven_day, spend, updated_at)
-
-
-def parse_codex_rate_limits(rl: dict[str, Any], updated_at: int) -> Usage:
-    """The `rate_limits` block Codex writes into every `token_count` record of its rollout file.
-    `primary`/`secondary` are told apart by `window_minutes` (300 → 5h, 10080 → wk); a window of
-    unknown length fills 5h first, then wk."""
-    five_hour = seven_day = None
-    for key in ("primary", "secondary"):
-        w = _window(rl.get(key), "used_percent")
-        if w is None:
-            continue
-        mins = rl[key].get("window_minutes")
-        if mins == WEEK_MINS and not isinstance(mins, bool) and seven_day is None:
-            seven_day = w
-        elif mins == FIVE_HOUR_MINS and not isinstance(mins, bool) and five_hour is None:
-            five_hour = w
-        elif five_hour is None:
-            five_hour = w
-        elif seven_day is None:
-            seven_day = w
-    return Usage(five_hour, seven_day, None, updated_at)

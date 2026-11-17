@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from aitermd.claude_sessions import ClaudeSessionFiles
+from aitermd.agents.claude import ClaudeSessionFiles
 from aitermd.models import RawSession
 from aitermd.resolver import SessionResolver
 from aitermd.sessions import SessionRegistry

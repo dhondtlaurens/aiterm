@@ -3,19 +3,30 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from .claude_subagents import TranscriptTail
-from .claude_background import ShellReading
 from .hook_events import HookEvent
 from .models import BackgroundJob, State, StoppedOn
 from .screens import shows_trust_prompt as shows_trust_prompt
 from .sessions import SessionRegistry
 
-CLAUDE_FILE_STATUS: dict[str, State | None] = {
-    "busy": "working", "thinking": "working", "running": "working",
-    "waiting": "needsInput", "idle": None, "shell": None,
-}
+if TYPE_CHECKING:
+    from .agents.claude import ShellReading, TranscriptTail
+
+# The states a tick's evidence can claim of a turn.
+EvidenceState = Literal["working", "needsInput", "done"]
+# Where tick evidence comes from: Claude's session file, the spinner in a Codex tab's title, or a turn
+# boundary in a Codex rollout. Each agent module under `agents/` maps its own readings.
+EvidenceSource = Literal["claude_file", "codex_title", "codex_rollout"]
+
+
+@dataclass(frozen=True, slots=True)
+class Evidence:
+    """What a corroborating source read on the tick says of a session's turn: the state it claims,
+    the wall-clock time it speaks for, and the source, which decides how it ranks against the hooks."""
+    state: EvidenceState
+    at: float
+    source: EvidenceSource
 
 
 @dataclass(slots=True)
@@ -57,10 +68,6 @@ class Turn:
     shell_snapshot: tuple[BackgroundJob, ...] | None = None
     shell_snapshot_at: float = float("-inf")
     shell_snapshot_valid: bool = True
-
-
-def _has_spinner(title: str) -> bool:
-    return bool(title) and "⠀" <= title[0] <= "⣿"
 
 
 class StatusEngine:
@@ -140,17 +147,36 @@ class StatusEngine:
         changed = released + self._apply_state(session_id, kind, turn.hook_at, source="hook")
         return list(dict.fromkeys(changed + ([session_id] if self._show_children(session_id) else [])))
 
+    def apply_evidence(self, session_id: str, evidence: Evidence) -> list[str]:
+        """What a corroborating source read on the tick says of the session's turn (Evidence), so a
+        missed hook cannot strand its row."""
+        return self._apply_state(session_id, evidence.state, evidence.at, source=evidence.source)
+
     def _apply_state(self, session_id: str, target: State, at: float, *,
-                     source: Literal["hook", "claude_file", "codex_title", "rollout"]) -> list[str]:
+                     source: Literal["hook"] | EvidenceSource) -> list[str]:
         """Land a turn signal, retaining each source's freshness and new-turn semantics.
         Corroborating busy files and spinners do not start another turn or discard a deferred Stop."""
         s = self.reg.get(session_id)
         if s is None:
             return []
+        if source == "codex_title":
+            if target == "working":
+                # Codex draws its spinner a moment after UserPromptSubmit: only once it has been seen
+                # can its absence end the turn.
+                self._turn(session_id).spun = True
+            elif s.state != "working" or (current := self._turns.get(session_id)) is None or not current.spun:
+                return []
         turn = self._turns.get(session_id)
-        if source == "claude_file" and turn is not None and at <= turn.hook_at:
-            return []
-        if source == "rollout":
+        if source == "claude_file":
+            # A file no newer than the last hook is ignored: Claude rewrites it after the hook fires,
+            # and until then it still describes the moment before -- `busy` under a fresh permission
+            # prompt.
+            if turn is not None and at <= turn.hook_at:
+                return []
+            # A file that says the turn ended changes only a turn under way, or one a child holds open.
+            if target == "done" and s.state not in ("working", "needsInput") and not (turn is not None and turn.children):
+                return []
+        if source == "codex_rollout":
             turn = self._turn(session_id)
             if at <= max(turn.hook_at, turn.rollout_at):
                 return []
@@ -169,7 +195,7 @@ class StatusEngine:
             if source != "claude_file":
                 return []
             target = "working"
-        if source in ("hook", "rollout"):
+        if source in ("hook", "codex_rollout"):
             turn = self._turn(session_id)
             # An explicit boundary supersedes the state a prompt interrupted.
             turn.before_prompt, turn.prompts_open = None, 0
@@ -177,7 +203,7 @@ class StatusEngine:
                 turn.deferred_done = False
                 if source == "hook" or s.state != "working":
                     turn.spun = False
-                if source == "rollout":
+                if source == "codex_rollout":
                     changed = self.reg.set_stop_work(session_id, ()) or changed
         return [session_id] if self.reg.set_state(session_id, target, preserve_stop=child_file) or changed else []
 
@@ -391,62 +417,17 @@ class StatusEngine:
             changed += [sid] if self._show_children(sid) else []
         return list(dict.fromkeys(changed))
 
-    def apply_claude_file_status(self, session_id: str, status: str, written_at: float) -> list[str]:
-        """Corroborates the hooks with Claude's own session file, written at `written_at`. A file no
-        newer than the last hook is ignored: Claude rewrites it after the hook fires, and until
-        then it still describes the moment before -- `busy` under a fresh permission prompt."""
-        s = self.reg.get(session_id)
-        turn = self._turns.get(session_id)
-        if s is None:
-            return []
-        if status not in CLAUDE_FILE_STATUS:
-            # A status this daemon does not know says nothing about the turn -- least of all that
-            # it ended.
-            return []
-        mapped = CLAUDE_FILE_STATUS[status]
-        if mapped is not None:
-            # `waiting` keeps a hook-derived input request visible. Once the
-            # user answers, Claude changes the session file back to one of the
-            # active statuses; that is the resume signal which restores the
-            # spinner even though no new UserPromptSubmit hook is emitted.
-            target = mapped
-        else:
-            target = "done" if s.state in {"working", "needsInput"} or (turn is not None and turn.children) else s.state
-        return self._apply_state(session_id, target, written_at, source="claude_file")
-
-    def apply_codex_rollout(self, session_id: str, state: State, reported_at: float) -> list[str]:
-        """Recover a missing hook from a structured Codex boundary; a newer hook or boundary wins."""
-        s = self.reg.get(session_id)
-        if s is None or s.agent != "codex" or state not in ("working", "done"):
-            return []
-        return self._apply_state(session_id, state, reported_at, source="rollout")
-
-    def apply_claude_progress(self, session_id: str, at: float) -> list[str]:
-        """A parent prompt or successful response newer than its failure proves it carried on.
-        A child's file activity cannot do this; the reader checks only the parent's transcript."""
+    def apply_progress(self, session_id: str, at: float) -> list[str]:
+        """The session's agent carried on at `at`: a parent prompt or successful response newer than
+        its failure and the last hook clears what stopped its turn. A child's file activity cannot do
+        this; the reader checks only the parent's transcript."""
         session, turn = self.reg.get(session_id), self._turns.get(session_id)
-        if (session is None or session.agent != "claude" or session.stopped_on is None
+        if (session is None or session.stopped_on is None
                 or at <= max(session.stopped_on.at, turn.hook_at if turn is not None else float("-inf"))):
             return []
         if turn is not None:
             turn.deferred_done = False
         return [session_id] if self.reg.set_stopped_on(session_id, None) else []
-
-    def apply_codex_title(self, session_id: str, title: str) -> list[str]:
-        s = self.reg.get(session_id)
-        if s is None:
-            return []
-        turn = self._turns.get(session_id)
-        if _has_spinner(title):
-            # Permission and elicitation answers do not emit UserPromptSubmit.
-            # The spinner returning is Codex's reliable resume signal.
-            self._turn(session_id).spun = True
-            target: State = "working"
-        elif s.state != "working" or turn is None or not turn.spun:
-            return []
-        else:
-            target = "done"
-        return self._apply_state(session_id, target, self._clock(), source="codex_title")
 
     def agent_exited(self, session_id: str) -> list[str]:
         displayed = (session := self.reg.get(session_id)) is not None and (

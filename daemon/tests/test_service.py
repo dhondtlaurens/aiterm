@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from aitermd import service
-from aitermd.codex_sessions import CodexSessionFiles
+from aitermd.agents.codex import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import BackgroundJob, Frame
@@ -179,7 +179,7 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
 
 @pytest.mark.parametrize("replacement", ["process", "conversation", "sessionStart", "closed"])
 async def test_background_read_cannot_attach_to_replaced_identity(make_service, tmp_path, monkeypatch, replacement):
-    from aitermd.claude_background import ShellReading, ShellTask
+    from aitermd.agents.claude import ShellReading, ShellTask
     svc, sid, path = await background_session(make_service, tmp_path)
 
     async def replace_during_read(name, work, nothing):
@@ -2138,14 +2138,14 @@ async def test_one_sessions_failing_corroboration_does_not_stop_the_others(stack
     first = await _claude_tab_busy(svc, r, w, 952, "c1")
     wid = svc.registry.get(first).window_id
     second = await _claude_tab_busy(svc, r, w, 953, "c2", user_tab_of=wid)
-    real = svc.status.apply_claude_file_status
+    real = svc.status.apply_evidence
 
     def apply(session_id, *args):
         if session_id == first:
             raise OverflowError("cannot convert float infinity to integer")
         return real(session_id, *args)
 
-    monkeypatch.setattr(svc.status, "apply_claude_file_status", apply)
+    monkeypatch.setattr(svc.status, "apply_evidence", apply)
     with caplog.at_level("ERROR", logger="aitermd.service"):
         await svc.tick()
     assert svc.registry.get(second).state == "working"
@@ -2411,7 +2411,7 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
     svc.codex_threads.bind(sid, "old-thread", "SessionStart")
 
     async def replaced_during_read(name, work, nothing):
-        from aitermd.codex_sessions import CodexReading
+        from aitermd.agents.codex import CodexReading
 
         svc.codex_threads.bind(sid, "new-thread", "SessionStart")
         return {sid: CodexReading(90, "old-version", None)}

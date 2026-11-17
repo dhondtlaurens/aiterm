@@ -1,8 +1,8 @@
 import pytest
 from aitermd.models import BackgroundJob, UsageWindow
-from aitermd.hook_events import (
-    parse_claude_hook, parse_codex_hook, parse_claude_statusline, parse_pi_hook,
-)
+from aitermd.agents.claude import parse_claude_hook, parse_claude_statusline
+from aitermd.agents.codex import parse_codex_hook
+from aitermd.agents.pi import parse_pi_hook
 
 BASE = {"session_id": "abc", "cwd": "/repo/.worktrees/x", "transcript_path": "/t.jsonl", "permission_mode": "default"}
 PI_BASE = {"session_id": "pi-session", "cwd": "/repo/.worktrees/x",

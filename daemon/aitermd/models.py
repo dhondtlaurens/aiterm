@@ -19,20 +19,16 @@ class Harness:
     """What the daemon knows about one agent CLI. Its name is also its binary's, and a new harness
     is one more row in HARNESSES; the sets below, and the hook server's routes, derive from it."""
     agent: AgentKind
-    # The route its hooks post to (hook_events.HOOK_PARSERS parses each).
+    # The route its hooks post to (agents.HOOK_PARSERS parses each).
     hook_route: str
     # How a hook post is placed on the tab it came from (SessionResolver.resolve_directly): by the tab
     # id it carries in X-AiTerm-iTerm-Session, or -- Claude's, which travel over HTTP from the agent
     # itself -- by the pid the agent's own session file names.
     placement: Literal["header", "pid_file"] = "header"
-    # What the daemon's tick reads beside the hooks, so a missed post cannot strand a row
-    # (Service._corroborate): Claude's own session file, or the spinner in a Codex tab's title --
-    # with the context fill in its rollout. None: the hooks alone.
-    corroboration: Literal["claude_file", "codex_title"] | None = None
     # Whether it reports the account's rate limits, which the usage footer shows: Claude in its
     # status line, Codex in its rollout.
     reports_usage: bool = False
-    # The route its status-line shim posts to, if it has one (hook_events.STATUSLINE_PARSERS).
+    # The route its status-line shim posts to, if it has one (agents.STATUSLINE_PARSERS).
     statusline_route: str | None = None
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
     # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
@@ -61,7 +57,7 @@ CLAUDE_TRUST_PROMPT = ("Yes, I trust this folder", "Do you trust the files in th
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
-    Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file",
+    Harness("claude", "/hook/claude", placement="pid_file",
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
             trust_prompt=CLAUDE_TRUST_PROMPT,
@@ -71,7 +67,7 @@ HARNESSES: tuple[Harness, ...] = (
             input_box=("❯",), numbered_menus=True,
             transcript_view=("Showing detailed transcript · ctrl+o to toggle",)),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", corroboration="codex_title", reports_usage=True,
+    Harness("codex", "/hook/codex", reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
             # 0.163's dialogs end on "enter confirm · esc skip" (its review of untrusted hooks) or
             # "enter select · esc back" (its /model picker).
@@ -175,10 +171,6 @@ class RawSession:
     active: bool = False
 
 
-# Observed native task-notification outcomes: terminal display evidence, never a success verdict.
-CLAUDE_TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "killed", "stopped"})
-
-
 @dataclass(frozen=True, slots=True)
 class BackgroundJob:
     """One piece of work running beside a Claude turn: a `shell` by its command, a `monitor`, a `subagent` or any other
@@ -230,7 +222,7 @@ class StoppedOn:
     StopFailure hook). `error` is Claude Code's name for it: `rate_limit` for a usage or rate limit, which Claude Code
     may carry on from by itself once it resets; `billing_error`, `authentication_failed` and the like for one that
     blocks the session until someone acts. `resets_at`, a limit's reset in epoch seconds, only as the transcript's own
-    record of the limit gives it (stop_failures.StopTranscripts); None while nothing has. `at`, the wall clock when
+    record of the limit gives it (agents.claude.StopTranscripts); None while nothing has. `at`, the wall clock when
     the hook came, is excluded from value equality and wire data."""
     error: str
     resets_at: int | None = None

@@ -86,8 +86,8 @@ async def ctl_request(socket_path: str, method: str, params: Any) -> dict[str, A
 
 
 async def run_daemon(ns: argparse.Namespace, *, test_records: Path | None = None) -> None:
-    from .claude_sessions import ClaudeSessionFiles
-    from .codex_sessions import CodexSessionFiles
+    from .agents.claude import ClaudeSessionFiles
+    from .agents.codex import CodexSessionFiles
     from .connection import ItermSupervisor
     from .hooks_server import HookServer
     from .iterm_bridge import ItermBridge

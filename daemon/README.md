@@ -5,8 +5,10 @@ the persisted workspace and scheduling decisions. `Service` composes small regis
 delivery, window, hook and RPC owners; blocking file reads run off the asyncio loop.
 `iterm_port.py` is the typed iTerm2 boundary, and only `iterm_bridge.py` imports the SDK;
 `FakeIterm` is type-checked against the port. `screens.py` holds pure screen recognition.
-`corroboration.py` plans each corroborating read: captured on the loop, read off it under a
-deadline, applied on the loop.
+`corroboration.py` runs each corroborating read: captured on the loop, read off it under a
+deadline, applied on the loop. Agent telemetry lives in one module per agent, `agents/claude.py`,
+`agents/codex.py` and `agents/pi.py`: each parses its agent's hooks and files and maps them to the
+status engine's `Evidence`.
 
 ## Develop and verify
 

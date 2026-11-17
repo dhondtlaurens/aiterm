@@ -5,8 +5,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .codex_threads import CodexThreads
-from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS, HookEvent
+from .agents import HOOK_PARSERS, STATUSLINE_PARSERS
+from .agents.codex import CodexThreads
+from .hook_events import HookEvent
 from .models import AgentKind
 from .publisher import Publisher
 from .resolver import SessionResolver
