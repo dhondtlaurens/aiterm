@@ -1526,3 +1526,89 @@ left.
   which closes a Terminal shell the line was pasted into. Nothing is changed or harmed, and the note says so
   ("ends the shell in that window: quit AiTerm and run the command again in a new window"). Changing the script to
   the brief's `else ... fi` form is left to the maintainer (it would mean regenerating the note's block).
+
+### Close-out
+- Gate: plain `scripts/test.sh all` (no `SWIFT`, `PYTEST` or `AITERM_TEST_PATHS` override) on `67949cfa`, exit 0,
+  wall time 219 s, first run, log in `build/refactor-after/gate.log`. Daemon `1522 passed, 1 skipped`,
+  `Success: no issues found in 88 source files`, `All checks passed!`; after `Gate pass: main` the Swift runs
+  closed with `123 tests in 24 suites`, `1113 tests in 141 suites ... with 1 known issue` and
+  `1387 tests in 155 suites ... with 3 known issues`, all passed; after `Gate pass: snapshots`,
+  `Test run with 1 test in 1 suite passed after 3.208 seconds.`
+- Bundle: `scripts/make-app.sh`, then `scripts/test-app-bundle.sh build/AiTerm.app`: "verified executable,
+  resources, pinned helper dependencies, and signature in build/AiTerm.app". `daemon/build/lib/aitermd` holds the
+  same Python files as `daemon/aitermd`, so the bundle carries no deleted module (6f's note).
+- Snapshots: `build/refactor-after/` in default mode, 101 PNGs, `manifest.txt` beside them; against
+  `build/refactor-before/` (109): 11 only before, 3 only after, 67 differ, 31 equal. Both sides carry the same
+  colour profile per image, so raw RGB compares. Against `build/refactor-phase8`, only `marks.png` differs:
+  phase 9 drew nothing new. Every difference is a listed change; none is unlisted.
+  - Only before (11), Find a Fix removed (1i): `banner-find-a-fix-applying`, `-nofix`, `-offered-beside-rebase`
+    and `review-fix-applying`, `-failed`, `-looking`, `-nofix`, `-offered-beside-rebase`, `-offered`,
+    `-proposal`, `-unavailable`.
+  - Only after (3), the plain banners and footer that replaced them (1i): `banner-pull-diverged`,
+    `banner-rebase-conflicted`, `review-rebase-conflicted` (its footer also has Cancel, 8f).
+  - `settings-agents.png`: Help with problems gone (1i), the cards move up; nothing else.
+  - `sidebar-banners.png`: the iTerm2 banners (3d) and the diverged-pull banner in place of the branch-kept one
+    (4b); the image grows from 394 to 720 px high.
+  - `sidebar-removal.png`, `sidebar-removal-selected.png`: the removal caption only (4b).
+  - Seven `sidebar*` images (`sidebar`, `-brand-colours`, `-collapsed`, `-extra-large`, `-large`,
+    `-header-selected`, `-header-selected-collapsed`): only the heading rows, where ImageRenderer's yellow
+    placeholder for the deleted menu anchor is gone (8c).
+  - 43 stepped-sheet footers, Cancel at the leading end on every step and nothing else in the picture (8f):
+    the New Task, New Review and New Signal step pictures (`review-step1*`, `review-step2*`, `review-step3`,
+    `review-request-found-ticket`, `review-ticket-found`, `review-ticket-none`, `review-in-task`,
+    `review-folder-changes`, `sheet-git-error`, `step2-completions`, `step2-prompt`, `step3-agent`, all 28
+    `signal-*` step pictures). `step3-agent.png` also has two pixels of delta-1 glyph noise (as 8g recorded);
+    the "isn't installed" note draws in neither capture (an agent can run in that pose).
+  - The four images with a fix button, now under its notice and 80 px higher (8f): `review-rebase`,
+    `review-switch-folder`, `task-initialization-identity`, `task-unborn-base`.
+  - `settings-interface-full.png`: the ⎋ line, "Close the list, or cancel" (8f).
+  - The six `step1-*` images: Base branch as the filtered field (8g) and the footer (8f).
+  - `add-project.png`: the folder as a line with Choose… (8g).
+  - `marks.png`: a third byte variant of the known two-variant capture (antialiasing on one logo, 551 pixels, delta
+    at most 32); a second capture into `build/refactor-after-2` drew it byte-identical to `build/refactor-before`,
+    and every other image byte-identical to the first capture. `signal-jira-reviewRequested-1.png` differs only by
+    its footer (8f).
+  - Expected and equal: `settings-iterm-off.png` and `edit-project.png` (neither draws the changed part).
+  - Not compared: the hosted-only Operator poses (`AITERM_SNAPSHOT_HOSTED=1`, real windows) that 5f and 8b left
+    for this step. `build/refactor-before` holds the default capture only, and no hosted capture of the starting
+    commit exists, so they have no baseline here; 8c compared its hosted pair and found only the planned
+    `signals-removed.png` change.
+- Upgrade rehearsal, on copies under `build/` only:
+  - The command line in `scripts/reset-operator-state.sh` and the fenced block in
+    `docs/release-notes/2026-11-major-release.md` are byte-identical (`cmp`).
+  - `build/refactor-before/state.json` has the Record's SHA-256 (`73f5f19b…`). Copied to
+    `build/refactor-rehearsal/Library/Application Support/AiTerm/state.json`, the script ran with that path as its
+    argument, so the running-app guard was skipped (the maintainer's AiTerm could stay open). Exit 0, "Operator
+    records removed from ….".
+  - `state.json.before-reset-<stamp>` sits beside it, byte-identical to the copy.
+  - As JSON, the reset file equals the original with `operatorSession` and both `signalTask` objects removed;
+    nothing else differs, and no `takenOver` key was added.
+  - Loaded through the final `StateStore(url:).load()` by a temporary
+    `app/Tests/AiTermCoreTests/UpgradeRehearsalTests.swift`: one project `Shop`; one task "Make retries safe" on
+    `feat/pay-1` with `worker-conversation` and no `signalTask`; one archived task "Earlier work" with
+    `archived-conversation` and no `signalTask`; signals "Plan tickets" and "Build tickets"; one seen item,
+    `started`; no `operatorSession`; no terminals. Saved through a `StateStore` in a scratch folder and loaded
+    again: equal.
+  - Taken-over case: a second copy under `build/refactor-rehearsal-takenover/` with `takenOver: true` set inside
+    the driven task's `signalTask`. After the same command, that task has no `signalTask` and carries
+    `takenOver: true`; the archived task gained no such key; the backup equals the edited copy, and the file
+    equals the expected JSON exactly. Through `StateStore`, the task carries the mark. `MatchDecision` gives no
+    decision for the item built from its ticket (`PAY-1` on "Build tickets", the signal that has not seen it), and
+    the same item gives `continueTask` for the unmarked task of the first file.
+  - `scripts/test.sh swift -- --filter UpgradeRehearsalTests`: "Test run with 2 tests in 1 suite passed after
+    0.007 seconds." The first attempt was refused by the route guard, because a suite reading outside its target
+    through `#filePath` must be named in `scripts/test-routes.tsv`. For that run only, the suite was added to the
+    `# opt-in, reads outside its target:` line. That line and the test file were then removed; neither is
+    committed.
+- Review: run by the orchestrator, see below.
+- Still owed by hand, by the maintainer (the Record shows none of them done):
+  - `scripts/compat-check.sh` after phases 1 and 2: the Claude driver lost `PostModelSwitch` and `compat/launch.json`
+    lost the fixer entries (1g, 1i); the Codex config editor changed (2d).
+  - The live Operator eval (`AITERM_LIVE_OPERATOR=1`) after phases 1 and 5: the gate's refusals, Oracle prompt and
+    reasons (1j); the Oracle prompts' move, `retry` answers, the gate's denial when the Oracle is switched off
+    mid-read, `run_status` without `tasks[].currentAct`, two `answer_worker` refusal texts (5c, 5f, 5g).
+  - One smoke run through `scripts/run-dev.sh`: create a task, close its window, choose the row, archive,
+    restore, remove; a signal from match to done.
+  - Also noted in the Record, outside the plan's owed list: the opt-in `WorkerGuardCodexTests` probe after 2g, and
+    the hosted-only Operator snapshot poses above.
+  - Every phase from 0 to 9 has a Record entry.
