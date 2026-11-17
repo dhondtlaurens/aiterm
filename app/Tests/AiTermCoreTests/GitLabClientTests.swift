@@ -174,40 +174,32 @@ import Foundation
             [["resolvable": false, "system": true]],
             [["resolvable": true, "resolved": false]],
         ])
-        let (client, stub) = makeClient { _ in (200, body) }
-        #expect(try await client.reviewThreads(of: 4) == ReviewThreads(resolved: 1, total: 3))
-        let req = try #require(stub.lastRequest)
+        let (client, stub) = makeClient { request in (200, Self.page(of: request) == "1" ? body : Data("[]".utf8)) }
+        #expect(ReviewThreads(resolutions: try await client.threads(of: 4).map(\.resolved)) == ReviewThreads(resolved: 1, total: 3))
+        let req = try #require(stub.requests.first)
         #expect(req.httpMethod == "GET")
         #expect(req.value(forHTTPHeaderField: "PRIVATE-TOKEN") == "tok")
         #expect(req.url?.absoluteString == "https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests/4/discussions?per_page=100&page=1")
     }
 
-    /// Review focus 4: a page as long as asked for may have another after it; a shorter one is the last.
-    @Test func reviewThreadsReadEveryPageUntilAShortOne() async throws {
+    /// Even a short page must be followed until an empty page proves the list is complete.
+    @Test func reviewThreadsReadEveryPageUntilAnEmptyOne() async throws {
         let full = try Self.discussions(Array(repeating: [["resolvable": true, "resolved": true]], count: 100))
         let last = try Self.discussions([[["resolvable": true, "resolved": false]]])
-        let (client, stub) = makeClient { request in (200, Self.page(of: request) == "1" ? full : last) }
-        #expect(try await client.reviewThreads(of: 4) == ReviewThreads(resolved: 100, total: 101))
-        #expect(stub.requests.map(Self.page(of:)) == ["1", "2"])
-    }
-
-    /// Review focus 4: a host that never answers a short page is read ten pages deep and no further.
-    @Test func reviewThreadsStopAtTenPages() async throws {
-        let full = try Self.discussions(Array(repeating: [["resolvable": true, "resolved": false]], count: 100))
-        let (client, stub) = makeClient(project: "p") { _ in (200, full) }
-        #expect(try await client.reviewThreads(of: 4) == ReviewThreads(resolved: 0, total: 1000))
-        #expect(stub.requests.count == GitLabClient.discussionPages)
+        let (client, stub) = makeClient { request in (200, Self.page(of: request) == "1" ? full : Self.page(of: request) == "2" ? last : Data("[]".utf8)) }
+        #expect(ReviewThreads(resolutions: try await client.threads(of: 4).map(\.resolved)) == ReviewThreads(resolved: 100, total: 101))
+        #expect(stub.requests.map(Self.page(of:)) == ["1", "2", "3"])
     }
 
     @Test func reviewThreadsMapStatusesLikeEveryOtherRead() async {
         await #expect(throws: GitLabError.unauthorized) {
-            _ = try await makeClient(project: "p") { _ in (401, Data()) }.client.reviewThreads(of: 4)
+            _ = try await makeClient(project: "p") { _ in (401, Data()) }.client.threads(of: 4)
         }
         await #expect(throws: GitLabError.projectNotFound("p")) {
-            _ = try await makeClient(project: "p") { _ in (404, Data()) }.client.reviewThreads(of: 4)
+            _ = try await makeClient(project: "p") { _ in (404, Data()) }.client.threads(of: 4)
         }
         await #expect(throws: GitLabError.decoding) {
-            _ = try await makeClient(project: "p") { _ in (200, Data("<html>".utf8)) }.client.reviewThreads(of: 4)
+            _ = try await makeClient(project: "p") { _ in (200, Data("<html>".utf8)) }.client.threads(of: 4)
         }
     }
 }

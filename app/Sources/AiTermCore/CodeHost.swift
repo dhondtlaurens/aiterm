@@ -30,30 +30,25 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
     /// username), GitHub's requested reviewers by login, which drops each once they reviewed. Nil when the answer
     /// carried no such list.
     public var reviewers: [String]?
+    /// The teams asked to review it, by slug: GitHub's requested teams. Never part of `reviewers`.
+    public var reviewerTeams: [String]
     public var id: Int { iid }
     public init(iid: Int, title: String, sourceBranch: String, targetBranch: String,
                 author: String?, state: String, draft: Bool, url: String, forkHead: String? = nil, description: String? = nil,
-                reviewers: [String]? = nil) {
+                reviewers: [String]? = nil, reviewerTeams: [String] = []) {
         self.iid = iid; self.title = title; self.sourceBranch = sourceBranch; self.targetBranch = targetBranch
         self.author = author; self.state = state; self.draft = draft; self.url = url; self.forkHead = forkHead
-        self.description = description; self.reviewers = reviewers
+        self.description = description; self.reviewers = reviewers; self.reviewerTeams = reviewerTeams
     }
+
+    /// Whether someone, a person or a team, is asked to review it.
+    public var hasReviewer: Bool { !(reviewers ?? []).isEmpty || !reviewerTeams.isEmpty }
 
     /// The lane a picked merge or pull request shows beside its title.
     public var lane: String { forkHead != nil ? "Fork" : draft ? "Draft" : state.capitalized }
     public var host: CodeHost { CodeHost(webURL: url) }
     /// `!87` for GitLab, `#87` for GitHub.
     public var reference: String { host.reference(iid) }
-}
-
-/// A request's pipeline status, approvals and head commit as the host reports them now.
-public struct MergeRequestState: Equatable, Sendable {
-    public var pipeline: String?
-    public var approvedBy: [String]
-    public var head: String?
-    public init(pipeline: String?, approvedBy: [String], head: String?) {
-        self.pipeline = pipeline; self.approvedBy = approvedBy; self.head = head
-    }
 }
 
 /// How many of a merge or pull request's review threads are resolved, of all of them: GitLab's

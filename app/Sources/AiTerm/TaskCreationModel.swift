@@ -87,7 +87,7 @@ extension CreationModel where Kind == TaskCreation {
 
     /// The project's GitLab issues, when its remote is on the one GitLab host that is connected.
     nonisolated static func gitLabIssueSource(gitLab: GitLabConfig?, remote: RemoteInfo?) -> TicketSearch.Source? {
-        guard let remote, case .gitLab(let config, let path)? = try? MergeRequestSearch.connection(for: remote, gitLab: gitLab, gitHub: nil)
+        guard let remote, case .gitLab(let config, let path)? = try? CodeHosts.connection(for: remote, gitLab: gitLab, gitHub: nil)
         else { return nil }
         let client = GitLabClient(config: config, project: path)
         return { text in try await client.issues(search: text) }

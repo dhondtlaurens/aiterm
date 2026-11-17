@@ -273,7 +273,7 @@ final class SheetCoordinator {
                                    context: creationContext(project: project, catalogue: catalogue, failure: catalogueFailure),
                                    owningTask: { [weak workspace] branch, checkouts in
                                        workspace?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
-                                   }, codeHost: MergeRequestSearch.host(for: remote),
+                                   }, codeHost: CodeHosts.host(for: remote),
                                    searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    tickets: ReviewTicketLookup(project: project, jira: jira, gitLab: gitLab, gitHub: gitHub, remote: remote),
                                    createReview: { try await launcher.createReview(draft: $0, project: project) },

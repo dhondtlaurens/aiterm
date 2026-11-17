@@ -12,7 +12,7 @@ public struct GitHubAccount: SignalAccountReading {
         var items: [SignalItem] = [], identities = Set<String>(), complete = true
         for filter in queries {
             var query = "is:pr is:open " + filter
-            if let since { query += " updated:>=\(ISO8601DateFormatter().string(from: since))" }
+            if let since { query += " updated:>=\(HostDate.iso8601String(from: since))" }
             var cursor: String?, cursors = Set<String>(), ended = false, rawCount = 0
             for _ in 0..<100 {
                 let body = QueryBody(query: Self.query, variables: Variables(query: query, cursor: cursor))
@@ -68,7 +68,7 @@ private struct AccountPull: Decodable {
                                    author: author?.login, state: "open", draft: isDraft ?? false, url: url,
                                    forkHead: fork ? (headRepositoryOwner?.login ?? "ghost") + ":" + headRefName : nil, description: body)
         return SignalItem(item: .request(remote: remote, number: number), title: title, description: body, mergeRequest: request,
-                          updated: updatedAt.flatMap(GitLabClient.date), assignees: assignees?.nodes.compactMap(\.login) ?? [],
+                          updated: updatedAt.flatMap(HostDate.iso8601), assignees: assignees?.nodes.compactMap(\.login) ?? [],
                           changesRequested: reviewDecision == "CHANGES_REQUESTED")
     }
 }

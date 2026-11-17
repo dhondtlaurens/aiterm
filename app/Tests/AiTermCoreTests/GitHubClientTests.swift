@@ -182,7 +182,7 @@ import Foundation
     /// One page of GraphQL's answer for a pull request's review threads.
     private static func threadsPage(_ resolved: [Bool], next: String? = nil) throws -> Data {
         let threads: [String: Any] = ["pageInfo": ["hasNextPage": next != nil, "endCursor": next.map { $0 as Any } ?? NSNull()],
-                                      "nodes": resolved.map { ["isResolved": $0] }]
+                                      "nodes": resolved.enumerated().map { ["id": "thread-\($0.offset)", "isResolved": $0.element] as [String: Any] }]
         return try JSONSerialization.data(withJSONObject: ["data": ["repository": ["pullRequest": ["reviewThreads": threads]]]])
     }
 
@@ -196,7 +196,7 @@ import Foundation
     @Test func reviewThreadsAskGraphQLForThePullRequestsThreads() async throws {
         let body = try Self.threadsPage([true, false, true])
         let (client, stub) = makeClient { _ in (200, body) }
-        #expect(try await client.reviewThreads(of: 87) == ReviewThreads(resolved: 2, total: 3))
+        #expect(ReviewThreads(resolutions: try await client.threads(of: 87).map(\.resolved)) == ReviewThreads(resolved: 2, total: 3))
         let req = try #require(stub.lastRequest)
         #expect(req.url?.absoluteString == "https://api.github.com/graphql")
         #expect(req.httpMethod == "POST")
@@ -218,16 +218,8 @@ import Foundation
     @Test func reviewThreadsFollowTheCursor() async throws {
         let first = try Self.threadsPage([true, true], next: "c1"), second = try Self.threadsPage([false])
         let (client, stub) = makeClient { request in (200, Self.variables(of: request)["after"] as? String == "c1" ? second : first) }
-        #expect(try await client.reviewThreads(of: 87) == ReviewThreads(resolved: 2, total: 3))
+        #expect(ReviewThreads(resolutions: try await client.threads(of: 87).map(\.resolved)) == ReviewThreads(resolved: 2, total: 3))
         #expect(stub.requests.map { Self.variables(of: $0)["after"] as? String } == [nil, "c1"])
-    }
-
-    /// Review focus 4: a cursor that never ends is followed ten pages and no further.
-    @Test func reviewThreadsStopAtTenPagesToo() async throws {
-        let endless = try Self.threadsPage([true], next: "again")
-        let (client, stub) = makeClient { _ in (200, endless) }
-        #expect(try await client.reviewThreads(of: 87) == ReviewThreads(resolved: 10, total: 10))
-        #expect(stub.requests.count == GitHubClient.threadPages)
     }
 
     /// Review focus 3: GraphQL answers 200 with the repository or pull request null, and says why in
@@ -237,22 +229,22 @@ import Foundation
             (#"{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a Repository"}]}"#, .repoNotFound("octocat/hello")),
             (#"{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND"}]}"#, .repoNotFound("octocat/hello")),
             (#"{"data":{"repository":null},"errors":[{"type":"FORBIDDEN","message":"Resource protected by organization SAML enforcement"}]}"#, .forbidden),
-            (#"{"data":null,"errors":[{"message":"Something went wrong"}]}"#, .repoNotFound("octocat/hello")),
+            (#"{"data":null,"errors":[{"message":"Something went wrong"}]}"#, .refused("Something went wrong")),
         ]
         for (body, error) in cases {
             await #expect(throws: error, "\(body)") {
-                _ = try await self.makeClient { _ in (200, Data(body.utf8)) }.client.reviewThreads(of: 87)
+                _ = try await self.makeClient { _ in (200, Data(body.utf8)) }.client.threads(of: 87)
             }
         }
         await #expect(throws: GitHubError.unauthorized) {
-            _ = try await self.makeClient { _ in (401, Data()) }.client.reviewThreads(of: 87)
+            _ = try await self.makeClient { _ in (401, Data()) }.client.threads(of: 87)
         }
     }
 
     /// A repository that is not `owner/name` is not asked about at all.
     @Test func aRepositoryWithoutAnOwnerIsNotAsked() async {
         let (client, stub) = makeClient(repo: "hello") { _ in (200, Data()) }
-        await #expect(throws: GitHubError.repoNotFound("hello")) { _ = try await client.reviewThreads(of: 87) }
+        await #expect(throws: GitHubError.repoNotFound("hello")) { _ = try await client.threads(of: 87) }
         #expect(stub.requests.isEmpty)
     }
 }

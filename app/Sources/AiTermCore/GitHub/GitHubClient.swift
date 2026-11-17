@@ -54,7 +54,7 @@ public struct GitHubClient: HostRepository {
         return branch
     }
 
-    public func currentUser() async throws -> String {
+    func currentUser() async throws -> String {
         try await HostUserMemo.user(.gitHub, host: Self.api, token: config.token) {
             try await Self.testConnection(config: config, session: session)
         }
@@ -75,8 +75,7 @@ public struct GitHubClient: HostRepository {
         let base = boundPath + "/pulls"
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
         if let number = Self.number(text) {
-            do { return [try await get(PullPayload.self, path: base + "/\(number)", notFound: .repoNotFound(repo)).mergeRequest] }
-            catch GitHubError.repoNotFound { return [] }
+            return try await request(number: number).map { [$0] } ?? []
         }
         let open = try await listing.read {
             let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "sort", value: "updated"),
@@ -88,6 +87,11 @@ public struct GitHubClient: HostRepository {
             [pull.title, pull.sourceBranch, pull.author ?? ""].contains { $0.range(of: text, options: .caseInsensitive) != nil }
         }
         return Array(matching.prefix(Self.shownLimit))
+    }
+
+    public func request(number: Int) async throws -> MergeRequest? {
+        do { return try await get(PullPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo)).mergeRequest }
+        catch GitHubError.repoNotFound { return nil }
     }
 
     /// Up to `pages` pages of the repository's open pull requests, `perPage` at a time, the most
@@ -107,38 +111,10 @@ public struct GitHubClient: HostRepository {
         HostText.number(text, prefixes: "#!")
     }
 
-    /// How many review threads one page of `reviewThreads` asks for, and how many pages it reads
-    /// at most.
-    static let threadsPerPage = 100, threadPages = 10
+    /// How many review threads one page asks for.
+    static let threadsPerPage = 100
     /// How many pages `threads` and `approvals` read before they give up: past it the list is no answer.
     static let threadPagesRead = 50
-
-    /// One query, never a mutation: the threads of a pull request and whether each is resolved.
-    static let threadsQuery = """
-        query($owner: String!, $name: String!, $number: Int!, $after: String) {
-          repository(owner: $owner, name: $name) {
-            pullRequest(number: $number) {
-              reviewThreads(first: \(threadsPerPage), after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
-            }
-          }
-        }
-        """
-
-    /// The pull request's review threads, and how many are resolved. REST has none, so this is
-    /// GraphQL's `reviewThreads`, read with the same token — a fine-grained token needs read access
-    /// to pull requests, as the search already does; a classic one, `repo` for a private
-    /// repository. GraphQL answers a repository or pull request it cannot see with 200, a null and
-    /// an error, which is thrown here rather than read as no threads.
-    public func reviewThreads(of number: Int) async throws -> ReviewThreads {
-        let resolutions = try await readThreads(ThreadResolution.self, number: number, complete: false,
-            answer: { (answer: GraphQLAnswer<ThreadsPayload<ThreadResolution>, ThreadProblem>) in
-                guard let data = answer.data, data.repository?.pullRequest != nil else {
-                    throw answer.errors?.contains { $0.type == "FORBIDDEN" } == true ? GitHubError.forbidden : GitHubError.repoNotFound(repo)
-                }
-                return data
-            }, items: { $0.compactMap { $0.value?.isResolved } })
-        return ReviewThreads(resolutions: resolutions)
-    }
 
     /// `owner/name` as its two parts; nil for anything else.
     static func ownerAndName(_ repo: String) -> (owner: String, name: String)? {
@@ -164,7 +140,7 @@ public struct GitHubClient: HostRepository {
 
     /// Observation includes closed requests; the list's merged_at is not a merge proof, so a
     /// candidate from history is fetched by number for the authoritative merged flag.
-    public func signalRequest(from source: String) async throws -> MergeRequest? {
+    public func request(forBranch source: String) async throws -> MergeRequest? {
         if let open = try await existingRequest(from: source) { return open }
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         let matches: (PullPayload) -> Bool = {
@@ -180,90 +156,28 @@ public struct GitHubClient: HostRepository {
         }
         guard read.complete else { throw IncompleteRead("branch requests") }
         guard let own = read.items.first(where: matches) else { return nil }
-        return try await mergeRequests(search: String(own.number)).first
+        return try await request(number: own.number)
     }
 
-    /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
-    /// alone, so a caller debounces a ready answer): merged or closed first, then every check run and
-    /// commit status on its head (`checkSummary`), then a draft — a merge end waits for green whatever branch protection
-    /// requires, and a pending check is not green yet — then `mergeable` and `mergeable_state`. Only `clean` and
-    /// `has_hooks` with `mergeable` true is ready.
-    public func readiness(of number: Int) async throws -> MergeReadiness {
-        let pull = try await get(PullStatusPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
-        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha, target: pull.base?.ref) }
-        guard pull.state == "open" else { return .blocked("the pull request is closed") }
-        let commit = boundPath + "/commits/\(pull.head.sha)"
-        async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs")
-        async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status")
-        guard let runs = try await readRuns, let statuses = try await readStatuses else {
-            return .waiting("GitHub has not listed all its checks")
-        }
-        switch Self.checkSummary(runs: runs, statuses: statuses) {
-        case .failed(let why): return .blocked(why)
-        case .running: return .waiting("its checks are running")
-        case .green: break
-        }
-        // A draft is said once its checks and its conflicts have: what else stops it comes first.
-        if pull.draft == true { return pull.mergeable == false ? .blocked("it has conflicts") : .blocked(MergeReadiness.draftReason) }
-        switch pull.mergeableState ?? "unknown" {
-        case "clean", "has_hooks": return pull.mergeable == true ? .ready(head: pull.head.sha) : .waiting("GitHub is checking it")
-        case "dirty": return .blocked("it has conflicts")
-        case "behind": return .blocked("it is behind its base branch")
-        case "blocked": return .waiting("it needs a review or a required check")
-        case "draft": return .blocked(MergeReadiness.draftReason)
-        // GitHub says a check does not pass that every list read here shows green: not ready until it agrees.
-        case "unstable": return .waiting("GitHub says its checks are not all passing")
-        default: return .waiting("GitHub is checking it")
-        }
-    }
-
-    /// Its head, approvals and checks as one word, nil when absent or not read to the end.
-    public func state(of request: MergeRequest) async throws -> MergeRequestState {
-        let number = request.iid
-        async let read = get(PullStatusPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
+    /// One GET of the pull and, beside it, its approvals. While the pull is open, its check runs and commit statuses
+    /// are read at the head that same answer names; a list that cannot be read whole leaves the checks unlisted
+    /// (waiting, no pipeline word) and is no error. A merged or closed pull's checks are not read: nothing uses them.
+    public func status(of number: Int) async throws -> RequestStatus {
+        async let read = get(PullPayload.self, path: boundPath + "/pulls/\(number)", notFound: .repoNotFound(repo))
         async let approved = approvals(of: number)
         let (pull, by) = try await (read, approved)
-        let commit = boundPath + "/commits/\(pull.head.sha)"
-        var pipeline: String?
-        async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs")
-        async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status")
-        if let runs = try await readRuns, let statuses = try await readStatuses, !runs.isEmpty || !statuses.isEmpty {
-            switch Self.checkSummary(runs: runs, statuses: statuses) {
-            case .failed: pipeline = "failure"
-            case .running: pipeline = "pending"
-            case .green: pipeline = "success"
-            }
+        guard let state = pull.state, let head = pull.head.sha else { throw GitHubError.decoding }
+        var checks = GitHubPullFacts.Checks.notListedWhole
+        if pull.merged != true, state == "open" {
+            let commit = boundPath + "/commits/\(head)"
+            async let readRuns = listed(CheckRunsPayload.self, path: commit + "/check-runs")
+            async let readStatuses = listed(CombinedStatusPayload.self, path: commit + "/status")
+            if let runs = try await readRuns, let statuses = try await readStatuses { checks = .listed(runs: runs, statuses: statuses) }
         }
-        return MergeRequestState(pipeline: pipeline, approvedBy: by, head: pull.head.sha)
-    }
-
-    /// A head's checks as merging reads them, one table for `readiness` and `state` alike: GitHub's own,
-    /// where neutral and skipped pass as branch protection counts them. Stale, which only GitHub sets on a run that took too
-    /// long, never finishes, so it has failed. A failed check is said before one still running, and a conclusion AiTerm does
-    /// not know, or none on a completed run, is not green.
-    private enum CheckSummary { case failed(String), running, green }
-
-    private static func checkSummary(runs: [CheckRunsPayload.Run], statuses: [CombinedStatusPayload.Status]) -> CheckSummary {
-        var running = false
-        for run in runs {
-            guard run.status == "completed" else { running = true; continue }
-            switch run.conclusion ?? "" {
-            case "success", "neutral", "skipped": continue
-            case "failure", "timed_out", "startup_failure": return .failed("its check \(run.name) failed")
-            case "cancelled": return .failed("its check \(run.name) was cancelled")
-            case "action_required": return .failed("its check \(run.name) needs someone to act")
-            case "stale": return .failed("its check \(run.name) went stale")
-            default: running = true
-            }
-        }
-        for status in statuses {
-            switch status.state {
-            case "success": continue
-            case "failure", "error": return .failed("its status \(status.context) failed")
-            default: running = true
-            }
-        }
-        return running ? .running : .green
+        let facts = GitHubPullFacts(state: state, merged: pull.merged == true, draft: pull.draft == true, mergeable: pull.mergeable,
+                                    mergeableState: pull.mergeableState, head: head, mergeCommit: pull.mergeCommitSha,
+                                    baseRef: pull.base.ref, checks: checks)
+        return RequestStatus(request: pull.mergeRequest, head: head, readiness: .gitHub(facts), approvedBy: by, pipeline: checks.pipeline)
     }
 
     /// Every item of a paged list that reports its own `total`, a page of 100 at a time. HTTPJSON shows no
@@ -284,7 +198,7 @@ public struct GitHubClient: HostRepository {
     /// Merges it at `sha`, the accepted commit: GitHub refuses (409) when the head is any other. Only
     /// `sha` is sent, so the merge is GitHub's own default, a merge commit — never a squash or a rebase,
     /// never auto-merge, never the branch deleted. A refusal is `.blocked`; only a failure to ask throws.
-    /// An answer that does not say it merged is `.waiting`: `mergeReadiness` says when it has.
+    /// An answer that does not say it merged is `.waiting`: the next `status(of:)` says when it has.
     public func merge(_ number: Int, at sha: String) async throws -> MergeReadiness {
         struct Merge: Encodable { var sha: String }
         struct Merged: Decodable { var sha: String?, merged: Bool? }
@@ -302,7 +216,7 @@ public struct GitHubClient: HostRepository {
     }
 
     /// One query, never a mutation: each review thread with its id, whether it is resolved, and its last comment.
-    static let threadDetailsQuery = """
+    static let threadsQuery = """
         query($owner: String!, $name: String!, $number: Int!, $after: String) {
           repository(owner: $owner, name: $name) {
             pullRequest(number: $number) {
@@ -319,31 +233,20 @@ public struct GitHubClient: HostRepository {
     /// `threadPagesRead`, a cursor that does not move on or a thread that does not decode throws `IncompleteRead`, so
     /// nothing is decided on part of them.
     public func threads(of number: Int) async throws -> [ReviewThread] {
-        try await readThreads(ThreadDetail.self, number: number, complete: true,
-            answer: { (answer: GraphQLAnswer<ThreadsPayload<ThreadDetail>, GraphQLProblem>) in try answer.checked(repo: repo) },
-            items: { nodes in
-                try nodes.map { entry in
+        guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        return try await graphQLPages(ThreadsPayload.self, query: Self.threadsQuery,
+            variables: { ThreadVariables(owner: owner, name: name, number: number, after: $0) },
+            limit: Self.threadPagesRead, exhausted: IncompleteRead("review threads"),
+            invalidCursor: IncompleteRead("review threads"),
+            answer: { (answer: GraphQLAnswer<ThreadsPayload, GraphQLProblem>) in try answer.checked(repo: repo) },
+            page: { payload in
+                guard let threads = payload.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
+                let items = try threads.nodes.map { entry in
                     guard let node = entry.value else { throw IncompleteRead("review threads") }
                     let last = node.comments?.nodes?.last
                     return ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? "")
                 }
-            })
-    }
-
-    /// Both thread projections use the same repository binding and paged query. Only publication
-    /// requires complete, strictly decoded pages; badges retain their bounded, lenient read.
-    private func readThreads<Node: Decodable, Problem: Decodable, Item>(_ type: Node.Type, number: Int, complete: Bool,
-        answer: (GraphQLAnswer<ThreadsPayload<Node>, Problem>) throws -> ThreadsPayload<Node>,
-        items: ([Lenient<Node>]) throws -> [Item]) async throws -> [Item] {
-        guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
-        return try await graphQLPages(ThreadsPayload<Node>.self, query: complete ? Self.threadDetailsQuery : Self.threadsQuery,
-            variables: { ThreadVariables(owner: owner, name: name, number: number, after: $0) },
-            limit: complete ? Self.threadPagesRead : Self.threadPages,
-            exhausted: complete ? IncompleteRead("review threads") : nil,
-            invalidCursor: complete ? IncompleteRead("review threads") : nil, answer: answer,
-            page: { payload in
-                guard let threads = payload.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
-                return (try items(threads.nodes), threads.pageInfo)
+                return (items, threads.pageInfo)
             })
     }
 
@@ -374,10 +277,9 @@ public struct GitHubClient: HostRepository {
                               body: GraphQLRequest(query: query, variables: variables), notFound: .repoNotFound(repo)))
     }
 
-    /// A cursor listing, validated one page at a time. A nil exhaustion/cursor error preserves a
-    /// badge's bounded, lenient read; complete reads supply their own refusal at either boundary.
+    /// A cursor listing, validated one page at a time, refusing an incomplete read.
     private func graphQLPages<Variables: Encodable, Payload: Decodable, Problem: Decodable, Item>(_ type: Payload.Type, query: String,
-        variables: (String?) -> Variables, limit: Int, exhausted: (any Error)?, invalidCursor: (any Error)?,
+        variables: (String?) -> Variables, limit: Int, exhausted: any Error, invalidCursor: any Error,
         allowEmptyCursor: Bool = true, answer: (GraphQLAnswer<Payload, Problem>) throws -> Payload,
         page: (Payload) throws -> ([Item], GraphQLPageInfo)) async throws -> [Item] {
         var result: [Item] = [], cursor: String?
@@ -388,8 +290,7 @@ public struct GitHubClient: HostRepository {
             guard let next = try info.next(after: cursor, allowEmpty: allowEmptyCursor, invalid: invalidCursor) else { return result }
             cursor = next
         }
-        if let exhausted { throw exhausted }
-        return result
+        throw exhausted
     }
 
     /// The ruleset rule types that do not stop AiTerm pushing its own branch: they forbid force-pushes or
@@ -537,7 +438,7 @@ public struct GitHubClient: HostRepository {
     }
 }
 
-/// The fields of a pull request the picker shows.
+/// The fields of a pull request the picker shows, and what `status(of:)` reads beside them.
 private struct PullPayload: Decodable {
     struct User: Decodable { var login: String? }
     struct Repo: Decodable { var fullName: String? }
@@ -550,6 +451,10 @@ private struct PullPayload: Decodable {
     var body: String?
     /// Who is still asked to review it: GitHub drops a reviewer from the list once they reviewed.
     var requestedReviewers: [User]?
+    struct Team: Decodable { var slug: String? }
+    var requestedTeams: [Team]?
+    /// What says whether it can merge now, read by `status(of:)` from the same answer.
+    var mergeable: Bool?, mergeableState: String?, mergeCommitSha: String?
 
     /// A head in another repository — or in none, once its fork was deleted — is a fork's.
     var mergeRequest: MergeRequest {
@@ -559,7 +464,8 @@ private struct PullPayload: Decodable {
                             author: user?.login, state: merged == true ? "merged" : (state ?? "open"),
                             draft: draft ?? false, url: htmlUrl,
                             forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil, description: body,
-                            reviewers: requestedReviewers?.compactMap(\.login))
+                            reviewers: requestedReviewers?.compactMap(\.login),
+                            reviewerTeams: requestedTeams?.compactMap(\.slug) ?? [])
     }
 }
 
@@ -588,18 +494,15 @@ extension GraphQLAnswer where Problem == GraphQLProblem {
 }
 
 private struct ThreadVariables: Encodable { var owner: String, name: String, number: Int, after: String? }
-/// Badge reads intentionally ignore error messages and the thread detail fields.
-private struct ThreadProblem: Decodable { var type: String? }
-private struct ThreadResolution: Decodable { var isResolved: Bool }
 private struct ThreadDetail: Decodable {
     struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
     struct Comments: Decodable { var nodes: [Comment]? }
     var id: String, isResolved: Bool, comments: Comments?
 }
 
-/// The same GraphQL connection, projected as badge resolutions or publication thread details.
-private struct ThreadsPayload<Node: Decodable>: Decodable {
-    struct Threads: Decodable { var pageInfo: GraphQLPageInfo, nodes: [Lenient<Node>] }
+/// The review thread connection of one pull request.
+private struct ThreadsPayload: Decodable {
+    struct Threads: Decodable { var pageInfo: GraphQLPageInfo, nodes: [Lenient<ThreadDetail>] }
     struct PullRequest: Decodable { var reviewThreads: Threads }
     struct Repository: Decodable { var pullRequest: PullRequest? }
     var repository: Repository?
@@ -612,38 +515,25 @@ private protocol PagedList: Decodable {
     var total: Int { get }
 }
 
-/// The fields of a pull request that say whether it can merge now.
-private struct PullStatusPayload: Decodable {
-    struct Base: Decodable { var ref: String }
-    var base: Base?
-    struct Head: Decodable { var sha: String }
-    var state: String, draft: Bool?, merged: Bool?, mergeable: Bool?, mergeableState: String?, mergeCommitSha: String?
-    var head: Head
-}
-
 /// A commit's check runs (GitHub Actions and other apps).
 private struct CheckRunsPayload: PagedList {
-    struct Run: Decodable { var name: String, status: String, conclusion: String? }
-    var totalCount: Int, checkRuns: [Run]
-    var items: [Run] { checkRuns }
+    var totalCount: Int, checkRuns: [GitHubPullFacts.CheckRun]
+    var items: [GitHubPullFacts.CheckRun] { checkRuns }
     var total: Int { totalCount }
 }
 
 /// A commit's statuses (the older API some CI still reports through).
 private struct CombinedStatusPayload: PagedList {
-    struct Status: Decodable { var context: String, state: String }
-    var totalCount: Int, statuses: [Status]
-    var items: [Status] { statuses }
+    var totalCount: Int, statuses: [GitHubPullFacts.CommitStatus]
+    var items: [GitHubPullFacts.CommitStatus] { statuses }
     var total: Int { totalCount }
 }
 
 
 private struct GraphQLPageInfo: Decodable {
     var hasNextPage: Bool, endCursor: String?
-    func next(after previous: String?, allowEmpty: Bool = true, invalid: (any Error)?) throws -> String? {
+    func next(after previous: String?, allowEmpty: Bool = true, invalid: any Error) throws -> String? {
         guard hasNextPage else { return nil }
-        // Badges have always accepted repeated cursors and stopped on a missing one, up to their cap.
-        guard let invalid else { return endCursor }
         guard let next = endCursor, next != previous, allowEmpty || !next.isEmpty else { throw invalid }
         return next
     }

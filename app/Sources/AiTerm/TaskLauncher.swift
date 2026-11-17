@@ -247,8 +247,8 @@ final class TaskLauncher {
             if task.mr != nil {
                 let links = await connections()
                 try check()
-                let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: project.remoteUrl),
-                                                               gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
+                let host = try CodeHosts.repository(for: ProviderDetector.detect(remoteUrl: project.remoteUrl),
+                                                    gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
                 guard let request = try await host.existingRequest(from: task.branch), request.forkHead == nil else {
                     throw ActionUnavailable("The request's source branch is unavailable in this repository. Open it yourself to choose its checkout.")
                 }

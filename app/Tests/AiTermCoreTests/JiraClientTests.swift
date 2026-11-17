@@ -45,6 +45,22 @@ import Synchronization
         #expect(body?["jql"] as? String == "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC")
     }
 
+    @Test func pickerAndSignalSearchesDifferOnlyInPageSize() async throws {
+        let stub = StubSession { _ in (200, Data(#"{"isLast":true,"issues":[]}"#.utf8)) }
+        let client = JiraClient(config: config, session: stub.session)
+        _ = try await client.myOpenIssues()
+        _ = try await JiraQueryReader(client: client, conditions: JiraConditions(jql: JiraClient.openIssuesJQL))
+            .poll(since: nil, full: true)
+        let bodies = try stub.requests.map { request in
+            try JSONDecoder().decode([String: JSONValue].self, from: request.httpBody ?? Data())
+        }
+        #expect(bodies.count == 2)
+        #expect(bodies[0]["maxResults"] == 25)
+        #expect(bodies[1]["maxResults"] == 100)
+        #expect(bodies[0]["fields"] == .array(["summary", "description", "status", "issuetype", "updated", "labels", "project", "assignee"].map(JSONValue.string)))
+        #expect(bodies[0].filter { $0.key != "maxResults" } == bodies[1].filter { $0.key != "maxResults" })
+    }
+
     @Test func testSearchByKeyAndByText() async throws {
         let stub = keyStub()
         let client = JiraClient(config: config, session: stub.session)
@@ -421,15 +437,20 @@ import Synchronization
                    {"key":"A-2","fields":{}},
                    {"fields":{"summary":"No key"}},
                    "junk",
-                   {"key":"A-3","fields":{"summary":"Plain","description":"Just text","issuetype":"odd","status":{"name":7}}},
+                   {"key":"A-3","fields":{"summary":"Plain","description":"Just text","issuetype":"odd","status":{"name":7},"updated":7,"labels":"odd","project":7,"assignee":false}},
                    {"key":"A-4","fields":{"summary":"Empty","description":null}}]}
         """#
         let stub = StubSession { _ in (200, Data(body.utf8)) }
-        let tickets = try await JiraClient(config: config, session: stub.session).myOpenIssues()
+        let client = JiraClient(config: config, session: stub.session)
+        let page = try await client.search(jql: JiraClient.openIssuesJQL, limit: 100, pageToken: nil)
+        #expect(!page.complete)
+        let tickets = try await client.myOpenIssues()
+        #expect(tickets == page.tickets)
         #expect(tickets.map(\.key) == ["A-1", "A-3", "A-4"])
         #expect(tickets.map(\.description) == [nil, "Just text", nil])
         #expect(tickets.map(\.issueType) == [nil, nil, nil])
         #expect(tickets.map(\.status) == [nil, nil, nil])
+        #expect(tickets.allSatisfy { $0.updated == nil && $0.labels.isEmpty && $0.project == nil && $0.assignee == nil })
     }
 
     @Test func aProjectEntryThatCannotBeReadDropsAloneButStillCountsTowardTheNextPage() async throws {

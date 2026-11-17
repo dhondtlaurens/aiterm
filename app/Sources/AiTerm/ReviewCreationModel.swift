@@ -31,7 +31,7 @@ struct ReviewTicketLookup: Sendable {
         let jiraSource = TaskCreationModel.jiraSource(for: project, jira: jira)
         let issues = TaskCreationModel.gitLabIssueSource(gitLab: gitLab, remote: remote)
         let tickets = TicketSearch(jira: jiraSource, jiraUnavailable: TaskCreationModel.connectJira, gitLabIssues: issues)
-        let repository = try? MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub)
+        let repository = try? CodeHosts.repository(for: remote, gitLab: gitLab, gitHub: gitHub)
         let linked = project.jiraProjects
         self.init(
             search: { try await tickets.tickets(matching: $0) },
@@ -159,11 +159,11 @@ extension CreationModel where Kind == ReviewCreation {
     /// `gitLab`, `gitHub` and `remote` are the connections and the project's remote as they stood
     /// when the sheet was prepared: Keychain reads and a look at the checkout, too slow for every
     /// keystroke on the main actor, so a connection changed in Settings meanwhile applies from the
-    /// next sheet. Which host is searched is Core's to say (`MergeRequestSearch`); why none can be
+    /// next sheet. Which host is searched is Core's to say (`CodeHosts`); why none can be
     /// is the sheet's search error, on every search.
     static func searcher(gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, remote: RemoteInfo, session: URLSession = .shared) -> @MainActor (String) async throws -> [MergeRequest] {
-        let source = Result(catching: { () throws(MergeRequestSearch.Unavailable) -> any MergeRequestSearching in
-            try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub, session: session)
+        let source = Result(catching: { () throws(CodeHosts.Unavailable) -> any HostRepository in
+            try CodeHosts.repository(for: remote, gitLab: gitLab, gitHub: gitHub, session: session)
         })
         return { text in
             switch source {
@@ -313,7 +313,7 @@ extension CreationModel where Kind == ReviewCreation {
     }
 }
 
-extension MergeRequestSearch.Unavailable {
+extension CodeHosts.Unavailable {
     /// What the sheet says in place of merge requests.
     var message: String {
         switch self {

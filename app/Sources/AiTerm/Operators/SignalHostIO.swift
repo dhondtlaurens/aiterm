@@ -15,7 +15,7 @@ import AiTermCore
             try await BackgroundWork.run { try git.run(["remote", "get-url", "origin"], in: task.hasCheckout && FileManager.default.fileExists(atPath: task.worktreePath) ? task.worktreePath : project.path).trimmingCharacters(in: .whitespacesAndNewlines) }
         }
     }
-    private func binding(_ task: TaskItem, links: SignalConnections) async throws -> (String, any SignalHostReading) {
+    private func binding(_ task: TaskItem, links: SignalConnections) async throws -> (String, any HostRepository) {
         guard let project = workspace.state.project(id: task.projectId), let saved = project.remoteUrl else { throw ActionUnavailable("Its project has no connected remote.") }
         let current = try await remote(project, task)
         guard let repository = ItemRef.repository(current), repository == ItemRef.repository(saved) else { throw ActionUnavailable("Its origin changed; check the project's repository before continuing.") }
@@ -29,18 +29,24 @@ import AiTermCore
                 throw ActionUnavailable("The request link belongs to another repository.")
             }
         }
-        let host = try MergeRequestSearch.signalSource(for: ProviderDetector.detect(remoteUrl: current), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
+        let host = try CodeHosts.repository(for: ProviderDetector.detect(remoteUrl: current), gitLab: links.gitLab, gitHub: links.gitHub, session: links.session)
         return (current, host)
     }
     private func requestNumber(_ task: TaskItem) -> Int? {
         if case .mergeRequest(let reference) = task.signalTask?.current.item { return reference.number }
         return task.mr?.iid ?? task.signalTask?.watchedRequest?.number
     }
-    private func request(_ task: TaskItem, host: any SignalHostReading) async throws -> MergeRequest? {
+    private func request(_ task: TaskItem, host: any HostRepository) async throws -> MergeRequest? {
         if let number = requestNumber(task) {
-            return try await host.mergeRequests(search: String(number)).first { $0.iid == number }
+            return try await host.request(number: number)
         }
-        return try await host.signalRequest(from: task.branch)
+        return try await host.request(forBranch: task.branch)
+    }
+    /// The request's status by its known number; without one, the branch's request is found first.
+    private func status(_ task: TaskItem, host: any HostRepository) async throws -> RequestStatus? {
+        if let number = requestNumber(task) { return try await host.status(of: number) }
+        guard let found = try await host.request(forBranch: task.branch) else { return nil }
+        return try await host.status(of: found.iid)
     }
     private func ticket(_ task: TaskItem, links: SignalConnections) async throws -> JiraTicket? {
         guard let ref = task.jira, ref.source == .jira else { return nil }
@@ -63,7 +69,12 @@ import AiTermCore
             if !signal.finish.mergesWhenReady { var value = empty; value.facts = facts; return value }
         }
         let (remote, host) = try await binding(task, links: links)
-        guard let request = try await request(task, host: host) else { var value = empty; value.facts = facts; return value }
+        // A merge watch reads the request and everything about it in one status read; any other condition reads the
+        // request alone.
+        var status: RequestStatus?, found: MergeRequest?
+        if signal.finish.mergesWhenReady { status = try await self.status(task, host: host); found = status?.request }
+        else { found = try await request(task, host: host) }
+        guard let request = found else { var value = empty; value.facts = facts; return value }
         let reference = SignalRequestRef(remote: remote, number: request.iid)
         if let number = requestNumber(task), number != request.iid { throw ActionUnavailable("The watched request changed.") }
         guard request.sourceBranch == task.branch else { throw ActionUnavailable("The request belongs to another branch.") }
@@ -71,35 +82,33 @@ import AiTermCore
         // Who it waits on, from the request answer just read: the sidebar's line, never a call of its own.
         facts.reviewers = request.reviewers
         let link = MergeRequestRef(iid: request.iid, title: request.title, url: request.url)
-        if !signal.finish.mergesWhenReady {
+        guard let status else {
             switch signal.finish.doneWhen {
-            case .hasReviewer: facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
+            case .hasReviewer: facts.hasReviewer = request.hasReviewer
             case .approved: facts.approved = try await !host.approvals(of: request.iid).isEmpty
             case .threadsResolved:
                 let threads = try await host.threads(of: request.iid)
                 facts.threadsResolved = threads.allSatisfy(\.resolved); facts.openThreads = threads.filter { !$0.resolved }.count
-            case .myReviewPosted: facts.reviewPostedAt = try await host.mySignalReviewPostedAt(of: request.iid)
+            case .myReviewPosted: facts.reviewPostedAt = try await host.myReviewPostedAt(of: request.iid)
             default: break
             }
             facts.hostReadComplete = true
             return RequestWatch.Snapshot(reference: reference, facts: facts, head: nil, localHead: nil, approvals: false, greenChecks: false, link: link)
         }
-        let state = try await host.state(of: request)
-        let readiness = try await host.readiness(of: request.iid)
         let threads = try await host.threads(of: request.iid)
         facts.hostReadComplete = true
-        facts.hasReviewer = try await !host.signalReviewers(of: request.iid).isEmpty
-        facts.approved = !state.approvedBy.isEmpty
+        facts.hasReviewer = request.hasReviewer
+        facts.approved = !status.approvedBy.isEmpty
         facts.threadsResolved = threads.allSatisfy(\.resolved); facts.openThreads = threads.filter { !$0.resolved }.count
-        facts.closed = request.state == "closed"
-        var head = state.head
+        let readiness = status.readiness
+        var head = status.head
         if case .merged(_, let mergedHead, _) = readiness { facts.merged = true; if !mergedHead.isEmpty { head = mergedHead } }
-        if signal.finish.doneWhen == .myReviewPosted { facts.reviewPostedAt = try await host.mySignalReviewPostedAt(of: request.iid) }
+        if signal.finish.doneWhen == .myReviewPosted { facts.reviewPostedAt = try await host.myReviewPostedAt(of: request.iid) }
         let git = git
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
         let ready: Bool = if case .ready = readiness { true } else { false }
         return RequestWatch.Snapshot(reference: reference, facts: facts, head: head, localHead: local,
-                                     approvals: facts.approved && ready, greenChecks: state.pipeline == "success", link: link, hostReady: ready)
+                                     approvals: facts.approved && ready, greenChecks: status.pipeline == "success", link: link, hostReady: ready)
     }
     func merge(_ task: TaskItem, snapshot: RequestWatch.Snapshot) async throws {
         guard let claim = SignalClaim(task), let reference = snapshot.reference, let head = snapshot.head, snapshot.canMerge,
@@ -173,8 +182,8 @@ import AiTermCore
               let project = workspace.state.project(id: task.projectId) else { return }
         do {
             let links = await connections(), (_, host) = try await binding(task, links: links)
-            guard let request = try await request(task, host: host),
-                  case .merged(_, let head, _) = try await host.readiness(of: request.iid), !head.isEmpty,
+            guard let status = try await status(task, host: host),
+                  case .merged(_, let head, _) = status.readiness, !head.isEmpty,
                   task.branch != (try await host.defaultBranch()),
                   !workspace.state.tasks.contains(where: { $0.projectId == task.projectId && $0.branch == task.branch }) else { return }
             _ = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: head, mergedHead: head,

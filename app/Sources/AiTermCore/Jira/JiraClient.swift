@@ -57,18 +57,10 @@ public struct JiraClient: Sendable {
     }()
     public var siteURL: URL { config.siteURL }
 
-    /// Jira's times, `2026-11-03T08:47:32.776+0100`.
-    static func date(_ text: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-        return formatter.date(from: text)
-    }
-
     public static let openIssuesJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 
     public func myOpenIssues(projects: [JiraProjectRef] = []) async throws -> [JiraTicket] {
-        try await search(jql: Self.scoped(Self.openIssuesJQL, in: try projectScope(projects)))
+        try await search(jql: Self.scoped(Self.openIssuesJQL, in: try projectScope(projects)), limit: Self.maxResults, pageToken: nil).tickets
     }
 
     /// `jql`'s condition in parentheses after `scope`, so an `OR` in it cannot reach past the scope, and
@@ -111,13 +103,13 @@ public struct JiraClient: Sendable {
             return try await searchKeys([key], scope: scope, projectKeys: projectKeys) { $0.hasPrefix(key) }
         }
         guard !projectKeys.isEmpty, t.range(of: #"^[0-9]+$"#, options: .regularExpression) != nil else {
-            return try await search(jql: textJQL)
+            return try await search(jql: textJQL, limit: Self.maxResults, pageToken: nil).tickets
         }
         let number = Self.withoutLeadingZeros(Substring(t))
         async let byKey = searchKeys(projectKeys.map { "\($0)-\(number)" }, scope: scope, projectKeys: projectKeys) {
             Self.number(of: $0).hasPrefix(number)
         }
-        async let byText = search(jql: textJQL)
+        async let byText = search(jql: textJQL, limit: Self.maxResults, pageToken: nil).tickets
         return Self.merged(try await byKey, try await byText)
     }
 
@@ -187,7 +179,7 @@ public struct JiraClient: Sendable {
         guard !keys.isEmpty else { return [] }
         let list = keys.map { "\"\($0)\"" }.joined(separator: ", ")
         let found: [JiraTicket]
-        do { found = try await search(jql: Self.scoped("key in (\(list)) AND statusCategory != Done", in: scope)) }
+        do { found = try await search(jql: Self.scoped("key in (\(list)) AND statusCategory != Done", in: scope), limit: Self.maxResults, pageToken: nil).tickets }
         catch JiraError.badResponse(400) {
             found = try await lookUp(keys, jql: { "key = \"\($0)\" AND statusCategory != Done" }, scope: scope)
         }
@@ -198,7 +190,7 @@ public struct JiraClient: Sendable {
     /// One search per key, a few at a time, in `keys` order; a key Jira cannot resolve (400) finds nothing.
     private func lookUp(_ keys: [String], jql: @escaping @Sendable (String) -> String, scope: String) async throws -> [JiraTicket] {
         try await inOrder(keys) { key in
-            do { return try await search(jql: Self.scoped(jql(key), in: scope)) }
+            do { return try await search(jql: Self.scoped(jql(key), in: scope), limit: Self.maxResults, pageToken: nil).tickets }
             catch JiraError.badResponse(400) { return [] }
         }.flatMap { $0 }
     }
@@ -244,18 +236,28 @@ public struct JiraClient: Sendable {
         return me.displayName ?? me.emailAddress ?? "connected"
     }
 
-    func search(jql: String) async throws -> [JiraTicket] {
+    /// One search page for the picker and signals. The caller owns paging and how to use an incomplete page.
+    public func search(jql: String, limit: Int, pageToken: String?) async throws -> JiraSearchPage {
+        struct Body: Encodable {
+            var jql: String, maxResults: Int
+            let fields = ["summary", "description", "status", "issuetype", "updated", "labels", "project", "assignee"]
+            var nextPageToken: String?
+        }
         let path = "/rest/api/3/search/jql"
         let data = try await send(method: "POST", path: path,
-                                  json: JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
-                                                                       fields: ["summary", "description", "status", "issuetype", "updated"])))
-        return try decode(SearchResponse.self, data: data, reading: path).issues.compactMap(\.value).map { issue in
+                                  json: JSONEncoder().encode(Body(jql: jql, maxResults: limit, nextPageToken: pageToken)))
+        let page = try decode(SearchResponse.self, data: data, reading: path)
+        let tickets = page.issues.compactMap(\.value).map { issue in
             let description = ADFText.plain(issue.fields.description)
             return JiraTicket(key: issue.key, summary: issue.fields.summary, description: description.isEmpty ? nil : description,
                               issueType: issue.fields.issuetype?.value?.name, status: issue.fields.status?.value?.name,
                               url: config.siteURL.appendingPathComponent("browse/\(issue.key)").absoluteString,
-                              updated: issue.fields.updated?.value.flatMap(Self.date))
+                              updated: issue.fields.updated?.value.flatMap(HostDate.jira), labels: issue.fields.labels?.value ?? [],
+                              project: issue.fields.project?.value?.key, assignee: issue.fields.assignee?.value?.accountId)
         }
+        let last = page.isLast ?? (page.nextPageToken == nil)
+        return JiraSearchPage(tickets: tickets, nextPageToken: page.nextPageToken, isLast: last,
+                              complete: tickets.count == page.issues.count && (last || page.nextPageToken != nil))
     }
 
     /// `project in (…)` for `projects`, every one of which must be on the configured site; empty
@@ -302,10 +304,6 @@ public struct JiraClient: Sendable {
     }
 }
 
-private struct SearchBody: Encodable {
-    var jql: String, maxResults: Int, fields: [String]
-}
-
 /// A page of `/search/jql`: the issues that have a key and a summary, each other dropped alone.
 private struct SearchResponse: Decodable {
     struct Issue: Decodable { var key: String, fields: Fields }
@@ -316,9 +314,14 @@ private struct SearchResponse: Decodable {
         var issuetype: Lenient<Named>?, status: Lenient<Named>?
         /// `2026-11-03T08:47:32.776+0100`: when it last changed, for the list it shares with GitLab issues.
         var updated: Lenient<String>?
+        var labels: Lenient<[String]>?, project: Lenient<Project>?, assignee: Lenient<Assignee>?
     }
     struct Named: Decodable { var name: String? }
+    struct Project: Decodable { var key: String? }
+    struct Assignee: Decodable { var accountId: String? }
     var issues: [Lenient<Issue>]
+    var isLast: Bool?
+    var nextPageToken: String?
 }
 
 /// `/issue/picker`: its sections of suggested issue keys. A section that is not one drops alone.
