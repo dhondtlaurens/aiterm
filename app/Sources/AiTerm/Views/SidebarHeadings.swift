@@ -321,8 +321,8 @@ struct ProviderIcon: View {
         }
     }
 
-    /// A signal's source as its heading marks it.
-    nonisolated static func source(of source: SignalSource) -> IconSource {
+    /// A signal's Start trigger source as its heading marks it.
+    nonisolated static func source(of source: SignalTrigger.Source) -> IconSource {
         switch source {
         case .jira: .brand(Palette.jira)
         case .gitLab: .gitlabTanuki

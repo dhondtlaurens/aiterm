@@ -36,11 +36,12 @@ extension TaskItem {
 }
 
 extension Signal {
-    /// A Jira signal that plans tickets on `agents` and is done when the Operator judges it.
+    /// A Jira signal that plans tickets on `agents` and is done when its ticket reaches Done.
     static func make(id: UUID = UUID(), name: String = "Plan tickets", createdAt: Date = Build.epoch,
                      agents: [AgentChoice] = Build.agents) -> Signal {
-        Signal(id: id, name: name, createdAt: createdAt, source: .jira(JiraConditions()), work: SignalWork(prompt: "/psg:plan"),
-               agents: agents, finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+        Signal(id: id, name: name, createdAt: createdAt, start: SignalTrigger(source: .jira, query: "labels = operator"),
+               done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "/psg:plan"),
+               agents: agents, finish: SignalFinish(then: .keep))
     }
 }
 

@@ -16,7 +16,7 @@ import Synchronization
         func set(_ status: String) { value.withLock { $0 = status } }
     }
 
-    @Test func aJiraMatchRunsToItsDoneConditionAndThenArchivesItsTask() async throws {
+    @Test func aJiraMatchRunsToItsDoneTriggerAndThenArchivesItsTask() async throws {
         // The world: a real repository linked to Jira project PAY, one signal on it, a recording daemon.
         let fixture = try await RaceFixture()
         let daemon = RecordingDaemon()
@@ -26,9 +26,10 @@ import Synchronization
         ports.clock.now = { clock.now }
         let site = URL(string: "https://jira.example")!
         let workspace = fixture.controller.workspace
-        let signal = Signal(name: "Plan tickets", createdAt: clock.now, source: .jira(JiraConditions()),
+        let signal = Signal(name: "Plan tickets", createdAt: clock.now, start: SignalTrigger(source: .jira, query: "labels = operator"),
+                            done: SignalTrigger(source: .jira, query: "status = Done"),
                             work: SignalWork(prompt: "/psg:plan"), agents: [SignalWorld.agent],
-                            finish: SignalFinish(doneWhen: .ticketStatus("Done"), then: .archive))
+                            finish: SignalFinish(then: .archive))
         workspace.mutate { state in
             state.updateProject(id: fixture.project.id) {
                 $0.jiraProjects = [JiraProjectRef(id: "1", key: "PAY", name: "Payments", siteURL: site)]
@@ -38,7 +39,11 @@ import Synchronization
         #expect(workspace.flush())
 
         let status = TicketStatus()
-        let stub = StubSession { _ in
+        // The Start query lists the ticket; the Done query finds it only once its status is Done.
+        let stub = StubSession { request in
+            let body = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any]
+            let jql = body?["jql"] as? String ?? ""
+            if jql.hasPrefix(#"key = "PAY-1" AND (status = Done)"#), status.current != "Done" { return (200, Data(#"{"issues":[],"isLast":true}"#.utf8)) }
             let page = #"{"issues":[{"key":"PAY-1","fields":{"summary":"Make retries safe","description":"Use an idempotency key.","#
                 + #""issuetype":{"name":"Task"},"status":{"name":""# + status.current + #""}}}],"isLast":true}"#
             return (200, Data(page.utf8))
@@ -73,6 +78,7 @@ import Synchronization
         #expect(task.signalTask?.current.item == item)
         #expect(task.jira?.key == "PAY-1")
         #expect(task.signalTask?.phase == .working)
+        #expect(task.signalTask?.doneMatched == false, "its Done baseline was read before its worker launched")
         let worktree = task.worktreePath, branch = task.branch
         #expect(FileManager.default.fileExists(atPath: worktree))
         let window = try #require(task.windowId)
@@ -95,7 +101,8 @@ import Synchronization
         #expect(workspace.state.task(id: task.id)?.signalTask?.phase == .working)
         #expect(daemon.requests("window.close").isEmpty)
 
-        // Act 3: the worker's turn ends with no question, and the next watch archives the task.
+        // Act 3: the worker's turn ends with no question; the next watch reads the Done query matching where its
+        // baseline did not, and archives the task.
         let transcripts = ports.claudeConfig.directory(home: ports.home).appendingPathComponent("projects/journey")
         try FileManager.default.createDirectory(at: transcripts, withIntermediateDirectories: true)
         let reply = #"{"type":"assistant","message":{"content":[{"type":"text","text":"The plan is written."}]}}"# + "\n"

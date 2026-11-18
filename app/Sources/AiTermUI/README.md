@@ -68,6 +68,9 @@ style `.tabular` (`Typography.chip.tabular`), which sets tabular figures.
 `Opacity.disabled` is the shared disabled fade. Apply it to the part actually disabled: a rejected
 segment or tab, or the Oracle's Agent/Model/Reasoning fields while it is off (not its labels/help).
 
+`Sheet.queryEditorHeight` (56 pt) is a signal trigger's description and query editors; `PromptStep` keeps its
+own 150 pt prompt editor.
+
 If no token fits, add a documented member explaining its role and mention it in the change summary.
 Do not choose an arbitrary nearby number. Truly local geometry may be a documented private static
 constant describing what that component measures and why no token fits. When another file needs
@@ -123,7 +126,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | --- | --- |
 | `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink)/diff/suffix, action/menu and accessibility label (words for a count). |
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
-| `FormField` | Label/control stack with dropdown overhang above following content. |
+| `FormField` | Label/control stack with dropdown overhang above following content; an optional accessory (a small push button) at the trailing end of the label row. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
 | `HelpText` | String or composed Text in surface-aware secondary or warning ink; paragraph or inline sizing. |
 | `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus` and command-key delegation, monospaced option. |
@@ -132,7 +135,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `SegmentedControl` | A choice among a few values: Sidebar size and New Signal's source, query mode, event and Then. Neutral selected fill, house focus ring, selectable predicate, per-segment tooltip, labels inked for their ground. Not for tabs. |
 | `TabBar` | Underline tabs at the foot of a sheet's header: selected/unselected/rejected per its matrix, one focusable control answering ← →, the focus ring only for keyboard focus, `.isSelected` trait; the command-number keys are the sheet's (`TabShortcuts`). |
 | `Kbd` | Shortcut keycaps using the current surface's ink/wash. |
-| `PushButtonStyle` | The house push button, `.push(.primary)` (accent, declares `.surface(.accent)`) or `.push(.secondary)` (`button` ground, `border` edge); field-shaped, pressed/disabled/focus per its matrix; a native `Button` underneath. |
+| `PushButtonStyle` | The house push button, `.push(.primary)` (accent, declares `.surface(.accent)`) or `.push(.secondary)` (`button` ground, `border` edge); field-shaped, pressed/disabled/focus per its matrix; a native `Button` underneath. Under `.controlSize(.small)` it is `Size.menuRow` tall with a `caption` label, for an action on a field's label row. |
 | `SidebarHeading` | Sentence-case section heading: `Typography.section` in `Palette.tertiary`, words as given. |
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
 | `Hairline` | Shared unscaled border/separator, soft (`border`) or `.firm` (`borderStrong`, a stepper's connectors); use instead of a bare Divider. |
@@ -156,7 +159,7 @@ explains ownership and the full reusable vocabulary.
 | `SteppedSheet`, `Step`, `SheetLayout`, `SheetStepper`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
 | `NewTaskSheet`, `NewReviewSheet`, `SignalSheet` | Source/name/prompt/agent/finish in one order, omitting inapplicable steps. |
 | `ProjectSheet`, `NameSheet` | Add/Edit Project including Jira links/import; one-step terminal/divider/name forms. |
-| `SignalStartsStep`, `SignalConditionPicker`, `SignalDoneStep`, `AgentsStep` | Conditions/JQL, source-valid completion, explicit merge and permitted agent rows. |
+| `SignalTriggerStep`, `SignalMatchPreview`, `SignalDoneStep`, `AgentsStep` | A Start or Done trigger: its source, Describe it with its small Write button (its own spinner and "Writing…" while Claude writes) on the label row, and its query, both in `Sheet.queryEditorHeight` mono editors; the match preview; merge when ready, Then and permitted agent rows. |
 | `DescriptionToggle`, `AgentStep`, `ModelReasoningFields` | Description-only context and the shared select row. |
 | `OperatorSettingsPane`, `OracleGroup` | Operator/Oracle role copy, model choices, Oracle switch and standing instructions. |
 | `ArchiveSheet`, `ArchiveRow` | Search, restore and removal of archived tasks. |

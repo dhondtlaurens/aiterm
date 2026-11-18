@@ -99,13 +99,15 @@ written before a tool call still counts as chat, and a quota error never counts 
 Change the brief deliberately with provenance and rerun the capped evaluation.
 
 `SignalWorld`/`SignalHarness` cover routing and stage/claim races. `SignalJourneyTests` drives one
-signal from a Jira match through its worker's turn and done condition to its archived task, through
+signal from a Jira match through its worker's turn and Done trigger to its archived task, through
 the controller's own entry points, with fakes only at the daemon, HTTP, git and the clock; it must
 pass after every phase. Native adapter tests use scratch
 homes/defaults, recorded daemon commands, hermetic Git repositories and synthetic HTTP responses.
 They prove guard installation, conversation adoption, pause, actual command construction and
 cleanup ownership. Watching/cache/row redraw tests assert work budgets rather than elapsed-time
-speed claims. `SignalSnapshotTests` renders every source/event step; native hosted captures are
+speed claims. `SignalSnapshotTests` renders every step of a Jira and a GitLab signal (`signal-jira-1..5`,
+`signal-gitLab-1..5`), the refused-role notice (`signal-gitLab-refused`), merge when ready
+(`signal-gitLab-merge`) and Claude writing a query (`signal-jira-writing`, `signal-gitLab-writing`); native hosted captures are
 inspected for final AppKit controls. A live Jira-to-MR flow still requires the maintainer's go
 through `scripts/run-dev.sh`; tests and snapshots do not claim that flow ran.
 
@@ -168,7 +170,7 @@ Bundle checks do not launch the app. Debug snapshots enter before live app setup
 The README check requires a Retina main display. It compares a fresh drawing with `docs/desktop.png`
 and fails when they differ, which it does on `main` today: the committed picture is out of date and
 the next `scripts/release.sh` redraws it. A visual change is proven by comparing `scripts/snapshots.sh`
-captures before and after. The GitLab artwork in `marks.png` and `signal-jira-reviewRequested-1.png` has come out in
+captures before and after. The GitLab artwork in `marks.png` and in the signal sheets' Reads control has come out in
 two exact variants across captures of the same commit; capture again before calling such a
 difference a regression. Native WindowServer captures require screen
 recording permission; a fallback capture does not establish VoiceOver behavior or multi-display

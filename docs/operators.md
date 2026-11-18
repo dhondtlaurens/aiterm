@@ -1,16 +1,17 @@
 # Operator
 
-The Operator watches signals and drives their tasks in real iTerm2 windows. A signal watches Jira,
-GitLab or GitHub. When an item matches, AiTerm starts a task in an existing project and gives its
-worker your prompt. Polling itself uses no model tokens.
+The Operator watches signals and drives their tasks in real iTerm2 windows. A signal has a Start
+and a Done trigger, each a query on Jira, GitLab or GitHub. When an item starts to match the Start
+query, AiTerm starts a task in an existing project and gives its worker your prompt. Polling itself
+uses no model tokens.
 
 The Operator keeps one Claude Code chat while it has unfinished tasks. Its row is first under
 **Operator**; click it to open the chat. Closing the chat's window asks nothing: choosing the row
 opens it again, and a wake for the Operator reopens it. When the workload finishes, the chat closes
 and its row disappears. Configured signals keep polling without a chat; the next match starts a
 fresh one. Each signal is a heading like a project, with the same task rows underneath. Fold a
-signal to see its status counts, or hover its heading for its conditions, skipped items and source
-failures.
+signal to see its status counts, or hover its heading for its Start and Done queries, skipped items
+and source failures.
 
 The **Operator** and **Projects** sections fold into each other, one open at a time: click either
 heading to switch. Projects are open by default, so the Operator stays one folded line until you
@@ -22,11 +23,14 @@ section, and a notification or Focus View opens whichever section holds the row 
 
 Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five steps are:
 
-1. **Signal:** name it and choose Jira, GitLab or GitHub.
-2. **Starts when:** pick at least one condition. Jira offers labels, your open sprints, assignee, status and
-   Jira projects, or JQL. Code hosts offer **I'm asked to review** or **My merge request needs me**;
-   the latter watches unanswered threads, a request sent back to you, or both. Projects are optional
-   filters. The preview lists what starts when you create the signal.
+1. **Signal:** name it. The name is its heading under **Operator**.
+2. **Starts when:** the Start trigger. **Reads** picks Jira, GitLab or GitHub; that source decides
+   whether a task is about a ticket or a merge request. **Describe it** takes what you want in your
+   own words, and its **Write JQL** (**Write GitLab query**, **Write GitHub query**) button has
+   Claude write the query from it (see [Write a query](#write-a-query)). The query field below it
+   is what runs: edit what Claude wrote, or type your own. A query AiTerm refuses says why under
+   the field. The preview lists up to four matching items with their projects, warns about an item
+   no project matches, and counts what starts when you create the signal.
 3. **Prompt:** say what each worker does, including its checks. For example, `/psg:plan, then
    /psg:implement and /psg:review`. Description checkboxes add only the ticket and/or merge request
    description, quoted as data beneath your prompt. `/` offers installed skills.
@@ -39,8 +43,10 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
    the first row in your list does, and only then may AiTerm still move to the other agent at 80%.
    The row and its reason go into the task's journal. The choice never comes to you. A later stage
    and another work tab are chosen the same way; an existing conversation keeps its agent.
-5. **Done:** choose the source's done condition, whether to merge when ready where offered, and
-   whether to keep, archive or remove the task. The closing box states what your choices do.
+5. **Done when:** the Done trigger, with its own **Reads**, **Describe it**, Write button and query.
+   **Merge it when it's ready** is offered where the Start trigger reads Jira or names you as
+   author or assignee. **Then** keeps, archives or removes the task; with remove, **Delete its
+   branch once merged** is offered. The closing box states what your choices do.
 
 Every step has **Cancel**; Escape closes an open list, otherwise it cancels. A disabled **Continue**
 on the Agents step says why: an agent that isn't installed, or a model marked Unavailable.
@@ -50,9 +56,9 @@ While an agent the signal may use isn't ready, a note above the buttons says wha
 you can still create or save the signal.
 
 Creating, saving an edit or switching a signal on starts every currently matching item that never
-started. An incomplete read starts nothing. An item that stops matching keeps running to its done
-condition. There is no concurrency cap. Jira checks every minute and sweeps all matching keys every
-ten minutes; source failures back off to five minutes.
+started. An incomplete read starts nothing. An item that stops matching keeps running until its
+Done trigger. There is no concurrency cap. AiTerm reads each Start query every minute, and Jira
+sweeps all matching keys every ten minutes; source failures back off to five minutes.
 
 AiTerm uses projects already in the sidebar; it never clones on pick-up. Link a project's Jira
 projects in **Add Project…** or **Edit Project…**. A ticket linked to several projects waits for
@@ -62,6 +68,68 @@ by repository remote. Items without a project are skipped with their reason in t
 tooltip and activity log. No acknowledgement is written
 to a host or ticket when an item is picked up.
 
+### Write a query
+
+The Write button runs the Operator's Claude once, headless and read-only, with the Operator's model
+and reasoning, in an empty scratch folder. No Operator chat is needed or woken. Claude gets your
+description, quoted as data, with the source's syntax, worked examples and what AiTerm knows of
+your accounts: who you are on that source, the Jira projects linked to your projects with Jira's
+statuses and labels, and your projects' repositories. It answers with one query on one line.
+
+AiTerm checks the answer: Jira checks JQL, AiTerm checks a GitLab query, and GitHub checks a GitHub
+query by running it. A query that fails goes back to Claude once, with the error. If it still
+fails, or the check cannot run (the account is not connected, say), the query lands in the field
+with the reason under it, for you to fix. A query that passed says Claude wrote it and who checked
+it. Your description is saved with the trigger; a waiting task's line shows the Done trigger's.
+
+### Query syntax
+
+**Jira** runs JQL as written, in the Jira projects you can see.
+
+**GitLab** uses GitLab's merge request search syntax, which AiTerm reads into GitLab's GraphQL
+filters. Tokens are `key:value`, separated by spaces; a value may be quoted
+(`label:"needs review"`) and a leading `-` negates a token. The keys are `author:`, `assignee:` and `reviewer:`
+(`@me`, a username, `none` or `any`), `review-state:` (`unreviewed`, `review_started`, `reviewed`,
+`requested_changes`, `approved` or `unapproved`; commas mean or), `approved-by:`, `draft:` (`yes`
+or `no`), `label:` (repeat it for and), `target-branch:`, `source-branch:`, `milestone:`,
+`project:` (a full path such as `shop/webshop`; commas mean or) and `state:` (`opened`, `merged`,
+`closed` or `all`). `draft:`, `project:` and `state:` cannot be negated. A Start query lists open
+merge requests unless it names a `state:`; a Done query reads any state. An unknown key or a bad
+value is refused with the token named.
+
+**The role rule.** A GitLab Start query names you in exactly one role: `author:@me`, `assignee:@me`
+or `reviewer:@me`. The role picks the list AiTerm reads, as on GitLab's own merge request homepage,
+and with it what `review-state:` means: your own review under `reviewer:@me`, any reviewer's under
+the other two. A negated `@me` (`-reviewer:@me`) is a filter, not a role. A Start query with no role,
+or with two, is refused, since it would read every merge request on the server. A Done query names
+one role or none; with none, `review-state:` is any reviewer's.
+
+**Threads.** AiTerm adds two tokens it decides from a merge request's review threads, never sent to
+the host: `threads:waiting-on-me` (an unresolved thread whose last note is someone else's) and
+`threads:resolved` (no unresolved thread). Either may be negated, in a GitLab or a GitHub query.
+
+**GitHub** uses GitHub's own search syntax: AiTerm adds `is:pr` when it is missing, and `is:open`
+to a Start query that names no state.
+
+A Done query is checked against the task's own item: Jira against its ticket (`key = SHOP-412 AND
+(your query)`), for a merge request task the key in its branch or title; GitLab or GitHub against
+its merge request, the same query confined to that one request. A task without that ticket or merge
+request does not match.
+
+Some review conventions as queries:
+
+| Situation | Starts when | Done when |
+| --- | --- | --- |
+| Review requested, and asked again | GitLab `reviewer:@me review-state:unreviewed draft:no` | GitLab `reviewer:@me review-state:approved` |
+| Returned to you | GitLab `assignee:@me review-state:requested_changes,reviewed` | GitLab `-review-state:requested_changes,reviewed` |
+| Waiting on your reply | GitLab `assignee:@me threads:waiting-on-me` | |
+| Approved by others | GitLab `assignee:@me review-state:approved draft:no threads:resolved` | GitLab `state:merged`, or Merge it when it's ready |
+| Assigned to you, reviewed by another | GitLab `assignee:@me reviewer:any -reviewer:@me` | |
+| Assigned to another, reviewed by you | GitLab `reviewer:@me -assignee:@me` | |
+| Sprint tickets | Jira `assignee = currentUser() AND sprint in openSprints() AND statusCategory = "To Do"` | GitLab `reviewer:any` |
+| Handed to you in review | Jira `assignee = currentUser() AND status = "In Review"` | Jira `assignee != currentUser()` |
+| Review requested on GitHub | GitHub `is:pr is:open user-review-requested:@me draft:false` | GitHub `-user-review-requested:@me` |
+
 ## One item keeps one task
 
 A ticket key, merge request or matching branch identifies existing work. A later signal continues
@@ -70,6 +138,11 @@ An archived task restores before continuing. This includes a task you made by ha
 worker ends its turn, the signal resumes its conversation with the new stage prompt. Unsent input,
 background work and permission prompts hold that launch; it does not interrupt a turn. A task you
 took over is yours: a later signal never continues it.
+
+An item that stops matching and matches again continues the same task as a new stage. On GitLab,
+a review asked again sets your review state back to unreviewed, so
+`reviewer:@me review-state:unreviewed` starts each re-review in the same task and conversation.
+Use `review-state:` there rather than `approved-by:@me`: an approval survives a review asked again.
 
 Only one stage launches or works at once. Matches arriving during that stage wait, one per signal,
 in arrival order. They start after the current work ends and never during a worker's turn.
@@ -99,7 +172,7 @@ allows it once. When the Oracle is off or cannot answer, the command runs unchec
 says why.
 A missing or revoked Operator token always refuses the gated call.
 
-## Publishing, done conditions and merging
+## Publishing, done and merging
 
 Workers run the requested skills, including their own adversarial review and publication. They
 may commit, push their own task branch, open a draft request and perform host actions authorised
@@ -111,16 +184,31 @@ cannot check against the host. It refuses every merge of a request on the host, 
 or their APIs. A worker may run `git merge` locally. The guard preserves the project's own pre-push
 hook. These are cooperative CLI guards, not an operating-system sandbox.
 
-AiTerm finds the request from the branch and adds its ordinary clickable badge. Done conditions
-fit the source: Operator judgment, a reviewer, approval, resolved threads, merged, a Jira status,
-your review posted since this stage began, or merged/closed where applicable. An unreadable host is
-unknown and never counts as done.
+**Review task or own task** is decided per merge request. A merge request is a review task, which
+checks out its branch and never pushes, unless your account authored it or is one of its assignees.
+A ticket's task is always your own, also once it has a merge request.
 
-**Merged** as a done condition only watches for a merge. Automatic merging requires the separate
-**Merge it when it's ready** choice. Review requests asked of you never offer it. An opted-in stage
-waits for approvals, green checks and resolved threads, the Oracle's explicit yes, an unchanged
-local/host head and the host's confirmation that it merged. An Operator judgment does not bypass
-those checks. Skills do not merge it themselves.
+AiTerm finds the request from the branch and adds its ordinary clickable badge. **Done is an edge,
+as Start is.** Before a stage's worker launches, AiTerm reads the Done query for the task's item and
+stores whether it matches; the worker launches only after that read. A Done trigger that cannot be
+read holds the launch, with the reason on the task, and is read again after five minutes. From then
+on, every complete read compares with the last one, and the stage is done when its item starts to
+match the Done query during the stage. A Done query that already matched when the stage began waits
+for a fresh match, so evidence from an earlier round never ends a new one. Reads skip a worker at
+work: a review posted during its turn ends the stage at the first read after it. A merge request
+that is merged or closed is always done. An unreadable host is unknown and never counts as done.
+`finish_stage` records a stage's outcome for the Operator; only the Done trigger, or a merge or
+close, ends the stage. While a stage waits, its row's line is the Done trigger's description, or
+its query when it has none.
+
+Automatic merging requires **Merge it when it's ready**, offered where the Start trigger reads Jira
+or names you as author or assignee. Workers never merge, so this is the only way a signal merges,
+and it never applies to a review task. An opted-in stage merges once the host says the request can
+be merged, with approvals, green checks, resolved threads and the local head pushed, then the
+Oracle's explicit yes, an unchanged local/host head and the host's confirmation that it merged.
+It does not wait for the Done query, and the Done query does not end the stage: the task stays open
+until its merge request is merged or closed. While it waits, its line names what the merge lacks
+(`waiting to merge · checks`). Skills do not merge it themselves.
 
 **Keep** leaves the task. **Archive** closes its window and removes the worktree while keeping the
 branch and conversations. **Remove** removes the task; its optional branch deletion requires proof
@@ -167,7 +255,7 @@ two-line layout and badges under projects and signals. Reduce Motion uses a plai
 
 AiTerm keeps task journals, stages, questions, pending replies and source failures locally. The
 Operator reads status rather than relying on chat memory. Choosing, launching, working, watching
-for a done condition and blocked tasks keep the same chat, as do pending stages and outstanding
+for a Done trigger and blocked tasks keep the same chat, as do pending stages and outstanding
 closeout. Completed or archived tasks do not keep it after their remaining work finishes, and
 tasks you took over are ordinary tasks, not the Operator's. Questions from completed or superseded
 stages stop asking for attention.

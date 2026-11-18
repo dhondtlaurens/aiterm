@@ -191,7 +191,7 @@ import Testing
                 expectCommands(view.commands(), titles: [["Edit Signal…", toggle], ["Remove Signal…"]],
                     disabled: unlocked ? [] : ["Edit Signal…", toggle, "Remove Signal…"], destructive: ["Remove Signal…"])
                 var removed = value
-                removed.kind = .signal(source: signal.source, removed: true, paused: false)
+                removed.kind = .signal(source: signal.start.source, removed: true, paused: false)
                 expectCommands(HeadingRow(value: removed, controller: controller).commands(), titles: [])
             }
         }

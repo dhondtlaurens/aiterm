@@ -1,21 +1,40 @@
 import SwiftUI
 
-/// A label above its control, at the system's spacing. What the control hangs out of itself — a
-/// dropdown's results — draws over the lines after it (`FrontToBackStack`).
-public struct FormField<Content: View>: View {
+/// A label above its control, at the system's spacing, with an optional accessory at the trailing end of
+/// the label's row: an action on the field, such as a small push button. What the control hangs out of
+/// itself — a dropdown's results — draws over the lines after it (`FrontToBackStack`).
+public struct FormField<Content: View, Accessory: View>: View {
     let label: String
+    let accessory: Accessory
     let content: Content
 
-    public init(_ label: String, @ViewBuilder content: () -> Content) {
+    public init(_ label: String, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
         self.label = label
+        self.accessory = accessory()
         self.content = content()
     }
 
     public var body: some View {
         FrontToBackStack(spacing: Space.snug) {
-            Text(label).font(Typography.label).foregroundStyle(Palette.muted)
+            if Accessory.self == EmptyView.self {
+                labelText
+            } else {
+                HStack(spacing: Space.base) {
+                    labelText
+                    Spacer(minLength: Space.base)
+                    accessory
+                }
+            }
             content
         }
+    }
+
+    private var labelText: some View { Text(label).font(Typography.label).foregroundStyle(Palette.muted) }
+}
+
+public extension FormField where Accessory == EmptyView {
+    init(_ label: String, @ViewBuilder content: () -> Content) {
+        self.init(label, accessory: { EmptyView() }, content: content)
     }
 }
 

@@ -13,136 +13,11 @@ import Testing
         #expect(try decoder.decode(Value.self, from: Data(expected.utf8)) == value)
     }
 
-    @Test func sources() throws {
-        try pin(SignalSource.jira(JiraConditions()), #"""
-        {
-          "kind" : "jira",
-          "value" : {
-            "inOpenSprints" : false,
-            "labels" : [
-
-            ],
-            "projects" : [
-
-            ],
-            "statuses" : [
-
-            ]
-          }
-        }
-        """#)
-        try pin(SignalSource.gitLab(RequestConditions(event: .reviewRequested)), #"""
-        {
-          "kind" : "gitLab",
-          "value" : {
-            "event" : "reviewRequested",
-            "projects" : [
-
-            ],
-            "sentBackToMe" : true,
-            "waitingOnMyReply" : true
-          }
-        }
-        """#)
-        try pin(SignalSource.gitLab(RequestConditions(event: .myRequest)), #"""
-        {
-          "kind" : "gitLab",
-          "value" : {
-            "event" : "myRequest",
-            "projects" : [
-
-            ],
-            "sentBackToMe" : true,
-            "waitingOnMyReply" : true
-          }
-        }
-        """#)
-        try pin(SignalSource.gitHub(RequestConditions(event: .reviewRequested)), #"""
-        {
-          "kind" : "gitHub",
-          "value" : {
-            "event" : "reviewRequested",
-            "projects" : [
-
-            ],
-            "sentBackToMe" : true,
-            "waitingOnMyReply" : true
-          }
-        }
-        """#)
-        try pin(SignalSource.gitHub(RequestConditions(event: .myRequest)), #"""
-        {
-          "kind" : "gitHub",
-          "value" : {
-            "event" : "myRequest",
-            "projects" : [
-
-            ],
-            "sentBackToMe" : true,
-            "waitingOnMyReply" : true
-          }
-        }
-        """#)
-        try pin(SignalSource.unknown(["kind": "future", "value": ["extra": 7]]), #"""
-        {
-          "kind" : "future",
-          "value" : {
-            "extra" : 7
-          }
-        }
-        """#)
-    }
-
-    @Test func doneConditions() throws {
-        try pin(DoneWhen.operatorJudges, #"""
-        {
-          "kind" : "operatorJudges"
-        }
-        """#)
-        try pin(DoneWhen.hasReviewer, #"""
-        {
-          "kind" : "hasReviewer"
-        }
-        """#)
-        try pin(DoneWhen.approved, #"""
-        {
-          "kind" : "approved"
-        }
-        """#)
-        try pin(DoneWhen.threadsResolved, #"""
-        {
-          "kind" : "threadsResolved"
-        }
-        """#)
-        try pin(DoneWhen.merged, #"""
-        {
-          "kind" : "merged"
-        }
-        """#)
-        try pin(DoneWhen.myReviewPosted, #"""
-        {
-          "kind" : "myReviewPosted"
-        }
-        """#)
-        try pin(DoneWhen.mergedOrClosed, #"""
-        {
-          "kind" : "mergedOrClosed"
-        }
-        """#)
-        try pin(DoneWhen.ticketStatus("Done"), #"""
-        {
-          "kind" : "ticketStatus",
-          "value" : "Done"
-        }
-        """#)
-        try pin(DoneWhen.unknown(["kind": "future", "value": ["extra": 7]]), #"""
-        {
-          "kind" : "future",
-          "value" : {
-            "extra" : 7
-          }
-        }
-        """#)
+    @Test func triggerSources() throws {
+        try pin(SignalTrigger.Source.jira, #""jira""#)
+        try pin(SignalTrigger.Source.gitLab, #""gitLab""#)
+        try pin(SignalTrigger.Source.gitHub, #""gitHub""#)
+        try pin(SignalTrigger.Source.unknown("future"), #""future""#)
     }
 
     @Test func phases() throws {
@@ -176,13 +51,9 @@ import Testing
           "kind" : "archived"
         }
         """#)
-        try pin(TaskPhase.watching(.ticketStatus("Done")), #"""
+        try pin(TaskPhase.watching, #"""
         {
-          "kind" : "watching",
-          "value" : {
-            "kind" : "ticketStatus",
-            "value" : "Done"
-          }
+          "kind" : "watching"
         }
         """#)
         try pin(TaskPhase.unknown(["kind": "future", "value": ["extra": 7]]), #"""
@@ -328,12 +199,6 @@ import Testing
         try pin(SignalFinish.Then.unknown("future"), #""future""#)
     }
 
-    @Test func requestEvents() throws {
-        try pin(RequestConditions.Event.reviewRequested, #""reviewRequested""#)
-        try pin(RequestConditions.Event.myRequest, #""myRequest""#)
-        try pin(RequestConditions.Event.unknown("future"), #""future""#)
-    }
-
     @Test func seenDispositions() throws {
         try pin(SignalSeen.Disposition.started, #""started""#)
         try pin(SignalSeen.Disposition.skipped, #""skipped""#)
@@ -361,9 +226,6 @@ import Testing
     }
 
     @Test func missingKnownValuesThrow() throws {
-        try missing(SignalSource.self, kinds: ["jira", "gitLab", "gitHub"], name: "SignalSource")
-        try missing(DoneWhen.self, kinds: ["ticketStatus"], name: "DoneWhen")
-        try missing(TaskPhase.self, kinds: ["watching"], name: "TaskPhase")
         try missing(ItemRef.self, kinds: ["ticket", "mergeRequest"], name: "ItemRef")
         try missing(JournalText.self, kinds: ["ours", "quoted"], name: "JournalText")
     }

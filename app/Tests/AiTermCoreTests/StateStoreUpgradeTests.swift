@@ -54,7 +54,6 @@ import Foundation
         #expect(state.tasks.map(\.title) == ["Make retries safe"] && state.tasks.map(\.branch) == ["feat/pay-1"])
         #expect(state.tasks.first?.conversations.map(\.id) == ["worker-conversation"])
         #expect(state.archive.map(\.task.title) == ["Earlier work"])
-        #expect(state.signals.count == 2 && state.signalSeen.count == 1)
     }
 
     @Test func aTakenOverRecordMarksItsTask() throws {

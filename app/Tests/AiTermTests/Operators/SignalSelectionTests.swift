@@ -17,7 +17,7 @@ import Testing
     }
     @Test func aMergeRequestOnAnExistingTasksBranchContinuesThatTask() throws {
         var world = SignalWorld(); let signal = world.signal()
-        world.state.signals[0].source = .gitLab(RequestConditions(event: .myRequest))
+        world.state.signals[0].start = SignalTrigger(source: .gitLab, query: "author:@me")
         let task = TaskItem.make(project: world.project.id, branch: "feat/work", worktreePath: "/synthetic/work")
         world.state.tasks = [task]
         let h = try SignalHarness(world); defer { h.cleanUp() }

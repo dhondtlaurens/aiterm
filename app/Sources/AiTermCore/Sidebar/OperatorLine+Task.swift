@@ -26,7 +26,9 @@ public extension TaskRow {
             operatorLine = OperatorLine("Operator " + act, look: .acting); status = .working
         } else {
             switch record.phase {
-            case .launching: operatorLine = OperatorLine("starting its worker", look: .acting); status = .working
+            case .launching:
+                // A held launch says why in its tooltip: its Done trigger could not be read yet.
+                operatorLine = OperatorLine("starting its worker", look: .acting, tooltip: record.blockedReason); status = .working
             case .choosing:
                 // The Operator's turn, never the person's: the acting look, counted as work.
                 let projectOnly = (record.choosableRows?.count ?? 0) == 1 && (record.candidateProjects?.count ?? 0) > 1
@@ -37,11 +39,9 @@ public extension TaskRow {
                 // Every worker ended its turn and the Operator does nothing yet: the turn is the Operator's to read,
                 // so no done ring, and nothing runs, so no spinner either.
                 else if !busy { operatorLine = .workerDone; status = .waiting }
-            case .watching(let condition):
-                operatorLine = .waiting(for: condition, facts: record.waitingOn, request: task.mr?.reference, ticket: task.jira?.key)
-                if !busy {
-                    if case .unknown = condition { status = .idle } else { status = .waiting }
-                }
+            case .watching:
+                operatorLine = .waiting(for: record.current.configuration.done, facts: record.waitingOn, request: task.mr?.reference)
+                if !busy { status = .waiting }
             case .blocked:
                 operatorLine = OperatorLine("blocked", look: .needsYou, tooltip: record.blockedReason ?? "Open its window to inspect it.")
                 status = .needsInput

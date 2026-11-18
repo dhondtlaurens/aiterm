@@ -438,7 +438,7 @@
   },
   {
     "name": "finish_stage",
-    "description": "Record a stage result with evidence. Done watches its configured source condition unless the Operator judges it done. Pending stages outrank Then.",
+    "description": "Record a stage result with evidence. Done hands the stage to its Done trigger, which AiTerm checks against the task's own ticket or merge request. Pending stages outrank Then.",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,

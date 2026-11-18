@@ -37,7 +37,7 @@ import Synchronization
         var wakes: [UUID] = []; io.onTurn = { wakes.append($0) }
         let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: io.busy, prepare: { task, _ in task }, launch: { _, _ in "worker" }, restore: { $0 }))
-        await #expect(throws: SignalTransitionError.self) { try await stages.finish(id, action: .finish(.operatorJudges), judged: true) }
+        await #expect(throws: SignalTransitionError.self) { try await stages.finish(id, action: .finish) }
         #expect(wakes.isEmpty && h.workspace.state.task(id: id)?.signalTask?.phase == .working)
         // The tick every tool reply triggers observes the companion's work.
         await io.refreshTurns()
@@ -47,7 +47,7 @@ import Synchronization
         #expect(wakes == [id])
         await io.refreshTurns()
         #expect(wakes == [id])
-        try await stages.finish(id, action: .finish(.operatorJudges), judged: true)
+        try await stages.finish(id, action: .finish)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .done)
     }
     /// `busy` only answers. The `worker_ended` wake comes from the ticks: work one tick saw that the next does not.
@@ -107,8 +107,7 @@ import Synchronization
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         h.workspace.mutate { $0.updateSignalItem(id) {
-            $0.worktreePath = h.folder.path; $0.signalTask?.phase = .watching(.operatorJudges)
-            $0.signalTask?.operatorJudged = true
+            $0.worktreePath = h.folder.path; $0.signalTask?.phase = .watching
         } }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
         defer { try? FileManager.default.removeItem(at: ports.home) }
@@ -119,7 +118,6 @@ import Synchronization
         if extraTab { _ = try await io.openTab(task, key: "check", choice: SignalWorld.agent, prompt: "Inspect again.", why: "A new fact", allowed: { true }) }
         else { try await io.message(task, text: "Inspect again.", tab: "main", allowed: { true }) }
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.operatorJudged != true)
         #expect(h.workspace.state.task(id: id)?.signalTask?.needsWorkerReads == true)
     }
     @Test(arguments: [false, true], ["main", "check"]) func anAcceptedLaunchWithoutAWorkerEventuallyRequiresInspection(activeWorker: Bool, tab: String) async throws {

@@ -54,7 +54,7 @@ directory. Starting another agent there adds its avatar to the task.
 ## Creation sheets
 
 Task: Task (ticket, name, branch) → Prompt → Agent. Review: Review (merge request, ticket, name,
-branch) → Prompt → Agent. Signal: Signal → Starts when → Prompt → Agents → Done. Add/Edit Project,
+branch) → Prompt → Agent. Signal: Signal → Starts when → Prompt → Agents → Done when. Add/Edit Project,
 New Terminal and Add Divider have one confined step. A search field's results open when you click
 it or type, not when the sheet focuses it.
 
@@ -62,7 +62,7 @@ it or type, not when the sheet focuses it.
 | --- | --- |
 | ⌘Return | Continue, then Create Task/Create Review/Create Signal, Add or Save as the button says. A review of an existing task's branch offers Open in Task/Open in Review. |
 | ⌘1…⌘4 | Return to a completed step when it is available. Future steps cannot be skipped. Clicking a completed check does the same. |
-| Return | Pick a highlighted dropdown result; insert a newline in the prompt/JQL editor. No sheet-wide commit. In Rename, Add Divider and New Terminal, Return presses the primary button too. |
+| Return | Pick a highlighted dropdown result; insert a newline in a prompt, description or query editor. No sheet-wide commit. In Rename, Add Divider and New Terminal, Return presses the primary button too. |
 | Escape | Close the current popup first, then cancel. Every step has Cancel; Back and the completed steps go back. |
 
 ## Picker and prompt completions

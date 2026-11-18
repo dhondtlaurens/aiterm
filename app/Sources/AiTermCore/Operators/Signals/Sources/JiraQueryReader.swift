@@ -2,14 +2,21 @@ import Foundation
 
 public struct JiraQueryReader: SignalSourceReader {
     private let client: JiraClient
-    private let conditions: JiraConditions
+    private let jql: String
     private let now: @Sendable () -> Date
-    public init(client: JiraClient, conditions: JiraConditions, now: @escaping @Sendable () -> Date = { Date() }) {
-        self.client = client; self.conditions = conditions; self.now = now
+    public init(client: JiraClient, jql: String, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.client = client; self.jql = jql; self.now = now
+    }
+    /// JQL for the one ticket `key`, narrowed by `jql` when given. `jql` keeps its own `ORDER BY` outside the narrowing,
+    /// as `JiraClient.confined` places it; an unbalanced query is sent as written, for Jira to refuse.
+    public static func ticket(_ key: String, matching jql: String? = nil) -> String {
+        let clause = "key = \"" + key.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        guard let jql else { return clause }
+        return JiraClient.confined(jql, to: clause) ?? clause + " AND (" + jql + ")"
     }
     public func poll(since: Date?, full: Bool) async throws -> SignalRead {
         let at = now()
-        var query = JQL.compile(conditions)
+        var query = jql
         // Jira enhanced search requires a bounded query. This covers its entire supported date
         // range for a signal saved with no conditions, before the sheet required one.
         if query.isEmpty { query = #"created >= "1970-01-01""# }

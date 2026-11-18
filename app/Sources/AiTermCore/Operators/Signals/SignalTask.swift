@@ -29,10 +29,12 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var launch: LaunchAttempt?
     public var extraTabs: [ExtraTab] = []
     public var watchedRequest: SignalRequestRef?
-    /// The reviewers and open threads the done check last read for this stage; a new stage clears it.
+    /// What a merge still lacks, as the host watch last read it for this stage; a new stage clears it.
     public var waitingOn: SignalWaitFacts?
+    /// Whether this stage's Done query matched its item when last read completely, first before its worker launched.
+    /// Done is the change from not matching to matching; a new stage clears it.
+    public var doneMatched: Bool?
     public var thenApplied: Bool?
-    public var operatorJudged: Bool?
     public var ownership = 0
     public var blockedReason: String?
     public var journal: [TaskJournal.Entry] = []
@@ -68,7 +70,8 @@ public enum TaskPhase: KindTaggedEnum, Equatable, Sendable {
     /// Waiting for the Operator to choose the stage's agent row or project; not the person's turn.
     case choosing
     case working
-    case watching(DoneWhen)
+    /// Waiting for its Done trigger, or for its merge.
+    case watching
     case blocked
     case done
     case archived
@@ -79,8 +82,7 @@ public enum TaskPhase: KindTaggedEnum, Equatable, Sendable {
         case "launching": return .launching
         case "choosing": return .choosing
         case "working": return .working
-        case "watching":
-            return .watching(try value.decode(DoneWhen.self))
+        case "watching": return .watching
         case "blocked": return .blocked
         case "done": return .done
         case "archived": return .archived
@@ -94,7 +96,7 @@ public enum TaskPhase: KindTaggedEnum, Equatable, Sendable {
             case .launching: return .known("launching")
             case .choosing: return .known("choosing")
             case .working: return .known("working")
-            case .watching(let value): return .known("watching", try JSONValue(encoding: value))
+            case .watching: return .known("watching")
             case .blocked: return .known("blocked")
             case .done: return .known("done")
             case .archived: return .known("archived")
