@@ -1,6 +1,6 @@
 # Move signal headings up and down
 
-Status: planned on 2026-11-18.
+Status: implemented and verified on 2026-11-18.
 
 ## Goal
 
@@ -86,7 +86,28 @@ match byte for byte (menus are not drawn; the command tests are the evidence for
 
 ## To-dos
 
-- [ ] `AppState.move(signalId:)` / `canMove(signalId:)` with ModelsTests.
-- [ ] MatchDecision ranks by heading position; SignalDomainTests updated and an ItemRouter test proves the higher heading wins after a move.
-- [ ] Projection flags, the two heading commands and `moveSignal`, with RowAccessibility, SignalSidebar and AppController (persistence) tests.
-- [ ] Docs, before/after snapshots compared, plain gate green.
+- [x] `AppState.move(signalId:)` / `canMove(signalId:)` with ModelsTests.
+- [x] MatchDecision ranks by heading position; SignalDomainTests updated and an ItemRouter test proves the higher heading wins after a move.
+- [x] Projection flags, the two heading commands and `moveSignal`, with RowAccessibility, SignalSidebar and AppController (persistence) tests.
+- [x] Docs, before/after snapshots compared, plain gate green.
+
+## Implementation proof
+
+- Plain `scripts/test.sh` passed: 124 UI tests, 1,153 app tests, 1,435 core tests and one Signal
+  snapshot test, with the four known issues that were already there.
+- All 88 PNGs in `build/signal-move-before` and `build/signal-move-after` are byte-identical.
+- The real heading commands were run through a scratch controller. The saved workspace was flushed
+  and reloaded with the new order. A retained command at the new edge did nothing, and a locked
+  workspace refused the move.
+- The ItemRouter test runs both orders. Once the newer signal moves up, it starts the shared item
+  and the older one waits as a pending stage.
+- `operator-signals/state.json` golden unchanged; `git diff --check` clean. No live app replacement.
+
+## Plan review
+
+One Codex review round (plan kind): no findings, verdict ready. The user approved implementation.
+
+## Change review
+
+One Codex review round: one Minor, fixed. The `AppState.signals` doc comment still said creation
+order; it now says heading order, which is also their priority. No open findings.

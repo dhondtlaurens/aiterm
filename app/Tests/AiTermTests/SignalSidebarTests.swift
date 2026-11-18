@@ -187,10 +187,28 @@ import AiTermUI
         var world = SignalWorld(); let id = world.signal(); _ = world.workingTask(signal: id)
         world.state.signals[0].enabled = false
         let live = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].start.source, removed: false, paused: true))
+        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].start.source, removed: false, paused: true, canMoveUp: false, canMoveDown: false))
         world.state.signals = []
         let removed = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.start.source, removed: true, paused: false))
+        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.start.source, removed: true, paused: false, canMoveUp: false, canMoveDown: false))
+    }
+
+    /// Only live signals move: a removed signal's heading is drawn after the last live one and is no
+    /// neighbour, so the last live heading cannot move down; a switched-off signal still moves and counts.
+    @Test func signalHeadingsMoveAmongLiveSignalsOnly() throws {
+        var world = SignalWorld()
+        let first = world.signal(name: "First"), off = world.signal(name: "Off"), last = world.signal(name: "Last")
+        let gone = world.signal(name: "Gone")
+        world.workingTask(signal: gone)
+        world.state.signals.removeAll { $0.id == gone }
+        world.state.signals[1].enabled = false
+        let sections = SignalSidebar(state: world.state, entries: []).signals
+        #expect(sections.map(\.id) == [first, off, last, gone])
+        #expect(sections.map { [$0.canMoveUp, $0.canMoveDown] } == [[false, true], [true, true], [true, false], [false, false]])
+        #expect(HeadingValue(sections[1]).kind == .signal(source: .jira, removed: false, paused: true, canMoveUp: true, canMoveDown: true))
+        world.state.signals = [world.state.signals[0]]
+        let alone = try #require(SignalSidebar(state: world.state, entries: []).signals.first)
+        #expect(!alone.canMoveUp && !alone.canMoveDown)
     }
 
     @Test func aRemovedSignalsFoldIsRuntimeOnlyAndStartsOpen() throws {
