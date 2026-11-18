@@ -13,15 +13,14 @@ import AiTermCore
 /// the width of `100%`, so the rings stand in three straight lines down the footer whatever the
 /// digits. The weekly window is a vendor's first column, being the one every vendor has: Codex
 /// reports nothing else, so a missing reading is always a later column, as on the context's row.
-/// The Mac's row is `cpu | ram | bat`, the battery only while it is the Mac's power. A click on it
-/// is ⌘B.
+/// The Mac's row is `cpu | ram | bat`, the battery only while it is the Mac's power. It is read,
+/// not clicked: ⌘B is Backpack Mode's one switch, and a right-click offers Mac Settings… (18 Nov 2026).
 ///
 /// A group's heading may carry one status, joined to its words: `System · backpack mode`, in the
 /// heading's face and the status's `SettingsTone` (proposal 1B and 2A, 18 Nov 2026). It is there
 /// only while something is out of the ordinary, so it costs no row and the footer keeps one height
-/// whatever it says. System's is Backpack Mode while it is on or switching, and its words are the
-/// Mac's control like the readings row. Usage has none yet; a status about the whole group, never
-/// one vendor's reading, would go there.
+/// whatever it says. System's is Backpack Mode while it is on or switching. Usage has none yet; a
+/// status about the whole group, never one vendor's reading, would go there.
 ///
 /// Its labels keep their short lowercase forms (`ctx`, `wk`, `5h`, `cpu`, `ram`, `bat`), set with
 /// tabular figures in the system face (`Typography.help.tabular`), on a ground of its own a step
@@ -35,9 +34,8 @@ import AiTermCore
 ///
 /// When a window clears is shown under the pointer only, as a chip on the popover's ground just
 /// above the reading, `resets Sat 12:00` (``ResetBadge``): at rest the row is the numbers alone, and
-/// the chip stands in for the tooltip such a reading would otherwise raise. `ctx` and the Mac's
-/// readings carry no clock and keep their tooltip: a conversation's context is emptied by
-/// compaction, not by a reset time, and the Mac's are now.
+/// the chip stands in for a tooltip. A reading with no clock — `ctx` and the Mac's — raises nothing:
+/// its ring and number already say all its tooltip did (18 Nov 2026).
 ///
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
@@ -50,9 +48,7 @@ struct SidebarFooter: View {
     var machine: [UsageLine] = []
     /// The Mac's mode, as one drawn line. The defaults draw a Mac at its desk.
     var mac: MacModeLine = MacModePresentation.line(mode: .desk, hotspot: nil, wifi: nil)
-    /// A click on the Mac's rows.
-    var toggleMac: () -> Void = {}
-    /// A right-click on them opens Mac Settings.
+    /// A right-click on the Mac's rows opens Mac Settings.
     var openMacSettings: () -> Void = {}
     /// The snapshots' stand-in for the pointer: the first reading of this window draws its
     /// ``ResetBadge`` as if hovered. Nil in the app.
@@ -110,23 +106,22 @@ struct SidebarFooter: View {
     }
 
     /// The Mac's row: its readings under its mark, read out as one element (before the first
-    /// sample it is still the Mac's button, so it says "Mac").
+    /// sample it says "Mac").
     private var macRows: some View {
-        macControl(
+        macMenu(
             columns(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark)), machine.map(Column.reading))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Self.readingsLabel(machine))
-                .accessibilityHint(mac.help)
         )
     }
 
     /// System's heading, then while Backpack Mode is on or switching its status joined to it:
-    /// `System · backpack mode`. Only the status is the Mac's control, read out as the mode's sentence.
+    /// `System · backpack mode`, read out as the mode's sentence.
     private var systemHeading: some View {
         HStack(spacing: 0) {
             SidebarHeading(Self.systemHeading)
             if let tone = mac.mode.tone, let words = mac.mode.words {
-                macControl(
+                macMenu(
                     Text(Self.headingStatus(words)).font(SidebarHeading.style).foregroundStyle(tone.color)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(mac.help)
@@ -144,16 +139,11 @@ struct SidebarFooter: View {
         machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
     }
 
-    /// What makes a row the Mac's: a click is ⌘B, a right-click offers Mac Settings…, and the mode's
-    /// sentence is its tooltip wherever a reading's own does not cover it.
-    private func macControl(_ row: some View) -> some View {
+    /// What makes a row the Mac's: a right-click offers Mac Settings….
+    private func macMenu(_ row: some View) -> some View {
         row
             .contentShape(Rectangle())
-            .onTapGesture(perform: toggleMac)
             .contextMenu { Button("Mac Settings…", action: openMacSettings) }
-            .help(mac.help)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction(.default, toggleMac)
     }
 
     /// Amber, like the iTerm2 banner's warning, for a feed that is broken; a quiet one's note recedes.
@@ -226,8 +216,8 @@ struct SidebarFooter: View {
 
 /// One reading — label, ring and number — read as its words: the glyphs alone say "wk" and a ring.
 /// A zero-spacing stack keeps colour changes from adding invisible gaps; the space lives inside a
-/// `Text`. Under the pointer, a window that clears raises its ``ResetBadge`` above it in place of a
-/// tooltip; a reading with no clock keeps its words as its tooltip.
+/// `Text`. Under the pointer, a window that clears raises its ``ResetBadge`` above it; a reading
+/// with no clock raises nothing.
 private struct Reading: View {
     let line: UsageLine
     @Environment(\.interfaceScale) private var scale
@@ -258,17 +248,8 @@ private struct Reading: View {
                     .allowsHitTesting(false)
             }
         }
-        .modifier(ReadingHelp(help: line.reset == nil ? line.help : nil))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(line.help)
-    }
-}
-
-/// A reading's tooltip, when it has no ``ResetBadge`` to say it.
-private struct ReadingHelp: ViewModifier {
-    let help: String?
-    func body(content: Content) -> some View {
-        if let help { content.help(help) } else { content }
     }
 }
 

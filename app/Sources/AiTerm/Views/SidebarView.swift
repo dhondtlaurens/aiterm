@@ -223,7 +223,7 @@ struct SidebarFooterHost: View {
 }
 
 /// ``SidebarFooter`` with the selected row's context row and the Mac's rows over the vendor rows it
-/// is handed. A click on the Mac's rows is ⌘B; a right-click opens Settings › Integrations.
+/// is handed. A right-click on the Mac's rows opens Settings › Integrations.
 struct SelectedRowSidebarFooter: View {
     let controller: AppController
     let vendors: [UsageVendorRow]
@@ -235,7 +235,6 @@ struct SelectedRowSidebarFooter: View {
                       mac: MacModePresentation.line(mode: MacMode(state: backpack.state, transition: backpack.transition),
                                                     hotspot: backpack.network, wifi: backpack.currentNetwork,
                                                     until: backpack.state.until),
-                      toggleMac: { controller.toggleBackpack() },
                       openMacSettings: { controller.sheets.presentSettings(tab: .integrations) })
     }
 }
