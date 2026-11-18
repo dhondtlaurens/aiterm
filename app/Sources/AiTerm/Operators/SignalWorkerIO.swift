@@ -55,6 +55,9 @@ import AiTermCore
         session.state == .working || session.state == .needsInput
             || session.work.contains(where: \.holdsTurn) || session.testActivity?.isActive == true
     }
+    /// Whether the task's main worker is listed: a live agent in its first tab, not only the placeholder
+    /// `workerTab` always gives.
+    func hasMainWorker(_ task: TaskItem) -> Bool { task.firstWorker(in: live.sessions) != nil }
     func question(_ id: UUID, tab: String) -> QuestionRounds.Question? {
         guard workspace.state.task(id: id)?.signalTask?.pendingReplies?[tab] == nil, let task = workspace.state.task(id: id), task.signalTask?.phase == .working,
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
@@ -169,7 +172,8 @@ import AiTermCore
         }
         return claim
     }
-    func launch(_ task: TaskItem, prompt: String) async throws -> String {
+    /// `saving` changes the stage in the same saved change that marks the launch's reply pending.
+    func launch(_ task: TaskItem, prompt: String, saving: @escaping (inout SignalTask) -> Void = { _ in }) async throws -> String {
         _ = try require(task)
         guard let daemon = daemon(), task.hasCheckout,
               let token = work.begin(.opening, onTask: task.id) else { throw ActionUnavailable("Its worker cannot open now.") }
@@ -190,7 +194,7 @@ import AiTermCore
         }
         let command = try await command(for: task, prompt: fullPrompt, slot: "main", conversation: conversation)
         _ = try require(task)
-        try await markPending(task, tab: "main", conversation: conversation)
+        try await markPending(task, tab: "main", conversation: conversation, saving: saving)
         _ = try require(task)
         let opening: Opening
         if let window = task.windowId, live.sessions.contains(where: { $0.windowId == window && $0.sessionId != previous?.sessionId }) {
@@ -222,7 +226,8 @@ import AiTermCore
             throw ActionUnavailable("\(agent.displayName) has not passed Messaging for its installed version. Run its check in Settings › Agents.")
         }
     }
-    private func markPending(_ task: TaskItem, tab: String, conversation: String?, workRequested: Bool = false) async throws {
+    private func markPending(_ task: TaskItem, tab: String, conversation: String?, workRequested: Bool = false,
+                             saving: (inout SignalTask) -> Void = { _ in }) async throws {
         let locator = transcripts, agent = task.agent
         let baseline = await BackgroundWork.run { conversation.flatMap { locator.lastReply(agent: agent, conversation: $0)?.fingerprint } }
         _ = try require(task)
@@ -232,17 +237,20 @@ import AiTermCore
             record = next
             if record.pendingReplies == nil { record.pendingReplies = [:] }
             record.pendingReplies?[tab] = SignalWorkerReply(at: ports.now(), fingerprint: baseline)
+            saving(&record)
         } }
         guard workspace.flush() else { throw ActionUnavailable("The worker message intent could not be saved.") }
     }
-    func message(_ task: TaskItem, text: String, tab: String, allowed: @escaping @MainActor () -> Bool) async throws {
+    /// `saving` changes the stage in the same saved change that marks the message's reply pending, before it is typed.
+    func message(_ task: TaskItem, text: String, tab: String, allowed: @escaping @MainActor () -> Bool,
+                 saving: @escaping (inout SignalTask) -> Void = { _ in }) async throws {
         _ = try require(task)
         guard allowed(), !(task.signalTask?.pendingReplies?.keys.contains(tab) ?? false),
               let worker = task.workerTab(tab, in: live.sessions), worker.status?.turnEnded == true,
               let session = worker.session, let daemon = daemon() else { throw ActionUnavailable("This worker is not idle and ready for a message.") }
         try await daemon.setOwnership(sessionId: session.sessionId, ownership: task.signalTask?.ownership ?? 0)
         guard allowed() else { throw ActionUnavailable("The task changed before delivery.") }
-        try await markPending(task, tab: tab, conversation: worker.conversation, workRequested: true)
+        try await markPending(task, tab: tab, conversation: worker.conversation, workRequested: true, saving: saving)
         guard allowed() else { throw ActionUnavailable("The task changed before delivery.") }
         let sent = try await daemon.deliver(sessionId: session.sessionId, text: text, ownership: task.signalTask?.ownership ?? 0, wake: false, worktree: task.worktreePath)
         guard sent.result == .delivered else { throw ActionUnavailable(sent.reason ?? "The message was not delivered.") }

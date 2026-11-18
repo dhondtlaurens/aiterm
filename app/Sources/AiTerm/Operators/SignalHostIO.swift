@@ -168,7 +168,10 @@ import AiTermCore
                         snapshot.facts.approved = !status.approvedBy.isEmpty
                         snapshot.facts.threadsResolved = threads.allSatisfy(\.resolved)
                         var head = status.head
-                        if case .merged(_, let mergedHead, _) = status.readiness { snapshot.facts.merged = true; if !mergedHead.isEmpty { head = mergedHead } }
+                        if case .merged(let commit, let mergedHead, _) = status.readiness {
+                            snapshot.facts.merged = true; snapshot.mergeCommit = commit.isEmpty ? nil : commit
+                            if !mergedHead.isEmpty { head = mergedHead }
+                        }
                         let git = git
                         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
                         let ready: Bool = if case .ready = status.readiness { true } else { false }
@@ -187,7 +190,9 @@ import AiTermCore
         catch { guard snapshot.facts.merged || snapshot.facts.closed else { throw error } }
         return snapshot
     }
-    func merge(_ task: TaskItem, snapshot: RequestWatch.Snapshot) async throws {
+    /// Merges at the snapshot's head after checking the binding, the local head and the claim, and returns the host's
+    /// answer. `intend` runs after those checks with no await before the host call, so it saves only a merge that is sent.
+    func merge(_ task: TaskItem, snapshot: RequestWatch.Snapshot, intend: @MainActor () throws -> Void = {}) async throws -> MergeReadiness {
         guard let claim = SignalClaim(task), let reference = snapshot.reference, let head = snapshot.head, snapshot.canMerge, task.kind != .review,
               task.signalTask?.current.configuration.finish.mergesWhenReady == true else { throw ActionUnavailable("Automatic merging is not enabled or ready.") }
         let links = await connections(), (remote, host) = try await binding(task, links: links)
@@ -195,7 +200,8 @@ import AiTermCore
         let local = try await BackgroundWork.run { try Repository(task.worktreePath, git: git).commit("HEAD") }
         guard local == head, local == snapshot.localHead else { throw ActionUnavailable("Its local head changed before merging.") }
         guard enabled(), ItemRef.repository(remote) == ItemRef.repository(reference.remote), claim.allows(in: workspace) else { throw ActionUnavailable("The task changed before merging.") }
-        _ = try await host.merge(reference.number, at: head)
+        try intend()
+        return try await host.merge(reference.number, at: head)
     }
     private var detailsCache: [UUID: (claim: SignalClaim?, value: JSONValue, at: Date)] = [:]
     var now: () -> Date = Date.init

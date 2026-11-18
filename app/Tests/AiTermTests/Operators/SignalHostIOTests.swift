@@ -178,8 +178,12 @@ import Testing
         var facts = DoneCheck.Facts(); facts.hostReadComplete = true; facts.threadsResolved = true
         let snapshot = RequestWatch.Snapshot(reference: SignalRequestRef(remote: "git@git.example:shop/web.git", number: 7),
             facts: facts, head: "accepted-head", localHead: "accepted-head", approvals: true, greenChecks: true)
-        await #expect(throws: (any Error).self) { try await io.merge(try #require(h.workspace.state.task(id: id)), snapshot: snapshot) }
+        var intended = false
+        await #expect(throws: (any Error).self) {
+            try await io.merge(try #require(h.workspace.state.task(id: id)), snapshot: snapshot, intend: { intended = true })
+        }
         #expect(stub.requests.isEmpty, "An unknown or changed local head cannot send a merge request.")
+        #expect(!intended, "and saves no merge as AiTerm's")
     }
     @Test func aTicketSignalFindsTheRelatedRequestDescriptionFromItsBranch() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)

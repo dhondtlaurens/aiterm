@@ -78,7 +78,10 @@ import AiTermCore
             }
         }, launch: { [weak self] task, prompt in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
-            return try await self.activity.during("starting " + OperatorActivityTracker.name(task) + "’s worker") { try await self.native.launch(task, prompt: prompt) }
+            // StageRunner launches with the carry-on line whenever a hand-back is owed, so the launch's pending reply settles it.
+            return try await self.activity.during("starting " + OperatorActivityTracker.name(task) + "’s worker") {
+                try await self.native.launch(task, prompt: prompt, saving: { $0.merge?.handBackOwed = false })
+            }
         }, restore: { [weak self] task in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
             return try await self.activity.during("restoring " + OperatorActivityTracker.name(task) + "’s checkout") {
@@ -108,10 +111,23 @@ import AiTermCore
             let status = OperatorDigest(state: self.workspace.state, at: self.ports.now(), oracleOn: true, task: task.id)
             if case .agreed = await self.oracle.consult(.mergeVeto(head: snapshot.head, status: status), binding: .init(claim: SignalClaim(task))) { return true }
             return false
-        }, merge: { [weak self] task, snapshot in
+        }, merge: { [weak self] task, snapshot, intend in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
-            try await self.activity.during("merging " + OperatorActivityTracker.name(task)) { try await self.host.merge(task, snapshot: snapshot) }
-        }), effects: effects, activity: activity)
+            return try await self.activity.during("merging " + OperatorActivityTracker.name(task)) {
+                try await self.host.merge(task, snapshot: snapshot, intend: intend)
+            }
+        }, handBack: { [weak self] task, line in
+            guard let self, let claim = SignalClaim(task) else { throw ActionUnavailable("The Operator stopped.") }
+            try await self.native.message(task, text: line, tab: "main", allowed: { [weak self] in
+                guard let self else { return false }
+                return !self.isStopped && claim.holds(in: self.workspace.state)
+            }, saving: { $0.merge?.handBackOwed = false })
+            try await self.journal.append(.ours(line), task: task.id)
+        }, hasWorker: { [weak self] task in
+            // Until iTerm2's tabs are known, a missing worker is no evidence it is gone.
+            guard let self else { return true }
+            return !self.tabsKnown || self.native.hasMainWorker(task)
+        }), effects: effects, activity: activity, now: ports.now)
     @ObservationIgnored lazy var questions = QuestionRounds(workspace: workspace, journal: journal, now: ports.now, oracle: oracle,
         ports: .init(question: native.question, deliver: { [weak self] task, question, text in
                 guard let self, let claim = SignalClaim(task) else { throw ActionUnavailable("The Operator stopped.") }

@@ -36,8 +36,10 @@ default, a protected or another branch, or merge. The local guard is not a sandb
 workers to bypass it with an executable path or another transport.
 finish_stage records done, blocked, failed or skipped with evidence. Done hands the stage to
 its Done trigger, which AiTerm checks against the task's own ticket or merge request; it does
-not invent host evidence. Pending stages run before the final stage's keep, archive or remove
-action. Unsaved work keeps its worktree.
+not invent host evidence. When AiTerm merges a stage itself, its worker is told in one line and
+carries on, and the stage still ends on its Done trigger. Pending stages run before the final
+stage's keep, archive or remove action; one whose signal no longer matches is dropped.
+Unsaved work keeps its worktree.
 note records a short decision or handover. report_snag records a checked AiTerm discrepancy
 and workaround; jira_search only reads. Use a fresh key for each distinct action, and the same
 key and arguments for a retry. An uncertain result means inspect before doing anything else.

@@ -217,8 +217,11 @@ import Testing
         var matches: Bool
         var merged = false
         var closed = false
+        var ours = false
         var done: Bool
-        var testDescription: String { "\(String(describing: before)) → \(matches)\(merged ? " merged" : "")\(closed ? " closed" : "")" }
+        var testDescription: String {
+            "\(String(describing: before)) → \(matches)\(merged ? " merged" : "")\(ours ? " by AiTerm" : "")\(closed ? " closed" : "")"
+        }
     }
     static let edges: [Edge] = [
         Edge(before: false, matches: true, done: true),
@@ -229,11 +232,15 @@ import Testing
         Edge(before: nil, matches: true, done: false),
         Edge(before: true, matches: true, merged: true, done: true),
         Edge(before: nil, matches: false, closed: true, done: true),
+        // AiTerm's own merge hands the stage back: only its Done query ends it.
+        Edge(before: false, matches: false, merged: true, ours: true, done: false),
+        Edge(before: false, matches: true, merged: true, ours: true, done: true),
+        Edge(before: true, matches: true, merged: true, ours: true, done: false),
     ]
     @Test(arguments: edges) func doneIsTheQueryStartingToMatchOrTheRequestMergedOrClosed(_ row: Edge) {
         var facts = DoneCheck.Facts()
         facts.doneMatches = row.matches; facts.merged = row.merged; facts.closed = row.closed
-        #expect(DoneCheck.reached(facts, before: row.before) == row.done)
+        #expect(DoneCheck.reached(facts, before: row.before, mergedByAiTerm: row.ours) == row.done)
     }
 
     @Test func freshStartOnlyForAnOpenIdleChat() {
@@ -504,5 +511,61 @@ import Testing
                                         reason: "r", decided: .oracleAgreed, round: 1, note: nil, at: now)
         let next = try SignalTransitions.apply(.matched(stage(signal("Next"), item)), to: task, at: now)
         #expect(next.phase == .launching && next.choice == nil)
+    }
+    /// A stage dropped before its launch gives the task back to the stage before it, done, and the next pending stage
+    /// follows; a stage that launched, or the task's first, is never dropped.
+    @Test func aDroppedStageGoesBackToThePreviousOneAndTheNextPendingStageFollows() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        let first = stage(signal("Ship"), item), stale = stage(signal("Review"), item), after = stage(signal("Notes"), item)
+        var task = SignalTask(current: first, startedAt: now)
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.dropped, to: task, at: now) }
+        task.phase = .done; task.pendingStages = [stale, after]
+        let launching = try SignalTransitions.apply(.advancePending, to: task, at: now)
+        #expect(launching.current == stale && launching.previousStage?.stage == first && launching.previousStage?.phase == .done && launching.phase == .launching)
+        let dropped = try SignalTransitions.apply(.dropped, to: launching, at: now)
+        #expect(dropped.current == after && dropped.previousStage?.stage == first && dropped.phase == .launching && dropped.pendingStages.isEmpty)
+        let last = try SignalTransitions.apply(.dropped, to: dropped, at: now)
+        #expect(last.current == first && last.phase == .done && last.previousStage == nil && last.canRunThen)
+        let started = try SignalTransitions.apply(.workerStarted, to: launching, at: now)
+        #expect(started.previousStage == nil)
+        var launched = launching; launched.launch = LaunchAttempt(number: 1, requestedAt: now)
+        #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.dropped, to: launched, at: now) }
+        var choosing = try SignalTransitions.apply(.needChoice, to: launching, at: now)
+        choosing.choosableRows = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: nil)]
+        let fromChoosing = try SignalTransitions.apply(.dropped, to: choosing, at: now)
+        #expect(fromChoosing.choosableRows == nil && fromChoosing.current == after)
+    }
+    /// A stage handed to its Done trigger (`finish_stage` done) lets a pending stage start at once; dropping that stage
+    /// gives the task back still watching, with its Done baseline and AiTerm's merge, not done with its Then.
+    @Test func aStageDroppedAfterTheEarlierOneWentWatchingLeavesItWatching() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        let ship = stage(signal("Ship"), item), stale = stage(signal("Review"), item)
+        var task = SignalTask(current: ship, startedAt: now); task.phase = .working; task.pendingStages = [stale]
+        task.doneMatched = false; task.waitingOn = SignalWaitFacts(mergeBlockers: [.checks])
+        task.merge = SignalMerge(request: SignalRequestRef(remote: "git@git.example:shop/web.git", number: 7), head: "aabbcc")
+        let launching = try SignalTransitions.apply(.watch, to: task, at: now)
+        #expect(launching.current == stale && launching.merge == nil && launching.previousStage?.phase == .watching)
+        let back = try SignalTransitions.apply(.dropped, to: launching, at: now)
+        #expect(back.current == ship && back.phase == .watching && !back.canRunThen)
+        #expect(back.doneMatched == false && back.merge == task.merge && back.waitingOn == task.waitingOn)
+    }
+    @Test func aMergeOfAiTermsNamesItsRequestAsItsHostDoesAndANewStageForgetsIt() throws {
+        var merge = SignalMerge(request: SignalRequestRef(remote: "git@git.example:shop/web.git", number: 7), head: "aabbccddeeff")
+        #expect(merge.line == "AiTerm merged !7 at aabbccd; carry on.")
+        merge.commit = "0123456789"
+        #expect(merge.workerGone == "AiTerm merged !7 at 0123456; its worker is gone.")
+        let github = SignalMerge(request: SignalRequestRef(remote: "https://github.com/acme/shop.git", number: 12), head: "fedcba987")
+        #expect(github.line == "AiTerm merged #12 at fedcba9; carry on.")
+        #expect(merge.merged(merge.request, at: "aabbccddeeff") && !merge.merged(merge.request, at: "other"))
+        merge.accepted = true
+        #expect(merge.merged(merge.request, at: "other") && !merge.merged(github.request, at: "aabbccddeeff"))
+
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        var task = SignalTask(current: stage(signal(), item), startedAt: now); task.phase = .done; task.merge = merge
+        #expect(try JSONDecoder().decode(SignalTask.self, from: JSONEncoder().encode(task)) == task)
+        let bare = try JSONEncoder().encode(SignalTask(current: stage(signal(), item), startedAt: now))
+        #expect(!String(decoding: bare, as: UTF8.self).contains("\"merge\"") && !String(decoding: bare, as: UTF8.self).contains("previousStage"))
+        let next = try SignalTransitions.apply(.matched(stage(signal("Next"), item)), to: task, at: now)
+        #expect(next.merge == nil)
     }
 }

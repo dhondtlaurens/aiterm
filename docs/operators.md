@@ -151,6 +151,11 @@ pass, the higher heading starts its task and the others wait as pending stages. 
 Only one stage launches or works at once. Matches arriving during that stage wait, one per signal,
 in arrival order. They start after the current work ends and never during a worker's turn.
 Pending work takes precedence over archive/remove: only the last stage applies its final action.
+A waiting stage is checked once more just before its worker launches: when the latest full read of
+its signal no longer lists the item (a merged request, a ticket that moved on), the stage is dropped,
+its journal says so, and the next waiting stage starts. With none left, the task is the earlier
+stage's again, with its agent: still waiting for its Done trigger, or done and applying its Then. A
+read that only fetched changes since the last one is no such evidence.
 
 ## Questions and the Oracle
 
@@ -200,7 +205,8 @@ on, every complete read compares with the last one, and the stage is done when i
 match the Done query during the stage. A Done query that already matched when the stage began waits
 for a fresh match, so evidence from an earlier round never ends a new one. Reads skip a worker at
 work: a review posted during its turn ends the stage at the first read after it. A merge request
-that is merged or closed is always done. An unreadable host is unknown and never counts as done.
+that is closed, or merged by anyone but AiTerm, is always done. An unreadable host is unknown and
+never counts as done.
 `finish_stage` records a stage's outcome for the Operator; only the Done trigger, or a merge or
 close, ends the stage. While a stage waits, its row's line is the Done trigger's description, or
 its query when it has none.
@@ -210,9 +216,19 @@ or names you as author or assignee. Workers never merge, so this is the only way
 and it never applies to a review task. An opted-in stage merges once the host says the request can
 be merged, with approvals, green checks, resolved threads and the local head pushed, then the
 Oracle's explicit yes, an unchanged local/host head and the host's confirmation that it merged.
-It does not wait for the Done query, and the Done query does not end the stage: the task stays open
-until its merge request is merged or closed. While it waits, its line names what the merge lacks
-(`waiting to merge · checks`). Skills do not merge it themselves.
+It does not wait for the Done query, and the Done query does not end the stage before the merge.
+While it waits, its line names what the merge lacks (`waiting to merge · checks`). Skills do not
+merge it themselves.
+
+AiTerm's own merge does not end the stage either: it hands the stage back to its worker, so one
+signal can merge and then follow the release. The worker gets one line, as the Operator's answers
+are delivered: `AiTerm merged !12 at 1a2b3c4; carry on.` (`#12` on GitHub, with the merge commit).
+The stage then ends on its Done query alone, at the first read after that turn where it matches,
+even if it already matched before the merge; a Done query of `state:merged` therefore ends it
+after the worker's one follow-up turn. AiTerm saves its merge just before asking the host, so a
+lost answer or a restart still counts as AiTerm's, while a refused merge does not. When the worker's
+window is gone, the stage blocks with `AiTerm merged !12 at 1a2b3c4; its worker is gone.`, and
+Resume reopens its conversation with the carry-on line instead of the stage prompt.
 
 **Keep** leaves the task. **Archive** closes its window and removes the worktree while keeping the
 branch and conversations. **Remove** removes the task; its optional branch deletion requires proof
