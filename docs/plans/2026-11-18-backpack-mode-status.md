@@ -41,6 +41,8 @@ changes.
 - `app/Sources/AiTerm/Views/MacModeRow.swift` — modify, comments only: "line" becomes the System
   heading's status.
 - `app/Sources/AiTerm/Views/ToneRing.swift` — modify, comment only: the footer no longer draws one.
+- `app/Sources/AiTerm/Views/BackpackSheet.swift` — modify, comment only: a lid-close during a connect
+  shows its end on the System heading, not on a footer line (found while building).
 - `app/Sources/AiTermUI/Metrics.swift` — modify, comment only: `statusMarkSmall` no longer leads the
   footer's Backpack Mode line.
 - `app/Sources/AiTerm/Snapshots/SidebarSnapshots.swift` — modify, comment only:
@@ -66,9 +68,9 @@ changes.
 
 ## To-dos
 
-- [ ] The status moves onto the System heading: `SidebarFooter` change, the geometry tests updated,
+- [x] The status moves onto the System heading: `SidebarFooter` change, the geometry tests updated,
       before/after snapshots read.
-- [ ] The comments in `MacModeRow`, `ToneRing`, `Metrics` and `SidebarSnapshots` describe the
+- [x] The comments in `MacModeRow`, `ToneRing`, `Metrics` and `SidebarSnapshots` describe the
       heading, not a row.
-- [ ] The design page drops the proposal, its footer card and usage lines match the Swift, and it is
+- [x] The design page drops the proposal, its footer card and usage lines match the Swift, and it is
       published onto the live copy and committed.
