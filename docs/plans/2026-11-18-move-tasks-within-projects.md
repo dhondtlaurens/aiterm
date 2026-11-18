@@ -1,6 +1,6 @@
 # Move task rows within their project
 
-Status: approved for implementation on 2026-11-18.
+Status: implemented and verified on 2026-11-18.
 
 ## Goal
 
@@ -16,6 +16,12 @@ the same group and outside Operator ownership. Swap those two task-array positio
 other records in their original positions. No schema change or migration is needed. Creation and
 restore keep their existing insertion behavior; the current stable tasks-before-reviews projection
 continues to apply. Legacy tasks without an explicit review kind belong to the task group.
+
+Restore retains its existing rule: insert before the first saved task with a later creation date,
+or append when there is none. Once rows are manually reordered this need not be a chronological
+position, and a restored row may land at the top of its group. For example, after moving C ahead
+of A and B, restoring D (created between A and B) can produce D, C, A, B. Existing rows retain
+their chosen relative order; archive/restore does not remember the archived row's manual position.
 
 Add pure task movement and eligibility operations to AppState and a guarded action to ProjectActions,
 which already owns sidebar movement and task renaming. The action goes through WorkspaceStore.mutate
@@ -69,7 +75,7 @@ other projects or hidden Operator tasks. Check that other task records, project 
 project/divider ordering and Signal task ordering remain unchanged.
 
 While iterating, run `scripts/test.sh swift -- --filter` with the affected suites: ModelsTests,
-SidebarModelTests, AppControllerTests, RowAccessibilityTests and SignalSidebarTests. Also run the
+SidebarModelTests, ControllerProjectsTests, RowAccessibilityTests and SignalSidebarTests. Also run the
 existing SidebarRowRedrawTests and SidebarInteractionTests to check observation and keyboard
 selection behavior. Start each run in the background, following only its own log to completion.
 
@@ -83,12 +89,23 @@ merge requires plain `scripts/test.sh all` on the final HEAD, as the repository 
 
 ## To-dos
 
-- [ ] Add pure group-bounded task movement with tests, plus projected movement availability and
+- [x] Add pure group-bounded task movement with tests, plus projected movement availability and
       tests that show the resulting project order. Existing menus remain functional.
-- [ ] Wire task/review RowCommands through the guarded owner, with menu/VoiceOver and scratch
+- [x] Wire task/review RowCommands through the guarded owner, with menu/VoiceOver and scratch
       persistence integration tests, including teardown and stale-menu cases.
-- [ ] Verify Signal ownership filtering and Take Over boundaries, update the interaction guide,
+- [x] Verify Signal ownership filtering and Take Over boundaries, update the interaction guide,
       inspect before/after snapshots, and finish the affected gate.
+
+## Implementation proof
+
+- Plain `scripts/test.sh` passed: 123 UI tests, 1,135 app tests, 1,400 core tests and one Signal
+  snapshot test. Four existing known issues were reported across the app and core targets.
+- All 102 PNGs from `build/task-movement-before` and `build/task-movement-after` match byte for
+  byte. The sidebar capture was inspected before and after.
+- Real row commands were exercised through scratch controllers; saved state was flushed and
+  reloaded. Tests cover both groups, another project's interleaved rows, Signal ownership,
+  Take Over, locked state, stale commands, teardown state and preserved selection.
+- `git diff --check` passed. No live app replacement or merge was performed.
 
 ## Plan review
 
@@ -97,3 +114,10 @@ One independent Claude review completed with no blocking findings. Its wording c
 check current target teardown in the command closure, without passing teardown state into
 ProjectActions. The owner still rechecks workspace and group eligibility. The user approved
 implementation after confirming that tasks and reviews keep their separate groups.
+
+## Change review
+
+One independent Claude review found no Critical or Important issues. Both Minor findings are
+fixed: the plan and interaction guide now explain archive restoration after manual reordering,
+and the plan status states the implemented result without temporary commit-state wording.
+Archive insertion behavior is unchanged. There are no open findings.

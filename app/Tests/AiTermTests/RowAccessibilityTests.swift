@@ -96,13 +96,15 @@ import Testing
                 for window in [nil, "w"] as [String?] {
                     var value = row(windowId: window, kindName: kind)
                     value.underOperator = driven
+                    value.canMoveUp = true
                     value.jiraUrl = "https://jira.example/browse/TEST-1"
                     let view = TaskRowView(row: value, controller: controller)
-                    let titles = (driven ? [["Take Over"]] : []) + [["Rename…"], openTitles + ["Open in Jira"],
-                        ["Archive \(kind)", "Remove \(kind)…"]]
-                    expectCommands(view.commands(removing: false), titles: titles, destructive: ["Remove \(kind)…"])
+                    let titles = (driven ? [["Take Over"]] : []) + [["Rename…"], openTitles + ["Open in Jira"]]
+                        + (driven ? [] : [["Move Up", "Move Down"]]) + [["Archive \(kind)", "Remove \(kind)…"]]
+                    expectCommands(view.commands(removing: false), titles: titles,
+                        disabled: driven ? [] : ["Move Down"], destructive: ["Remove \(kind)…"])
                     expectCommands(view.commands(removing: true), titles: titles,
-                        disabled: ["Take Over", "Rename…", "Archive \(kind)", "Remove \(kind)…"],
+                        disabled: ["Take Over", "Rename…", "Move Up", "Move Down", "Archive \(kind)", "Remove \(kind)…"],
                         destructive: ["Remove \(kind)…"])
                 }
             }
@@ -111,8 +113,24 @@ import Testing
         issue.ticketIsGitLabIssue = true
         issue.jiraUrl = "https://gitlab.example/repo/-/issues/1"
         expectCommands(TaskRowView(row: issue, controller: controller).commands(removing: false),
-            titles: [["Rename…"], openTitles + ["Open in GitLab"], ["Archive Task", "Remove Task…"]],
+            titles: [["Rename…"], openTitles + ["Open in GitLab"], ["Move Up", "Move Down"], ["Archive Task", "Remove Task…"]],
+            disabled: ["Move Up", "Move Down"],
             destructive: ["Remove Task…"])
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func projectTaskCommandsReflectGroupEdges(up: Bool, down: Bool) throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        var value = row(windowId: nil)
+        value.canMoveUp = up; value.canMoveDown = down
+        let titles = [["Rename…"], openTitles, ["Move Up", "Move Down"], ["Archive Task", "Remove Task…"]]
+        let view = TaskRowView(row: value, controller: controller)
+        expectCommands(view.commands(removing: false), titles: titles,
+            disabled: ["Rename…", "Move Up", "Move Down", "Archive Task", "Remove Task…"], destructive: ["Remove Task…"])
+        try controller.workspace.load()
+        expectCommands(view.commands(removing: false), titles: titles,
+            disabled: (up ? [] : ["Move Up"]) + (down ? [] : ["Move Down"]), destructive: ["Remove Task…"])
     }
 
     @Test func lockedTaskAndTerminalKeepOpenCommands() {

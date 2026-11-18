@@ -267,6 +267,14 @@ final class ProjectActions {
         return workspace.mutate { $0.move(id: itemId, step) }
     }
 
+    /// Moves a task one visible place within its project's task or review group, using current
+    /// ownership and neighbours even when the command came from an earlier menu.
+    @discardableResult
+    func move(taskId: UUID, _ step: MoveStep) -> Bool {
+        guard canChangeWorkspace else { return false }
+        return workspace.mutate { $0.move(taskId: taskId, step) }
+    }
+
     // -- removing a project -----------------------------------------------------------------
     /// Removing a project only forgets it. The alert counts its tasks and the worktrees under the Operator;
     /// files, worktrees and windows stay, and no git command is made.

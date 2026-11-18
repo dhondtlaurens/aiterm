@@ -283,6 +283,12 @@ struct TaskRowView: View {
             open.append(RowCommand(title: row.ticketIsGitLabIssue ? "Open in GitLab" : "Open in Jira") { ExternalApps.open(link: url) })
         }
         groups.append(open)
+        if !row.underOperator {
+            groups.append([
+                RowCommand(title: "Move Up", enabled: enabled && row.canMove(.up)) { move(.up) },
+                RowCommand(title: "Move Down", enabled: enabled && row.canMove(.down)) { move(.down) }
+            ])
+        }
         groups.append([
             RowCommand(title: "Archive \(row.kindName)", enabled: enabled) {
                 Task { if let current = controller.state.task(id: row.id) { try? await controller.teardown.archive(current, consent: .ask) } }
@@ -292,6 +298,11 @@ struct TaskRowView: View {
             }
         ])
         return groups
+    }
+
+    private func move(_ step: MoveStep) {
+        guard controller.teardown.state(of: row.id)?.inProgress != true else { return }
+        controller.projects.move(taskId: row.id, step)
     }
 
     /// One fit of the badge line. Quiet badges carry no box, so `Space.gap` is what keeps them apart,

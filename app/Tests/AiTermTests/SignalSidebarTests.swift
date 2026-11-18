@@ -8,6 +8,34 @@ import AiTermUI
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalSidebarTests {
+    @Test func projectMovementEdgesChangeAfterTakeOverWithoutReorderingSignalTasks() throws {
+        var world = SignalWorld()
+        let signal = world.signal()
+        let held = world.workingTask(signal: signal), otherHeld = world.workingTask(signal: signal)
+        let own = TaskItem.make(project: world.project.id)
+        world.state.tasks.append(own)
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        let rows = try #require(controller.rows.sections.first?.tasks)
+        #expect(rows.count == 1 && !rows[0].canMove(.up) && !rows[0].canMove(.down))
+        let signalRows = try #require(controller.rows.signalSections.first?.tasks)
+        #expect(signalRows.map(\.id) == [held, otherHeld])
+        for row in signalRows {
+            #expect(!TaskRowView(row: row, controller: controller).commands(removing: false)
+                .flatMap { $0 }.contains { $0.title == "Move Up" || $0.title == "Move Down" })
+        }
+        #expect(!controller.projects.move(taskId: held, .down))
+        controller.workspace.mutate { $0.takeOver(held) }
+        let takenOver = try #require(controller.rows.sections.first?.tasks)
+        #expect(takenOver.map(\.id) == [held, own.id])
+        #expect(takenOver.map { [$0.canMove(.up), $0.canMove(.down)] } == [[false, true], [true, false]])
+        #expect(controller.projects.move(taskId: held, .down))
+        #expect(controller.rows.sections.first?.tasks.map(\.id) == [own.id, held])
+        #expect(controller.rows.signalSections.first?.tasks.map(\.id) == [otherHeld])
+    }
+
     @Test(arguments: [false, true])
     func foldingASignalHandsItsSelectedTaskToTheHeading(removed: Bool) throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)

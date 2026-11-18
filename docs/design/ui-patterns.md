@@ -12,6 +12,16 @@ only the label; `SidebarHeadingInset` owns its gutter. Project headers use `Head
 under both projects and signals. Its actions resolve the current task at invocation; its body reads
 cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates.
 
+Project task rows offer Move Up and Move Down in their context menu and VoiceOver actions. Each
+moves one place within that project's task or review group; tasks stay above reviews, and terminals
+stay above both. The order is saved. Movement is disabled at each group's edges, while the workspace
+is locked, or while the target row is being removed or archived. Signal-owned rows have no movement
+commands; Take Over returns them to their project's usual task or review group.
+
+Restoring an archived row keeps the existing date-based insertion rule, so it may return at the
+top of a manually reordered group. Existing rows keep their chosen relative order; the archived
+row's previous manual position is not remembered.
+
 `SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause, offers New Signal… in its + menu and Pause Operator / Resume Operator in its context menu. `SignalOperatorRow` is the active workload’s chat row,
 waiting count, errors and window recovery. `HeadingRow` draws project and signal headings with their source marks;
 its `HeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
