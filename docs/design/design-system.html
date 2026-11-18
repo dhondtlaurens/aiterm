@@ -859,8 +859,7 @@
   .mk-foot .tp.nm { justify-items: end; }
   /* Three columns: a row is its mark, Space.inset, then three columns of equal width Space.gap
      apart; a column is its label, Space.tight, its ring, a space, its number. A reset is not
-     drawn at rest: it rises over its reading under the pointer (ResetBadge). The mode's line
-     spans the row after an empty mark column. */
+     drawn at rest: it rises over its reading under the pointer (ResetBadge). */
   .uf-cols .hr { display: flex; align-items: center; gap: var(--space-inset); height: var(--size-menu-row); white-space: nowrap; }
   .uf-cols .col { flex: 1 1 0; min-width: 0; display: flex; align-items: center; }
   .uf-cols .col + .col { margin-left: calc(var(--space-gap) - var(--space-inset)); }
@@ -891,9 +890,9 @@
                    background: var(--badge); border-radius: var(--radius-chip); font: 500 10px/1 var(--font); color: var(--text); }
   .mk-card .top .tl > div:first-child { display: flex; align-items: center; gap: var(--space-snug); }
   .mk-card .top .tl .chips { display: flex; gap: var(--space-tight); }
-  .mk-foot .tone { width: 8px; height: 8px; border-radius: 50%; display: block; box-sizing: border-box; border: 1.2px solid; }
-  .mk-foot .tone.ready { border-color: var(--green); } .mk-foot .tone.attention { border-color: var(--amber); } .mk-foot .tone.idle { border-color: var(--muted); }
-  .mk-foot .tn.ready { color: var(--green); } .mk-foot .tn.attention { color: var(--amber); } .mk-foot .tn.idle { color: var(--muted); }
+  /* A group heading's status, joined to its words in the heading's face and its SettingsTone. */
+  .mk-foot .hd .suf { white-space: pre; }
+  .mk-foot .suf.ready { color: var(--green); } .mk-foot .suf.attention { color: var(--amber); } .mk-foot .suf.idle { color: var(--muted); }
   /* The real SF Symbols, the SymbolMark card's masks, at Size.vendorMark. */
   .mk-foot .gl { display: block; background: #000000; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
   .mk-foot .gl.macbook { width: 11.83px; height: 6.86px; -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); }
@@ -1956,7 +1955,7 @@
         <div class="step"><div class="label m">tabIndicator <span style="color: var(--muted)">2 pt</span></div>
           <div class="draw"><div class="box" style="width: 52px; height: 2px; border-radius: 0"></div><span class="purpose">The bar under a <code>TabBar</code>'s selected tab, drawn over the sheet header's rule: twice a hairline, so it reads as the selection rather than as a second rule. A stroke, so it does not scale.</span></div></div>
         <div class="step"><div class="label m">statusMarkSmall <span style="color: var(--muted)">8 pt</span></div>
-          <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The status mark inside a count chip, where the usual size would overflow it; and a <code>ToneRing</code>, leading a Settings card's status line and the footer's Backpack Mode line.</span></div></div>
+          <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The status mark inside a count chip, where the usual size would overflow it; and a <code>ToneRing</code>, leading a Settings card's status line.</span></div></div>
         <div class="step"><div class="label m">statusMark <span style="color: var(--muted)">10 pt</span></div>
           <div class="draw"><div class="dot" style="width: 10px; height: 10px"></div><span class="purpose">A status mark on a row, and the sidebar footer's rings drawn to its recipe. A row's mark sits in the trailing column, so this is declared as an alias: <code>statusMark = trailingGlyph</code>.</span></div></div>
         <div class="step"><div class="label m">trailingGlyph <span style="color: var(--muted)">10 pt</span></div>
@@ -2806,8 +2805,8 @@
               does itself: the Mac, beside the vendor marks.</div>
             <div class="no"><span class="h">Not for</span>A vendor — that is <code>VendorMark</code> or
               <code>IntegrationMark</code>, whose logos <code>LogoFit</code> places. A status dot on its
-              corner is the caller's composition, not a variant: the footer draws Backpack Mode's
-              <code>ToneRing</code> on a row of its own under the readings instead.</div>
+              corner is the caller's composition, not a variant: the footer says Backpack Mode on the
+              System heading instead.</div>
           </div>
         </article>
 
@@ -2882,7 +2881,7 @@
 <tr><td><code>Notice</code></td><td>Attention title, explanation and useful actions.</td><td>Notice.swift</td></tr>
 <tr><td><code>SidebarFooter</code></td><td>Selection-scoped system/context/usage telemetry.</td><td>SidebarFooter.swift</td></tr>
 <tr><td><code>UsageRing</code></td><td>The shared ring recipe for account/context readings.</td><td>SidebarFooter.swift</td></tr>
-<tr><td><code>ToneRing</code></td><td>Integration/Backpack Mode tone ring.</td><td>ToneRing.swift</td></tr>
+<tr><td><code>ToneRing</code></td><td>A Settings card's tone ring.</td><td>ToneRing.swift</td></tr>
 </tbody></table>
       </div>
 
@@ -2902,9 +2901,10 @@
       <p class="why">A vendor's weekly window is its first column, being the one every vendor has: Codex
         reports nothing else, so a missing reading is always a later column, as on the context's row. The
         Mac's row is <code>cpu</code>, <code>ram</code> and <code>bat</code>, the battery only while it is the
-        Mac's power; while Backpack Mode is on or switching, a second row holds the mode's line across the row,
-        a <code>ToneRing</code> at <code>Size.statusMarkSmall</code>, <code>Space.tight</code>, then its words,
-        both in the mode's <code>SettingsTone</code>. A vendor's note spans the row. When a window clears is
+        Mac's power. A group's heading may carry one status, joined to its words and there only while something
+        is out of the ordinary: while Backpack Mode is on or switching, System's reads <code>System · backpack mode</code>,
+        the added words in the heading's face and the mode's <code>SettingsTone</code>, and they are the Mac's control
+        like its readings row. It costs no row, so the footer keeps one height in every mode. A vendor's note spans the row. When a window clears is
         shown under the pointer only: a <code>ResetBadge</code>, <code>resets Sat 12:00</code>, on a
         <code>Size.chip</code> chip of <code>Palette.menu</code> inside <code>Palette.borderStrong</code>, just
         above the reading. At rest the row is the numbers alone.</p>
@@ -2915,7 +2915,7 @@
   <div class="grp"><div class="hd">Usage</div><div class="hr"><span class="mk claude"><svg viewBox="0 0 24 24"><use href="#p-claude"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>5h</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="42 100"/></svg><span class="tp nl t"><span>42%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span></div><div class="hr"><span class="mk paper"><svg class="oa" viewBox="0 0 24 24"><use href="#p-openai"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg w" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="88 100"/></svg><span class="tp nl w"><span>88%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span><span class="col"></span></div></div>
 </div></div><figcaption>a Claude tab selected; Codex past 80 % on its weekly window</figcaption></figure>
         <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
-  <div class="grp"><div class="hd">System</div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div><div class="hr"><span class="lead"></span><span class="col"><span class="lead"><i class="tone ready"></i></span><span class="tn ready">backpack mode</span></span></div></div>
+  <div class="grp"><div class="hd">System<span class="suf ready"> · backpack mode</span></div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
   <div class="rule"></div>
   <div class="grp"><div class="hd">Usage</div><div class="hr"><span class="mk claude"><svg viewBox="0 0 24 24"><use href="#p-claude"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>5h</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="42 100"/></svg><span class="tp nl t"><span>42%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span></div><div class="hr"><span class="mk paper"><svg class="oa" viewBox="0 0 24 24"><use href="#p-openai"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg w" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="88 100"/></svg><span class="tp nl w"><span>88%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span><span class="col"></span></div></div>
 </div></div><figcaption>nothing selected; on battery with Backpack Mode on</figcaption></figure>
@@ -3041,7 +3041,6 @@
     </div>
 
     <p class="no-proposals">No open proposals.</p>
-
   </section>
 
 </div>
