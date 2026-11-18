@@ -276,6 +276,7 @@ extension SidebarFooterGeometryTests {
     /// `theTaskRowDrawsOnlyItsMarkAndContext`).
     @Test func theFirstGroupIsSystem() {
         #expect(SidebarFooter.systemHeading == "System")
+        #expect(SidebarFooter.headingStatus("backpack mode") == " · backpack mode")
     }
 
     /// SYSTEM is always there: with nothing selected it still holds the Mac's readings, one
@@ -288,22 +289,23 @@ extension SidebarFooterGeometryTests {
         #expect(abs(host(rows).fittingSize.height - (system + 1 + usage)) < 0.5)
     }
 
-    /// In the backpack, and while it switches, the mode's line adds one row under the readings.
-    @Test(arguments: [MacMode.turningOn, .on, .needsYou(.lostHotspot), .turningOff])
-    func theBackpackLineAddsOneRow(mode: MacMode) {
+    /// Backpack Mode is said on the System heading's own line (proposal 1B, 18 Nov 2026), so the
+    /// footer is the desk's height in every mode: turning the mode on or off moves nothing above it.
+    @Test(arguments: [MacMode.desk, .turningOn, .on, .needsYou(.lostHotspot), .needsYou(.lowBattery(level: 13)), .turningOff])
+    func everyModeKeepsTheDesksHeight(mode: MacMode) {
         let usage = Space.tight + Size.menuRow + Space.base
-        let system = Space.tight + Size.menuRow * 3 + Space.base
+        let system = Space.tight + Size.menuRow * 2 + Space.base
         #expect(abs(host([], mode: mode).fittingSize.height - (system + 1 + usage)) < 0.5)
     }
 
-    /// On battery the battery is the readings row's third column, so it adds no row: at the desk
-    /// the Mac is one row, and Backpack Mode's line is the only second one.
-    @Test(arguments: [(MacMode.desk, 1), (.on, 2)])
-    func theBatteryJoinsTheReadingsRow(mode: MacMode, rows: Int) {
+    /// On battery the battery is the readings row's third column, so it adds no row: in every mode
+    /// the Mac is one row under the heading.
+    @Test(arguments: [MacMode.desk, .on])
+    func theBatteryJoinsTheReadingsRow(mode: MacMode) {
         let machine = [UsageLine(window: .cpu, percent: 23, warning: false), UsageLine(window: .ram, percent: 61, warning: false),
                        UsageLine(window: .battery, percent: 74, warning: false)]
         let usage = Space.tight + Size.menuRow + Space.base
-        let system = Space.tight + Size.menuRow * CGFloat(1 + rows) + Space.base
+        let system = Space.tight + Size.menuRow * 2 + Space.base
         #expect(abs(host([], machine: machine, mode: mode).fittingSize.height - (system + 1 + usage)) < 0.5)
     }
 }

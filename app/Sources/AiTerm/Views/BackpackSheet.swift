@@ -229,7 +229,7 @@ final class BackpackSheetModel: Identifiable {
 /// (⌘↩) runs in place with its checks under the fields, and ends on "Backpack Mode on. Safe to close the lid.", the Mac
 /// card's anatomy, with Done; a failure leaves the fields live and Connect retries. Closing the lid
 /// closes it: with nothing running that is a cancel; during a connect the attempt under way keeps
-/// going, but no retry follows it, and the footer's Backpack Mode line shows how it ends
+/// going, but no retry follows it, and the System heading's Backpack Mode status shows how it ends
 /// (`BackpackSheetModel.lidClosed()`).
 struct BackpackSheet: View {
     let model: BackpackSheetModel

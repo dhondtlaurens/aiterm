@@ -13,9 +13,15 @@ import AiTermCore
 /// the width of `100%`, so the rings stand in three straight lines down the footer whatever the
 /// digits. The weekly window is a vendor's first column, being the one every vendor has: Codex
 /// reports nothing else, so a missing reading is always a later column, as on the context's row.
-/// The Mac's row is `cpu | ram | bat`, the battery only while it is the Mac's power; while
-/// Backpack Mode is on or switching, a second row holds the mode's line in its `SettingsTone`,
-/// `○ backpack mode`, across the row. A click on the Mac's rows is ⌘B.
+/// The Mac's row is `cpu | ram | bat`, the battery only while it is the Mac's power. A click on it
+/// is ⌘B.
+///
+/// A group's heading may carry one status, joined to its words: `System · backpack mode`, in the
+/// heading's face and the status's `SettingsTone` (proposal 1B and 2A, 18 Nov 2026). It is there
+/// only while something is out of the ordinary, so it costs no row and the footer keeps one height
+/// whatever it says. System's is Backpack Mode while it is on or switching, and its words are the
+/// Mac's control like the readings row. Usage has none yet; a status about the whole group, never
+/// one vendor's reading, would go there.
 ///
 /// Its labels keep their short lowercase forms (`ctx`, `wk`, `5h`, `cpu`, `ram`, `bat`), set with
 /// tabular figures in the system face (`Typography.help.tabular`), on a ground of its own a step
@@ -36,7 +42,7 @@ import AiTermCore
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
 /// doing: an idle vendor's last reading is still its reading, and a dimmed ring beside a bright one
-/// reads as a different kind of mark. The Backpack Mode line is the one other colour.
+/// reads as a different kind of mark. A heading's status is the one other colour.
 struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
@@ -68,20 +74,18 @@ struct SidebarFooter: View {
         case reading(UsageLine)
         /// Words in an ink of their own: "No context yet".
         case words(String, Color)
-        /// The Mac's mode while Backpack Mode is on or switching.
-        case mode(SettingsTone, String)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            group(Self.systemHeading) {
+            group(systemHeading) {
                 if let task {
                     columns(mark: vendorMark(task.agent), Self.contextColumns(task))
                 }
                 macRows
             }
             Hairline()
-            group("Usage") {
+            group(SidebarHeading("Usage")) {
                 ForEach(rows, id: \.vendor) { row in
                     if let note = row.note {
                         telemetryRow(mark: vendorMark(row.vendor.session)) {
@@ -105,26 +109,35 @@ struct SidebarFooter: View {
         return task.agent == .shell ? [] : [.words("No context yet", Palette.muted)]
     }
 
-    /// The Mac's rows: its readings under its mark, read out as one element (before the first
-    /// sample it is still the Mac's button, so it says "Mac"); then, while Backpack Mode is on or
-    /// switching, the mode's line on a row of its own.
-    @ViewBuilder private var macRows: some View {
+    /// The Mac's row: its readings under its mark, read out as one element (before the first
+    /// sample it is still the Mac's button, so it says "Mac").
+    private var macRows: some View {
         macControl(
             columns(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark)), machine.map(Column.reading))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Self.readingsLabel(machine))
                 .accessibilityHint(mac.help)
         )
-        if let tone = mac.mode.tone, let words = mac.mode.words {
-            macControl(
-                telemetryRow(mark: Color.clear.frame(width: scale(Size.vendorMark))) {
-                    column(.mode(tone, words))
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(mac.help)
-            )
-        }
     }
+
+    /// System's heading, then while Backpack Mode is on or switching its status joined to it:
+    /// `System · backpack mode`. Only the status is the Mac's control, read out as the mode's sentence.
+    private var systemHeading: some View {
+        HStack(spacing: 0) {
+            SidebarHeading(Self.systemHeading)
+            if let tone = mac.mode.tone, let words = mac.mode.words {
+                macControl(
+                    Text(Self.headingStatus(words)).font(SidebarHeading.style).foregroundStyle(tone.color)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(mac.help)
+                )
+            }
+        }
+        .lineLimit(1)
+    }
+
+    /// A status's words as they follow a heading's own: `System · backpack mode`.
+    static func headingStatus(_ words: String) -> String { " · \(words)" }
 
     /// The readings row's VoiceOver label: each reading's words, or "Mac" while there are none.
     static func readingsLabel(_ machine: [UsageLine]) -> String {
@@ -150,10 +163,11 @@ struct SidebarFooter: View {
     /// `Space.inset` the snapshot harness stands in for it with — to the rows' `Space.base`.
     private var edge: CGFloat { scale(Space.inset) + scale(Space.base) }
 
-    /// A heading in the Projects header's treatment, then its rows, in the footer's own padding.
-    private func group(_ title: String, @ViewBuilder rows: () -> some View) -> some View {
+    /// A heading in the Projects header's treatment, with its status when it has one, then its
+    /// rows, in the footer's own padding.
+    private func group(_ heading: some View, @ViewBuilder rows: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarHeading(title)
+            heading
                 .frame(height: scale(Size.menuRow))
             rows()
         }
@@ -193,11 +207,6 @@ struct SidebarFooter: View {
             switch part {
             case .reading(let line): Reading(line: line, hovered: line.window == hovering)
             case .words(let words, let ink): Text(words).foregroundStyle(ink)
-            case .mode(let tone, let words):
-                HStack(spacing: scale(Space.tight)) {
-                    ToneRing(tone: tone, size: scale(Size.statusMarkSmall))
-                    Text(words).foregroundStyle(tone.color)
-                }
             case nil: Color.clear
             }
         }
