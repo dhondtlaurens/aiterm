@@ -2,10 +2,8 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// What a background mark's card says (proposal Background work on your own tasks B, and A of its "several jobs at
-/// once", 22 Oct 2026): how many jobs still run when there are several, then one job per line in
-/// the order the tabs list them — a shell by its command after a terminal glyph, a monitor or any other task by its
-/// description after an eye.
+/// The existing ordered work list, with native short descriptions when available. Raw commands
+/// remain on each job for fallback/help; the visual and spoken descriptions use the same label.
 struct BackgroundCard: Equatable {
     let jobs: [BackgroundJob]
 
@@ -15,7 +13,7 @@ struct BackgroundCard: Equatable {
 
     /// The card in words, the row's value for VoiceOver: every job, which the card may scroll or cut short.
     var spoken: String {
-        let what = jobs.map(\.text).joined(separator: ", ")
+        let what = jobs.map(\.label).joined(separator: ", ")
         return what.isEmpty ? TaskStatus.background.label : "Background work: " + what
     }
 
@@ -24,7 +22,7 @@ struct BackgroundCard: Equatable {
     func accessibilityValue(status: TaskStatus, detail: String? = nil) -> String {
         var parts = [status.label]
         if let detail, !detail.isEmpty, detail != status.label { parts.append(detail) }
-        let remaining = jobs.filter { !(detail?.contains($0.text) ?? false) }
+        let remaining = jobs.filter { !(detail?.contains($0.text) ?? false) && !(detail?.contains($0.label) ?? false) }
         if !remaining.isEmpty { parts.append(BackgroundCard(jobs: remaining).spoken) }
         return parts.joined(separator: ". ")
     }
@@ -53,6 +51,10 @@ final class BackgroundCardHover {
 
     func mark(_ hovering: Bool) { onMark = hovering; settle() }
     func card(_ hovering: Bool) { onCard = hovering; settle() }
+    func close() {
+        pending?.cancel(); pending = nil
+        onMark = false; onCard = false; isOpen = false
+    }
 
     private func settle() {
         pending?.cancel()
@@ -66,25 +68,60 @@ final class BackgroundCardHover {
     }
 }
 
-/// The card: `menuChrome` at the row pill's `Radius.control` around the heading in `Typography.help` and secondary
-/// ink, then a line per job in the ink, a shell's command in `Typography.mono`, anything else's description in
-/// `Typography.help`, each after its glyph at `Size.inlineMark` and cut at its end when the row is too narrow. Every
-/// line is `Size.chip` tall and `Space.tight` from the next, `Space.base` inside above and below and `Space.gap` either
-/// side, so the heading lies on the row's title line and the first job on its second (the background card, A, 29 Oct
-/// 2026). It fills what it is offered, the pill up to the mark, and scrolls inside past that. It floats on the menu's
-/// ground, never the row's, so a selected row's card reads as any other's.
+/// The heading stays still above up to five one-line jobs. Only the jobs scroll; their native
+/// short descriptions use the system face, raw shell-command fallbacks the monospaced face.
 struct BackgroundCardView: View {
     let card: BackgroundCard
+    var visibleJobs = maximumVisibleJobs
     @Environment(\.interfaceScale) private var scale
+    #if DEBUG
+    @Environment(\.motionStill) private var motionStill
+    #endif
+
+    private var snapshotDrawing: Bool {
+        #if DEBUG
+        motionStill == .snapshot
+        #else
+        false
+        #endif
+    }
+
+    /// A local item-count policy, not a new shared measurement token.
+    static let maximumVisibleJobs = 5
+
+    static func height(jobs: Int, scale: InterfaceScale) -> CGFloat {
+        2 * scale(Space.base) + scale(Size.chip)
+            + CGFloat(min(maximumVisibleJobs, max(0, jobs))) * (scale(Size.chip) + scale(Space.tight))
+    }
+
+    static func visibleJobs(total: Int, availableHeight: CGFloat, scale: InterfaceScale) -> Int {
+        let room = availableHeight - 2 * scale(Space.base) - scale(Size.chip)
+        let fits = max(0, Int(floor(room / (scale(Size.chip) + scale(Space.tight)))))
+        return min(total, maximumVisibleJobs, fits)
+    }
 
     var body: some View {
-        // Offered its row's pill up to the mark (`backgroundCard`), it fills it: its lines from the top while they
-        // fit, the whole of it scrolling past that.
-        ViewThatFits(in: .vertical) {
-            lines
-            ScrollView(.vertical) { lines }
+        let rows = min(card.jobs.count, max(0, visibleJobs), Self.maximumVisibleJobs)
+        VStack(alignment: .leading, spacing: scale(Space.tight)) {
+            HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
+                .frame(height: scale(Size.chip))
+            if rows > 0 {
+                Group {
+                    // ImageRenderer does not materialise native scroll views. Static fixtures
+                    // draw these same lines clipped; hosted tests exercise the actual scroller.
+                    if snapshotDrawing { lines }
+                    else if card.jobs.count > rows {
+                        ScrollView(.vertical) { lines }
+                    } else { lines }
+                }
+                .frame(height: CGFloat(rows) * scale(Size.chip) + CGFloat(rows - 1) * scale(Space.tight),
+                       alignment: .topLeading)
+                .clipped()
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.vertical, scale(Space.base)).padding(.horizontal, scale(Space.gap))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: Self.height(jobs: rows, scale: scale))
         .menuChrome(cornerRadius: scale(Radius.control))
         .surface(.sheet)
         .accessibilityHidden(true)
@@ -92,29 +129,27 @@ struct BackgroundCardView: View {
 
     private var lines: some View {
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
-                .frame(height: scale(Size.chip))
             ForEach(Array(card.jobs.enumerated()), id: \.offset) { _, job in
-                HStack(spacing: scale(Space.tight)) {
+                HStack(alignment: .center, spacing: scale(Space.tight)) {
                     Icon(.symbol(BackgroundCard.glyph(job.kind)), size: scale(Size.inlineMark), tint: Palette.muted)
-                    Text(job.text).font(job.kind == .shell ? Typography.mono : Typography.help)
+                    Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
                         .foregroundStyle(Palette.text).lineLimit(1).truncationMode(.tail)
+                        .help(job.kind == .shell && !job.isCommand ? job.text : "")
                 }
                 .frame(height: scale(Size.chip))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.vertical, scale(Space.base)).padding(.horizontal, scale(Space.gap))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 extension View {
-    /// A row's content with its background mark's card laid over it while open: on the row pill's top, bottom and
-    /// leading edges, its trailing edge `Space.tight` before the mark's slot, so it covers the pill's wash or selection
-    /// up to the mark and nothing else. Applied inside `SelectableRow`, so it reaches out over the row's `Space.base`
-    /// padding to the pill's edges. No jobs, no card. It holds the card's hover, which the mark inside it reads
-    /// (`opensBackgroundCard`). Debug fixtures can seed that state through the environment.
-    func backgroundCard(_ jobs: [BackgroundJob]) -> some View {
-        modifier(BackgroundCardOverlay(jobs: jobs))
+    /// A source row's hover and native anchor, applied inside SelectableRow's padding. The sidebar
+    /// presenter floats the card; standalone debug fixtures draw its content directly.
+    func backgroundCard(_ jobs: [BackgroundJob], source: RowSelection,
+                        activate: @escaping () -> Void, commands: [[RowCommand]]) -> some View {
+        modifier(BackgroundCardOverlay(jobs: jobs, source: source, activate: activate, commands: commands))
     }
 
     /// A row's trailing mark as the hover target that opens its card: the whole `Size.slot` square.
@@ -134,13 +169,15 @@ private extension EnvironmentValues {
 /// itself, and every row would redraw for any change to the sidebar.
 private struct BackgroundCardOverlay: ViewModifier {
     let jobs: [BackgroundJob]
+    let source: RowSelection
+    let activate: () -> Void
+    let commands: [[RowCommand]]
+    @Environment(\.backgroundCardPresenter) private var presenter
     @Environment(\.interfaceScale) private var scale
     #if DEBUG
     @Environment(\.seededHover) private var seededHover
     #endif
     @State private var own = BackgroundCardHover()
-
-    init(jobs: [BackgroundJob]) { self.jobs = jobs }
 
     private var hover: BackgroundCardHover {
         #if DEBUG
@@ -151,9 +188,18 @@ private struct BackgroundCardOverlay: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .environment(\.backgroundCardHover, hover)
+            .environment(\.backgroundCardHover, jobs.isEmpty ? nil : hover)
+            .background {
+                if let presenter, !jobs.isEmpty {
+                    BackgroundCardAnchor(source: source, presenter: presenter, hover: hover,
+                                         activate: activate, commands: commands)
+                }
+            }
             .overlay(alignment: .topTrailing) {
-                if hover.isOpen, !jobs.isEmpty {
+                // ImageRenderer cannot host a native panel: standalone debug fixtures draw the
+                // same content directly. Real sidebar presentation is exclusively the presenter.
+                #if DEBUG
+                if presenter == nil, hover.isOpen, !jobs.isEmpty {
                     BackgroundCardView(card: BackgroundCard(jobs: jobs))
                         .onHover { hover.card($0) }
                         .onDisappear { hover.card(false) }
@@ -161,6 +207,7 @@ private struct BackgroundCardOverlay: ViewModifier {
                         .padding(EdgeInsets(top: -scale(Space.base), leading: -scale(Space.base), bottom: -scale(Space.base),
                                             trailing: SidebarRowLayout.trailingSlot(scale) + scale(Space.tight)))
                 }
+                #endif
             }
     }
 }

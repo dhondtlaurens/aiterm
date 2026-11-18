@@ -96,6 +96,12 @@ stuck status, a blank usage footer or a failed launch, and nobody is told why.
     can't be left out.
 
 **One command** (`scripts/compat-check.sh [claude,codex,pi]`):
+0. Check the selected CLIs against their public latest releases and update outdated installations.
+   Native Claude explicitly installs `latest`; Codex and PI use their self-updaters, as does
+   package-managed Claude. Fail before capture if any requested CLI is missing, a lookup/update
+   fails, or the installed version still differs. Generate temporary absolute launchers that check
+   the executable's version again in every fresh capture, headless and delivery session. Existing
+   windows keep running. This extends the original plan at the maintainer's request on 2026-11-18.
 1. Capture.
 2. Run the delivery check `--write` for Claude Code and Codex, which updates Messaging. Its exit
    code says nothing about the verdict, because it returns 0 even when scenarios fail or iTerm2 is
@@ -132,7 +138,9 @@ arriving. An install with the old http entry reads as outdated and Repair replac
 | File | Change | Why |
 |---|---|---|
 | `daemon/tools/compat_capture.py` | create | Live capture: scratch configs, driver install, capture listener, scripted turns, scrubber, fixture writer |
-| `daemon/tools/delivery_check.py` | reuse | The capture imports its scratch-config and iTerm2 session helpers (`Live`, `answer_trust`, `scratch_*_config`); no change was needed |
+| `daemon/tools/compat_preflight.py` | create | Latest-release lookup, updates and temporary checked launchers shared by capture and delivery |
+| `daemon/tests/test_compat_preflight.py` | create | Fake CLI updates, failures and fresh-shell executable/version checks; no real installation changes in tests |
+| `daemon/tools/delivery_check.py` | modify | Reuse its scratch configs and iTerm2 helpers; use checked launchers when invoked from compatibility checks |
 | `daemon/tests/fixtures/compat/{claude,codex,pi}/` | create | The newest scrubbed capture per CLI, with a `capture.json` naming version and date |
 | `daemon/tests/test_compat_captures.py` | create | Python contract suite over the captures |
 | `daemon/tests/test_compat_capture.py` | create | Unit tests for the tool's pure parts: scrubber and its guard, turn-script selection, verified-list merge |
@@ -143,7 +151,7 @@ arriving. An install with the old http entry reads as outdated and Repair replac
 | `compat/verified.json` | create | The major.minor per CLI the last green run verified; bundled into the app |
 | `scripts/compat-check.sh` | create | The one maintainer command |
 | `scripts/make-app.sh` | modify | Bundle `compat/verified.json` |
-| `scripts/test-routes.tsv` | modify | Route `daemon/tests/fixtures/compat/*` and `compat/*` to both suites; register the cross-target reader |
+| `scripts/test-routes.tsv` | modify | Route captures and contracts to both suites, and the compatibility script to its daemon preflight tests; register readers |
 | `app/Sources/AiTermCore/Harnesses/ClaudeSettings.swift` | modify | `SessionStart` as a curl command hook (above) |
 | `app/Tests/AiTermCoreTests/HookConfigTests.swift` | modify | The command entry, and the repair of an http one |
 | `app/Sources/AiTermCore/Harnesses/` (new `CompatVerified.swift`) | create | Read the bundled list; pure "verified / not yet verified" from the installed version |
@@ -154,6 +162,9 @@ arriving. An install with the old http entry reads as outdated and Repair replac
 ## Proof
 
 - **New pure-logic tests, written first:**
+  - preflight updates selected outdated CLIs, leaves current/unselected CLIs alone, and fails on a
+    missing CLI, failed lookup/update or unchanged version; fresh shells use the checked executable
+    and reject version drift, including when PATH and HOME differ
   - the scrubber leaves no home, user, email or scratch path, and refuses to write when one remains
   - the verified-list merge keeps other CLIs' entries
   - `CompatVerified` uses major.minor coverage, and treats an unknown version as not verified
@@ -176,6 +187,9 @@ arriving. An install with the old http entry reads as outdated and Repair replac
 
 ## To-dos
 
+- [x] **Latest releases before capture (2026-11-18).** Check and update selected CLIs, stop on
+  preflight failures, and use checked absolute launchers for fresh capture and delivery sessions.
+  Fake CLI tests prove update, failure, fresh-shell and version-drift behavior.
 - [x] **Claude core capture.** Driver templates with their Swift in-step test, capture listener,
   scratch config with those hooks and the unchanged shim on a scratch `HOME`, one plain turn, scrubber with its guard, fixture writer. Python contract tests for hook posts, the
   status line and the session file. Runnable by hand for Claude.

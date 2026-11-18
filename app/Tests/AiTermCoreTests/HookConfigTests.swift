@@ -253,6 +253,16 @@ import Foundation
         }
     }
 
+    /// The rebuild keeps a CRLF file's own line ending on its last line: no bare `\n` after it, and one added in the
+    /// file's own ending where the last line had none.
+    @Test(arguments: [("model = \"gpt-5.6\"\r\n", "model = \"gpt-5.6\"\r\n"),
+                      ("a = 1\r\nb = 2", "a = 1\r\nb = 2\r\n"),
+                      ("a = 1\nb = 2", "a = 1\nb = 2\n")])
+    func aRebuildKeepsTheFilesOwnLineEndingOnItsLastLine(input: String, kept: String) {
+        let block = CodexHookConfig.block(hookURL: "http://127.0.0.1:47821")
+        #expect(CodexHookConfig.merge(input, hookURL: "http://127.0.0.1:47821") == kept + "\n" + block + "\n")
+    }
+
     /// Codex adds a table at the end of the file, before its trailing comment, which is AiTerm's end
     /// marker: a server added with `codex mcp add` lands between the markers and is the person's.
     @Test func aServerAddedBetweenTheMarkersIsKeptAndTheBlockIsStillReplacedOnce() {

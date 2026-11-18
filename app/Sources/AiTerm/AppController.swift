@@ -328,9 +328,9 @@ final class AppController {
     }
 
     // Whether Focus View would change any project's collapsed state. A sheet keeps ⌘F for its search fields.
-    var canShowFocusView: Bool { canApplyView(signalLayout(focus: true)) }
+    var canShowFocusView: Bool { canApplyView(rows.viewLayout(focus: true)) }
     /// Whether List View would open any project with rows. A sheet keeps the command disabled.
-    var canShowListView: Bool { canApplyView(signalLayout(focus: false)) }
+    var canShowListView: Bool { canApplyView(rows.viewLayout(focus: false)) }
 
     /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
     /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
@@ -338,33 +338,28 @@ final class AppController {
     /// The peek is returned, when there is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
-        guard applyView(signalLayout(focus: true)) else { return nil }
+        guard applyView(rows.viewLayout(focus: true)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
         guard let first = rows.projectsNeedingAttention.first else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
     /// ⌘L: opens every project with rows in one save.
-    func showListView() { applyView(signalLayout(focus: false)) }
-
-    private func signalLayout(focus: Bool) -> [UUID: Bool] {
-        var layout = focus ? SidebarModel.focusView(rows.sections) : SidebarModel.listView(rows.sections)
-        for section in rows.signalSections where !section.tasks.isEmpty {
-            layout[section.id] = focus && !section.tasks.contains(where: \.needsYou)
-        }
-        return layout
-    }
+    func showListView() { applyView(rows.viewLayout(focus: false)) }
 
     private func canApplyView(_ layout: [UUID: Bool]) -> Bool {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
     }
 
-    /// Whether the layout was stored. A locked workspace is `projects.setCollapsed`'s to refuse, as
-    /// every edit of its own is; `canApplyView` asks it too, but only to grey the menus.
+    /// Whether the layout was stored. A locked workspace stores nothing, a removed signal's fold
+    /// included; `canApplyView` asks it too, but only to grey the menus. A removed signal's heading
+    /// folds in the rows' own set, as its toggle does.
     @discardableResult
     private func applyView(_ layout: [UUID: Bool]) -> Bool {
-        guard sheet == nil, !layout.isEmpty else { return false }
-        return projects.setCollapsed(layout)
+        guard sheet == nil, !layout.isEmpty, canChangeWorkspace else { return false }
+        guard projects.setCollapsed(rows.foldRemovedSignals(in: layout)) else { return false }
+        refreshRows()
+        return true
     }
 
     // -- sheets ---------------------------------------------------------------------

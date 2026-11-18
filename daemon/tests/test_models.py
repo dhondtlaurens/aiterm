@@ -82,3 +82,18 @@ def test_usage_json():
     u = Usage(UsageWindow(23, 1790172996), None, None, 1789568196)
     assert u.to_json() == {"fiveHour": {"usedPercent": 23, "resetsAt": 1790172996}, "sevenDay": None, "spend": None,
                            "updatedAt": 1789568196, "retrievalFailure": None}
+
+
+def test_display_labels_do_not_replace_raw_work_or_its_readiness():
+    from aitermd.models import BackgroundJob, work_items
+    session = SessionInfo("s", "w", 0, None, None, "claude", "done", "", "/wt", 1)
+    session.stop_work = (BackgroundJob("shell", "scripts/test.sh", task_id="gate", display_label="Run the gate"),)
+    session.shown_shells = (BackgroundJob("shell", "scripts/test.sh", task_id="gate"),)
+    session.shown_subagents = (BackgroundJob("subagent", "default", agent_id="child", display_label="Review checkout"),)
+    assert [item.to_json() for item in work_items(session)] == [
+        {"kind": "shell", "text": "scripts/test.sh", "holdsTurn": True, "displayLabel": "Run the gate"},
+        {"kind": "subagent", "text": "default", "holdsTurn": False, "displayLabel": "Review checkout"},
+    ]
+    session.stop_work = ()
+    assert work_items(session)[0].text == "default"
+    assert not work_items(session)[0].holds_turn

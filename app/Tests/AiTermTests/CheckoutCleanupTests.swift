@@ -388,6 +388,34 @@ import Testing
         #expect(controller.toastState.toast?.message == "Task closed because its worktree was removed.")
     }
 
+    /// A tab of the task dragged into another window goes with the task: the close closes that window after the row's
+    /// own. While that window also holds a plain tab, it holds other work, and the close waits as for the row's own.
+    @Test func aRemovedTasksTabDraggedIntoAnotherWindowClosesWithIt() async throws {
+        let fixture = try await TaskFixture(windowOpen: true)
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon()
+        defer { controller.shutdown() }
+        controller.helper.setDaemonClient(server)
+        let windowId = try #require(fixture.task.windowId)
+        let own = SessionInfo.stub("s1", window: windowId, task: fixture.task)
+        let dragged = SessionInfo.stub("s2", window: "dragged", task: fixture.task)
+        controller.live.sessions = [own, dragged, .make("plain", window: "dragged", agent: .shell, state: .idle)]
+
+        try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
+        await controller.checkouts.refresh().value
+        await eventually(describing: "no closing under way") { controller.work.operation(onTask: fixture.task.id) == nil }
+        #expect(controller.state.tasks == [fixture.task])
+        #expect(server.closedWindowIds.isEmpty)
+
+        controller.live.sessions = [own, dragged]
+        await controller.checkouts.refresh().value
+        await eventually(describing: "the closing ended") { controller.work.operation(onTask: fixture.task.id) == nil }
+        #expect(server.closedWindowIds == [windowId, "dragged"])
+        #expect(controller.state.tasks.isEmpty)
+        #expect(controller.toastState.toast?.message == "Task closed because its worktree was removed.")
+    }
+
     /// A close iTerm2 refuses is retried by the next pass, and the row says "Closing…" throughout
     /// rather than flickering back to "Worktree missing" between tries.
     @Test(arguments: ["temporary_failure", .notFound] as [DaemonError.Code])

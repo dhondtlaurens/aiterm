@@ -51,6 +51,7 @@ from aitermd.iterm_bridge import ItermBridge, ItermPort, ItermUnavailable
 from aitermd.keystrokes import TypingGuard
 from aitermd.models import HARNESS_BY_AGENT, AgentKind, Frame
 from aitermd.sessions import SessionRegistry
+from tools.compat_preflight import command as checked_command
 
 # How long each step may take: an answer, a prompt opening, the agent settling. Starting the CLI may
 # take longer, and so may busyQueue, which waits for two turns.
@@ -195,11 +196,12 @@ def agent_command(agent: AgentKind, folder: Path, home: Path | None = None) -> s
     """The command line the check types to start `agent`, on a scratch config made under `folder` from
     the one in `home` (the person's): Codex's CODEX_HOME, Claude's CLAUDE_CONFIG_DIR with its login."""
     home = home or Path.home()
+    command = shlex.join(checked_command(shlex.split(COMMANDS[agent])))
     if agent == "codex":
         codex_home = scratch_codex_home(home / ".codex", folder)
-        return f"env CODEX_HOME={shlex.quote(str(codex_home))} {COMMANDS[agent]}"
+        return f"env CODEX_HOME={shlex.quote(str(codex_home))} {command}"
     config = scratch_claude_config(home / ".claude", home / ".claude.json", folder)
-    return f"env CLAUDE_CONFIG_DIR={shlex.quote(str(config))} CLAUDE_SECURESTORAGE_CONFIG_DIR='' {COMMANDS[agent]}"
+    return f"env CLAUDE_CONFIG_DIR={shlex.quote(str(config))} CLAUDE_SECURESTORAGE_CONFIG_DIR='' {command}"
 
 
 _TABLE = re.compile(r"\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?")
@@ -310,7 +312,8 @@ def front_app() -> str:
 
 def cli_version(agent: AgentKind) -> str | None:
     try:
-        return parse_version(subprocess.run([agent, "--version"], capture_output=True, text=True, timeout=60).stdout)
+        result = subprocess.run(checked_command([agent, "--version"]), capture_output=True, text=True, timeout=60)
+        return parse_version(result.stdout) if result.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None
 

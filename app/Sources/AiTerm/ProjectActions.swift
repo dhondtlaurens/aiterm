@@ -297,7 +297,11 @@ final class ProjectActions {
         }
         if tasks == 0 { return "Removes the project from AiTerm\(forgets). Files are kept and terminal windows stay open." }
         let kept = archived.isEmpty ? "Files, worktrees and windows are kept." : "Files, branches, worktrees and windows are kept."
-        let held = operatorWorktrees == 0 ? "" : " " + "\(operatorWorktrees) worktrees are run by signals."
+        let held = switch operatorWorktrees {
+        case 0: ""
+        case 1: " 1 worktree is run by signals."
+        default: " \(operatorWorktrees) worktrees are run by signals."
+        }
         return "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm\(forgets). \(kept)\(held)"
     }
 

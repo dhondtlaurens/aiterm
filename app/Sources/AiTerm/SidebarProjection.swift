@@ -126,6 +126,18 @@ struct SectionFold: Equatable {
         }
     }
 
+    /// Only the open card resolves jobs here; row bodies already have their projected facts.
+    func backgroundJobs(for row: RowSelection) -> [BackgroundJob]? {
+        guard isDrawn(row) else { return nil }
+        switch row {
+        case .task(let id):
+            return (operatorOpen ? signalSections.flatMap(\.tasks) : sections.flatMap(\.tasks))
+                .first { $0.id == id }?.background
+        case .terminal(let id): return sections.flatMap(\.terminals).first { $0.id == id }?.background
+        default: return nil
+        }
+    }
+
     /// A child's heading, only while that heading is drawn. Headings and the Operator row have none.
     func visibleHeading(for row: RowSelection) -> RowSelection? {
         switch row {
@@ -191,6 +203,25 @@ struct SectionFold: Equatable {
         return changed
     }
 
+    /// Focus View's (`focus`) or List View's fold of every project and signal with a row: List View opens each, Focus
+    /// View only those with a row waiting on you. A task on its way out counts as no row, so a heading left with only
+    /// such tasks is left as it is.
+    func viewLayout(focus: Bool) -> [UUID: Bool] {
+        let leaving = inputs?.leaving ?? []
+        let projects = sections.map { section in
+            var section = section
+            section.tasks.removeAll { leaving.contains($0.id) }
+            return section
+        }
+        var layout = focus ? SidebarModel.focusView(projects) : SidebarModel.listView(projects)
+        for section in signalSections {
+            let tasks = section.tasks.filter { !leaving.contains($0.id) }
+            guard !tasks.isEmpty else { continue }
+            layout[section.id] = focus && !tasks.contains(where: \.needsYou)
+        }
+        return layout
+    }
+
     /// Removed signals keep their fold only for this projection's lifetime.
     func toggleRemovedSignal(_ id: UUID) {
         if !foldedRemovedSignals.insert(id).inserted { foldedRemovedSignals.remove(id) }
@@ -198,6 +229,16 @@ struct SectionFold: Equatable {
 
     func openRemovedSignal(_ id: UUID) {
         foldedRemovedSignals.remove(id)
+    }
+
+    /// The folds of `layout` that belong to a removed signal's heading, set here, and the rest returned for the
+    /// workspace to save.
+    func foldRemovedSignals(in layout: [UUID: Bool]) -> [UUID: Bool] {
+        let removed = Set(signalSections.filter(\.removed).map(\.id))
+        for (id, folded) in layout where removed.contains(id) {
+            if folded { foldedRemovedSignals.insert(id) } else { foldedRemovedSignals.remove(id) }
+        }
+        return layout.filter { !removed.contains($0.key) }
     }
 
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {

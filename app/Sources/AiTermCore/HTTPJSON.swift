@@ -114,6 +114,8 @@ enum HTTPJSON {
     }
 
     private static func transfer<Value>(_ body: () async throws -> Value) async throws -> Value {
+        // A task cancelled before it asks sends nothing: URLSession can answer before it notices.
+        try Task.checkCancellation()
         do { return try await body() }
         catch {
             // URLSession reports a cancelled task as `URLError.cancelled`.

@@ -141,23 +141,29 @@ enum SidebarSnapshots {
     static var backgroundWorkCards: [Snapshot] {
         [workCards("sidebar-work-cards-closed.png", open: false, scale: .standard),
          workCards("sidebar-work-cards-open.png", open: true, scale: .standard),
-         workCards("sidebar-work-cards-large.png", open: true, scale: .extraLarge)]
+         workCards("sidebar-work-cards-large.png", open: true, scale: .extraLarge),
+         workCards("sidebar-work-cards-scroll.png", open: true, scale: .standard, many: true)]
     }
 
     /// The same existing card on working, background and needs-input marks, plus a terminal.
-    private static func workCards(_ file: String, open: Bool, scale: InterfaceScale) -> Snapshot {
+    private static func workCards(_ file: String, open: Bool, scale: InterfaceScale, many: Bool = false) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller()
             let hover = BackgroundCardHover(isOpen: open)
-            let jobs = [BackgroundJob(kind: .shell, text: "npm run test"),
-                        BackgroundJob(kind: .subagent, text: "Review the checkout changes"),
+            let jobs = [BackgroundJob(kind: .shell, text: "npm run test", displayLabel: "Run the full test suite"),
+                        BackgroundJob(kind: .subagent, text: "default",
+                                      displayLabel: "Review the checkout changes and native integrations while preserving the existing work lifecycle"),
                         BackgroundJob(kind: .monitor, text: "Watch the CI pipeline")]
+                + (many ? (1...4).map { BackgroundJob(kind: .subagent, text: "general-purpose",
+                                                     displayLabel: "Inspect background task \($0)") } : [])
             controller.focus.browse(.task(fixture.working.id))
             @MainActor func taskRow(_ status: TaskStatus) -> TaskRow {
                 var row = controller.rows.sections.flatMap(\.tasks).first { $0.id == fixture.working.id }!
                 row.title = status.label; row.status = status; row.mark = .status(status); row.background = jobs
                 return row
             }
+            let neighbours = controller.rows.sections.flatMap(\.tasks)
+                .filter { $0.id == fixture.other.id || $0.id == fixture.piTask.id }
             var terminal = controller.rows.sections.flatMap(\.terminals).first { $0.id == fixture.terminal.id }!
             terminal.name = "Codex with a reviewer"; terminal.status = .working; terminal.background = [jobs[1]]
             terminal.avatars = SidebarModel.avatars(for: [Fixture.session("work-codex", "w-work", fixture.codexTask.id,
@@ -165,7 +171,17 @@ enum SidebarSnapshots {
             return SnapshotColumn(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset), spacing: Space.base,
                                   horizontalInset: scale(Space.inset), verticalInset: scale(Space.base)) {
                 ForEach([TaskStatus.working, .background, .needsInput], id: \.self) { status in
-                    TaskRowView(row: taskRow(status), controller: controller)
+                    VStack(spacing: scale(Space.base)) {
+                        TaskRowView(row: taskRow(status), controller: controller)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .zIndex(1)
+                        // Keep the rows at their intrinsic size. The card overlaps neighbouring
+                        // rows just as the native panel does, rather than reserving a tall row.
+                        ForEach(neighbours) { row in
+                            TaskRowView(row: row, controller: controller)
+                                .environment(\.seededHover, nil)
+                        }
+                    }
                 }
                 TerminalRowView(row: terminal, terminal: fixture.terminal, project: fixture.project, controller: controller)
             }

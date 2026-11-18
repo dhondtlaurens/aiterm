@@ -23,6 +23,19 @@ struct BackgroundCardTests {
         #expect(BackgroundCard.glyph(.monitor) == "eye" && BackgroundCard.glyph(.task) == "eye")
     }
 
+    @Test func nativeDisplayLabelsLeaveWorkerTextAndReadinessAlone() throws {
+        let data = Data(#"[{"kind":"shell","text":"scripts/test.sh","holdsTurn":true,"displayLabel":"Run the gate"},{"kind":"subagent","text":"default","holdsTurn":false,"displayLabel":"Review checkout"}]"#.utf8)
+        var session = SessionInfo.make("s", state: .done)
+        session.work = try JSONDecoder().decode([WorkItem].self, from: data)
+        let jobs = SidebarModel.displayJobs(of: [session])
+        #expect(BackgroundCard(jobs: jobs).spoken == "Background work: Run the gate, Review checkout")
+        #expect(SidebarModel.backgroundJobs(of: [session]) == [BackgroundJob(kind: .shell, text: "scripts/test.sh")])
+        #expect(session.work.map(\.text) == ["scripts/test.sh", "default"])
+        #expect(SidebarModel.aggregate(tabs: [session]) == .background)
+        #expect(BackgroundCard(jobs: jobs).accessibilityValue(status: .working, detail: "Running scripts/test.sh")
+                == "Working. Running scripts/test.sh. Background work: Review checkout")
+    }
+
     /// Hovering known work opens the same card for every active status.
     @Test(arguments: [TaskStatus.background, .working, .needsInput])
     func hoveringTheMarkOpensTheExistingCard(status: TaskStatus) async throws {
@@ -115,14 +128,14 @@ struct BackgroundCardTests {
         #expect(TaskRowMark(status: .done, line: ended) == .ended)
     }
 
-    /// Offered its row's pill up to the mark, the card fills it however many jobs it lists, the rest scrolling.
-    @Test func itFillsWhatItIsOffered() {
-        func size(_ jobs: [BackgroundJob]) -> CGSize {
-            NSHostingController(rootView: BackgroundCardView(card: BackgroundCard(jobs: jobs)))
-                .sizeThatFits(in: CGSize(width: 300, height: Size.row))
-        }
-        #expect(size([tests]) == CGSize(width: 300, height: Size.row))
-        #expect(size([tests, server, ci]) == CGSize(width: 300, height: Size.row))
+    @Test(arguments: [1, 3, 5, 7], InterfaceScale.all)
+    func itGrowsToFiveSingleLineJobsBeforeScrolling(count: Int, scale: InterfaceScale) {
+        let jobs = (0..<count).map { BackgroundJob(kind: .shell, text: "command-\($0)") }
+        let size = NSHostingController(rootView: BackgroundCardView(card: BackgroundCard(jobs: jobs)).interfaceScale(scale))
+            .sizeThatFits(in: CGSize(width: 300, height: 1000))
+        let rows = CGFloat(min(count, 5))
+        let height = 2 * scale(Space.base) + scale(Size.chip) + rows * (scale(Size.chip) + scale(Space.tight))
+        #expect(size == CGSize(width: 300, height: height))
     }
 
     /// Open, the card covers the row and does not grow it, however many jobs it lists.

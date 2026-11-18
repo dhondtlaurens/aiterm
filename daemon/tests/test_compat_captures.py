@@ -169,6 +169,15 @@ def test_claude_transcript_shows_the_background_shell_start_and_end(tmp_path):
     assert ended is not None and shell in ended.ended, "the background shell's end is not seen"
 
 
+def test_native_parent_captures_link_child_labels_to_hook_ids():
+    claude_start = named("claude", "SubagentStart")[0]
+    labels = BackgroundTranscripts().read_with_labels({"tab": (str(_main_transcript()), 0)})["tab"].child_labels
+    assert dict(labels)[claude_start["agent_id"]] == "Reply with CHARLIE"
+    codex_start = named("codex", "SubagentStart")[0]
+    reading = CodexSessionFiles(CAPTURES / "codex" / "sessions").reading(codex_start["session_id"])
+    assert dict(reading.child_labels)[codex_start["agent_id"]] == "Charlie"
+
+
 # -- Codex ---------------------------------------------------------------------------------------------
 def test_codex_posts_every_event_the_capture_raised():
     raised = {body.get("hook_event_name") for body in hooks("codex")}

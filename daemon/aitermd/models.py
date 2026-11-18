@@ -31,7 +31,7 @@ class Harness:
     # The route its status-line shim posts to, if it has one (agents.STATUSLINE_PARSERS).
     statusline_route: str | None = None
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
-    # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
+    # before the CLI loads its hooks, so the screen is the only sign of it (screens.shows_trust_prompt).
     trust_prompt: tuple[str, ...] = ()
     # Text that marks a prompt open on the CLI's screen, which delivery must not type into
     # (delivery.open_prompt): an approval, a startup dialog -- folder trust, an update offer -- and
@@ -180,9 +180,10 @@ class BackgroundJob:
     text: str
     agent_id: str | None = None
     task_id: str | None = None
+    display_label: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"kind": self.kind, "text": self.text}
+        return {"kind": self.kind, "text": self.text} | ({"displayLabel": self.display_label} if self.display_label else {})
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,9 +193,11 @@ class WorkItem:
     kind: Literal["shell", "monitor", "task", "subagent"]
     text: str
     holds_turn: bool
+    display_label: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"kind": self.kind, "text": self.text, "holdsTurn": self.holds_turn}
+        return {"kind": self.kind, "text": self.text, "holdsTurn": self.holds_turn} | (
+            {"displayLabel": self.display_label} if self.display_label else {})
 
 
 def work_items(session: SessionInfo) -> tuple[WorkItem, ...]:
@@ -207,11 +210,13 @@ def work_items(session: SessionInfo) -> tuple[WorkItem, ...]:
     for job in session.stop_work:
         shown = shells.get(job.task_id) if job.kind == "shell" and job.task_id is not None else None
         if job.kind == "subagent" or ended or shown is not None:
-            items.append(WorkItem(job.kind, shown.text if shown is not None else job.text, True))
+            items.append(WorkItem(job.kind, shown.text if shown is not None else job.text, True,
+                                  job.display_label or (shown.display_label if shown is not None else None)))
     listed_agents = {job.agent_id for job in session.stop_work if job.agent_id is not None}
     listed_tasks = {job.task_id for job in session.stop_work if job.task_id is not None}
-    items += [WorkItem(job.kind, job.text, False) for job in session.shown_subagents or () if job.agent_id not in listed_agents]
-    items += [WorkItem(job.kind, job.text, False) for job in session.shown_shells or ()
+    items += [WorkItem(job.kind, job.text, False, job.display_label)
+              for job in session.shown_subagents or () if job.agent_id not in listed_agents]
+    items += [WorkItem(job.kind, job.text, False, job.display_label) for job in session.shown_shells or ()
               if job.task_id is None or job.task_id not in listed_tasks]
     return tuple(items)
 

@@ -27,6 +27,7 @@ struct SidebarInteractionTests {
         // The connection's own request, the background preference, lands before the paths are compared.
         try await server.received("interface.setMatchItermBackground")
         let (host, window) = HostedSidebar.make(controller, key: true)
+        controller.tiling.sidebarWindow = window
         defer { window.orderOut(nil) }
         settle(host, describing: "the terminal row") {
             host.firstDescendant(NSTableView.self)?.numberOfRows == 4
@@ -68,7 +69,10 @@ struct SidebarInteractionTests {
                 try JSONSerialization.data(withJSONObject: ["method": $0.method, "params": $0.params], options: .sortedKeys)
             }
             if path == "old direct call" { reference = encoded }
-            else { #expect(encoded == reference, "\(path): identical request parameters, including the frame") }
+            else {
+                #expect(encoded == reference,
+                        "\(path): identical request parameters, including the frame: \(encoded.map { String(decoding: $0, as: UTF8.self) }) vs \(reference.map { String(decoding: $0, as: UTF8.self) })")
+            }
         }
     }
 

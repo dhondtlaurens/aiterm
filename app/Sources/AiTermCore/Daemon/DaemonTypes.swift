@@ -102,13 +102,16 @@ public struct StoppedOn: Codable, Equatable, Sendable {
 /// description.
 public struct WorkItem: Codable, Equatable, Sendable {
     public var kind: BackgroundJob.Kind, text: String
+    /// Native short description for the card. Status and the Operator continue to read `text`.
+    public var displayLabel: String?
     /// Its agent's last Stop listed it: the agent takes the turn up again once it ends. The row's status and the
     /// Operator read only these; the card draws every item.
     public var holdsTurn: Bool
-    public init(kind: BackgroundJob.Kind, text: String, holdsTurn: Bool) {
-        self.kind = kind; self.text = text; self.holdsTurn = holdsTurn
+    public init(kind: BackgroundJob.Kind, text: String, holdsTurn: Bool, displayLabel: String? = nil) {
+        self.kind = kind; self.text = text; self.holdsTurn = holdsTurn; self.displayLabel = displayLabel
     }
     public var job: BackgroundJob { BackgroundJob(kind: kind, text: text) }
+    public var displayJob: BackgroundJob { BackgroundJob(kind: kind, text: text, displayLabel: displayLabel) }
 }
 
 /// A shell by its command, a monitor, a subagent or any other task by its description.
@@ -119,7 +122,17 @@ public struct BackgroundJob: Equatable, Hashable, Sendable {
         static var unrecognized: Self { .task }
     }
     public var kind: Kind, text: String
-    public init(kind: Kind, text: String) { self.kind = kind; self.text = text }
+    public var displayLabel: String?
+    public init(kind: Kind, text: String, displayLabel: String? = nil) {
+        self.kind = kind; self.text = text; self.displayLabel = displayLabel
+    }
+    public var label: String {
+        guard let displayLabel, !displayLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return text }
+        return displayLabel
+    }
+    public var isCommand: Bool {
+        kind == .shell && (displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
 }
 
 /// A literal title for one iTerm2 tab. The daemon keeps it separate from the session's process

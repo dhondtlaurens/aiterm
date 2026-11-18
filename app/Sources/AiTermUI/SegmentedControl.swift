@@ -1,12 +1,11 @@
 import SwiftUI
 
-/// The segmented track the agent picker, the sidebar size and a task's end are drawn from. Tabs
-/// are not segments: a sheet's tabs are a `TabBar`.
+/// The segmented track for Sidebar size and New Signal's source, query mode, event and Then.
+/// Tabs are not segments: a sheet's tabs are a `TabBar`.
 ///
-/// 28 pt overall — `Size.control`, so it lines up with the fields beside it — which is a 24 pt
+/// 28 pt overall (`Size.control`, so it lines up with the fields beside it), which is a 24 pt
 /// segment inside a 2 pt track: a `Radius.control` segment inside the track's `Radius.group`. The
-/// track is a `field`, edged in `borderStrong`, as a field is. This
-/// existed twice before, at 30 pt and at 34 pt, because neither copy knew about the other.
+/// track is a `field`, edged in `borderStrong`, as a field is.
 ///
 /// It is hand-built rather than a `Picker`: the system segmented control cannot carry a logo and
 /// paints its selection in the accent colour.

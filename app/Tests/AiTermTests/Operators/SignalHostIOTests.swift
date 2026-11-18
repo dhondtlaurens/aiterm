@@ -90,7 +90,7 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let stub = StubSession { request in
             let path = request.url!.path
-            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[{"user":{"username":"jan"}}]}"#.utf8)) }
+            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[{"user":{"username":"alex"}}]}"#.utf8)) }
             if path.hasSuffix("discussions") { return (200, Data("[]".utf8)) }
             return (200, Data(#"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","sha":"head","head_pipeline":{"status":"success"},"detailed_merge_status":"mergeable","reviewers":[{"username":"reviewer"}]}"#.utf8))
         }
@@ -114,7 +114,7 @@ import Testing
         let stub = StubSession { request in
             let path = request.url!.path
             let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value
-            if path.hasSuffix("/reviews") { return (200, Data((page == "1" ? #"[{"user":{"login":"jan"},"state":"APPROVED"}]"# : "[]").utf8)) }
+            if path.hasSuffix("/reviews") { return (200, Data((page == "1" ? #"[{"user":{"login":"alex"},"state":"APPROVED"}]"# : "[]").utf8)) }
             if path.hasSuffix("/check-runs") { return (200, Data(#"{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"success"}]}"#.utf8)) }
             if path.hasSuffix("/status") { return (200, Data(#"{"total_count":0,"statuses":[]}"#.utf8)) }
             if path == "/graphql" { return (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}"#.utf8)) }

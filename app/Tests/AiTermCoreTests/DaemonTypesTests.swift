@@ -3,6 +3,13 @@ import Testing
 @testable import AiTermCore
 
 @Suite struct DaemonTypesTests {
+    @Test func workLabelsAreOptionalAndBlankLabelsUseTheRawFallback() throws {
+        let work = try JSONDecoder().decode([WorkItem].self, from: Data(#"[{"kind":"shell","text":"npm test","holdsTurn":false},{"kind":"shell","text":"npm test","holdsTurn":true,"displayLabel":"Run tests"},{"kind":"shell","text":"npm test","holdsTurn":true,"displayLabel":"  "}]"#.utf8))
+        #expect(work[0].displayLabel == nil)
+        #expect(work.map(\.displayJob).map(\.label) == ["npm test", "Run tests", "npm test"])
+        #expect(work.map(\.displayJob).map(\.isCommand) == [true, false, true])
+        #expect(work.map(\.job).map(\.text) == ["npm test", "npm test", "npm test"])
+    }
     /// A tab's work is one ordered list, each item saying whether it holds the turn.
     @Test func aSessionReadsItsWorkInOrderWithWhatHoldsTheTurn() throws {
         let session = try JSONDecoder().decode(SessionInfo.self, from: Data("""

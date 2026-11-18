@@ -19,7 +19,7 @@ import AiTermCore
     /// What a check is bound to: the task's claim when the use has one, and for a round use the key its rounds
     /// are saved under, the call's arguments and the Operator's proposal.
     struct Binding {
-        struct Round: Equatable { var key: String, arguments: String, proposal: String }
+        struct Round: Equatable { var key: String, proposal: String }
         var claim: SignalClaim?
         var round: Round?
         static let none = Binding(claim: nil, round: nil)
@@ -84,7 +84,7 @@ import AiTermCore
                 remove(previous); return .critique(text, round: round, challengeId: nil)
             }
             let history = discussion + ["Operator: " + key.proposal, "Oracle: " + text]
-            var record = OracleRound(id: UUID().uuidString, tool: tool, stage: .delivered, critique: text, askedArguments: key.arguments,
+            var record = OracleRound(id: UUID().uuidString, tool: tool, stage: .delivered, critique: text,
                                      result: Self.encode(history), askedAt: now(), askedEvidence: key.key, round: round)
             record.reply = key.proposal
             workspace.mutate { state in
@@ -103,15 +103,15 @@ import AiTermCore
     /// Saves that an agreed answer is about to be delivered, in place of `replacing`; a restart that finds it asks the
     /// person instead of delivering twice.
     @discardableResult func saveReady(tool: String, binding: Binding.Round, round: Int, replacing: OracleRound? = nil) -> String {
-        var record = OracleRound(id: UUID().uuidString, tool: tool, stage: .ready, askedArguments: binding.arguments,
+        var record = OracleRound(id: UUID().uuidString, tool: tool, stage: .ready,
                                  askedAt: now(), askedEvidence: binding.key, round: round)
         record.reply = binding.proposal
         save(record, replacing: replacing)
         return record.id
     }
     /// Saves that this binding goes to the person, with why, in place of `replacing`; a retry gets the same outcome.
-    func markPerson(tool: String, key: String, arguments: String, reason: String, replacing: OracleRound? = nil) {
-        save(OracleRound(id: UUID().uuidString, tool: tool, stage: .unanswered, askedArguments: arguments, unansweredReason: reason,
+    func markPerson(tool: String, key: String, reason: String, replacing: OracleRound? = nil) {
+        save(OracleRound(id: UUID().uuidString, tool: tool, stage: .unanswered, unansweredReason: reason,
                          askedAt: now(), askedEvidence: key, round: 0), replacing: replacing)
     }
     func clear(_ id: String) {

@@ -9,11 +9,20 @@ def claude_record(kind, content, at=101, **extra):
             "message": {"content": content}, **extra}
 
 
-def shell_launch(task="job1", call="call1", at=101, command="npm run test"):
+def shell_launch(task="job1", call="call1", at=101, command="npm run test", description=None):
     return [claude_record("assistant", [{"type": "tool_use", "id": call, "name": "Bash",
-                                  "input": {"command": command, "run_in_background": True}}], at),
+                                  "input": {"command": command, "run_in_background": True}
+                                  | ({"description": description} if description is not None else {})}], at),
             claude_record("user", [{"type": "tool_result", "tool_use_id": call, "content": "not parsed"}], at + 1,
                    toolUseResult={"backgroundTaskId": task, "stdout": "", "stderr": "", "interrupted": False})]
+
+
+def child_launch(child="child", call="agent-call", at=101, description="Review checkout"):
+    return [claude_record("assistant", [{"type": "tool_use", "id": call, "name": "Agent",
+            "input": {"description": description, "prompt": "synthetic assignment"}}], at),
+            claude_record("user", [{"type": "tool_result", "tool_use_id": call, "content": "not parsed"}], at + 1,
+                          toolUseResult={"isAsync": True, "status": "async_launched", "agentId": child,
+                                         "description": description})]
 
 
 def shell_completed(task="job1", at=110, status="completed"):

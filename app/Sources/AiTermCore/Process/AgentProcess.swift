@@ -4,7 +4,7 @@ import Synchronization
 import Darwin
 #endif
 
-/// A child that may run for minutes — an agent's headless run, a fix's `verify`. Unlike
+/// A child that may run for minutes: `OracleRunner` uses it for the Oracle's headless agent. Unlike
 /// `ProcessRunner`, nothing waits on a thread for it: its exit arrives through a dispatch process
 /// source. It leads a process group of its own, so a timeout or a cancellation ends everything it
 /// started — the git it ran, a test runner's workers — and the call returns (or throws

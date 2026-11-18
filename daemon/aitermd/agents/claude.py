@@ -70,8 +70,12 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
         if (said := said or nonempty_string(task.get("description"))) is None:
             continue
         if kind != "subagent":
+            label = nonempty_string(task.get("description"))
+            label = " ".join(label.split()) if label else None
             work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said,
-                                      task_id=nonempty_string(task.get("id"))))
+                                      task_id=nonempty_string(task.get("id")),
+                                      display_label=label if label and (label != said or (
+                                          kind == "shell" and not nonempty_string(task.get("command")))) else None))
         # Only a subagent named by its agent_id is a child the status engine can count.
         elif (child := nonempty_string(task.get("id"))) is not None:
             work.append(BackgroundJob("subagent", said, child))
@@ -448,6 +452,8 @@ class SubagentTranscripts:
 # -- background shells, from the parent's transcript, for display only, never command stdout ---
 READ_BYTES = 8 * 1024 * 1024
 MAX_TRACKED = 4096
+# Descriptions have their own budget; overflowing it cannot invalidate shell evidence.
+MAX_LABELS = 4096
 _TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 _STATUS = re.compile(r"<status>([^<]+)</status>")
 
@@ -464,12 +470,20 @@ class ShellReading:
     ended: frozenset[str]
 
 
+@dataclass(frozen=True, slots=True)
+class BackgroundReading:
+    shells: ShellReading | None
+    child_labels: tuple[tuple[str, str], ...] = ()
+
+
 @dataclass(slots=True)
 class _Transcript:
     path: str
     since: float
     cursor: JsonlCursor
-    calls: dict[str, tuple[str, str]] = field(default_factory=dict)
+    calls: dict[str, tuple[str, str, str | None]] = field(default_factory=dict)
+    agent_calls: dict[str, str] = field(default_factory=dict)
+    child_labels: dict[str, str] = field(default_factory=dict)
     tasks: dict[str, ShellTask] = field(default_factory=dict)
     ended: set[str] = field(default_factory=set)
     uncertain: dict[str, float] = field(default_factory=dict)
@@ -504,15 +518,27 @@ class _Transcript:
                 if call and isinstance(args, dict) and name in ("Bash", "TaskStop"):
                     value = nonempty_string(args.get("command" if name == "Bash" else "task_id"))
                     if value:
-                        self.calls[call] = (name, value)
+                        label = args.get("description")
+                        label = " ".join(label.split()) if isinstance(label, str) else None
+                        self.calls[call] = (name, value, label or None)
+                elif call and isinstance(args, dict) and name == "Agent":
+                    label = args.get("description")
+                    if isinstance(label, str) and (label := " ".join(label.split())):
+                        self.agent_calls[call] = label
         elif record.get("type") == "user":
             results = [block for block in blocks if isinstance(block, dict) and block.get("type") == "tool_result"]
             native = record.get("toolUseResult")
             for block in results:
-                pending = self.calls.pop(str(block.get("tool_use_id")), None)
+                call = str(block.get("tool_use_id"))
+                label = self.agent_calls.pop(call, None)
+                if (label and len(results) == 1 and not block.get("is_error") and isinstance(native, dict)
+                        and native.get("isAsync") is True and native.get("status") == "async_launched"
+                        and (child := nonempty_string(native.get("agentId")))):
+                    self.child_labels[child] = label
+                pending = self.calls.pop(call, None)
                 if pending is None:
                     continue
-                name, value = pending
+                name, value, label = pending
                 if block.get("is_error") is True:
                     if name == "TaskStop" and value in self.tasks:
                         self.uncertain[value] = at
@@ -526,7 +552,8 @@ class _Transcript:
                     if task is None or native.get("interrupted") is True:
                         self.gap_at = observed_at
                     elif task not in self.ended:
-                        self.tasks.setdefault(task, ShellTask(BackgroundJob("shell", value, task_id=task), at))
+                        self.tasks.setdefault(task, ShellTask(BackgroundJob("shell", value, task_id=task,
+                            display_label=label if label != value else None), at))
                 elif name == "TaskStop" and native.get("task_id") == value and native.get("task_type") == "local_bash":
                     self.finish(value)
                 elif name == "TaskStop" and value in self.tasks:
@@ -541,6 +568,9 @@ class _Transcript:
             self.tasks.clear()
             self.ended.clear()
             self.uncertain.clear()
+        for cache in (self.agent_calls, self.child_labels):
+            while len(cache) > MAX_LABELS:
+                del cache[next(iter(cache))]
 
     def notice(self, value: object, at: float) -> None:
         if not isinstance(value, str) or not value.lstrip().startswith("<task-notification>"):
@@ -572,6 +602,12 @@ class BackgroundTranscripts:
                  recoveries: Mapping[str, float] | None = None) -> dict[str, ShellReading | None]:
         self._read = {sid: value for sid, value in self._read.items() if sid in requests}
         return {sid: self._one(sid, path, since, (recoveries or {}).get(sid)) for sid, (path, since) in requests.items()}
+
+    def read_with_labels(self, requests: Mapping[str, tuple[str, float]],
+                         recoveries: Mapping[str, float] | None = None) -> dict[str, BackgroundReading]:
+        shells = self.read_all(requests, recoveries)
+        return {sid: BackgroundReading(shells.get(sid), tuple(value.child_labels.items()) if value else ())
+                for sid in requests for value in [self._read.get(sid)]}
 
     def _one(self, sid: str, path: str, since: float, recovery_at: float | None) -> ShellReading | None:
         try:
@@ -728,9 +764,10 @@ def subagent_plan(status: StatusEngine, reader: SubagentTranscripts) -> corrobor
 
 
 def background_plan(status: StatusEngine, reader: BackgroundTranscripts,
-                    sessions: list[SessionInfo]) -> corroboration.ReadPlan[dict[str, ShellReading | None]]:
+                    sessions: list[SessionInfo]) -> corroboration.ReadPlan[dict[str, BackgroundReading | None]]:
     """Each Claude tab's background shells, from its own transcript since its turn's work began."""
     captured = {s.session_id: (s.transcript, status.turn(s.session_id)) for s in sessions if s.agent == "claude"}
+    generations = {sid: status.child_generations(sid) for sid in captured}
 
     def key(session: SessionInfo) -> corroboration.SessionKey:
         turn = status.turn(session.session_id)
@@ -744,14 +781,16 @@ def background_plan(status: StatusEngine, reader: BackgroundTranscripts,
                   for sid, (_, owner) in captured.items()
                   if owner is not None and owner.shell_snapshot_valid and owner.shell_snapshot is not None}
 
-    def read() -> dict[str, ShellReading | None]:
-        readings = reader.read_all(requests, recoveries)
+    def read() -> dict[str, BackgroundReading | None]:
+        readings = reader.read_with_labels(requests, recoveries)
         return {sid: readings.get(sid) for sid in captured}
 
-    def apply(readings: dict[str, ShellReading | None]) -> list[str]:
+    def apply(readings: dict[str, BackgroundReading | None]) -> list[str]:
         changed: list[str] = []
         for sid, reading in readings.items():
-            changed += status.apply_shell_reading(sid, reading)
+            changed += status.apply_shell_reading(sid, reading.shells if reading else None)
+            if reading is not None:
+                changed += status.apply_child_labels(sid, reading.child_labels, generations[sid])
         return changed
 
     return corroboration.ReadPlan("the Claude background read", read, dict.fromkeys(captured), apply, keys, key)

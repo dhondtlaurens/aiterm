@@ -16,9 +16,8 @@ public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Senda
 /// What a tab runs: an agent — one case for each `AgentKind`, of the same name, so each is the
 /// other's by its raw value — or a plain shell.
 ///
-/// A skewed daemon (an app build adopting a worktree's daemon whose build is a different vintage)
-/// can send a raw value this app has never heard of. Decoding it to `.shell` keeps that one session
-/// from failing the whole `DaemonSnapshot`, instead of turning it into a reconnect loop.
+/// An unrecognized raw value decodes to `.shell` so one session cannot make the whole
+/// `DaemonSnapshot` unreadable.
 public enum SessionAgent: String, Codable, LenientRawDecodable, Equatable, CaseIterable, Sendable {
     case claude, codex, pi, shell
     static var unrecognized: Self { .shell }

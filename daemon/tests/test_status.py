@@ -16,6 +16,25 @@ class Clock:
         return self.now
 
 
+def test_child_description_only_enriches_current_counted_generation(eng):
+    engine, registry = eng
+    labels = (("child", "Inspect fixture"),)
+    assert engine.apply_child_labels("s2", labels, {}) == []
+    engine.apply_event("s2", hook("subagentStart", "child", subagent_label="default"))
+    generations = engine.child_generations("s2")
+    assert engine.apply_child_labels("s2", labels, generations) == ["s2"]
+    assert work(registry, "s2") == [{"kind": "subagent", "text": "default", "holdsTurn": False,
+                                    "displayLabel": "Inspect fixture"}]
+    assert registry.get("s2").state == "working"
+    engine.apply_event("s2", hook("subagentStop", "child"))
+    assert engine.apply_child_labels("s2", labels, generations) == []
+    assert work(registry, "s2") == []
+    engine.apply_event("s2", hook("subagentStart", "child", subagent_label="default"))
+    assert engine.apply_child_labels("s2", labels, generations) == []
+    assert engine.apply_child_labels("s2", labels, engine.child_generations("s2")) == []
+    assert work(registry, "s2") == [{"kind": "subagent", "text": "default", "holdsTurn": False}]
+
+
 # When a session file was written, for a test about what it says rather than about its age: after
 # any hook the engine's clock has stamped.
 FRESH = 1000.0

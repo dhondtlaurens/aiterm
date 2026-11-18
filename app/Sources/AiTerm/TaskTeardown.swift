@@ -410,22 +410,24 @@ final class TaskTeardown: CheckoutRemovals {
     }
 
     /// The closing of a task whose checkout the scan confirmed gone: git's record of the checkout cleared, which its
-    /// lock keeps (best effort; the row goes either way), its window closed, then its row forgotten. The window keeps
-    /// its row until it has closed: a failed close leaves the row saying "Closing…", and the next pass tries again,
-    /// rather than flickering back to "Worktree missing" between tries. A row with a window waits, saying nothing new,
-    /// while iTerm2 is away, and while its window holds another row's tab.
+    /// lock keeps (best effort; the row goes either way), its windows closed (the row's own and any its tabs were
+    /// dragged into), then its row forgotten. The window keeps its row until it has closed: a failed close leaves the
+    /// row saying "Closing…", and the next pass tries again, rather than flickering back to "Worktree missing" between
+    /// tries. A row with any of those windows waits, saying nothing new, while iTerm2 is away, and while one of them
+    /// holds other work (`holdsOtherWork`).
     private func close(_ task: TaskItem) {
-        if task.windowId != nil, daemon() == nil { return }
-        // Its window holding another row's tab would end that row's work too: the row stays as it is, its worktree
-        // missing, and each pass leaves it so until that tab has left.
-        if let window = task.windowId, holdsOtherWork([window], own: window, of: task.id) { return }
+        let windows = self.windows(of: task)
+        if !windows.isEmpty, daemon() == nil { return }
+        // A window holding other work would end that work too: the row stays as it is, its worktree missing, and each
+        // pass leaves it so until that work has left.
+        if holdsOtherWork(windows, own: task.windowId, of: task.id) { return }
         guard let token = work.begin(.closing, onTask: task.id) else { return }
         left[task.id] = nil
         let project = workspace.state.project(id: task.projectId)
         Task {
             defer { work.end(token) }
             if let project { await workflow.forgetDeletedCheckout(of: task, in: project) }
-            if let windowId = task.windowId {
+            for windowId in windows {
                 guard let daemon = daemon(), (try? await daemon.closeWindowIfOpen(windowId)) != nil else {
                     left[task.id] = .closing
                     checkouts.dropDiff(for: task.id)
@@ -560,8 +562,7 @@ final class TaskTeardown: CheckoutRemovals {
     /// task's in a window other than the row's own.
     private func closeWindow(of task: TaskItem) async throws {
         guard let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
-        var windows = workspace.state.tasks[i].windowId.map { [$0] } ?? []
-        for tab in live.sessions where tab.taskUUID == task.id && !windows.contains(tab.windowId) { windows.append(tab.windowId) }
+        let windows = self.windows(of: workspace.state.tasks[i])
         guard !windows.isEmpty else { return }
         guard let daemon = daemon() else { throw TeardownStop.noDaemon }
         guard !holdsOtherWork(windows, own: workspace.state.tasks[i].windowId, of: task.id) else {
@@ -581,6 +582,13 @@ final class TaskTeardown: CheckoutRemovals {
                                                                       + OperationIssue.reason(of: error)))
             }
         }
+    }
+
+    /// The row's own window, then every other window holding one of its tabs.
+    private func windows(of task: TaskItem) -> [String] {
+        var windows = task.windowId.map { [$0] } ?? []
+        for tab in live.sessions where tab.taskUUID == task.id && !windows.contains(tab.windowId) { windows.append(tab.windowId) }
+        return windows
     }
 
     /// Whether closing `windows` would close work that is not task `taskId`'s: a window closes with every tab in it, and a

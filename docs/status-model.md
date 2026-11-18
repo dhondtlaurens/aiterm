@@ -160,7 +160,14 @@ ended or while the background-shell reader lists it (with the reader's text), a 
 once the turn has ended. Then come the counted subagents of the tab's current conversation and the
 reader's shells that the Stop did not list, holding nothing. The sidebar's work card draws the whole
 list, also while the tab works or asks; the row's background status and the Operator read only
-`holdsTurn`. Codex and PI send no Stop list, so their work is their counted children. The reader
+`holdsTurn`. Optional `displayLabel` metadata enriches the card without changing raw `text`,
+membership, ordering or readiness. Claude's confirmed parent launch results supply shell/child
+descriptions; Codex's native parent `SubAgentActivity` supplies a child ID and named task path.
+Readers apply labels only to current counted children, under the same process/conversation guards;
+resumed IDs whose assignment cannot be correlated use their existing fallback. Label caches are
+bounded independently of shell evidence. PI retains its existing labels until its optional
+background extension's payload is verified. Codex and PI send no Stop list, so their work is their
+counted children. The reader
 follows the parent transcript of a Claude process whose SessionStart this daemon observed: a Bash
 result must confirm `backgroundTaskId`, native completion notices and verified TaskStop results end
 a shell, and it is unavailable during replay catch-up, partial writes, failed reads, when a Stop
@@ -268,6 +275,8 @@ The app waits on the same fact before closing a removed task's window: `forgetRe
 waits while any of the task's sessions is still `working` or `needsInput`. It closes the window
 on the first pass after they have all settled, so
 an agent whose worktree just vanished finishes its final message before the window disappears.
+While that window holds another row's tab (`TaskTeardown.holdsOtherWork`), the app leaves the
+window alone and keeps the row saying Worktree missing until the other row's tab leaves.
 
 ## Why the branch is not iTerm2's to tell
 

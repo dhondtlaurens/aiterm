@@ -49,6 +49,7 @@
         "windowId": "w1",
         "work": [
           {
+            "displayLabel": "Review checkout changes",
             "holdsTurn": true,
             "kind": "subagent",
             "text": "Review the fix"

@@ -55,7 +55,10 @@ effect in the order it was sent.
 | `operator.request` | the Operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
 
 Session payloads carry `work`, one ordered list of what runs beside the agent's turn, each item with
-`kind`, `text` and `holdsTurn`. `holdsTurn` marks what the last Stop listed, which wakes the agent
+`kind`, `text` and `holdsTurn`, plus an optional `displayLabel` containing a verified native short
+description. The card uses that label when available; raw `text` remains the command or existing
+task text consumed by status and the Operator. Missing labels preserve the existing fallback.
+`holdsTurn` marks what the last Stop listed, which wakes the agent
 again; the items after it are subagents and shells read live. The sidebar's card draws the whole
 list, the row's status and the Operator read only the `holdsTurn` items, and a change to the list
 publishes `session.changed` even when the state stays the same.

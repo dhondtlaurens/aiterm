@@ -115,8 +115,15 @@ through `scripts/run-dev.sh`; tests and snapshots do not claim that flow ran.
 
 Claude Code, Codex and PI update themselves; what AiTerm reads from them (hook and status-line
 payloads, session files, transcripts and rollouts, model lists, the flags it launches with, headless
-answers) can change in any release. After an update, run `scripts/compat-check.sh` by hand, with
-iTerm2 open: it opens windows and spends a little of each CLI's quota, so no gate runs it.
+answers) can change in any release. Run `scripts/compat-check.sh` by hand, with iTerm2 open: it first
+checks the public latest releases and updates outdated CLIs, then opens fresh windows and spends a
+little of each CLI's quota, so no gate runs it. An optional list (`scripts/compat-check.sh codex`)
+limits both updates and checks. Every selected CLI must be installed; a missing CLI, failed release
+lookup, failed update or version mismatch stops before capture. Native Claude explicitly installs
+`latest`, regardless of its configured update channel; other installations use their CLI's updater.
+If a package manager or release channel leaves an older version installed, resolve it and rerun.
+Each new capture, headless and delivery session uses an absolute launcher for the checked executable,
+which verifies its version again before starting. Existing sessions keep running.
 
 `daemon/tools/compat_capture.py` drives each CLI live on its cheapest model, in a scratch config with
 AiTerm's driver installed from `compat/drivers/` and pointed at a listener of its own: nothing reaches

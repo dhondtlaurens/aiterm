@@ -97,8 +97,10 @@ scripts/compat-check.sh               # claude,codex,pi
 scripts/compat-check.sh codex
 ```
 
-After Claude Code, Codex or PI updates: captures each CLI live, runs the delivery check for Claude
-Code and Codex, then the contract suites, and records the versions in `compat/verified.json` only
+Checks each selected CLI against its public latest release and updates it if needed, then captures
+each CLI in fresh windows using the checked executables. Missing CLIs, lookup or update failures and
+version mismatches stop before capture. Runs the delivery check for Claude Code and Codex, then the
+contract suites, and records the versions in `compat/verified.json` only
 when all of it passed. It takes several minutes, opens iTerm2 windows and spends a little quota on
 each CLI's cheapest model; never part of the gate. It commits nothing. See
 [testing](../docs/testing.md#agent-compatibility).
