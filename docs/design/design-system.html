@@ -1211,6 +1211,23 @@
   .signal-states td:last-child { white-space: normal; }
   .native-reference { display:block; max-width:none; height:auto; }
 
+  /* --- Proposal: a footer group's status on its heading (18 Nov 2026) ---------------------- */
+  /* Drawn with the footer kit (.mk-foot). The status trails the heading on its Size.menuRow line, its
+     end on the rows' trailing edge: a ToneRing at Size.statusMarkSmall, Space.tight, then its words in
+     Typography.help, both in the SettingsTone's colour. */
+  #p-heading-status .mk-foot .hd .hs { margin-left: auto; display: flex; align-items: center; gap: var(--space-tight);
+                                       font: 400 11px/1 var(--font); white-space: nowrap; }
+  #p-heading-status .hs.ready, #p-heading-status .suf.ready { color: var(--green); }
+  #p-heading-status .hs.attention, #p-heading-status .suf.attention { color: var(--amber); }
+  #p-heading-status .hs.idle, #p-heading-status .suf.idle { color: var(--muted); }
+  #p-heading-status .suf { white-space: pre; }
+  #p-heading-status > h3 { margin-top: var(--space-section); }
+  #p-heading-status .hr.float { outline: 1px dashed var(--amber); outline-offset: -1px; }
+  #p-heading-status .fig.later { opacity: 0.85; }
+  #p-heading-status .rules-copy { margin: var(--space-block) 0 0; padding-left: var(--space-block); color: var(--muted); }
+  #p-heading-status .rules-copy li + li { margin-top: var(--space-tight); }
+  #p-heading-status .rules-copy strong { color: var(--text); }
+
 </style>
 </head>
 <body>
@@ -3039,7 +3056,100 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <p class="no-proposals">No open proposals.</p>
+    <div class="section" id="p-heading-status">
+      <p class="eyebrow proposal-flag">Proposal · Backpack Mode on the System heading · 18 Nov 2026</p>
+      <h2>A footer group's status lives on its heading</h2>
+      <p class="why">Today Backpack Mode adds a row of its own under the Mac's readings: an empty mark column, then
+        <code>○ backpack mode</code> across the row. It hangs under the readings without a mark to belong to, and
+        the footer grows by a <code>Size.menuRow</code> (24 pt) when the mode turns on and shrinks when it turns off,
+        so the list above it jumps both times. Meanwhile the <code>System</code> heading's line is empty past its word.</p>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System</div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div><div class="hr float"><span class="lead"></span><span class="col"><span class="lead"><i class="tone ready"></i></span><span class="tn ready">backpack mode</span></span></div></div>
+</div></div><figcaption>today: the dashed row comes and goes with the mode</figcaption></figure>
+      </div>
+      <p class="why">Drawn at 1 CSS px = 1 pt from the current Palette and Metrics, with the footer's own mock kit.
+        Every status keeps today's words, <code>ToneRing</code> and <code>SettingsTone</code>; only where it sits changes.</p>
+
+      <h3>Decision 1 · Where the mode sits</h3>
+      <div class="options">
+      <div class="option pick">
+        <header><span class="letter">A</span><h3>Trailing the System heading</h3><span class="rec">Recommended</span></header>
+        <p>The heading's line holds <code>System</code>, a spacer, then the status: the <code>ToneRing</code> at
+          <code>Size.statusMarkSmall</code>, <code>Space.tight</code>, its words in <code>Typography.help</code>, ring and words
+          in the mode's tone, the words' end on the rows' trailing edge. <b>No new row and no new value</b>: the footer is the
+          same height in every mode, so nothing jumps. At the desk the line is the heading alone, as today. The status keeps the
+          Mac row's control: a click is ⌘B, a right-click offers Mac Settings…, its tooltip and VoiceOver label are today's
+          sentence (<code>MacModePresentation.line</code>).</p>
+        <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System<span class="hs ready"><i class="tone ready"></i><span>backpack mode</span></span></div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+  <div class="rule"></div>
+  <div class="grp"><div class="hd">Usage</div><div class="hr"><span class="mk claude"><svg viewBox="0 0 24 24"><use href="#p-claude"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>5h</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="42 100"/></svg><span class="tp nl t"><span>42%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span></div><div class="hr"><span class="mk paper"><svg class="oa" viewBox="0 0 24 24"><use href="#p-openai"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg w" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="88 100"/></svg><span class="tp nl w"><span>88%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span><span class="col"></span></div></div>
+</div></div><figcaption>on, nothing selected: the footer keeps its desk height</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System<span class="hs attention"><i class="tone attention"></i><span>backpack mode · needs you</span></span></div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+</div></div><figcaption>needs you: lost the hotspot, or near the 10 % cutoff</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System<span class="hs idle"><i class="tone idle"></i><span>packing up…</span></span></div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+</div></div><figcaption>switching: packing up… / unpacking…</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System</div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+</div></div><figcaption>at the desk: no status, as today</figcaption></figure>
+        </div>
+      </div>
+
+      <div class="option">
+        <header><span class="letter">B</span><h3>Joined to the heading's words</h3></header>
+        <p>The heading reads <code>System · backpack mode</code>, the way the Operator's reads <code>Operator · paused</code>:
+          no ring, the added words in the heading's face and the mode's tone. Also no new row. But the words sit where the
+          section is named, so the coloured semibold reads as a second heading, and a longer state such as
+          <b>needs you</b> crowds the heading rather than the free end of the line. The trailing side is where the sidebar
+          already puts state (every row's status mark sits there).</p>
+        <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System<span class="suf ready"> · backpack mode</span></div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+</div></div><figcaption>on</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System<span class="suf attention"> · backpack mode · needs you</span></div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+</div></div><figcaption>needs you</figcaption></figure>
+        </div>
+      </div>
+      </div>
+
+      <h3>Decision 2 · How far the standard reaches</h3>
+      <div class="options">
+      <div class="option pick">
+        <header><span class="letter">A</span><h3>A footer group's status: System now, Usage when it has one</h3><span class="rec">Recommended</span></header>
+        <p>The footer's group heading takes an optional status. System uses it for Backpack Mode; Usage can use it later for
+          something about the whole group, never a single vendor's reading (a vendor's note keeps its row). It stays in
+          <code>SidebarFooter</code>, beside <code>ToneRing</code> and <code>SettingsTone</code>: the reuse ladder in
+          <code>AiTermUI/README.md</code> promotes a pattern once a second file needs it, and both groups are this file's.</p>
+        <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
+  <div class="grp"><div class="hd">System</div><div class="hr"><span class="mk paper"><i class="gl macbook"></i></span><span class="col"><span class="tp lb m2"><span>cpu</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="23 100"/></svg><span class="tp nl t"><span>23%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>ram</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>bat</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="74 100"/></svg><span class="tp nl t"><span>74%</span><span class="ghost" aria-hidden="true">100%</span></span></span></div></div>
+  <div class="rule"></div>
+  <div class="grp"><div class="hd">Usage<span class="hs attention"><i class="tone attention"></i><span>stale · 14 min</span></span></div><div class="hr"><span class="mk claude"><svg viewBox="0 0 24 24"><use href="#p-claude"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="61 100"/></svg><span class="tp nl t"><span>61%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"><span class="tp lb m2"><span>5h</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="42 100"/></svg><span class="tp nl t"><span>42%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span></div><div class="hr"><span class="mk paper"><svg class="oa" viewBox="0 0 24 24"><use href="#p-openai"/></svg></span><span class="col"><span class="tp lb m2"><span>wk</span><span class="ghost" aria-hidden="true">ram</span></span><svg class="rg w" viewBox="0 0 10 10" aria-hidden="true"><circle class="tk" cx="5" cy="5" r="4.25"/><circle class="fl" cx="5" cy="5" r="4.25" pathLength="100" stroke-dasharray="88 100"/></svg><span class="tp nl w"><span>88%</span><span class="ghost" aria-hidden="true">100%</span></span></span><span class="col"></span><span class="col"></span></div></div>
+</div></div><figcaption>illustration only, not part of this change: a Usage status, e.g. a feed that stopped updating</figcaption></figure>
+        </div>
+        <ul class="rules-copy">
+          <li><strong>One status per group,</strong> trailing its heading on the heading's line.</li>
+          <li><strong>Only while something is out of the ordinary.</strong> At rest the heading stands alone; a status that is always there stops being read.</li>
+          <li><strong>A <code>ToneRing</code> and lowercase words, both in a <code>SettingsTone</code>:</strong> ready (green), attention (amber), idle (muted while something switches).</li>
+          <li><strong>Short words, the full sentence as tooltip and VoiceOver label.</strong></li>
+          <li><strong>Its click is the click of what it describes</strong> (System's is the Mac's: ⌘B, Mac Settings… on right-click); a status with nothing to do has no click.</li>
+        </ul>
+      </div>
+
+      <div class="option">
+        <header><span class="letter">B</span><h3>Every sidebar heading takes a status</h3></header>
+        <p>Move the slot into <code>SidebarHeading</code> in AiTermUI, with <code>SettingsTone</code> and <code>ToneRing</code>
+          moving there too, so Projects, the Operator and dividers could carry one. Those headings already say their state with
+          fold chevrons, <code>StatusCountChips</code> and <code>· paused</code>, and hold a "+" in the trailing column, so a
+          status there would be a second way of saying the same thing, competing for the same end of the line.</p>
+      </div>
+      </div>
+    </div>
 
   </section>
 
