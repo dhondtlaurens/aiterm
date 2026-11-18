@@ -268,7 +268,8 @@ because you are typing in its chat waits without counting; one pasted but not se
 unsent in its chat, asks you to send or clear it there.
 
 Only the Operator row’s activity caption decodes. Each event retriggers it, even when the words
-repeat, and the words settle after half a second. Its title stays steady. Tasks keep their normal
+repeat: the words standing morph into the new ones, settling from the left in half a second, so
+the caption is never empty. Unfolding the section shows the current words without a decode. Its title stays steady. Tasks keep their normal
 two-line layout and badges under projects and signals. Reduce Motion uses a plain swap.
 
 ## Session recovery and local records

@@ -12,17 +12,23 @@ import AiTermUI
 /// when they change, then stand still (P3, decision 3): at once under Reduce Motion and in the snapshots.
 @MainActor
 struct OperatorBadgeTests {
+    private func caption(_ line: OperatorLine, completed: OperatorLine? = nil, event: UUID) -> some View {
+        OperatorActivityCaption(line: line, completed: completed, event: event).frame(width: 280, height: Size.chip).surface(.sidebar)
+    }
+
     @Test func aQuickCompletedActionIsReadableBeforeTheCaptionReturnsToWatching() async throws {
         let watching = OperatorLine("watching 1 task in 1 signal")
         let completed = OperatorLine("reading status", look: .acting)
-        let host = NSHostingView(rootView: OperatorActivityCaption(line: watching, completed: completed, event: UUID())
-            .frame(width: 280, height: Size.chip).surface(.sidebar))
-        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 280, height: Size.chip), styleMask: [.borderless])
-        window.contentView = host; window.orderFrontRegardless()
+        let host = testHost(caption(watching, event: UUID()), size: CGSize(width: 280, height: Size.chip))
+        let window = testWindow(hosting: host, styleMask: [.borderless])
         defer { window.close() }
         settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
-        let words = try #require(host.firstDescendant(DecodeWordsView.self))
-        #expect((words.words.string as? NSAttributedString)?.string == "reading status")
+        // The action started and ended within one frame: only its completed event reaches the row.
+        host.rootView = caption(watching, completed: completed, event: UUID())
+        await eventually(describing: "the completed action to be read") {
+            host.layoutSubtreeIfNeeded()
+            return host.firstDescendant(DecodeWordsView.self)?.shown == completed.text
+        }
         await eventually(describing: "the completed activity to return to watching") {
             host.layoutSubtreeIfNeeded()
             let current = host.firstDescendant(DecodeWordsView.self)
@@ -31,23 +37,40 @@ struct OperatorBadgeTests {
         #expect(host.firstDescendant(DecodeWordsView.self)?.shown == watching.text)
     }
 
+    /// Unfolding the Operator section draws a new caption: it shows the current words at once, neither decoding them
+    /// nor replaying an action that ended while it was folded.
+    @Test func aCaptionThatAppearsShowsItsWordsWithoutReplayingAnEndedAction() {
+        let watching = OperatorLine("watching 3 tasks in 2 signals")
+        let host = testHost(caption(watching, completed: OperatorLine("reading status", look: .acting), event: UUID()),
+                            size: CGSize(width: 280, height: Size.chip), appearance: NSAppearance(named: .darkAqua))
+        let window = testWindow(hosting: host, styleMask: [.borderless])
+        defer { window.close() }
+        settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
+        let words = host.firstDescendant(DecodeWordsView.self)
+        #expect(words?.shown == watching.text && words?.isDecoding == false)
+        settle(host, for: 0.2)
+        #expect(words?.frames == 0, "nothing decoded")
+    }
+
     @Test func aNewEventRetriggersIdenticalWordsButSelectionDoesNot() {
         var now: CFTimeInterval = 100
         let view = DecodeWordsView(), first = UUID(), second = UUID()
         view.now = { now }
         let font = Typography.chip.nsFont, duration = OperatorBadge.decodeDuration
         view.configure(text: "reading status", font: font, ink: .white, duration: duration, event: first)
-        now += duration; view.tick()
-        #expect(!view.isDecoding && view.shown == "reading status")
+        #expect(!view.isDecoding && view.shown == "reading status", "the first words stand")
         view.configure(text: "reading status", font: font, ink: .gray, duration: duration, event: first)
         #expect(!view.isDecoding)
         view.configure(text: "reading status", font: font, ink: .gray, duration: duration, event: second)
-        #expect(view.isDecoding && view.shown != "reading status")
+        #expect(view.isDecoding && view.shown == "reading status", "it starts from the words standing")
+        now += duration / 2; view.tick()
+        #expect(view.shown != "reading status" && view.shown.count == "reading status".count, "a band scrambles: \(view.shown)")
         #expect(OperatorBadge.decodes(.quiet, motionStill: nil, event: second))
         #expect(OperatorBadge.decodes(.needsYou, motionStill: nil, event: second))
         #expect(!OperatorBadge.decodes(.quiet, motionStill: .reduceMotion, event: second))
         #expect(!OperatorBadge.decodes(.acting, motionStill: .snapshot, event: second))
         now += duration; view.tick()
+        #expect(!view.isDecoding && view.shown == "reading status")
     }
 
     private func fitting(_ line: OperatorLine, width: CGFloat? = nil) -> CGSize {
@@ -107,45 +130,43 @@ struct OperatorBadgeTests {
         #expect(fitting(OperatorLine("merging", look: .needsYou)).width == words + 2 * Space.tight)
     }
 
-    /// Each frame of the decode: the words settled from the left up to the frame's share, the rest a letter or digit
-    /// of the character's case each, their spaces and separators kept, so the line keeps its length; painted, the words layer draws the real
-    /// characters, so it keeps its width too, in the chip face and the heading's section face alike — both
-    /// proportional, so each glyph is kerned to its character's advance — and the glyphs are a layer of their own,
-    /// in the words' ink.
-    @Test func aDecodeFrameSettlesFromTheLeftAndKeepsTheLinesWidth() {
-        let text = "answering Claude · PAY-231"
-        func width(_ string: NSAttributedString) -> CGFloat { string.size().width }
-        for (font, kerning) in [(Typography.chip.nsFont, CGFloat(0)), (SidebarHeading.style.nsFont, CGFloat(0))] {
-            let words = NSAttributedString(string: text, attributes: [.font: font, .kern: kerning])
-            for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
-                let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
-                let painted = DecodeWordsView.painted(frame, text: text, font: font, kerning: kerning, ink: .white)
-                #expect(painted.words.string == text && abs(width(painted.words) - width(words)) < 0.01, "\(frame)")
-                #expect(painted.glyphs.string == frame)
-                painted.glyphs.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: painted.glyphs.length)) { ink, _, _ in
-                    #expect([NSColor.white, .clear].contains(ink as? NSColor), "a glyph in the words' ink, nothing green")
+    /// Each frame of the morph runs from the old words to the new: the new words settled from the left, a band of
+    /// glyphs of each character's case, then the old words still standing; spaces and separators kept. It starts
+    /// as the old words, ends as the new, and is never empty, growing or shrinking to the new words' length.
+    @Test func aMorphFrameRunsFromTheOldWordsToTheNew() {
+        let pairs = [("watching 3 tasks in 2 signals", "working"), ("working", "answering Claude · PAY-231"),
+                     ("reading status", "reading status")]
+        for (from, to) in pairs {
+            #expect(DecodeWordsView.frame(from: from, to: to, progress: 0, step: 0) == from, "it starts as the old words")
+            #expect(DecodeWordsView.frame(from: from, to: to, progress: 1, step: 9) == to, "it ends as the new words")
+            let count = max(from.count, to.count), band = DecodeWordsView.band
+            for step in 0...20 {
+                let progress = Double(step) / 20
+                let frame = DecodeWordsView.frame(from: from, to: to, progress: progress, step: step)
+                #expect(!frame.isEmpty, "never nothing: \(from) → \(to) at \(progress)")
+                let settled = Int(Double(count + band) * progress) - band
+                #expect(frame.hasPrefix(String(to.prefix(max(settled, 0)))), "\(frame)")
+                if settled + band < from.count {
+                    #expect(frame.hasSuffix(String(from.dropFirst(max(settled + band, 0)))), "the old words stand past the band: \(frame)")
                 }
             }
         }
-        let scrambled = DecodeWordsView.frame(of: text, progress: 0, step: 3)
-        for (shown, real) in zip(scrambled, text) where real.isLetter || real.isNumber {
-            #expect(DecodeWordsView.glyphs(for: real).contains(shown), "\(real) runs through its own case: \(scrambled)")
+        let text = "answering Claude · PAY-231"
+        let scrambled = DecodeWordsView.frame(from: text, to: text, progress: 0.5, step: 3)
+        #expect(scrambled.count == text.count && scrambled != text)
+        for (shown, real) in zip(scrambled, text) {
+            if real.isLetter || real.isNumber {
+                #expect(DecodeWordsView.glyphs(for: real).contains(shown), "\(real) runs through its own case: \(scrambled)")
+            } else {
+                #expect(shown == real, "separators stay put: \(scrambled)")
+            }
         }
-        for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
-            let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
-            #expect(frame.count == text.count)
-            for (shown, real) in zip(frame, text) where !(real.isLetter || real.isNumber) { #expect(shown == real, "\(frame)") }
-            let settled = Int(Double(text.count) * progress)
-            #expect(frame.hasPrefix(String(text.prefix(settled))), "\(frame)")
-        }
-        #expect(DecodeWordsView.frame(of: text, progress: 0, step: 0) != text, "it starts scrambled")
-        #expect(DecodeWordsView.frame(of: text, progress: 1, step: 9) == text)
-        #expect(DecodeWordsView.frame(of: text, progress: 0.2, step: 1) != DecodeWordsView.frame(of: text, progress: 0.2, step: 2),
-                "the glyphs change from frame to frame")
+        #expect(DecodeWordsView.frame(from: "watching", to: text, progress: 0.4, step: 1)
+                != DecodeWordsView.frame(from: "watching", to: text, progress: 0.4, step: 2), "the glyphs change from frame to frame")
     }
 
-    /// On a clock the test drives: new words decode once over `decodeDuration`, then stand still; the same words
-    /// again, or another ink (the row selected), start nothing.
+    /// On a clock the test drives: the first words stand; new words morph once over `decodeDuration`, then stand
+    /// still; the same words again, or another ink (the row selected), start nothing.
     @Test func newWordsDecodeOnceOnTheClockThenStandStill() {
         var now: CFTimeInterval = 100
         let view = DecodeWordsView()
@@ -153,64 +174,89 @@ struct OperatorBadgeTests {
         let font = Typography.chip.nsFont, duration = OperatorBadge.decodeDuration
         #expect((0.4...0.6).contains(duration), "calm: about half a second")
         view.configure(text: "Operator watching", font: font, ink: .white, duration: duration)
-        #expect(view.isDecoding && view.shown != "Operator watching" && view.shown.count == "Operator watching".count)
+        #expect(!view.isDecoding && view.shown == "Operator watching", "the first words stand as they are")
+        view.configure(text: "ready for the Operator", font: font, ink: .white, duration: duration)
+        #expect(view.isDecoding && view.shown == "Operator watching", "it starts from the words standing")
         now += duration / 2
         view.tick()
-        #expect(view.isDecoding && view.shown.hasPrefix("Operat") && view.shown != "Operator watching", "\(view.shown)")
+        #expect(view.isDecoding && view.shown.hasPrefix("ready ") && view.shown != "ready for the Operator", "\(view.shown)")
         now += duration / 2
         view.tick()
-        #expect(!view.isDecoding && view.shown == "Operator watching", "settled at its end")
+        #expect(!view.isDecoding && view.shown == "ready for the Operator", "settled at its end")
         let frames = view.frames
         now += 5
         view.tick()
-        #expect(view.frames == frames && view.shown == "Operator watching", "it never loops")
-        view.configure(text: "Operator watching", font: font, ink: .black, duration: duration)
-        #expect(!view.isDecoding, "a new ink is no new words")
+        #expect(view.frames == frames && view.shown == "ready for the Operator", "it never loops")
         view.configure(text: "ready for the Operator", font: font, ink: .black, duration: duration)
-        #expect(view.isDecoding && view.shown != "ready for the Operator", "new words decode again")
+        #expect(!view.isDecoding, "a new ink is no new words")
     }
 
-    /// The Operator heading's decode: its first words stand as they are, so a heading that appears does not decode
-    /// its own name; the next words decode, in their own case — the heading is sentence case, so it reads
-    /// "Operator" at rest and the row's line as the line writes it, never in capitals — and nothing glows.
-    @Test func firstWordsCanStandAndNothingGlows() {
-        var now: CFTimeInterval = 100
-        let view = DecodeWordsView()
-        view.now = { now }
-        let font = SidebarHeading.style.nsFont
-        view.configure(text: "Operator", font: font, ink: .white, duration: OperatorBadge.decodeDuration, decodesFirst: false)
-        #expect(!view.isDecoding && view.shown == "Operator")
-        let line = OperatorLine("answering Claude · PAY-231", look: .acting)
-        view.configure(text: line.text, font: font, ink: .white, duration: OperatorBadge.decodeDuration, decodesFirst: false)
-        #expect(view.isDecoding && view.shown != line.text)
-        #expect(view.glyphs.shadowOpacity == 0 && view.words.shadowOpacity == 0, "no glow")
-        now += OperatorBadge.decodeDuration
-        view.tick()
-        #expect(!view.isDecoding && view.shown == "answering Claude · PAY-231", "settled in the line's own case")
+    /// Ink a layer draws, in pixels at 2x: what a person sees of it.
+    private func inked(_ layer: CALayer) -> Int {
+        let width = Int(layer.bounds.width * 2), height = Int(layer.bounds.height * 2)
+        guard width > 0, height > 0, let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                                             bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data?.assumingMemoryBound(to: UInt8.self) else { return 0 }
+        context.scaleBy(x: 2, y: 2)
+        layer.render(in: context)
+        return (0..<(width * height)).reduce(0) { $0 + (data[$1 * 4 + 3] > 40 ? 1 : 0) }
+    }
+
+    /// The caption once was empty: its settled words sat in a text layer that cut a line a hair wider than its slot
+    /// with an ellipsis in a 36 pt face of its own, which drew nothing. At every interface scale the words are drawn,
+    /// in every frame of a morph and once settled, and a morph to shorter words keeps the old words' width until it ends.
+    @Test(arguments: InterfaceScale.all)
+    func theWordsAreDrawnInEveryFrameAndOnceSettled(scale: InterfaceScale) throws {
+        func badge(_ text: String, event: UUID) -> some View {
+            OperatorBadge(line: OperatorLine(text), event: event).interfaceScale(scale).surface(.washed)
+        }
+        let long = "watching 3 tasks in 2 signals", short = "working"
+        let host = testHost(badge(long, event: UUID()), size: CGSize(width: 280, height: 30), appearance: NSAppearance(named: .darkAqua))
+        let window = testWindow(hosting: host, styleMask: [.borderless])
+        defer { window.close() }
+        settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
+        let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        let wide = words.bounds.width
+        #expect(words.shown == long && inked(words.line) > 0, "the first words are drawn")
+        host.rootView = badge(short, event: UUID())
+        settle(host, for: 0.01)
+        #expect(words.isDecoding && words.line.frame.width >= wide, "the old words keep their width while they morph")
+        var drawn = 0, empty = 0
+        settle(host, describing: "the morph to settle") {
+            if words.isDecoding { drawn += 1; if inked(words.line) == 0 { empty += 1 } }
+            return !words.isDecoding
+        }
+        #expect(drawn > 0 && empty == 0, "\(empty) of \(drawn) frames drew nothing")
+        #expect(words.shown == short && inked(words.line) > 0, "the settled words are drawn")
+        #expect(words.line.frame.size == words.bounds.size, "settled, the line fills the new words' slot")
     }
 
     /// The decode keeps its timing and rules (sentence-case headings, 13 Nov 2026, changed only the case): 0.9 s
     /// each way, 0.35 s back under the pointer, a 3 s hold and a 20–60 s rest.
 
 
-    /// Hosted on the wall clock: the decode runs once in its own view, a frame at a time, settles within its
+    /// Hosted on the wall clock: new words decode once in their own view, a frame at a time, settles within its
     /// duration and stops; the badge's SwiftUI view is not updated per frame, and nothing decodes when it stands still.
     @Test func theDecodeSettlesAndStopsWithoutAnUpdatePerFrame() throws {
         func hosted(_ view: some View) -> (NSWindow, NSView) {
-            let host = NSHostingView(rootView: view.padding(Space.base).background(Palette.sidebar).surface(.sidebar))
+            let host = NSHostingView(rootView: AnyView(view.padding(Space.base).background(Palette.sidebar).surface(.sidebar)))
             host.appearance = NSAppearance(named: .darkAqua)
             let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 40), styleMask: [.borderless])
             window.contentView = host
             window.orderFrontRegardless()
             return (window, host)
         }
-        let before = OperatorBadge.decodeUpdates
-        let (window, host) = hosted(OperatorBadge(line: OperatorLine("consulting the Oracle", look: .acting)))
+        let (window, host) = hosted(OperatorBadge(line: OperatorLine("merging", look: .acting)))
         defer { window.close() }
         settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
         let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        let before = OperatorBadge.decodeUpdates
+        (host as? NSHostingView<AnyView>)?.rootView = AnyView(OperatorBadge(line: OperatorLine("consulting the Oracle", look: .acting))
+            .padding(Space.base).background(Palette.sidebar).surface(.sidebar))
+        settle(host, for: 0.01)
+        #expect(words.isDecoding, "new words decode")
         #expect(words.bounds.width > 0 && words.bounds.height > 0, "the acting status has a visible text slot")
-        #expect(words.words.frame.size == words.bounds.size, "its text layer fills that slot")
         settle(host, describing: "the words to settle") { !words.isDecoding && words.shown == "consulting the Oracle" }
         #expect(!words.isDecoding && words.shown == "consulting the Oracle", "settled: \(words.shown)")
         #expect(words.frames > 1, "it decoded a frame at a time")
@@ -241,7 +287,7 @@ struct OperatorBadgeTests {
             settle(host, for: 0.1)
             if line.look == .acting {
                 let words = try #require(host.firstDescendant(DecodeWordsView.self))
-                #expect(!words.shown.isEmpty && !words.words.frame.isEmpty)
+                #expect(!words.shown.isEmpty && !words.line.frame.isEmpty && inked(words.line) > 0)
                 settle(host) { !words.isDecoding }
                 #expect(words.shown == line.text)
             } else {

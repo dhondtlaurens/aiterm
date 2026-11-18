@@ -73,6 +73,8 @@ struct OperatorBadge: View {
 
 /// Keep a quick action readable even when its start and result land within one display frame.
 /// Only this caption holds it; status marks and task rows always show the current workload.
+/// A caption that has just appeared (its section unfolded) takes its event as read: it shows the
+/// current words and never replays an action that ended before it was drawn.
 struct OperatorActivityCaption: View {
     let line: OperatorLine
     var completed: OperatorLine?
@@ -81,6 +83,11 @@ struct OperatorActivityCaption: View {
     @State private var settledEvent: UUID?
     /// One decode plus the same time reading its settled words, interrupted by any newer event.
     private static let hold = 2 * OperatorBadge.decodeDuration
+
+    init(line: OperatorLine, completed: OperatorLine? = nil, event: UUID? = nil) {
+        self.line = line; self.completed = completed; self.event = event
+        _settledEvent = State(initialValue: event)
+    }
 
     var body: some View {
         let recent = motionStill != .snapshot && event != settledEvent ? completed : nil
@@ -103,15 +110,13 @@ extension OperatorBadge {
 #endif
 
 /// The decoding words: drawn by `DecodeWordsView`, which runs its frames itself. `kerning` is the words' own
-/// tracking, none in the app's faces today; `decodesFirst` false shows the first words as they are, so a heading
-/// that appears does not decode its own name.
+/// tracking, none in the app's faces today.
 struct DecodeWords: NSViewRepresentable {
     let text: String
     let font: NSFont
     let ink: Color
     let duration: Double
     var kerning: CGFloat = 0
-    var decodesFirst = true
     var event: UUID? = nil
 
     func makeNSView(context: Context) -> DecodeWordsView { DecodeWordsView() }
@@ -120,19 +125,21 @@ struct DecodeWords: NSViewRepresentable {
         #if DEBUG
         OperatorBadge.decodeUpdates += 1
         #endif
-        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning, decodesFirst: decodesFirst, event: event)
+        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning, event: event)
     }
 }
 
-/// Words that decode once when they change: each letter and digit runs through `glyphs(for:)`, letters and digits
-/// in its own case, so a capital stays a capital and a number a number, in the words' own ink, and the words settle
-/// from the left over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and separators stay put.
-/// The words layer always draws the real characters, clear where a glyph stands, so the words never change their
-/// width, in the chip face or the heading's; each glyph is kerned to stand where its character does (`painted`).
-/// Two `CATextLayer`s, layer-hosting, so AppKit leaves its layer to it: the words, and over them the unsettled
-/// glyphs alone, so no pair of glyphs ever kerns the words' line wider or narrower than its own letters. It passes
-/// every click through to its row. Its clock is `now`, Core Animation's media time unless a test drives it, each
-/// frame drawn by `tick`.
+/// Words that morph once when they change, from the words standing to the new ones: the new words settle from the
+/// left over `duration`, a frame every `1 / frameRate` s, then stand still. Ahead of them runs a band of `band`
+/// characters, each letter or digit a glyph of its own case (`glyphs(for:)`), so a capital stays a capital and a
+/// number a number; past the band the old words still stand. Spaces and separators are never scrambled. The first
+/// words it is given stand as they are, so the line always runs from words to words, never from or into nothing.
+///
+/// One layer draws the line (`DecodeLine`), layer-hosting, so AppKit leaves its layer to it. It draws with AppKit's
+/// own tail truncation in the words' face, so a line a hair wider than its slot ends in an ellipsis rather than
+/// vanishing. While it morphs, the line keeps the width the old words were laid out in, so the old words are not
+/// cut by the new words' narrower slot. It passes every click through to its row. Its clock is `now`, Core
+/// Animation's media time unless a test drives it, each frame drawn by `tick`.
 final class DecodeWordsView: NSView {
     /// What a character runs through while it decodes: a digit, digits; a capital, capitals and digits; any
     /// other letter, lowercase letters and digits.
@@ -143,19 +150,23 @@ final class DecodeWordsView: NSView {
     private static let capitals = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
     private static let lowercase = Array("abcdefghijklmnopqrstuvwxyz0123456789")
     static let frameRate = 30.0
-    let words = CATextLayer()
-    /// The unsettled glyphs, in the words' ink.
-    let glyphs = CATextLayer()
+    /// How many characters scramble at once, between the settled new words and the old ones still standing.
+    static let band = 4
+    /// The line, as it is drawn.
+    let line = DecodeLine()
     /// The decode's clock, in seconds.
     var now: () -> CFTimeInterval = CACurrentMediaTime
-    /// What it draws now: a frame of the decode, or the words once settled.
+    /// What it draws now: a frame of the morph, or the words once settled.
     private(set) var shown = ""
     /// Frames drawn since it was made, which a test reads to show the decode stops.
     private(set) var frames = 0
-    private var text = "", font: NSFont?, inkColor = NSColor.clear, kerning: CGFloat = 0
+    private(set) var font: NSFont?
+    private var text = "", from = "", inkColor = NSColor.clear, kerning: CGFloat = 0
     private var duration: CFTimeInterval = OperatorBadge.decodeDuration
-    /// When the running decode began; nil once it settled.
+    /// When the running morph began; nil once it settled.
     private var began: CFTimeInterval?
+    /// How wide the old words were laid out, which the line keeps while it morphs.
+    private var fromWidth: CGFloat = 0
     private var event: UUID?
     private var timer: Timer?
 
@@ -165,14 +176,7 @@ final class DecodeWordsView: NSView {
         super.init(frame: .zero)
         layer = CALayer()
         wantsLayer = true
-        for text in [words, glyphs] {
-            text.isWrapped = false
-            text.truncationMode = .end
-            text.alignmentMode = .left
-            layer?.addSublayer(text)
-        }
-        // A glyph a hair past the edge is clipped, never cut with an ellipsis of its own.
-        glyphs.truncationMode = .none
+        layer?.addSublayer(line)
     }
 
     @available(*, unavailable)
@@ -180,16 +184,17 @@ final class DecodeWordsView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// A new event or new words start a decode — the first ones too, unless `decodesFirst` is false; the same words in another ink
-    /// or face are only redrawn.
-    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0, decodesFirst: Bool = true, event: UUID? = nil) {
+    /// A new event or new words morph from the words standing — except the first words, which stand as they are; the
+    /// same words in another ink or face are only redrawn.
+    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0, event: UUID? = nil) {
         let changed = text != self.text || event != self.event, first = self.font == nil
         guard changed || font != self.font || ink != inkColor || duration != self.duration || kerning != self.kerning else { return }
+        let standing = shown
         self.text = text; self.font = font; inkColor = ink; self.duration = duration; self.kerning = kerning; self.event = event
-        if changed && (decodesFirst || !first) { start() } else { if !isDecoding { shown = text }; paint() }
+        if changed && !first { start(from: standing) } else { if !isDecoding { shown = text }; paint() }
     }
 
-    /// The decode's frame at `now`: the next frame while it runs, the words and the end of it once its time is up.
+    /// The morph's frame at `now`: the next frame while it runs, the words and the end of it once its time is up.
     func tick() {
         guard let began else { return }
         let progress = duration > 0 ? (now() - began) / duration : 1
@@ -198,27 +203,40 @@ final class DecodeWordsView: NSView {
             stop()
             shown = text
         } else {
-            shown = Self.frame(of: text, progress: progress, step: frames)
+            shown = Self.frame(from: from, to: text, progress: progress, step: frames)
         }
         paint()
     }
 
-    /// The words `progress` of the way through their decode: settled from the left up to that share, each
-    /// letter or digit after it a glyph of its case picked by its place and the frame's `step`, everything else as
-    /// it is.
-    static func frame(of text: String, progress: Double, step: Int) -> String {
-        let settled = Int(Double(text.count) * min(max(progress, 0), 1))
-        return String(text.enumerated().map { index, character in
-            guard index >= settled, character.isLetter || character.isNumber else { return character }
-            let pick = (index + 1) &* 7919 &+ (step + 1) &* 104_729 &+ index &* step &* 31
-            let glyphs = Self.glyphs(for: character)
-            return glyphs[abs(pick) % glyphs.count]
-        })
+    /// The line `progress` of the way from `from` to `to`: the new words settled from the left, then a band of
+    /// `band` characters scrambling, each letter or digit a glyph of its case picked by its place and the frame's
+    /// `step`, everything else as it is, then the old words still standing. At 0 it is `from`, at 1 `to`.
+    static func frame(from: String, to: String, progress: Double, step: Int) -> String {
+        let old = Array(from), new = Array(to), count = max(old.count, new.count)
+        let settled = Int(Double(count + band) * min(max(progress, 0), 1)) - band
+        var frame = ""
+        for index in 0..<count {
+            if index < settled {
+                if index < new.count { frame.append(new[index]) }
+            } else if index < settled + band {
+                guard let character = index < new.count ? new[index] : index < old.count ? old[index] : nil else { continue }
+                guard character.isLetter || character.isNumber else { frame.append(character); continue }
+                let pick = (index + 1) &* 7919 &+ (step + 1) &* 104_729 &+ index &* step &* 31
+                let glyphs = Self.glyphs(for: character)
+                frame.append(glyphs[abs(pick) % glyphs.count])
+            } else if index < old.count {
+                frame.append(old[index])
+            }
+        }
+        return frame
     }
 
-    private func start() {
+    private func start(from standing: String) {
+        from = standing
+        fromWidth = line.frame.width
         began = now()
-        shown = Self.frame(of: text, progress: 0, step: frames)
+        shown = Self.frame(from: from, to: text, progress: 0, step: frames)
+        place()
         paint()
         guard timer == nil else { return }
         let timer = Timer(timeInterval: 1 / Self.frameRate, repeats: true) { [weak self] timer in
@@ -233,17 +251,24 @@ final class DecodeWordsView: NSView {
         began = nil
         timer?.invalidate()
         timer = nil
+        place()
     }
 
     override func removeFromSuperview() {
-        // Gone from its row mid-decode: no frame is drawn for no one.
+        // Gone from its row mid-morph: no frame is drawn for no one.
         if isDecoding { stop(); shown = text; paint() }
         super.removeFromSuperview()
     }
 
     override func layout() {
         super.layout()
-        unanimated { words.frame = bounds; glyphs.frame = bounds }
+        place()
+    }
+
+    /// The line fills the view, and while it morphs is at least as wide as the old words were.
+    private func place() {
+        let width = isDecoding ? max(bounds.width, fromWidth) : bounds.width
+        unanimated { line.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height) }
     }
 
     override func viewDidMoveToWindow() {
@@ -263,39 +288,25 @@ final class DecodeWordsView: NSView {
 
     private func rescale() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        unanimated { words.contentsScale = scale; glyphs.contentsScale = scale }
+        guard line.contentsScale != scale else { return }
+        unanimated { line.contentsScale = scale; line.setNeedsDisplay() }
     }
 
-    /// `shown` against its `text`, as the two layers draw it: the words, always the real characters, in `ink` where
-    /// settled and clear where a glyph stands, so the line is exactly as wide as its words in every frame; and over
-    /// them the glyphs alone, in `ink` too, each kerned by the difference between its advance and its character's so
-    /// it stands where that character does, the settled characters clear.
-    static func painted(_ shown: String, text: String, font: NSFont, kerning: CGFloat = 0,
-                        ink: NSColor) -> (words: NSAttributedString, glyphs: NSAttributedString) {
-        func advance(_ character: Character) -> CGFloat {
-            NSAttributedString(string: String(character), attributes: [.font: font]).size().width
-        }
-        let words = NSMutableAttributedString(), glyphs = NSMutableAttributedString()
-        for (glyph, real) in zip(shown, text) {
-            let unsettled = glyph != real
-            words.append(NSAttributedString(string: String(real), attributes: [.font: font, .kern: kerning,
-                                                                               .foregroundColor: unsettled ? NSColor.clear : ink]))
-            glyphs.append(NSAttributedString(string: String(glyph), attributes: [
-                .font: font, .kern: kerning + (unsettled ? advance(real) - advance(glyph) : 0),
-                .foregroundColor: unsettled ? ink : NSColor.clear]))
-        }
-        return (words, glyphs)
+    /// `words` as the line draws them: in the face, its tracking and `ink`, cut at the tail when they do not fit.
+    static func painted(_ words: String, font: NSFont, kerning: CGFloat = 0, ink: NSColor) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        return NSAttributedString(string: words, attributes: [.font: font, .kern: kerning, .foregroundColor: ink,
+                                                              .paragraphStyle: paragraph])
     }
 
     private func paint() {
         guard let font else { return }
-        unanimated {
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                let painted = Self.painted(shown, text: text, font: font, kerning: kerning, ink: inkColor)
-                words.string = painted.words
-                glyphs.string = painted.glyphs
-            }
-        }
+        // The ink is resolved here, in the view's appearance; the layer draws later, outside it.
+        var ink = inkColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { ink = NSColor(cgColor: inkColor.cgColor) ?? inkColor }
+        let words = Self.painted(shown, font: font, kerning: kerning, ink: ink)
+        unanimated { line.words = words }
     }
 
     private func unanimated(_ change: () -> Void) {
@@ -303,5 +314,32 @@ final class DecodeWordsView: NSView {
         CATransaction.setDisableActions(true)
         change()
         CATransaction.commit()
+    }
+}
+
+/// The decoding line's own layer: its words drawn by AppKit, top-aligned and cut at the tail in their own face.
+final class DecodeLine: CALayer {
+    var words = NSAttributedString() {
+        didSet { if words != oldValue { setNeedsDisplay() } }
+    }
+
+    override init() {
+        super.init()
+        needsDisplayOnBoundsChange = true
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+        if let line = layer as? DecodeLine { words = line.words }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func draw(in context: CGContext) {
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        words.draw(in: bounds)
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
