@@ -1,31 +1,23 @@
 # Major release
 
-**Quit AiTerm and run the reset command under Upgrade before you open this version.**
+**Quit AiTerm, install this version and open it.**
 
 This version saves the Operator's own records in a new shape and does not read the ones an earlier
-version saved. The reset command removes only those records; the rest of your workspace stays as
-it is.
+version saved. On first launch AiTerm clears those records itself; the rest of your workspace stays
+as it is.
 
 ## Upgrade
 
 1. Let each task the Operator drives reach a point you are happy to pick up yourself. Quit AiTerm:
    the installed app and any development build. iTerm2 and its windows can stay open.
-2. In Terminal, run this command:
-
-```sh
-file="${1:-$HOME/Library/Application Support/AiTerm/state.json}"; if [ "$#" -eq 0 ] && pgrep -qx AiTerm; then echo "Quit AiTerm first." >&2; exit 1; fi; cp -p "$file" "$file.before-reset-$(date +%Y%m%d-%H%M%S)" && osascript -l JavaScript -e 'ObjC.import("Foundation"); function run(args) { var path = args[0], error = $(); var text = $.NSString.stringWithContentsOfFileEncodingError(path, $.NSUTF8StringEncoding, error); if (text.isNil()) throw new Error("Cannot read " + path); var state = JSON.parse(ObjC.unwrap(text)); function clear(task) { if (task.signalTask && task.signalTask.takenOver === true) task.takenOver = true; delete task.signalTask; } (state.tasks || []).forEach(clear); (state.archive || []).forEach(function(entry) { clear(entry.task); }); delete state.operatorSession; if (!$(JSON.stringify(state, null, 2)).writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, error)) throw new Error("Cannot write " + path); return "Operator records removed from " + path + "."; }' "$file"
-```
-
-It saves a dated copy of `state.json` beside it, then removes the Operator's saved records and
-nothing else. If AiTerm is still running, it says "Quit AiTerm first.", changes nothing and ends
-the shell in that window: quit AiTerm and run the command again in a new window.
-
-3. Install the new version and open it.
-4. Open Settings › Agents. The agent cards need nothing for this upgrade; a card that shows
+2. Install the new version and open it. On first launch AiTerm clears the Operator's saved records
+   from the previous version and nothing else, keeps a dated copy (`state.json.before-reset-<date>`)
+   beside `state.json`, and shows a note saying it did.
+3. Open Settings › Agents. The agent cards need nothing for this upgrade; a card that shows
    **Repair** for another reason is fixed by pressing it. An install from before 0.54 may still have
    AiTerm's old `PreToolUse` entry (its hook carries `"_aiterm": true`) in Claude Code's
    `~/.claude/settings.json`; AiTerm no longer removes it, so delete that entry by hand.
-5. What to expect: your projects, tasks, terminals, the Archive, conversations, signals and their
+4. What to expect: your projects, tasks, terminals, the Archive, conversations, signals and their
    seen items are all there. Tasks the Operator drove are now ordinary tasks of yours, and a task
    you had taken over stays yours: no signal continues it. A worker that is still working keeps
    its branch guard until it ends. The Operator starts a fresh chat at its next match; close the

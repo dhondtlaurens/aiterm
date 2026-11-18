@@ -114,3 +114,13 @@ Step 5f replaced `startingFresh`, `finishing`, `handover` and `wakeAwaitingRead`
 and removed the saved `currentAct`; re-recorded by
 `AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`. The sample
 session is saved open. No brief or tool bytes changed; `brief.md` and `tools.json` were not touched.
+
+## The previous release's saved format
+
+Added on 18 Nov 2026 for the app's own clearing of the previous release's Operator records
+(`StateStoreUpgradeTests`). `state-0.58.json` is a byte copy of this folder's `state.json` at
+`d9e9ccaa`, the 0.58 saved format: its `operatorSession` and both `signalTask` records are in the
+old shape. `operator-session-0.58.json` is synthetic, derived from that file once: its project and
+`operatorSession` object copied unchanged, one ordinary task without a `signalTask` and one
+terminal. Neither is re-recorded by a test; neither holds a real person's data. `state.json` and the
+brief and tool fixtures were not touched.

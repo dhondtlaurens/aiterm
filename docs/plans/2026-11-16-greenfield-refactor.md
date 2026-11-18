@@ -1635,3 +1635,21 @@ left.
   fixes). `main` had only the refactor's own merges; merged to `main` (`ad73ebb7`). Owed to the maintainer after
   phase 9: the smoke run through `scripts/run-dev.sh` (listed above with the other owed checks). This entry is
   committed on the branch after that merge.
+
+### After the close-out (maintainer's request, 2026-11-18)
+
+- Seamless upgrade: a probe showed this build could not load a workspace saved by 0.58 without the reset command,
+  not even a file whose only Operator record is an `operatorSession` (`keyNotFound 'lifecycle'`; the fixture failed
+  on `signalTask`'s `current`). The maintainer asked for an upgrade with no manual step, which overrides "no
+  migration, no compatibility code" for exactly these two records. `StateStore` now drops each `operatorSession` or
+  `signalTask` that does not decode, carrying a dropped record's `takenOver: true` onto its task as the script does.
+  It keeps the file as `state.json.before-reset-<stamp>` and saves the cleared workspace at once, and the app shows
+  one note after that launch. A file broken elsewhere still fails as before. The release note no longer asks for a
+  command. Tests: `StateStoreUpgradeTests` with the 0.58 fixture (`state-0.58.json`, the starting commit's bytes)
+  and a synthetic session-only file. A copy of a real 0.58 workspace loaded through the new `StateStore`: only
+  `operatorSession` removed, everything else equal; the second load changed nothing.
+- Compat check run by the orchestrator at the maintainer's request (the first attempt was stopped after keystrokes
+  landed in its iTerm2 window). All four stages passed: Claude Code 2.1.327, Codex 0.169.0 and PI 1.4.0 verified, and
+  captures refreshed (no private data found in them).
+- Design system page synced to the Swift and committed. Publishing it waits on the maintainer: the live page is the
+  version of 14 Nov (`e1c5e1a0`), unchanged since, and the publish tool first requires a full read of it.

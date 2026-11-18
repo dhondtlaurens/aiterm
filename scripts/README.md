@@ -44,7 +44,8 @@ across rebuilds.
 `reset-operator-state.sh [path]` clears `operatorSession` and active/archived tasks' `signalTask`
 records, preserves takeover marks on the tasks, and keeps every other saved value with a dated copy
 before editing. Run it with AiTerm quit before switching between the installed app and a development
-build while their Operator records differ in shape, and once when upgrading to the major release.
+build while their Operator records differ in shape. Upgrading needs no command: the app clears the
+previous release's records itself on its first load.
 
 ## Test
 

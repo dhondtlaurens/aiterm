@@ -52,11 +52,12 @@ the local tag with `git tag -d v<version>` and re-run `scripts/release.sh <versi
 ## Operator format
 
 The major release changes the shape of the Operator's saved records, `operatorSession` and each
-task's `signalTask`, with no migration: the new build does not read the old shapes. Every other
-saved key loads unchanged. Its release notes (`docs/release-notes/2026-11-major-release.md`) carry
-the reset command, the one line of `scripts/reset-operator-state.sh`, which the person runs with
-AiTerm quit: it keeps a dated copy of `state.json`, then removes `operatorSession` and every task's
-and archived task's `signalTask`, moving a taken-over mark onto its task. Release notes ask for
+task's `signalTask`; the new build does not read the old shapes. Every other
+saved key loads unchanged. The app clears the old records itself on its first load (`StateStore`):
+it keeps a dated copy, `state.json.before-reset-<date>`, then drops each `operatorSession` and task's
+or archived task's `signalTask` that does not decode, moving a taken-over mark onto its task, saves
+the result and shows a note once. `scripts/reset-operator-state.sh` does the same by hand, with
+AiTerm quit, for switching between development builds whose records differ. Release notes ask for
 Repair only for an agent whose driver gained or changed an entry; this release's drivers only lost
 one, so no agent needs it.
 
