@@ -23,7 +23,7 @@
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
 # reads only its own target: PaletteDistinctionTests WorkerTurnTests SignalSavedFormatTests StateStoreUpgradeTests
 # opt-in, reads outside its target: OperatorEvalRunner SignalOperatorEvalRunner WorkerGuardCodexTests
-# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py
+# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py test_compat_preflight.py=scripts/compat-check.sh
 
 # The daemon, and what the Swift suites read from it.
 daemon/*	daemon
@@ -93,8 +93,8 @@ scripts/make-dmg.sh	none
 scripts/dmg-settings.py	none
 scripts/readme-picture.sh	none
 scripts/run-dev.sh	none
-# The compatibility check, which only a person runs: it opens windows and spends quota.
-scripts/compat-check.sh	none
+# The compatibility check runs only by hand; daemon tests prove its preflight with fake CLIs.
+scripts/compat-check.sh	daemon
 # The agents' skills (.claude/skills is a link to .agents/skills).
 .claude/skills	none
 .agents/*	none
