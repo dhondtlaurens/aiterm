@@ -278,6 +278,26 @@ import Synchronization
         let rows = SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])[0].tasks
 
         #expect(rows.map(\.id) == [task1.id, task2.id, review1.id, review2.id])
+        #expect(rows.map { [$0.canMove(.up), $0.canMove(.down)] }
+                == [[false, true], [true, false], [false, true], [true, false]])
+    }
+
+    @Test func projectMovementEdgesIgnoreOperatorOwnedTasks() throws {
+        var world = SignalWorld()
+        let held = world.workingTask(signal: world.signal())
+        let driven = try #require(world.state.task(id: held))
+        let first = TaskItem.make(project: world.project.id)
+        let second = TaskItem.make(project: world.project.id)
+        let review = TaskItem.make(project: world.project.id, kind: .review)
+        world.state.tasks = [driven, first, review, second]
+        let rows = SidebarModel.sections(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])[0].tasks
+        #expect(rows.map(\.id) == [held, first.id, second.id, review.id])
+        #expect(rows.map { [$0.canMove(.up), $0.canMove(.down)] }
+                == [[false, false], [false, true], [true, false], [false, false]])
+        for row in rows {
+            #expect(row.canMove(.up) == world.state.canMove(taskId: row.id, .up))
+            #expect(row.canMove(.down) == world.state.canMove(taskId: row.id, .down))
+        }
     }
 
     /// The reported bug: a terminal row was drawn with a hardcoded shell mark and an idle dot, so

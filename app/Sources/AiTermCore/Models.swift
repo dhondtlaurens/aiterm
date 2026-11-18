@@ -455,6 +455,31 @@ public struct AppState: Codable, Equatable, Sendable {
         return nil
     }
 
+    /// Tasks and reviews move within their own project and kind group. Operator-owned rows belong
+    /// under signals, so they are neither a movable project row nor a neighbour to move past.
+    public func canMove(taskId: UUID, _ step: MoveStep) -> Bool { taskNeighbour(of: taskId, step) != nil }
+
+    @discardableResult
+    public mutating func move(taskId: UUID, _ step: MoveStep) -> Bool {
+        guard let i = tasks.firstIndex(where: { $0.id == taskId }), let n = taskNeighbour(of: taskId, step) else { return false }
+        tasks.swapAt(i, n)
+        return true
+    }
+
+    private func taskNeighbour(of id: UUID, _ step: MoveStep) -> Int? {
+        guard let i = tasks.firstIndex(where: { $0.id == id }), !tasks[i].isUnderOperator,
+              project(id: tasks[i].projectId) != nil else { return nil }
+        let task = tasks[i], review = task.kind == .review
+        let direction = step == .up ? -1 : 1
+        var n = i + direction
+        while tasks.indices.contains(n) {
+            let candidate = tasks[n]
+            if candidate.projectId == task.projectId, (candidate.kind == .review) == review, !candidate.isUnderOperator { return n }
+            n += direction
+        }
+        return nil
+    }
+
     private enum CodingKeys: String, CodingKey {
         case items, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
         case signals, signalSeen, operatorSession, operatorOpen

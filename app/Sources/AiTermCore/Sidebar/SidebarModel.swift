@@ -95,6 +95,10 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     public var windowOpen = false
     /// Whether the Operator drives it (`TaskItem.isUnderOperator`): its menu offers Take Over.
     public var underOperator = false
+    /// Project-local movement within the task or review group, excluding Operator-owned rows.
+    /// Derived with the list, so a menu does not observe the whole workspace.
+    public var canMoveUp = false, canMoveDown = false
+    public func canMove(_ step: MoveStep) -> Bool { step == .up ? canMoveUp : canMoveDown }
 }
 /// A task row's trailing mark: its status's `StatusMark`, the check once the Operator's work on the task ended, or
 /// the pause sign while paused. A session in use (working, asking, background work) keeps its own mark.
@@ -448,12 +452,22 @@ public enum SidebarModel {
                                 branchByCwd: [String: String], projectBranch: [UUID: String],
                                 diffByTask: [UUID: DiffStat]) -> ProjectSection {
         let projectTasks = rows.tasks[project.id] ?? []
-        // Keep both lanes in creation order, but never let a newly-created task land below reviews.
+        // Keep both lanes in saved order, but never let a newly-created task land below reviews.
         // `nil` is the legacy representation of a task, so only an explicit `.review` belongs in
         // the second lane.
         let orderedTasks = projectTasks.filter { $0.kind != .review }
             + projectTasks.filter { $0.kind == .review }
-        let tasks = orderedTasks.map { taskRow($0, tabs: tabs, branchByCwd: branchByCwd, diffByTask: diffByTask) }
+        var tasks = orderedTasks.map { taskRow($0, tabs: tabs, branchByCwd: branchByCwd, diffByTask: diffByTask) }
+        // SignalSidebar draws Operator-owned rows elsewhere. They do not count towards either
+        // edge of a project's group, even while they are still in this intermediate list.
+        var previous: Int?
+        for index in tasks.indices where !orderedTasks[index].isUnderOperator {
+            if let previous, (orderedTasks[previous].kind == .review) == (orderedTasks[index].kind == .review) {
+                tasks[previous].canMoveDown = true
+                tasks[index].canMoveUp = true
+            }
+            previous = index
+        }
         let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the
             // same project id, so only the window tells two of them apart.

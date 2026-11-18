@@ -310,6 +310,85 @@ import Testing
         #expect(try controller.savedWorkspace().projects.map(\.id) == [first.id, last.id, moved.id])
     }
 
+    @Test func movingATaskThroughItsRowCommandKeepsSelectionAndPersistsBothGroups() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        let project = Project.make(), other = Project.make()
+        let first = TaskItem.make(project: project.id), last = TaskItem.make(project: project.id)
+        let review = TaskItem.make(project: project.id, kind: .review)
+        let lastReview = TaskItem.make(project: project.id, kind: .review)
+        let foreign = TaskItem.make(project: other.id)
+        let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: nil, createdAt: Build.epoch)
+        controller.workspace.mutate {
+            $0.items = [.project(project), .project(other)]
+            $0.tasks = [first, review, foreign, last, lastReview]
+            $0.terminals = [terminal]
+        }
+        let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
+        controller.focus.browse(.task(last.id))
+        func command(_ id: UUID, _ title: String) throws -> RowCommand {
+            let row = try #require(controller.rows.sections.flatMap(\.tasks).first { $0.id == id })
+            return try #require(TaskRowView(row: row, controller: controller).commands(removing: false)
+                .flatMap { $0 }.first { $0.title == title })
+        }
+        let up = try command(last.id, "Move Up")
+        #expect(up.enabled)
+        up.action()
+        let down = try command(review.id, "Move Down")
+        #expect(down.enabled)
+        down.action()
+        let reordered = controller.state
+        up.action()
+        #expect(controller.state == reordered, "a retained command rechecks the new group edge")
+        #expect(controller.state.tasks == [last, lastReview, foreign, first, review])
+        #expect(controller.rows.sections[0].tasks.map(\.id) == [last.id, first.id, lastReview.id, review.id])
+        #expect(controller.focus.selection == .task(last.id))
+        #expect(controller.state.terminals == [terminal])
+        #expect(controller.state.projects == [project, other])
+        #expect(daemon.requests.isEmpty)
+        let saved = try controller.savedWorkspace()
+        #expect(saved == controller.state)
+        #expect(SidebarModel.sections(state: saved, sessions: [], branchByCwd: [:], projectBranch: [:])[0]
+            .tasks.map(\.id) == [last.id, first.id, lastReview.id, review.id])
+    }
+
+    @Test func retainedTaskMovementCommandsCheckCurrentTargetAndWorkspace() throws {
+        var world = SignalWorld()
+        let held = world.workingTask(signal: world.signal())
+        let record = try #require(world.state.task(id: held)?.signalTask)
+        let first = TaskItem.make(project: world.project.id), last = TaskItem.make(project: world.project.id)
+        world.state.tasks += [first, last]
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.focus.browse(.task(first.id))
+        let row = try #require(controller.rows.sections.first?.tasks.last)
+        let command = try #require(TaskRowView(row: row, controller: controller).commands(removing: false)
+            .flatMap { $0 }.first { $0.title == "Move Up" })
+        for removal in [TaskRemoval.removing, .archiving, .closing] {
+            controller.teardown.seedSnapshotState(removal, of: last.id)
+            command.action()
+            #expect(controller.state == world.state, "the target, rather than the selected row, is being removed")
+        }
+        controller.teardown.seedSnapshotState(nil, of: last.id)
+        controller.workspace.mutate { $0.tasks[$0.tasks.count - 1].signalTask = record }
+        let driven = controller.state
+        command.action()
+        #expect(controller.state == driven)
+        controller.workspace.mutate { $0.tasks.removeAll { $0.id == last.id } }
+        let deleted = controller.state
+        command.action()
+        #expect(controller.state == deleted)
+        controller.workspace.mutate { $0 = world.state }
+        try controller.breakSaving()
+        let locked = controller.state
+        #expect(!controller.projects.move(taskId: last.id, .up))
+        command.action()
+        #expect(controller.state == locked)
+    }
+
     @Test func aProjectKeepsTheJiraProjectsItIsGivenOnceEach() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }

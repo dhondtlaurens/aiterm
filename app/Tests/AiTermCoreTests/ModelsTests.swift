@@ -456,6 +456,52 @@ import Foundation
         #expect(!state.canMove(id: UUID(), .up))
     }
 
+    @Test func tasksMoveOnlyPastTheirVisibleProjectAndKindNeighbours() throws {
+        var world = SignalWorld()
+        let held = world.workingTask(signal: world.signal())
+        let driven = try #require(world.state.task(id: held))
+        let other = Project.make()
+        world.state.append(project: other)
+        let first = TaskItem.make(project: world.project.id)
+        let second = TaskItem.make(project: world.project.id, kind: .task)
+        let review = TaskItem.make(project: world.project.id, kind: .review)
+        let nextReview = TaskItem.make(project: world.project.id, kind: .review)
+        let foreign = TaskItem.make(project: other.id)
+        world.state.tasks = [first, review, driven, foreign, second, nextReview]
+        let original = world.state
+
+        #expect(!world.state.canMove(taskId: first.id, .up))
+        #expect(world.state.canMove(taskId: first.id, .down))
+        #expect(!world.state.canMove(taskId: second.id, .down))
+        let moved = world.state.move(taskId: second.id, .up)
+        #expect(moved)
+        #expect(world.state.tasks == [second, review, driven, foreign, first, nextReview])
+        let restored = world.state.move(taskId: second.id, .down)
+        #expect(restored && world.state == original)
+        let reviewMoved = world.state.move(taskId: review.id, .down)
+        #expect(reviewMoved)
+        #expect(world.state.tasks == [first, nextReview, driven, foreign, second, review])
+        #expect(world.state.items == original.items && world.state.terminals == original.terminals)
+    }
+
+    @Test func taskMovementRejectsMissingParentsOperatorTasksAndGroupEdges() throws {
+        var world = SignalWorld()
+        let held = world.workingTask(signal: world.signal())
+        let alone = TaskItem.make(project: world.project.id)
+        let review = TaskItem.make(project: world.project.id, kind: .review)
+        let orphan = TaskItem.make(project: UUID())
+        world.state.tasks += [alone, review, orphan]
+        let original = world.state
+        for id in [alone.id, review.id, orphan.id, held, UUID()] {
+            for step in [MoveStep.up, .down] {
+                #expect(!world.state.canMove(taskId: id, step))
+                let moved = world.state.move(taskId: id, step)
+                #expect(!moved)
+                #expect(world.state == original)
+            }
+        }
+    }
+
     @Test func testStateWithDividersRoundTripsThroughJSON() throws {
         var state = AppState.empty
         state.append(project: project("a"))
