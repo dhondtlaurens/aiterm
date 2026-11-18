@@ -1,14 +1,17 @@
 import Foundation
 import AiTermCore
 
+/// The two sections of the sidebar that fold into each other: the Operator's and the projects'.
+enum SidebarSection { case `operator`, projects }
+
 /// What the OPERATOR or PROJECTS heading draws of the fold between them: whether there is one — only
 /// while the Operator has something to show, a signal or its row — whether its section is the folded
-/// one, and, folded, how many of its rows need you. Its own value, so a status change elsewhere
-/// redraws neither heading.
+/// one, and, folded, how many of its rows sit in each status, as a folded project's header counts its own.
+/// Its own value, so a status change elsewhere redraws neither heading.
 struct SectionFold: Equatable {
     var folds = false
     var folded = false
-    var attention = 0
+    var counts: [StatusCount] = []
 }
 
 /// Shared row derivation; equal inputs and equal projected values produce no observation writes.
@@ -103,6 +106,29 @@ struct SectionFold: Equatable {
                 + section.tasks.filter { $0.needsYou && !leaving.contains($0.id) }.map { RowID.task($0.id) }
         }
     }
+    /// Every row under a section, whether its project or signal is folded, in the order the list draws them, each with
+    /// the status its folded heading counts it under: OPERATOR's own row, then its signals' tasks; each project's
+    /// terminals, then its tasks. A task on its way out is left out, as it is of what needs you.
+    func rowStatuses(in section: SidebarSection) -> [(row: RowID, status: TaskStatus)] {
+        let leaving = inputs?.leaving ?? []
+        let rows: [(row: RowID, status: TaskStatus)]
+        switch section {
+        case .operator:
+            rows = (signalOperator.shown ? [(RowID.operatorChat, signalOperator.status)] : [])
+                + signalSections.flatMap { $0.tasks.filter { !leaving.contains($0.id) }.map { (RowID.task($0.id), $0.status) } }
+        case .projects:
+            rows = sections.flatMap { section in
+                section.terminals.map { (RowID.terminal($0.id), $0.status) }
+                    + section.tasks.filter { !leaving.contains($0.id) }.map { (RowID.task($0.id), $0.status) }
+            }
+        }
+        return rows.map { ($0.row, SidebarModel.countedStatus($0.status)) }
+    }
+    /// The first row under a section its folded heading counts under `status`: where that chip opens it.
+    func firstRow(in section: SidebarSection, status: TaskStatus) -> RowID? {
+        let status = SidebarModel.countedStatus(status)
+        return rowStatuses(in: section).first { $0.status == status }?.row
+    }
     /// The rows under OPERATOR in the order the arrow keys walk them: its row, then each signal's heading
     /// and, unfolded, its tasks. Worked out whether or not the section is open.
     var operatorPath: [RowSelection] {
@@ -196,8 +222,10 @@ struct SectionFold: Equatable {
         if self.terminals != terminals { self.terminals = terminals }
         let folds = signalOperator.shown || !signalSections.isEmpty, open = folds && next.operatorOpen
         if operatorOpen != open { operatorOpen = open; changed = true }
-        let operatorFold = SectionFold(folds: folds, folded: folds && !open, attention: folds && !open ? operatorNeedingAttention.count : 0)
-        let projectsFold = SectionFold(folds: folds, folded: open, attention: open ? projectSectionsNeedingAttention.count : 0)
+        let operatorFold = SectionFold(folds: folds, folded: folds && !open,
+                                       counts: folds && !open ? SidebarModel.statusCounts(rowStatuses(in: .operator).map(\.status)) : [])
+        let projectsFold = SectionFold(folds: folds, folded: open,
+                                       counts: open ? SidebarModel.statusCounts(rowStatuses(in: .projects).map(\.status)) : [])
         if operatorHeading != operatorFold { operatorHeading = operatorFold }
         if projectsHeading != projectsFold { projectsHeading = projectsFold }
         return changed

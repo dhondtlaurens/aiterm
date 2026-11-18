@@ -316,15 +316,21 @@ public enum SidebarModel {
     /// A row in the background counts with working: its agent takes the turn up again by itself. A waiting row has
     /// its own count: nothing of it runs.
     public static func statusCounts(tasks: [TaskRow], terminals: [TerminalRow] = []) -> [StatusCount] {
-        statusCounts((tasks.map(\.status) + terminals.map(\.status)).map { $0 == .background ? .working : $0 })
+        statusCounts(tasks.map(\.status) + terminals.map(\.status))
     }
 
-    private static func statusCounts(_ statuses: [TaskStatus]) -> [StatusCount] {
-        statusOrder.compactMap { status in
+    /// The same counts over bare statuses, for a folded OPERATOR or PROJECTS heading, whose rows are not all task
+    /// and terminal rows: the Operator's own row is counted with its signals' tasks.
+    public static func statusCounts(_ statuses: [TaskStatus]) -> [StatusCount] {
+        let statuses = statuses.map(countedStatus)
+        return statusOrder.compactMap { status in
             let n = statuses.filter { $0 == status }.count
             return n > 0 ? StatusCount(status: status, count: n) : nil
         }
     }
+
+    /// The status a row is counted under: a row in the background with working, every other as itself.
+    public static func countedStatus(_ status: TaskStatus) -> TaskStatus { status == .background ? .working : status }
 
     /// Focus View (⌘F): open each project with a row that needs attention, fold the others.
     /// Empty projects draw collapsed regardless of their saved state.

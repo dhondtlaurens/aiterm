@@ -15,8 +15,8 @@ and source failures.
 
 The **Operator** and **Projects** sections fold into each other, one open at a time: click either
 heading to switch. Projects are open by default, so the Operator stays one folded line until you
-open it, and with no signal it is only its heading and **+**. A folded section shows an amber count
-of what needs you; click it to open the section at that row. Creating a signal opens the Operator's
+open it, and with no signal it is only its heading and **+**. A folded section shows its rows' status
+counts, as a folded project does; click a count to open the section at its first row in that status. Creating a signal opens the Operator's
 section, and a notification or Focus View opens whichever section holds the row it selects.
 
 ## Create a signal

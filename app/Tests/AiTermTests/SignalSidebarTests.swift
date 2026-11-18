@@ -346,8 +346,8 @@ import AiTermUI
         controller.workspace.mutate { $0 = world.state }
         settle(host) { list.numberOfRows == 3 }
         #expect(list.numberOfRows == 3, "Operator heading folded, Projects heading, the project")
-        #expect(controller.rows.operatorHeading == SectionFold(folds: true, folded: true, attention: 0))
-        #expect(controller.rows.projectsHeading == SectionFold(folds: true, folded: false, attention: 0))
+        #expect(controller.rows.operatorHeading.folds && controller.rows.operatorHeading.folded)
+        #expect(controller.rows.projectsHeading == SectionFold(folds: true, folded: false, counts: []), "open: no counts")
 
         controller.toggleOperatorOpen()
         settle(host) { list.numberOfRows == 5 }
@@ -362,7 +362,7 @@ import AiTermUI
         #expect(list.numberOfRows == 3)
     }
 
-    /// Folded, a section counts what needs you once; its count, or a row selected from elsewhere, opens it.
+    /// Folded, a section counts its rows by status; the needs-input chip, or a row selected from elsewhere, opens it.
     @Test func aRowNeedingYouInTheFoldedSectionIsCountedAndRevealed() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
@@ -371,16 +371,66 @@ import AiTermUI
         let asked = world.now
         world.state.operatorSession?.questions = [OperatorSession.Question(id: "q", task: id, text: "Which locale?", openedAt: asked)]
         controller.workspace.mutate { $0 = world.state }
-        #expect(controller.rows.operatorHeading.attention == 2, "the Operator's row says it waits on you, and so does the task")
-        controller.openOperatorAttention()
+        #expect(controller.rows.operatorHeading.counts == [StatusCount(status: .needsInput, count: 2)],
+                "the Operator's row says it waits on you, and so does the task")
+        controller.openSection(.operator, at: .needsInput)
         #expect(controller.rows.operatorOpen)
         #expect(controller.focus.selection == .operatorChat, "its first row that needs you")
-        #expect(controller.rows.operatorHeading.attention == 0, "open, the rows say it themselves")
+        #expect(controller.rows.operatorHeading.counts.isEmpty, "open, the rows say it themselves")
 
         controller.reveal(.project(world.project.id))
         #expect(!controller.rows.operatorOpen, "a project row opens the projects")
         controller.reveal(.operatorChat)
         #expect(controller.rows.operatorOpen, "the Operator's row opens its section")
+    }
+    /// Folded, a section counts every row under it by status, whether its signal is folded or open, as a folded
+    /// project's header does; each chip opens the section at its first row in that status, unfolding its signal.
+    @Test func aFoldedOperatorCountsEveryStatusAndAChipOpensItsFirstRow() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld()
+        let open = world.signal(name: "Open"), folded = world.signal(name: "Folded")
+        let asking = world.workingTask(signal: open), working = world.workingTask(signal: folded), ended = world.workingTask(signal: folded)
+        for (index, id) in [asking, working, ended].enumerated() {
+            if let at = world.state.tasks.firstIndex(where: { $0.id == id }) { world.state.tasks[at].windowId = "worker-\(index)" }
+        }
+        world.state.signals[1].collapsed = true
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.sessions = [SessionInfo.make("a", window: "worker-0", task: asking, state: .needsInput),
+                                    SessionInfo.make("w", window: "worker-1", task: working, state: .working),
+                                    SessionInfo.make("d", window: "worker-2", task: ended, state: .done)]
+        #expect(controller.rows.operatorHeading.counts == [StatusCount(status: .idle, count: 1), StatusCount(status: .working, count: 1),
+                                                          StatusCount(status: .waiting, count: 1), StatusCount(status: .needsInput, count: 1)],
+                "the Operator's own idle row, then the tasks of both signals, the worker-done one waiting, in a project header's order")
+        #expect(controller.rows.projectsHeading.counts.isEmpty, "the open section counts nothing")
+
+        controller.openSection(.operator, at: .working)
+        #expect(controller.rows.operatorOpen)
+        #expect(controller.focus.selection == .task(working), "the first working row")
+        #expect(controller.state.signal(id: folded)?.collapsed == false, "its signal unfolds")
+        #expect(controller.rows.isDrawn(.task(working)))
+    }
+    /// With PROJECTS folded, a terminal first in its status opens the projects and unfolds its collapsed project.
+    @Test func aChipOnTheFoldedProjectsUnfoldsATerminalsProject() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
+        var project = world.project; project.collapsed = true
+        world.state.items = [.project(project)]
+        let shell = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "shell-window", createdAt: Date())
+        world.state.terminals = [shell]
+        world.state.operatorOpen = true
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.sessions = [SessionInfo.make("shell", window: "shell-window", state: .needsInput)]
+        #expect(controller.rows.projectsHeading.counts == [StatusCount(status: .needsInput, count: 1)])
+
+        controller.openSection(.projects, at: .needsInput)
+        #expect(!controller.rows.operatorOpen)
+        #expect(controller.state.project(id: project.id)?.collapsed == false, "the terminal's project unfolds")
+        #expect(controller.focus.selection == .terminal(shell.id))
+        #expect(controller.rows.isDrawn(.terminal(shell.id)))
     }
     /// ↓ on the Operator's last row reaches the first project, folding the Operator; ↑ on the first project reaches
     /// the Operator's last row, folding the projects. Anywhere else the list moves on its own.

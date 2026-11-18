@@ -31,20 +31,11 @@ extension AppController {
         }
     }
 
-    /// The folded PROJECTS heading's amber count: the projects open, folding the Operator's section, and
-    /// their first row that needs you is selected, its window shown as the arrows show one.
+    /// A chip on the folded OPERATOR or PROJECTS heading: the section opens, folding the other, at its first row in
+    /// that status, whose signal or project unfolds, and the row is selected, its window shown as the arrows show one.
     @discardableResult
-    func openProjectsAttention() -> Task<Void, Never>? {
-        guard let first = rows.projectSectionsNeedingAttention.first else { return nil }
-        reveal(RowSelection(first))
-        return focus.peek(RowSelection(first), force: true)
-    }
-
-    /// The folded OPERATOR heading's amber count: its section opens, folding the projects, at its first
-    /// row that needs you.
-    @discardableResult
-    func openOperatorAttention() -> Task<Void, Never>? {
-        guard let first = rows.operatorNeedingAttention.first else { return nil }
+    func openSection(_ section: SidebarSection, at status: TaskStatus) -> Task<Void, Never>? {
+        guard let first = rows.firstRow(in: section, status: status) else { return nil }
         reveal(RowSelection(first))
         return focus.peek(RowSelection(first), force: true)
     }
@@ -81,8 +72,8 @@ extension AppController {
                    messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm)
     }
 
-    /// A row selected through a notification, Focus View or an amber count opens its section, folding the other,
-    /// then its signal or project; tasks under the Operator open their signal.
+    /// A row selected through a notification, Focus View or a folded heading's chip opens its section, folding the
+    /// other, then its signal or project; tasks under the Operator open their signal, a terminal its project.
     func reveal(_ row: RowSelection) {
         guard canChangeWorkspace else { return }
         if rows.operatorHeading.folds {
@@ -102,5 +93,7 @@ extension AppController {
             }
         } else if case .task(let id) = row, let task = state.task(id: id),
                 let project = state.project(id: task.projectId), project.collapsed { projects.toggleCollapsed(project) }
+        else if case .terminal(let id) = row, let terminal = state.terminal(id: id),
+                let project = state.project(id: terminal.projectId), project.collapsed { projects.toggleCollapsed(project) }
     }
 }
