@@ -228,6 +228,10 @@ Options:
       --skip-git-repo-check
           Allow running Codex outside a Git repository
 
+      --trust
+          Save trust for this project and future chats, including MCP commands outside the sandbox.
+          Persists even with --ephemeral. Does not override an explicitly untrusted project
+
       --ephemeral
           Run without persisting session files to disk
 

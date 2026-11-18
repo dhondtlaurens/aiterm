@@ -7,3 +7,5 @@ openai-codex  gpt-6-luna     272K     128K     yes       yes
 openai-codex  gpt-6-sol      272K     128K     yes       yes   
 openai-codex  gpt-6.1-sol    500K     128K     yes       yes   
 openai-codex  gpt-6.1-terra  500K     128K     yes       yes   
+openai-codex  gpt-6.2-astra  272K     128K     yes       yes   
+openai-codex  gpt-6.2-sol    500K     128K     yes       yes   
