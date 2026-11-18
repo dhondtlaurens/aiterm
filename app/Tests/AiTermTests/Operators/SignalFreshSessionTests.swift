@@ -101,7 +101,7 @@ import Testing
         var session = OperatorSession.open(createdAt: world.now, window: "old-window", conversation: "old-conversation")
         session.questions = [.init(id: "scope", task: id, text: "Which scope?", openedAt: world.now)]
         session.oracleRounds = [OracleRound(id: "waiting-round", tool: "answer_worker", stage: .delivered,
-                                            critique: "Check the original scope before answering.", askedArguments: "{}", askedAt: world.now)]
+                                            critique: "Check the original scope before answering.", askedAt: world.now)]
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon()

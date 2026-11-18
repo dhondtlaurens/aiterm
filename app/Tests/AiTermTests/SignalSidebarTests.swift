@@ -131,7 +131,7 @@ import AiTermUI
 
         #expect(prompter.asked.map(\.detail) == [
             "Removes the project and its 3 tasks from AiTerm. Files, worktrees and windows are kept. 2 worktrees are run by signals.",
-            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept. 1 worktrees are run by signals.",
+            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept. 1 worktree is run by signals.",
             "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept.",
         ])
         #expect(controller.state.project(id: world.project.id) != nil, "Cancel keeps the project.")

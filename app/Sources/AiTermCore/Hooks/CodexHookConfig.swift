@@ -78,7 +78,8 @@ enum CodexHookConfig {
     ///
     /// Rebuild, otherwise: every marker statement is dropped; every AiTerm table is dropped except
     /// its standalone comments (a comment after an AiTerm table may document the next table); every
-    /// other table is kept with its exact text; then the block is appended after a blank line.
+    /// other table is kept with its exact text, its last line ended in the file's own line ending; then the block is
+    /// appended after a blank line.
     static func merge(_ toml: String?, hookURL: String, tables: [TOMLStatements.Table]? = nil) -> String {
         let parsed = tables ?? TOMLStatements.tables(toml ?? "")
         let block = Self.block(hookURL: hookURL)
@@ -111,7 +112,9 @@ enum CodexHookConfig {
         var base = zip(parsed, aiTerm).map { table, isAiTerm in
             table.statements.filter { !$0.marker && (!isAiTerm || $0.standaloneComment) }.map(\.text).joined()
         }.joined()
-        if !base.isEmpty && !base.hasSuffix("\n") { base += "\n" }
+        // By scalar: `"\r\n"` is one Character, so `hasSuffix("\n")` misses a CRLF ending. A last line with none
+        // gets the file's own.
+        if !base.isEmpty && base.unicodeScalars.last != "\n" { base += base.contains("\r\n") ? "\r\n" : "\n" }
         return base + (base.isEmpty ? "" : "\n") + block + "\n"
     }
 }

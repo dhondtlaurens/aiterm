@@ -7,10 +7,8 @@ public struct LaunchAttempt: Codable, Equatable, Sendable {
     /// opening. A launch that showed a window is never launched again: a worker whose window you
     /// closed comes back on your click, its conversation resumed, never as a second worker.
     public var openedAt: Date?
-    /// True from just before AiTerm asks for this attempt's window or tab, where its agent command is typed, until a first
-    /// worker running an agent is listed for the task; nil otherwise, and in every record from before it existed. A pending
-    /// attempt whose window was seen `OperatorTiming.openingGrace` ago with still no agent is a launch that failed:
-    /// AiTerm blocks the task and says so (`WorkerStarter.checkLaunches`), never leaving it working with no worker.
+    /// True while this attempt awaits its first worker. `SignalWorkerIO.recoverLaunches` reads it to recover a saved
+    /// launch from a tagged tab running the planned agent, or block the task when the tab is not that worker.
     public var workerPending: Bool?
     public init(number: Int, requestedAt: Date, openedAt: Date? = nil, workerPending: Bool? = nil) {
         self.number = number; self.requestedAt = requestedAt; self.openedAt = openedAt; self.workerPending = workerPending
@@ -73,7 +71,7 @@ public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
         case unanswered = "unchallenged"
     }
     private enum CodingKeys: String, CodingKey {
-        case id, tool, stage, critique, askedArguments, askedEvidence, result, askedAt, round, reply
+        case id, tool, stage, critique, askedEvidence, result, askedAt, round, reply
         case unansweredReason = "unchallengedReason"
     }
 
@@ -82,8 +80,6 @@ public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
     public var stage: OracleRound.Stage
     /// The Oracle's answer, once it gave one.
     public var critique: String?
-    /// The proposed call's arguments as canonical JSON.
-    public var askedArguments: String?
     /// The evidence binding this round to its task or question.
     public var askedEvidence: String?
     /// Why the action proceeded without the Oracle's agreement: it was missing, failed or too slow.
@@ -97,10 +93,9 @@ public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
     public var reply: String?
 
     public init(id: String, tool: String, stage: OracleRound.Stage, critique: String? = nil,
-                askedArguments: String? = nil, unansweredReason: String? = nil,
+                unansweredReason: String? = nil,
                 result: String? = nil, askedAt: Date, askedEvidence: String? = nil, round: Int? = nil) {
         self.id = id; self.tool = tool; self.stage = stage; self.critique = critique
-        self.askedArguments = askedArguments
         self.unansweredReason = unansweredReason; self.result = result
         self.askedAt = askedAt; self.askedEvidence = askedEvidence; self.round = round
     }

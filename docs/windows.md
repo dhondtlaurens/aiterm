@@ -141,9 +141,10 @@ Some windows close because AiTerm closed them:
 - **Archive Task** does the same, then moves the row to the Archive. Without iTerm2 connected, a
   task with a window says **Not archived: iTerm2 isn’t connected**, and a window shared with other
   work says **Not archived**.
-- **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
-  branch is kept. While the window holds another row's tab, nothing closes: the row stays, saying
-  **Worktree missing**, until that tab has left.
+- **A worktree deleted outside AiTerm**: AiTerm notices, closes the window, and any other window
+  one of the task's tabs was moved to, and removes the row. The branch is kept. While one of those
+  windows holds other work, as for Remove, nothing closes: the row stays, saying **Worktree
+  missing**, until that tab has left.
 - **Remove Terminal** closes the terminal's window and removes its row.
 - **The Operator** closes its chat when its workload ends, and before it starts a fresh chat.
 
@@ -155,8 +156,8 @@ the task in the sidebar without a window, like any other.
 
 The banner above the list says that the window could not open, and why. A terminal's names the
 terminal; a task's names no row, and goes when that task opens or leaves the sidebar. Nothing else
-marks the row. Choose it again to try again. A task's window that opens but whose resume command
-iTerm2 could not type stays open as a plain shell, and the banner says so, with why.
+marks the row. Choose it again to try again. A task's window that opens but whose agent or resume
+command iTerm2 could not type stays open as a plain shell, and the banner says so, with why.
 
 A row whose worktree is missing opens nothing and says **Worktree missing**: restore the worktree
 or remove the task.

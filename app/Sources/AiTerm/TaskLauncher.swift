@@ -177,8 +177,12 @@ final class TaskLauncher {
             say(OperationIssue(title: "\(noun) created. Choose it to open its window once AiTerm reconnects, then start the agent there."))
             return
         }
-        do { try await openWindow(for: task, command: result.command, with: daemon) }
-        catch {
+        do {
+            // The window is there, but its agent command was never typed: a plain shell, said on the row.
+            if let failure = try await openWindow(for: task, command: result.command, with: daemon)?.commandError {
+                say(OperationIssue(title: "Opened the window, but its agent didn’t start.", reason: failure, subject: task.id))
+            }
+        } catch {
             say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened; if it isn’t there once AiTerm reconnects, choose the task to open it.",
                                error: error))
         }

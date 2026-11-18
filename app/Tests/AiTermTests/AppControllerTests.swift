@@ -929,6 +929,21 @@ import Testing
         try await fixture.controller.launcher.createTask(draft: fixture.draft("Plain"), project: fixture.project)
         #expect(fixture.controller.issue == nil)
     }
+
+    /// iTerm2 made the new task's window but could not type its agent command: the row keeps the window, and the plain
+    /// shell it shows is said on the row with the daemon's reason.
+    @Test func aNewTaskWhoseAgentCommandWasNotTypedSaysSoOnItsRow() async throws {
+        let fixture = try await RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let server = RecordingDaemon()
+        server.commandErrors["window.createTask"] = "The session ended before the command was typed."
+        fixture.controller.helper.setDaemonClient(server)
+        try await fixture.controller.launcher.createTask(draft: fixture.draft("Untyped"), project: fixture.project)
+        let created = try #require(fixture.controller.state.tasks.first { $0.title == "Untyped" })
+        #expect(created.windowId != nil)
+        #expect(fixture.controller.issue == OperationIssue(title: "Opened the window, but its agent didn’t start.",
+                                                           reason: "The session ended before the command was typed.", subject: created.id))
+    }
 }
 
 @MainActor @Suite(.blocking) struct ControllerCheckoutTests {
@@ -1227,6 +1242,54 @@ import Testing
         controller.showFocusView()
         #expect(controller.state.signal(id: signal)?.collapsed == true, "Focus View folds the signal")
         #expect(controller.state.project(id: project.id)?.collapsed == false, "and opens the project")
+    }
+
+    /// A task on its way out counts as no row in either view: its finished agent opens nothing, and a project holding
+    /// only it is left folded.
+    @Test(arguments: [true, false]) func aLeavingTaskCountsAsNoRowInEitherView(focus: Bool) throws {
+        let (controller, dir) = try loadedController()
+        defer { controller.shutdown(); try? FileManager.default.removeItem(at: dir) }
+        var leaving = fixtureProject("Leaving"); leaving.collapsed = true
+        var other = fixtureProject("Other"); other.collapsed = true
+        controller.workspace.mutate { $0.append(project: leaving); $0.append(project: other) }
+        let going = TaskItem.stub(in: leaving, title: "Going"), waiting = TaskItem.stub(in: other, title: "Waiting")
+        controller.workspace.mutate { $0.tasks = [going, waiting] }
+        controller.live.sessions = [SessionInfo.stub("a", window: "w1", task: going, state: .done, agent: .claude),
+                                    SessionInfo.stub("b", window: "w2", task: waiting, state: .done, agent: .claude)]
+        let token = try #require(controller.work.begin(.removing, onTask: going.id))
+        defer { controller.work.end(token) }
+
+        if focus { controller.showFocusView() } else { controller.showListView() }
+
+        #expect(controller.state.projects.map(\.collapsed) == [true, false])
+    }
+
+    /// A removed signal's heading folds and opens with the views as a live signal's does, in the rows' own fold, and a
+    /// task of it on its way out counts as no row there either.
+    @Test func theViewsFoldAndOpenARemovedSignalsHeading() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(), driven = world.workingTask(signal: signal)
+        world.state.signals.removeAll()
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.sessions = [SessionInfo.make("worker", window: "worker-window", task: driven, state: .working)]
+        func folded() -> Bool? { controller.rows.signalSections.first { $0.id == signal }?.collapsed }
+        try #require(controller.rows.signalSections.first { $0.id == signal }?.removed == true)
+        #expect(folded() == false)
+
+        controller.showFocusView()
+        #expect(folded() == true, "nothing of it waits on you")
+        controller.showListView()
+        #expect(folded() == false)
+
+        controller.toggleCollapsed(try #require(controller.rows.signalSections.first { $0.id == signal }?.signal))
+        let token = try #require(controller.work.begin(.removing, onTask: driven))
+        defer { controller.work.end(token) }
+        controller.showListView()
+        #expect(folded() == true, "its only task is leaving: List View leaves it folded")
     }
 }
 
