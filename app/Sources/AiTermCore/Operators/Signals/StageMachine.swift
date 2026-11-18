@@ -6,8 +6,8 @@ public enum SignalTransitions {
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
             next.current = stage; next.stage += 1; next.ownership += 1; next.startedAt = at; next.thenApplied = nil
-            next.phase = .launching; next.launch = nil; next.blockedReason = nil; next.operatorJudged = nil
-            next.choice = nil; next.choosableRows = nil; next.waitingOn = nil
+            next.phase = .launching; next.launch = nil; next.blockedReason = nil
+            next.choice = nil; next.choosableRows = nil; next.waitingOn = nil; next.doneMatched = nil
         }
         func startPending() {
             guard !next.pendingStages.isEmpty else { return }
@@ -18,10 +18,10 @@ public enum SignalTransitions {
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
             next.phase = .working
         case .workRequested:
-            guard task.phase == .working || task.phase == .done || { if case .watching = task.phase { true } else { false } }() else {
+            guard task.phase == .working || task.phase == .done || task.phase == .watching else {
                 throw SignalTransitionError.invalidEdge
             }
-            next.phase = .working; next.operatorJudged = nil; next.thenApplied = nil; next.blockedReason = nil
+            next.phase = .working; next.thenApplied = nil; next.blockedReason = nil
         case .matched(let stage):
             if task.phase.canContinue && !workerIsWorking {
                 if next.pendingStages.isEmpty { continueStage(stage) }
@@ -30,9 +30,9 @@ public enum SignalTransitions {
                     startPending()
                 }
             } else if !next.pendingStages.contains(where: { $0.signal == stage.signal }) { next.pendingStages.append(stage) }
-        case .watch(let condition):
+        case .watch:
             guard task.phase == .working, !workerIsWorking else { throw SignalTransitionError.workerIsWorking }
-            next.phase = .watching(condition); startPending()
+            next.phase = .watching; startPending()
         case .finish:
             guard task.phase == .working || task.phase.canContinue else { throw SignalTransitionError.invalidEdge }
             guard !workerIsWorking else { throw SignalTransitionError.workerIsWorking }
@@ -70,7 +70,7 @@ public enum SignalTransitions {
 }
 
 public enum SignalAction: Equatable, Sendable {
-    case workerStarted, workRequested, matched(SignalStage), watch(DoneWhen), finish(DoneWhen), advancePending
+    case workerStarted, workRequested, matched(SignalStage), watch, finish, advancePending
     case block(String), resume, archive
     /// A launching stage whose worker could not start blocks with the reason.
     case launchFailed(String)

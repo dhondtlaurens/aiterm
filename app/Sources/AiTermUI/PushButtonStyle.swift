@@ -12,6 +12,9 @@ import SwiftUI
 /// | Focus | the house `focusRing` at `Radius.control` | the same |
 /// | Selected | none: a push button is never selected | none |
 ///
+/// Under `.controlSize(.small)` (or `.mini`) it is the small variant: `Size.menuRow` tall, its label in
+/// `Typography.caption` (`Typography.label` on the accent), for an action on a field's label row.
+///
 /// It is a `ButtonStyle`, so the button stays a native `Button`: `.keyboardShortcut`, `.disabled`,
 /// `.help` and its accessibility work as they do on AppKit's bezel. Lighter than the ground it stands
 /// on, where a field is darker. A caller with keycaps or a mark lays them out in its label
@@ -53,8 +56,17 @@ public struct PushButtonStyle: ButtonStyle {
     /// the button sits in.
     static func ink(_ kind: Kind) -> Color { kind == .primary ? Surface.accent.ink : Palette.text }
 
-    /// The label's face: the body, medium on the accent.
-    static func font(_ kind: Kind) -> TypeStyle { kind == .primary ? Typography.bodyEmphasis : Typography.body }
+    /// Whether `size` draws the small variant.
+    static func isSmall(_ size: ControlSize) -> Bool { size == .small || size == .mini }
+
+    /// The label's face: the body, medium on the accent; a step smaller in the small variant.
+    static func font(_ kind: Kind, controlSize: ControlSize = .regular) -> TypeStyle {
+        isSmall(controlSize) ? (kind == .primary ? Typography.label : Typography.caption)
+            : (kind == .primary ? Typography.bodyEmphasis : Typography.body)
+    }
+
+    /// One height with a field, or a menu row's in the small variant.
+    static func height(_ controlSize: ControlSize) -> CGFloat { isSmall(controlSize) ? Size.menuRow : Size.control }
 
     /// The whole button's opacity: `Opacity.disabled` while it cannot be used.
     static func opacity(enabled: Bool) -> Double { enabled ? 1 : Opacity.disabled }
@@ -75,16 +87,17 @@ struct PushButtonBody<Label: View>: View {
     @Environment(\.isFocused) private var focused
     @Environment(\.surface) private var surface
     @Environment(\.interfaceScale) private var scale
+    @Environment(\.controlSize) private var controlSize
 
     var body: some View {
         let radius = scale(Radius.control)
         label()
-            .font(PushButtonStyle.font(kind))
+            .font(PushButtonStyle.font(kind, controlSize: controlSize))
             .foregroundStyle(PushButtonStyle.ink(kind))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, scale(Space.gap))
-            .frame(height: scale(Size.control))
+            .frame(height: scale(PushButtonStyle.height(controlSize)))
             .background(RoundedRectangle(cornerRadius: radius).fill(PushButtonStyle.fill(kind, pressed: pressed)))
             .overlay {
                 if let edge = PushButtonStyle.edge(kind) {

@@ -34,6 +34,12 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         /// Why the Operator chose this tab's row.
         public var reason: String?
     }
+    /// A trigger as the stage runs it: its source and query.
+    public struct TriggerLine: Encodable, Equatable, Sendable {
+        public var source: SignalTrigger.Source
+        public var query: String
+        init(_ trigger: SignalTrigger) { source = trigger.source; query = trigger.query }
+    }
     public struct TaskLine: Encodable, Equatable, Sendable {
         public var id: UUID
         public var project: UUID
@@ -52,7 +58,10 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         public var model: String
         public var reasoning: String?
         public var prompt: String?
-        public var finish: SignalFinish?
+        /// The stage's own triggers and finish, as its signal was when the stage matched.
+        public var start: TriggerLine
+        public var done: TriggerLine
+        public var finish: SignalFinish
         public var request: SignalRequestRef?
         public var branch: String
         public var stage: Int
@@ -122,7 +131,8 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
                             choosableRows: record.choosableRows, choice: record.choice,
                             blockedReason: record.blockedReason, tabs: tabs,
                             signal: record.current.signal, item: record.current.item, agent: value.agent, model: value.model,
-                            reasoning: value.reasoning, prompt: task == nil ? nil : configuration.work.prompt, finish: configuration.finish,
+                            reasoning: value.reasoning, prompt: task == nil ? nil : configuration.work.prompt,
+                            start: TriggerLine(configuration.start), done: TriggerLine(configuration.done), finish: configuration.finish,
                             request: record.watchedRequest, branch: value.branch, stage: record.stage,
                             phase: record.phase, pending: pending, journal: Array(journal.suffix(task == nil ? 1 : TaskJournal.stateLimit)))
             line.pendingReplies = record.pendingReplies ?? [:]

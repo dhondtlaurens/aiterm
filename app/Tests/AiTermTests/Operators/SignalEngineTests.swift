@@ -10,7 +10,7 @@ import Testing
         var world = SignalWorld(); let original = world.signal(), id = world.workingTask(signal: original)
         let first = world.signal(agents: [SignalWorld.agent])
         let latest = world.signal(agents: incomingHasSeveralAgents ? [codex, SignalWorld.agent] : [codex])
-        world.state.updateSignalTask(id) { $0.phase = .watching(.approved) }
+        world.state.updateSignalTask(id) { $0.phase = .watching }
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var busy = true
         let router = ItemRouter(workspace: h.workspace, now: { world.now }, workerIsWorking: { _ in busy })
@@ -104,6 +104,89 @@ import Testing
         #expect(try TaskJournal.read(task: id, folder: harness.folder.appendingPathComponent("journals")).count >= 1)
     }
 
+    /// The Done baseline is read once per stage, before its launch intent is saved, and saved with the stage.
+    @Test func theDoneBaselineIsReadAndSavedBeforeTheLaunchIntent() async throws {
+        var world = SignalWorld(); let signal = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let id = try #require(ItemRouter(workspace: h.workspace, now: { world.now })
+            .apply(signals: [signal], read: SignalRead(items: [world.ticket()], complete: true)).first)
+        var reads = 0, launches = 0
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in
+                let saved = try h.file.load().task(id: id)
+                #expect(saved?.signalTask?.doneMatched == true, "saved before the worker starts")
+                launches += 1; return "worker-window"
+            }, restore: { $0 }, doneMatches: { task in
+                #expect(task.signalTask?.launch == nil, "read before the launch intent")
+                reads += 1; return true
+            }))
+        await runner.run(id)
+        #expect(reads == 1 && launches == 1 && h.workspace.state.task(id: id)?.signalTask?.phase == .working)
+        h.workspace.mutate { $0.updateSignalTask(id) { $0.phase = .launching } }
+        await runner.run(id)
+        #expect(reads == 1 && launches == 2, "a relaunch of the same stage keeps its baseline")
+    }
+    /// An unreadable Done trigger holds the launch with its reason, and is read again only once the back-off ends.
+    @Test func anUnreadableDoneTriggerHoldsTheLaunchUntilItsBackOffEnds() async throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .launching }
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let clock = TestClock(world.now)
+        var reads = 0, launches = 0, readable = false
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { clock.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in launches += 1; return "worker-window" },
+            restore: { $0 }, doneMatches: { _ in
+                reads += 1
+                guard readable else { throw ActionUnavailable("Jira did not answer.") }
+                return false
+            }))
+        await runner.run(id)
+        var record = try #require(h.workspace.state.task(id: id)?.signalTask)
+        #expect(record.phase == .launching && record.launch == nil && launches == 0)
+        #expect(record.blockedReason == "Its Done trigger could not be read: Jira did not answer.")
+        readable = true
+        await runner.run(id)
+        #expect(reads == 1 && launches == 0, "the next reconcile inside the back-off reads nothing")
+        clock.advance(by: StageRunner.heldBackOff)
+        await runner.run(id)
+        record = try #require(h.workspace.state.task(id: id)?.signalTask)
+        #expect(reads == 2 && launches == 1 && record.phase == .working && record.doneMatched == false && record.blockedReason == nil)
+    }
+    struct Owner: CustomTestStringConvertible, Sendable {
+        var author: String?
+        var assignees: [String]
+        var user: String?
+        var review: Bool
+        var testDescription: String { "\(author ?? "-") \(assignees) as \(user ?? "-")" }
+    }
+    nonisolated static let owners: [Owner] = [
+        Owner(author: "alex", assignees: [], user: "alex", review: false),
+        Owner(author: "sam", assignees: ["alex"], user: "alex", review: false),
+        Owner(author: "sam", assignees: ["jo"], user: "alex", review: true),
+        Owner(author: "Alex", assignees: [], user: "ALEX", review: false),
+        Owner(author: "sam", assignees: ["ALEX"], user: "alex", review: false),
+        Owner(author: "alex", assignees: [], user: nil, review: true),
+    ]
+    /// A merge request is a review task unless the account authored it or is one of its assignees, whatever the
+    /// signal's query; the review task never pushes.
+    @Test(arguments: owners) func aMergeRequestIsAReviewTaskUnlessItIsTheAccountsOwn(_ row: Owner) throws {
+        var world = SignalWorld(); let signal = world.signal(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"))
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let request = MergeRequest(iid: 7, title: "Work", sourceBranch: "feat/work", targetBranch: "main", author: row.author, state: "opened",
+                                   draft: false, url: "https://git.example/shop/web/-/merge_requests/7")
+        let item = SignalItem(item: .request(remote: "https://git.example/shop/web", number: 7), title: "Work", mergeRequest: request, assignees: row.assignees)
+        let id = try #require(ItemRouter(workspace: h.workspace, now: { world.now })
+            .apply(signals: [signal], read: SignalRead(items: [item], complete: true, accountUser: row.user)).first)
+        #expect(h.workspace.state.task(id: id)?.kind == (row.review ? .review : .task))
+    }
+    @Test func aTicketIsAlwaysTheAccountsOwnTask() throws {
+        var world = SignalWorld(); let signal = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let id = try #require(ItemRouter(workspace: h.workspace, now: { world.now })
+            .apply(signals: [signal], read: SignalRead(items: [world.ticket()], complete: true)).first)
+        #expect(h.workspace.state.task(id: id)?.kind == .task)
+    }
+
     @Test func aSecondSignalWaitsForTheWorkersTurnAndStartsBeforeTheFirstStagesRemove() async throws {
         var world = SignalWorld()
         let first = world.signal(then: .remove), second = world.signal(name: "Review it", age: 1)
@@ -126,7 +209,7 @@ import Testing
         #expect(prompts.count == 1)
         #expect(h.workspace.state.task(id: id)?.signalTask?.pendingStages.count == 1)
         working = false
-        try await runner.finish(id, action: .finish(.operatorJudges))
+        try await runner.finish(id, action: .finish)
         #expect(prompts.count == 2 && prompts.last?.contains("/psg:review") == true)
         #expect(h.workspace.state.tasks.count == 1)
         #expect(h.workspace.state.task(id: id)?.signalTask?.current.signal == second)
@@ -145,7 +228,7 @@ import Testing
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
             workerIsWorking: { _ in false }, prepare: { task, _ in task },
             launch: { task, _ in agents.append(task.agent); return "worker" }, restore: { $0 }))
-        try await runner.finish(id, action: .finish(.operatorJudges))
+        try await runner.finish(id, action: .finish)
         if multiple {
             #expect(agents.isEmpty)
             #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .choosing)

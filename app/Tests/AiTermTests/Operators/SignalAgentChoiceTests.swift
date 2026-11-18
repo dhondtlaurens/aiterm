@@ -200,13 +200,13 @@ import Testing
             let configuration = try #require(r.h.workspace.state.signal(id: signal))
             r.h.workspace.mutate { $0.updateSignalTask(task) { $0.pendingStages.append(SignalStage(signal: signal, item: $0.current.item, matchedAt: r.world.now, configuration: configuration, prompt: "Next.")) } }
         }
-        try await r.stages.finish(task, action: .finish(.operatorJudges))
+        try await r.stages.finish(task, action: .finish)
         #expect(r.record(task)?.phase == .choosing && r.record(task)?.choosableRows == [SignalWorld.agent, Self.sonnet])
         #expect(await r.choose(task, key: "c1", row: Self.codex).message?.contains("choosableRows") == true)
         #expect(await r.choose(task, key: "c2", row: Self.sonnet, reason: "A review needs less depth.").value?["status"] == "chosen")
         #expect(r.launched.map(\.2) == ["claude-sonnet-5-5"])
         r.h.workspace.mutate { $0.updateSignalTask(task) { $0.phase = .working } }
-        try await r.stages.finish(task, action: .finish(.operatorJudges))
+        try await r.stages.finish(task, action: .finish)
         #expect(r.launched.map(\.2) == ["claude-sonnet-5-5", "claude-opus-5-5"] && r.record(task)?.choice == nil)
         #expect(r.oracle.prompts.count == 1, "One Claude row for a Claude conversation: no proposal, no round.")
     }

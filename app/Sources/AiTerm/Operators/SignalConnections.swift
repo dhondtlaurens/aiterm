@@ -10,49 +10,37 @@ struct SignalConnections: Sendable {
     var gitHub: GitHubConfig?
     var session: URLSession = .shared
 
-    func reader(for source: SignalSource) throws -> any SignalSourceReader {
-        switch source {
-        case .jira(let conditions):
+    /// The reader a trigger's query runs through as a Start trigger: every item it lists.
+    func reader(for trigger: SignalTrigger) throws -> any SignalSourceReader {
+        switch trigger.source {
+        case .jira:
             guard let jira else { throw ActionUnavailable("Connect Jira in Settings to watch this signal.") }
-            return JiraQueryReader(client: JiraClient(config: jira, session: session), conditions: conditions)
-        case .gitLab(let conditions):
+            return JiraQueryReader(client: JiraClient(config: jira, session: session), jql: trigger.query)
+        case .gitLab:
             guard let gitLab else { throw ActionUnavailable("Connect GitLab in Settings to watch this signal.") }
-            let account = GitLabAccount(config: gitLab, session: session)
-            if conditions.event == .reviewRequested { return ReviewRequestedReader(account: account, projects: conditions.projects) }
-            return MyRequestReader(account: account, conditions: conditions)
-        case .gitHub(let conditions):
+            return GitLabQueryReader(query: try GitLabQuery.start(trigger.query), account: GitLabAccount(config: gitLab, session: session))
+        case .gitHub:
             guard let gitHub else { throw ActionUnavailable("Connect GitHub in Settings to watch this signal.") }
-            let account = GitHubAccount(config: gitHub, session: session)
-            if conditions.event == .reviewRequested { return ReviewRequestedReader(account: account, projects: conditions.projects) }
-            return MyRequestReader(account: account, conditions: conditions)
+            return GitHubQueryReader(query: try GitHubQuery.start(trigger.query), account: GitHubAccount(config: gitHub, session: session))
         case .unknown: throw ActionUnavailable("This signal's source is not supported by this version.")
         }
     }
     @MainActor func registrations(for signals: [Signal]) -> [SignalPoller.Registration] {
         signals.filter(\.isRunnable).map { signal in
-            let isJira: Bool, host: String, token: String, query: String
-            switch signal.source {
-            case .jira(let value):
-                isJira = true; host = "jira:" + (jira?.siteURL.absoluteString ?? "disconnected")
-                token = jira?.token ?? ""; query = JQL.compile(value)
-            case .gitLab:
-                isJira = false; host = "gitlab:" + (gitLab?.hostURL.absoluteString ?? "disconnected")
-                token = gitLab?.token ?? ""; query = Self.key(signal.source)
-            case .gitHub:
-                isJira = false; host = "github:github.com"; token = gitHub?.token ?? ""; query = Self.key(signal.source)
-            case .unknown:
-                isJira = false; host = "unsupported"; token = ""; query = ""
+            let host: String, token: String
+            switch signal.start.source {
+            case .jira: host = "jira:" + (jira?.siteURL.absoluteString ?? "disconnected"); token = jira?.token ?? ""
+            case .gitLab: host = "gitlab:" + (gitLab?.hostURL.absoluteString ?? "disconnected"); token = gitLab?.token ?? ""
+            case .gitHub: host = "github:github.com"; token = gitHub?.token ?? ""
+            case .unknown: host = "unsupported"; token = ""
             }
             let reader: any SignalSourceReader
-            do { reader = try self.reader(for: signal.source) }
+            do { reader = try self.reader(for: signal.start) }
             catch { reader = UnavailableReader(reason: OperationIssue.reason(of: error)) }
+            let query = signal.start.source.rawValue + "\n" + signal.start.query
             return SignalPoller.Registration(id: signal.id, sourceHost: host,
-                readKey: Self.hash(token + "\n" + (jira?.email ?? "") + "\n" + query), isJira: isJira, reader: reader)
+                readKey: Self.hash(token + "\n" + (jira?.email ?? "") + "\n" + query), isJira: signal.start.source == .jira, reader: reader)
         }
-    }
-    private static func key(_ source: SignalSource) -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
-        return (try? encoder.encode(source)).map { String(decoding: $0, as: UTF8.self) } ?? ""
     }
     private static func hash(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
 }

@@ -15,30 +15,24 @@ extension AppController {
             }
             guard let self, self.canPresentNewSignal else { return }
             let model = SignalModel(signal: signal, projects: self.state.projects, context: context, seen: self.state.signalSeen,
-                at: ports.now(), preview: { source in
+                at: ports.now(), preview: { trigger in
                     let links = await controller.connections()
-                    return try await links.reader(for: source).poll(since: nil, full: true)
-                }, metadata: {
-                    let links = await controller.connections()
-                    guard let connection = links.jira else { return SignalModel.Metadata() }
-                    let jira = JiraClient(config: connection, session: links.session)
-                    async let labels = jira.labels()
-                    async let statuses = jira.statuses()
-                    async let projects = jira.projects()
-                    let users: [JiraUser]
-                    if case .jira(let conditions)? = signal?.source, let id = conditions.assignee, id != "me" {
-                        users = try await jira.signalUsers(accountId: id)
-                    } else { users = [] }
-                    return try await SignalModel.Metadata(users: users, labels: labels, statuses: statuses, projects: projects)
-                }, users: { query in
-                    let links = await controller.connections()
-                    guard let connection = links.jira else { return [] }
-                    return try await JiraClient(config: connection, session: links.session).signalUsers(query: query)
+                    return try await links.reader(for: trigger).poll(since: nil, full: true)
                 }, save: { [weak self] value in
                     try await controller.save(value)
                     // A new signal opens the Operator's section, where its tasks will be.
                     if signal == nil { self?.setOperatorOpen(true) }
                 })
+            // What the query writer is told, read once as the sheet opens; a part that cannot be read is left out.
+            let projects = self.state.projects, readProfile = ports.profile, headless = ports.queryWriter
+            let writerContext = Task { await controller.connections().writerContext(projects: projects) }
+            model.writeQuery = { trigger, start in
+                let links = await controller.connections(), context = await writerContext.value
+                let profile = await BackgroundWork.run(readProfile)
+                let runner = QueryWriterRunner(headless: headless, check: { await links.check($0, start: $1, query: $2) },
+                                               model: profile.model, reasoning: profile.reasoning)
+                return await runner.write(source: trigger.source, start: start, description: trigger.description, context: context)
+            }
             model.readiness = { [weak self] in self?.signalReadiness(for: $0) ?? .ready }
             model.checkReadiness = { [weak self] in await self?.checkSignalReadiness() }
             model.loadCompletions = { [weak model] in

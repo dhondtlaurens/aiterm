@@ -41,31 +41,23 @@
               ],
               "collapsed" : false,
               "createdAt" : "2026-11-14T12:00:00Z",
+              "done" : {
+                "description" : "",
+                "query" : "status = Done",
+                "source" : "jira"
+              },
               "enabled" : true,
               "finish" : {
                 "deletesMergedBranch" : false,
-                "doneWhen" : {
-                  "kind" : "operatorJudges"
-                },
                 "mergesWhenReady" : false,
                 "then" : "keep"
               },
               "id" : "E7A1C0DE-0000-4000-8000-000000000002",
               "name" : "Plan tickets",
-              "source" : {
-                "kind" : "jira",
-                "value" : {
-                  "inOpenSprints" : false,
-                  "labels" : [
-                    "operator"
-                  ],
-                  "projects" : [
-
-                  ],
-                  "statuses" : [
-
-                  ]
-                }
+              "start" : {
+                "description" : "Tickets labelled operator",
+                "query" : "labels = operator",
+                "source" : "jira"
               },
               "work" : {
                 "prompt" : "\/psg:plan",
@@ -84,6 +76,7 @@
             "prompt" : "\/psg:plan",
             "signal" : "E7A1C0DE-0000-4000-8000-000000000002"
           },
+          "doneMatched" : false,
           "extraTabs" : [
 
           ],
@@ -226,31 +219,23 @@
       ],
       "collapsed" : false,
       "createdAt" : "2026-11-14T12:00:00Z",
+      "done" : {
+        "description" : "",
+        "query" : "status = Done",
+        "source" : "jira"
+      },
       "enabled" : true,
       "finish" : {
         "deletesMergedBranch" : false,
-        "doneWhen" : {
-          "kind" : "operatorJudges"
-        },
         "mergesWhenReady" : false,
         "then" : "keep"
       },
       "id" : "E7A1C0DE-0000-4000-8000-000000000002",
       "name" : "Plan tickets",
-      "source" : {
-        "kind" : "jira",
-        "value" : {
-          "inOpenSprints" : false,
-          "labels" : [
-            "operator"
-          ],
-          "projects" : [
-
-          ],
-          "statuses" : [
-
-          ]
-        }
+      "start" : {
+        "description" : "Tickets labelled operator",
+        "query" : "labels = operator",
+        "source" : "jira"
       },
       "work" : {
         "prompt" : "\/psg:plan",
@@ -268,31 +253,23 @@
       ],
       "collapsed" : false,
       "createdAt" : "2026-11-14T12:00:01Z",
+      "done" : {
+        "description" : "When it is approved",
+        "query" : "review-state:approved",
+        "source" : "gitLab"
+      },
       "enabled" : true,
       "finish" : {
         "deletesMergedBranch" : false,
-        "doneWhen" : {
-          "kind" : "approved"
-        },
-        "mergesWhenReady" : false,
+        "mergesWhenReady" : true,
         "then" : "archive"
       },
       "id" : "E7A1C0DE-0000-4000-8000-000000000003",
       "name" : "Build tickets",
-      "source" : {
-        "kind" : "jira",
-        "value" : {
-          "inOpenSprints" : false,
-          "labels" : [
-            "ready"
-          ],
-          "projects" : [
-
-          ],
-          "statuses" : [
-
-          ]
-        }
+      "start" : {
+        "description" : "",
+        "query" : "labels = ready",
+        "source" : "jira"
       },
       "work" : {
         "prompt" : "\/psg:implement, then \/psg:review",
@@ -341,31 +318,23 @@
             ],
             "collapsed" : false,
             "createdAt" : "2026-11-14T12:00:00Z",
+            "done" : {
+              "description" : "",
+              "query" : "status = Done",
+              "source" : "jira"
+            },
             "enabled" : true,
             "finish" : {
               "deletesMergedBranch" : false,
-              "doneWhen" : {
-                "kind" : "operatorJudges"
-              },
               "mergesWhenReady" : false,
               "then" : "keep"
             },
             "id" : "E7A1C0DE-0000-4000-8000-000000000002",
             "name" : "Plan tickets",
-            "source" : {
-              "kind" : "jira",
-              "value" : {
-                "inOpenSprints" : false,
-                "labels" : [
-                  "operator"
-                ],
-                "projects" : [
-
-                ],
-                "statuses" : [
-
-                ]
-              }
+            "start" : {
+              "description" : "Tickets labelled operator",
+              "query" : "labels = operator",
+              "source" : "jira"
             },
             "work" : {
               "prompt" : "\/psg:plan",
@@ -384,6 +353,7 @@
           "prompt" : "\/psg:plan",
           "signal" : "E7A1C0DE-0000-4000-8000-000000000002"
         },
+        "doneMatched" : false,
         "extraTabs" : [
           {
             "agent" : "codex",
@@ -436,31 +406,23 @@
               ],
               "collapsed" : false,
               "createdAt" : "2026-11-14T12:00:01Z",
+              "done" : {
+                "description" : "When it is approved",
+                "query" : "review-state:approved",
+                "source" : "gitLab"
+              },
               "enabled" : true,
               "finish" : {
                 "deletesMergedBranch" : false,
-                "doneWhen" : {
-                  "kind" : "approved"
-                },
-                "mergesWhenReady" : false,
+                "mergesWhenReady" : true,
                 "then" : "archive"
               },
               "id" : "E7A1C0DE-0000-4000-8000-000000000003",
               "name" : "Build tickets",
-              "source" : {
-                "kind" : "jira",
-                "value" : {
-                  "inOpenSprints" : false,
-                  "labels" : [
-                    "ready"
-                  ],
-                  "projects" : [
-
-                  ],
-                  "statuses" : [
-
-                  ]
-                }
+              "start" : {
+                "description" : "",
+                "query" : "labels = ready",
+                "source" : "jira"
               },
               "work" : {
                 "prompt" : "\/psg:implement, then \/psg:review",

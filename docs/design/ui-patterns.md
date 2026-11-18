@@ -29,9 +29,9 @@ The status mark always reflects current work. The title stays “Operator”. Re
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on
 someone: a turn's background work that wakes the agent again (`background`), or a driven task that waits
 (`waiting`): its workers ended their turn and the Operator is to read it (`worker done · Operator to
-review`), or its done condition is someone else's to meet (`waiting on approval · Sam`, `waiting on
-3 open threads`). The status tooltip names whom or what where the done check already read it, and says the generic
-words otherwise; it stays within 40 characters and the tooltip carries the whole sentence. The solid spinner
+review`), or its stage waits for its Done trigger, whose description (or query, when it has none) is the
+line, or merge when ready waits on what the merge lacks (`waiting to merge · checks`). The line stays within
+40 characters and the tooltip carries the whole sentence. The solid spinner
 is only for a worker or the Operator at work now. A waiting task is never counted as working: a folded
 section gives it its own chip, and neither Focus View nor the Dock badge counts it. Reduce Motion holds the
 ring still.
@@ -78,15 +78,15 @@ of its current picks.
 | --- | --- |
 | `NewTaskSheet` | Task (ticket, name, branch beside its base) → Prompt → Agent. |
 | `NewReviewSheet` | Review (merge request, ticket, name, branch) → Prompt → Agent. |
-| `SignalSheet` | Signal → Starts when → Prompt → Agents → Done. |
-| `SignalStartsStep`, `SignalConditionPicker` | Jira conditions/JQL or the host event, optional project chips and complete-read preview. |
+| `SignalSheet` | Signal → Starts when → Prompt → Agents → Done when. |
+| `SignalTriggerStep`, `SignalMatchPreview` | A Start or Done trigger: Reads (Jira, GitLab, GitHub), Describe it with its Write button on the label row, the query, and on Start the complete-read preview. |
 | `AgentsStep`, `AgentStep`, `ModelReasoningFields` | Agent/Model/Reasoning as selects; the signal edits a list of permitted rows. |
-| `SignalDoneStep` | Source-valid done condition, merge opt-in where applicable, Then, optional merged-branch deletion. |
+| `SignalDoneStep` | The Done trigger, merge opt-in where offered, Then, optional merged-branch deletion. |
 | `ProjectSheet` | Folder, Jira project links and optional worktree import; explicit Add/Save. Edit keeps the folder read-only. |
 | `NameSheet` | One confined group with the same chrome/closing block. |
 
 Use `SegmentedControl` for two/three short alternatives, `Select` for a growing list, a native
-checkbox for an independent boolean, `Input` for a short line and `PromptEditor` for prose/JQL.
+checkbox for an independent boolean, `Input` for a short line and `PromptEditor` for prose, descriptions and queries.
 `DescriptionToggle` consistently says which description gets added. `WorktreeIncludeToggle` keeps
 its file-copy explanation. Optional fields end their label with “(optional)” and explain empty.
 

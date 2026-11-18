@@ -10,9 +10,9 @@ import Testing
     /// A signal permitting the fixture's task's agent row, and that task driven by it, its worker's
     /// conversation saved and no window.
     func driven(_ fixture: RaceFixture, phase: TaskPhase = .working, checkout: Bool = true) async throws -> TaskItem {
-        let signal = Signal(name: "Plan tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "/psg:plan"),
+        let signal = Signal(name: "Plan tickets", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "/psg:plan"),
                             agents: [AgentChoice(agent: .codex, model: "model", reasoning: nil)],
-                            finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+                            finish: SignalFinish(then: .keep))
         var task = checkout ? try await fixture.addTask(windowId: nil)
             : TaskItem.make(project: fixture.project.id, worktreePath: "", agent: .codex, model: "model", windowId: nil)
         var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())

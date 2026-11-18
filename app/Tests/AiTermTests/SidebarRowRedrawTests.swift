@@ -69,8 +69,8 @@ import Testing
 
     @Test func expandedSignalHeadersIgnoreLedgersAndTheirChildStatusChanges() throws {
         let sidebar = try hostedSidebar(); defer { sidebar.window.orderOut(nil) }
-        let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
-            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+        let signal = Signal(name: "Tickets", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(then: .keep))
         var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         record.phase = .working
         sidebar.controller.workspace.mutate { state in

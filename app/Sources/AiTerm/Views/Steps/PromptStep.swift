@@ -13,20 +13,25 @@ struct PromptStep<Extra: View>: View {
     let label: String
     let placeholder: String?
     let help: String?
+    let helpTone: HelpText.Tone
+    let height: CGFloat
+    let focusOnAppear: Bool
     let extra: () -> Extra
     @State private var editorFocused: Bool = false
 
     init(text: @autoclosure @escaping () -> Binding<String>, agent: AgentKind, completions: PromptCompletions,
          label: String = "Prompt (optional)", placeholder: String? = "Describe what the agent should do.", help: String? = nil,
+         helpTone: HelpText.Tone = .secondary, editorHeight: CGFloat? = nil, focusOnAppear: Bool = true,
          @ViewBuilder extra: @escaping () -> Extra = { EmptyView() }) {
         self.text = text; self.agent = agent; self.completions = completions
-        self.label = label; self.placeholder = placeholder; self.help = help; self.extra = extra
+        self.label = label; self.placeholder = placeholder; self.help = help; self.helpTone = helpTone
+        self.height = editorHeight ?? Self.editorHeight; self.focusOnAppear = focusOnAppear; self.extra = extra
     }
 
     /// Trimmed further than the sheet's own gutters (`Space.margin` on each side) so the completion
     /// popup doesn't run to the prompt field's own edge. Tuned by eye, not derived from a scale.
     private static var completionPopupTrim: CGFloat { 40 }
-    /// The prompt editor's height. Moved with the step; it was a literal here before.
+    /// The prompt editor's height, unless the caller gives its own.
     static var editorHeight: CGFloat { 150 }
 
     var body: some View {
@@ -35,8 +40,8 @@ struct PromptStep<Extra: View>: View {
             FormField(label) {
                 ZStack(alignment: .topLeading) {
                     PromptEditor(text: text, agent: agent, completions: completions,
-                                 onFocusChange: { if editorFocused != $0 { editorFocused = $0 } }, focusOnAppear: true)
-                        .frame(height: Self.editorHeight)
+                                 onFocusChange: { if editorFocused != $0 { editorFocused = $0 } }, focusOnAppear: focusOnAppear)
+                        .frame(height: height)
                         .fieldBox(focused: editorFocused)
                     PromptPlaceholder(text: text, placeholder: placeholder)
                 }
@@ -44,15 +49,15 @@ struct PromptStep<Extra: View>: View {
                     CompletionPopup(completions: completions,
                                     width: Sheet.width - 2 * Space.margin - Self.completionPopupTrim)
                 }
-                if let help { HelpText(help) } else { CompletionHint() }
+                if let help { HelpText(help, tone: helpTone) } else { CompletionHint() }
             }
             extra()
         }
     }
 }
 
-/// Reads the changing prompt here, so placeholder updates do not redraw the step.
-private struct PromptPlaceholder: View {
+/// Reads the changing prompt here, so placeholder updates do not redraw the step. Any `PromptEditor` lays it over itself.
+struct PromptPlaceholder: View {
     @Binding var text: String
     let placeholder: String?
     /// The empty-prompt placeholder sits where `PromptEditor`'s first glyph would: across, its text

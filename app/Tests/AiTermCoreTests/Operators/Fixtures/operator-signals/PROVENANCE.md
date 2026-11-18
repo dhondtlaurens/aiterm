@@ -124,3 +124,18 @@ old shape. `operator-session-0.58.json` is synthetic, derived from that file onc
 `operatorSession` object copied unchanged, one ordinary task without a `signalTask` and one
 terminal. Neither is re-recorded by a test; neither holds a real person's data. `state.json` and the
 brief and tool fixtures were not touched.
+
+## Signal triggers, step 2
+
+18 Nov 2026. Signal triggers, step 2: a signal is a Start and a Done trigger (source, description, query)
+and the Operator no longer judges done.
+
+- `state.json`: re-recorded by `AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`.
+  Signals carry `start` and `done` triggers in place of `source` and `finish.doneWhen`; the task record
+  carries `doneMatched`, its Done baseline, and no `operatorJudged`.
+- `tools.json`: `finish_stage`'s description now says Done hands the stage to its Done trigger, checked
+  against the task's own ticket or merge request. Edited by hand, equal to `daemon/aitermd/signal_tools.json`.
+- `brief.md`: the same sentence in the brief's finish_stage paragraph, edited by hand to equal
+  `OperatorLaunch.brief`. The capped live evaluation was not rerun in this step.
+- `state-0.58.json`: old-shape signals removed; signals are not read across this change. Its `signals` and
+  `signalSeen` lists are empty; its tasks, archive and Operator session are unchanged.

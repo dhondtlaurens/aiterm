@@ -14,12 +14,15 @@ struct SignalWorld {
                         ])
         state.append(project: project)
     }
+    /// A Jira signal on `labels = operator`, done when its Done trigger (Jira `status = Done` unless given) matches.
     @discardableResult mutating func signal(name: String = "Plan tickets", age: TimeInterval = 0,
                                            agents: [AgentChoice] = [Self.agent], then: SignalFinish.Then = .keep,
-                                           done: DoneWhen = .operatorJudges) -> UUID {
-        let signal = Signal(name: name, createdAt: now.addingTimeInterval(age), source: .jira(JiraConditions()),
+                                           start: SignalTrigger = SignalTrigger(source: .jira, query: "labels = operator"),
+                                           done: SignalTrigger = SignalTrigger(source: .jira, query: "status = Done"),
+                                           merges: Bool = false) -> UUID {
+        let signal = Signal(name: name, createdAt: now.addingTimeInterval(age), start: start, done: done,
                             work: SignalWork(prompt: "/psg:plan"), agents: agents,
-                            finish: SignalFinish(doneWhen: done, then: then))
+                            finish: SignalFinish(then: then, mergesWhenReady: merges))
         state.signals.append(signal)
         return signal.id
     }

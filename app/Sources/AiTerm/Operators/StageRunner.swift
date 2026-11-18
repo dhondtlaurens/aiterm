@@ -11,6 +11,8 @@ import AiTermCore
         var launch: @MainActor (TaskItem, String) async throws -> String
         /// The archived task's worktree recreated and its row back in the sidebar.
         var restore: @MainActor (TaskItem) async throws -> TaskItem
+        /// Whether the stage's Done query matches its item now: the baseline its done edge is read against.
+        var doneMatches: @MainActor (TaskItem) async throws -> Bool = { _ in false }
     }
     private let workspace: WorkspaceStore
     private let journal: SignalJournal
@@ -21,6 +23,10 @@ import AiTermCore
     private let activity: OperatorActivityTracker
     private var isStopped = false
     private var generation = UUID()
+    /// A stage whose Done trigger could not be read waits until then before it is read again.
+    private var heldUntil: [UUID: (stage: Int, until: Date)] = [:]
+    /// How long a held launch waits before its Done trigger is read again: as long as a source's failed read.
+    static let heldBackOff = SignalPoller.failureBackOff
     func start() { isStopped = false }
     func stop() { isStopped = true; generation = UUID() }
     var changed: (UUID, String) -> Void = { _, _ in }
@@ -46,6 +52,7 @@ import AiTermCore
                 guard holds(claim, generation: launchGeneration) else { return }
             }
             guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id) else { return }
+            guard try await baseline(id, claim: claim, generation: launchGeneration) else { return }
             let launched: String? = try await activity.acting(task: id, act: "starting its worker") {
                 let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
                 workspace.mutate { state in
@@ -83,6 +90,29 @@ import AiTermCore
             workspace.flush()
             changed(id, "Its worker could not start.")
         }
+    }
+    /// Reads and saves the stage's Done baseline once per stage, before its launch intent. An unreadable trigger holds
+    /// the launch, the stage still launching with the reason, until the back-off ends. Whether the launch goes on.
+    private func baseline(_ id: UUID, claim: SignalClaim, generation expected: UUID) async throws -> Bool {
+        guard let task = workspace.state.task(id: id), let record = task.signalTask else { return false }
+        if record.doneMatched != nil { return true }
+        if let held = heldUntil[id], held.stage == record.stage, now() < held.until { return false }
+        let matches: Bool
+        do { matches = try await ports.doneMatches(task) }
+        catch {
+            guard holds(claim, generation: expected) else { return false }
+            heldUntil[id] = (record.stage, now().addingTimeInterval(Self.heldBackOff))
+            let reason = "Its Done trigger could not be read: " + OperationIssue.reason(of: error)
+            workspace.mutate { $0.updateSignalTask(id) { $0.blockedReason = reason } }
+            workspace.flush()
+            changed(id, "Its Done trigger could not be read.")
+            return false
+        }
+        guard holds(claim, generation: expected) else { return false }
+        heldUntil[id] = nil
+        workspace.mutate { $0.updateSignalTask(id) { $0.doneMatched = matches; $0.blockedReason = nil } }
+        guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }
+        return true
     }
     /// Resumes a blocked stage on its decided row and project. Changing either is a choice, made
     /// through `choose` after the Operator and the Oracle agree.
@@ -134,13 +164,12 @@ import AiTermCore
         await run(id)
     }
     /// Records a stage result. Any result, a block included, is refused while another Operator effect holds the task.
-    func finish(_ id: UUID, action: SignalAction, judged: Bool = false) async throws {
+    func finish(_ id: UUID, action: SignalAction) async throws {
         guard !isStopped, let task = workspace.state.signalItem(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), let record = task.signalTask else {
             throw ActionUnavailable("The task is no longer the Operator’s.")
         }
         guard !effects.holds(id) else { throw SignalTransitionError.workerIsWorking }
-        var next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: atWork(id))
-        if judged, next.stage == record.stage { next.operatorJudged = true }
+        let next = try SignalTransitions.apply(action, to: record, at: now(), workerIsWorking: atWork(id))
         workspace.mutate { state in
             state.updateSignalItem(id) { task in
                 task.signalTask = next

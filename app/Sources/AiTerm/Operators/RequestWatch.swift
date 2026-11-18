@@ -1,8 +1,9 @@
 import Foundation
 import AiTermCore
 
-/// Read each request once per observation pass, except for the explicit checks around a merge.
-/// Unreadable facts never finish a stage. The host, not a successful merge RPC, confirms a merge.
+/// Reads each task's Done trigger and merge request once per observation pass, except for the explicit checks around a
+/// merge. Done is an edge: the Done query matching where it did not at the last complete read, or the merge request
+/// merged or closed. Unreadable facts never finish a stage. The host, not a successful merge RPC, confirms a merge.
 @MainActor final class RequestWatch {
     struct Snapshot: Equatable, Sendable {
         var reference: SignalRequestRef?
@@ -61,7 +62,8 @@ import AiTermCore
                   !ports.workerIsWorking(id), !effects.holds(id) else { continue }
             let phase = record.phase
             let signal = record.current.configuration
-            let key = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.current.item.identity ?? id.uuidString
+            let item = record.watchedRequest.flatMap { ItemRef.mergeRequest($0).identity } ?? record.current.item.identity ?? id.uuidString
+            let key = item + "\n" + signal.done.source.rawValue + "\n" + signal.done.query
             let snapshot: Snapshot
             do {
                 if let saved = cache[key] { snapshot = saved }
@@ -87,24 +89,21 @@ import AiTermCore
     }
     private func check(_ first: Snapshot, task: TaskItem, claim: SignalClaim, phase: TaskPhase, signal: Signal) async throws {
         var snapshot = first
-        let merges = signal.finish.mergesWhenReady
-        // The done condition met and only merge when ready holding the task: the line names what the merge lacks.
-        let met = DoneCheck.evaluate(signal.finish.doneWhen, facts: snapshot.facts, stageStartedAt: task.signalTask?.startedAt ?? .distantPast) == .reached
-        if let reference = snapshot.reference { workspace.mutate { state in
+        // A review task never merges.
+        let merges = signal.finish.mergesWhenReady && task.kind != .review
+        let before = task.signalTask?.doneMatched
+        workspace.mutate { state in
             state.updateSignalItem(task.id) { task in
-                task.signalTask?.watchedRequest = reference
+                if let reference = snapshot.reference { task.signalTask?.watchedRequest = reference }
                 if let link = snapshot.link { task.mr = link }
-                // Only a complete read speaks for whom it waits on, and each fact only when this read carried it.
-                guard snapshot.facts.hostReadComplete else { return }
-                var wait = task.signalTask?.waitingOn ?? SignalWaitFacts()
-                if let reviewers = snapshot.facts.reviewers { wait.reviewers = reviewers }
-                if let open = snapshot.facts.openThreads { wait.openThreads = open }
-                wait.mergeBlockers = merges && met && !snapshot.facts.merged ? snapshot.mergeBlockers : nil
-                let next = wait.isEmpty ? nil : wait
+                if task.signalTask?.doneMatched != snapshot.facts.doneMatches { task.signalTask?.doneMatched = snapshot.facts.doneMatches }
+                // While merge when ready holds the task, its line names what the merge lacks.
+                let blockers = merges && snapshot.facts.hostReadComplete && !snapshot.facts.merged ? snapshot.mergeBlockers : nil
+                let next = blockers.map { SignalWaitFacts(mergeBlockers: $0) }
                 if task.signalTask?.waitingOn != next { task.signalTask?.waitingOn = next }
             }
-        } }
-        if signal.finish.doneWhen == .operatorJudges && task.signalTask?.operatorJudged != true { return }
+        }
+        // Merge when ready merges once the host can merge it, whatever the Done query says.
         if merges, snapshot.canMerge, workspace.state.operatorSession?.lifecycle.isChanging != true {
             // The merge goes on only while the stage is still in the phase the pass read it in: a block stops it.
             guard still(claim, in: phase), effects.claim(task.id) else { return }
@@ -129,13 +128,11 @@ import AiTermCore
             guard let merged else { return }
             snapshot = merged
         }
-        // Merge when ready is part of this stage's finish. A separate done condition becoming
-        // true must not archive the task and stop its merge watch before checks turn green.
-        if merges, !snapshot.facts.merged { return }
-        guard allowed(claim), let current = workspace.state.task(id: task.id)?.signalTask,
-              DoneCheck.evaluate(signal.finish.doneWhen, facts: snapshot.facts, stageStartedAt: current.startedAt) == .reached else { return }
-        try await stages.finish(task.id, action: .finish(signal.finish.doneWhen))
-        changed(task.id, "Its done condition was reached.")
+        // With merge when ready on, nothing finishes the stage before its merge request is merged, or closed for good.
+        if merges, !snapshot.facts.merged, !snapshot.facts.closed { return }
+        guard allowed(claim), DoneCheck.reached(snapshot.facts, before: before) else { return }
+        try await stages.finish(task.id, action: .finish)
+        changed(task.id, "Its Done trigger was reached.")
         if claim.holds(in: workspace.state) { await then.apply(task.id) }
     }
 }

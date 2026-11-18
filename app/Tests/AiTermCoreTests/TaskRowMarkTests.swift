@@ -73,14 +73,12 @@ import Testing
     }
 
     @Test func aDrivenTaskWaitingIdleOrDoneDoesNotNeedYou() throws {
-        var world = SignalWorld(); let signal = world.signal(done: .approved), id = world.workingTask(signal: signal)
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         let waiting = try drivenRow(world, id, sessions: [tab(id, .done)])
         #expect(waiting.status == .waiting && !waiting.needsYou, "a turn its worker ended is the Operator's to read")
-        world.state.updateSignalTask(id) { $0.phase = .watching(.approved) }
-        #expect(try !drivenRow(world, id, sessions: [tab(id, .idle)]).needsYou)
-        world.state.updateSignalTask(id) { $0.phase = .watching(.unknown(["kind": "future"])) }
-        let idle = try drivenRow(world, id, sessions: [tab(id, .idle)])
-        #expect(idle.status == .idle && !idle.needsYou)
+        world.state.updateSignalTask(id) { $0.phase = .watching }
+        let watching = try drivenRow(world, id, sessions: [tab(id, .idle)])
+        #expect(watching.status == .waiting && !watching.needsYou)
         world.state.updateSignalTask(id) { $0.phase = .done }
         #expect(try !drivenRow(world, id, sessions: [tab(id, .done)]).needsYou)
     }

@@ -14,6 +14,8 @@ struct OperatorPorts {
     var notifications: any OperatorNotifications
     /// The Oracle's runner.
     var oracle: OracleRunner = .unavailable
+    /// What New Signal's Write buttons run Claude through (`QueryWriterRunner`).
+    var queryWriter: HeadlessRun = .unavailable
     var clock = OperatorClock()
     var now: @Sendable () -> Date { clock.now }
     /// What every owner starts its work through, so that a test waits for all of it at once (`OperatorWork.settled`).
@@ -40,6 +42,7 @@ struct OperatorPorts {
                                 preferences: UserDefaults) -> OperatorPorts {
         var ports = OperatorPorts(home: home, claudeConfig: claudeConfig, git: git, notifications: LiveOperatorNotifications(),
                                   oracle: .live)
+        ports.queryWriter = .live
         ports.installedVersions = { AgentVersions.shared.current($0) }
         ports.installedAgents = { [weak agents] in agents?.availableAgents ?? [] }
         let catalogue = agents.catalogue

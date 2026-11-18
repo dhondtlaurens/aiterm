@@ -266,6 +266,9 @@ public enum Sheet {
     /// The last step shows the agent fields and destination summary. A notice in the footer is
     /// taller and scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
     public static let creationHeight: CGFloat = 500
+    /// A signal trigger's description and query editors in New Signal: three lines each, short enough that the match preview
+    /// stays on the sheet beneath it.
+    public static let queryEditorHeight: CGFloat = 56
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
 }

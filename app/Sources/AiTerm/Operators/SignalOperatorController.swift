@@ -85,6 +85,9 @@ import AiTermCore
                 guard self.native.allows(task) else { throw ActionUnavailable("The task changed hands or the Operator is paused.") }
                 return try await self.restore(task.id)
             }
+        }, doneMatches: { [weak self] task in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.activity.during("reading " + OperatorActivityTracker.name(task) + "’s Done trigger") { try await self.host.doneMatches(task) }
         }), effects: effects, activity: activity)
     @ObservationIgnored lazy var then = ThenRunner(workspace: workspace, journal: journal, stages: stages, now: ports.now,
         ports: .init(workerIsWorking: native.busy, archive: { [weak self] task, allowed in
@@ -140,7 +143,7 @@ import AiTermCore
             }, jiraSearch: { [weak self] query in
                 guard let self else { throw ActionUnavailable("The Operator stopped.") }
                 let links = await self.connections()
-                let read = try await links.reader(for: .jira(JiraConditions(jql: query))).poll(since: nil, full: true)
+                let read = try await links.reader(for: SignalTrigger(source: .jira, query: query)).poll(since: nil, full: true)
                 guard read.complete else { throw IncompleteRead("Jira search") }
                 return .array(read.items.map { ["title": .string($0.title), "description": $0.description.map(JSONValue.string) ?? .null,
                                                "item": (try? JSONValue(encoding: $0.item)) ?? .null] })
@@ -310,7 +313,7 @@ import AiTermCore
         lastSignals = expected
     }
     func save(_ signal: Signal) async throws {
-        guard workspace.canChangeWorkspace, signal.source.isSupported, signal.finish.isValid(for: signal.source) else { throw ActionUnavailable("This signal cannot be saved.") }
+        guard workspace.canChangeWorkspace, signal.isValid else { throw ActionUnavailable("This signal cannot be saved.") }
         workspace.mutate { state in
             if let index = state.signals.firstIndex(where: { $0.id == signal.id }) { state.signals[index] = signal }
             else { state.signals.append(signal) }

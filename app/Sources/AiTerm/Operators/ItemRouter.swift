@@ -19,6 +19,10 @@ import AiTermCore
         let signals = state.signals.filter { ids.contains($0.id) && $0.isRunnable }
         let items = Dictionary(complete.flatMap { $0.read.items }.compactMap { item in item.item.identity.map { ($0, item) } },
                                uniquingKeysWith: { first, _ in first })
+        // The account each item was read as: who "you" are for the review rule.
+        let users = Dictionary(complete.flatMap { observation in observation.read.items.compactMap { item in
+            item.item.identity.map { ($0, observation.read.accountUser) }
+        } }, uniquingKeysWith: { first, _ in first })
         let matches = complete.flatMap { observation in
             signals.filter { observation.signals.contains($0.id) }.flatMap { signal in observation.read.items.map { item in
                 SignalMatch(signal: signal.id, item: item.item,
@@ -58,7 +62,7 @@ import AiTermCore
                 case .start(let match, let pending):
                     guard let signal = state.signal(id: match.signal), let project = match.project,
                           let item = match.item.identity.flatMap({ items[$0] }) else { continue }
-                    var task = Self.makeTask(item: item, signal: signal, project: project, at: at)
+                    var task = Self.makeTask(item: item, signal: signal, project: project, accountUser: users[match.item.identity ?? ""] ?? nil, at: at)
                     task.signalTask?.pendingStages = pending.map(configured)
                     let candidates = ItemProjectMapper.projects(for: match.item, in: state.projects).map(\.id)
                     task.prepareLaunch(candidates: candidates, at: at)
@@ -101,16 +105,12 @@ import AiTermCore
         signal.work.workerPrompt(ticket: item.ticket?.description ?? (item.mergeRequest == nil ? item.description : nil),
                                  request: item.mergeRequest?.description ?? (item.ticket == nil ? item.description : nil))
     }
-    nonisolated private static func makeTask(item: SignalItem, signal: Signal, project: UUID, at: Date) -> TaskItem {
+    nonisolated private static func makeTask(item: SignalItem, signal: Signal, project: UUID, accountUser: String?, at: Date) -> TaskItem {
         let agent = signal.agents.first ?? AgentChoice(agent: .claude, model: "", reasoning: nil)
         var draft = TaskDraft(ticket: nil, baseBranch: "", agent: agent.agent, model: agent.model, reasoning: agent.reasoning)
         draft.apply(ticket: item.ticket); draft.setTitle(item.title)
         let branch = item.mergeRequest?.sourceBranch ?? draft.branch
-        let review: Bool
-        switch signal.source {
-        case .gitLab(let request), .gitHub(let request): review = request.event == .reviewRequested
-        default: review = false
-        }
+        let review = isReview(item, accountUser: accountUser)
         var task = TaskItem(id: UUID(), projectId: project, title: item.title, branch: branch, worktreePath: "",
                             baseBranch: item.mergeRequest?.targetBranch ?? "", jira: item.ticket.map(JiraRef.init),
                             kind: review ? .review : .task,
@@ -120,5 +120,17 @@ import AiTermCore
         let stage = SignalStage(signal: signal.id, item: item.item, matchedAt: at, configuration: signal, prompt: prompt(signal: signal, item: item))
         task.signalTask = SignalTask(current: stage, startedAt: at)
         return task
+    }
+    /// A merge request is a review task, which never pushes, unless the account authored it or is one of its assignees.
+    /// A ticket is always the account's own task, even once it has a merge request.
+    nonisolated static func isReview(_ item: SignalItem, accountUser: String?) -> Bool {
+        switch item.item {
+        case .ticket: return false
+        case .mergeRequest:
+            guard let user = accountUser else { return true }
+            let yours = { (name: String?) in name?.caseInsensitiveCompare(user) == .orderedSame }
+            return !(yours(item.mergeRequest?.author) || item.assignees.contains(where: yours))
+        case .unknown: return true
+        }
     }
 }

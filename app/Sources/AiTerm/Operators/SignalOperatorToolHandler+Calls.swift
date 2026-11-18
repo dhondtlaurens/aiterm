@@ -75,16 +75,17 @@ extension SignalOperatorToolHandler {
             return ["status": "resumed"]
         case .finishStage:
             let task = try requireTask(task), outcome = try call.string("outcome"), evidence = try call.string("evidence")
-            guard let signal = task.signalTask?.current.configuration else { throw ToolRefusal("The task is no longer the Operator’s.") }
+            guard task.signalTask != nil else { throw ToolRefusal("The task is no longer the Operator’s.") }
             let action: SignalAction
             switch outcome {
-            case "done", "skipped": action = signal.finish.doneWhen == .operatorJudges && !signal.finish.mergesWhenReady ? .finish(.operatorJudges) : .watch(signal.finish.doneWhen)
+            // Its Done trigger, not the Operator, decides when the stage is done.
+            case "done", "skipped": action = .watch
             case "blocked", "failed": action = .block(evidence)
             default: throw ToolRefusal("outcome must be done, blocked, failed or skipped.")
             }
             try await journal.append(.ours("Stage result (\(outcome)): " + evidence), task: task.id)
             guard allowed() else { throw ToolRefusal("The task changed before the result was recorded.") }
-            try await stages.finish(task.id, action: action, judged: (outcome == "done" || outcome == "skipped") && signal.finish.doneWhen == .operatorJudges)
+            try await stages.finish(task.id, action: action)
             return ["status": "recorded"]
         case .note:
             let task = try requireTask(task)
