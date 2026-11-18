@@ -46,16 +46,11 @@ import AiTermUI
     }
 
     private let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
-
-    /// Enhanced UI is an application attribute, so scope it to one synchronous host check.
-    /// Restore the process's previous value on every exit, including a thrown test failure.
-    private func withAccessibilityTree<T>(_ body: () throws -> T) rethrows -> T {
-        let app = NSApplication.shared
-        let previous = app.accessibilityAttributeValue(enhancedUI) as? Bool ?? false
-        app.accessibilitySetValue(true, forAttribute: enhancedUI)
-        defer { app.accessibilitySetValue(previous, forAttribute: enhancedUI) }
-        return try body()
+    private func withAccessibilityTree<T>(_ body: () throws -> T) rethrows -> T { try AccessibilityTree.with(body) }
+    private func value(_ attribute: NSAccessibility.Attribute, getter: String, of node: NSObject) -> Any? {
+        AccessibilityTree.value(attribute, getter: getter, of: node)
     }
+    private func elements(_ root: NSObject) -> [NSObject] { AccessibilityTree.elements(root) }
 
     private func check(_ copy: Copy) throws {
         try withAccessibilityTree { try checkHostedButton(copy) }
@@ -99,24 +94,6 @@ import AiTermUI
                         "restore enhanced UI \(previous) after \(fails ? "failure" : "success")")
             }
         }
-    }
-
-    /// SwiftUI's virtual nodes expose accessibility methods without conforming to the
-    /// full NSAccessibilityProtocol. Read their public ObjC methods or legacy attributes.
-    private func value(_ attribute: NSAccessibility.Attribute, getter: String, of node: NSObject) -> Any? {
-        let selector = NSSelectorFromString(getter)
-        if node.responds(to: selector), let value = node.perform(selector)?.takeUnretainedValue() { return value }
-        return node.accessibilityAttributeValue(attribute)
-    }
-
-    private func elements(_ root: NSObject) -> [NSObject] {
-        var seen: Set<ObjectIdentifier> = []
-        func walk(_ node: NSObject, depth: Int) -> [NSObject] {
-            guard depth < 32, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-            let children = value(.children, getter: "accessibilityChildren", of: node) as? [NSObject] ?? []
-            return [node] + children.flatMap { walk($0, depth: depth + 1) }
-        }
-        return walk(root, depth: 0)
     }
 
     @Test func theNewTaskTicketClearButtonNamesItsAction() throws { try check(.taskTicket) }

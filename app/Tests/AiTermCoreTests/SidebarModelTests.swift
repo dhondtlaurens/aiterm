@@ -104,6 +104,9 @@ import Synchronization
         #expect(!TaskStatus.background.needsAttention)
         #expect(SidebarModel.statusCounts(tasks: [taskRow(.background), taskRow(.working)], terminals: [terminalRow(.background)])
                 == [StatusCount(status: .working, count: 3)])
+        #expect(SidebarModel.statusCounts([.background, .done, .working, .idle])
+                == [StatusCount(status: .idle, count: 1), StatusCount(status: .working, count: 2), StatusCount(status: .done, count: 1)],
+                "bare statuses, as a folded section counts its rows, in the same order")
     }
 
     /// A driven task that waits on the Operator or a person: not yours to act on, not working, and its own chip

@@ -8,19 +8,36 @@ import AiTermCore
 /// front of the number of tasks wearing it — a collapsed project should not need a second colour language to
 /// say the same five things. The chips keep their intrinsic width, so the project name is what
 /// gives way when the sidebar narrows, exactly as it does for the branch line's `+n`.
+///
+/// With `open`, as on a folded OPERATOR or PROJECTS heading, each chip is its own button, named for its own count,
+/// and its click is `open(status)`. Without, as on a project or signal header, the strip is one label.
 struct StatusCountChips: View {
     let counts: [StatusCount]
+    var open: ((TaskStatus) -> Void)? = nil
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
         if !counts.isEmpty {
-            HStack(spacing: scale(Space.tight)) {
-                ForEach(counts, id: \.status) { StatusCountChip(count: $0) }
+            if let open {
+                HStack(spacing: scale(Space.tight)) {
+                    ForEach(counts, id: \.status) { count in
+                        let label = SidebarModel.statusCountsLabel([count])
+                        Button { open(count.status) } label: { StatusCountChip(count: count) }
+                            .buttonStyle(.plain)
+                            .help(label)
+                            .accessibilityLabel(label)
+                    }
+                }
+                .fixedSize()
+            } else {
+                HStack(spacing: scale(Space.tight)) {
+                    ForEach(counts, id: \.status) { StatusCountChip(count: $0) }
+                }
+                .fixedSize()
+                .help(SidebarModel.statusCountsLabel(counts))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(SidebarModel.statusCountsLabel(counts))
             }
-            .fixedSize()
-            .help(SidebarModel.statusCountsLabel(counts))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(SidebarModel.statusCountsLabel(counts))
         }
     }
 }

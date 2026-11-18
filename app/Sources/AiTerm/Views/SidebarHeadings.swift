@@ -150,7 +150,7 @@ private struct HeadingHelp: ViewModifier {
 
 /// Each section reads only its own fold and title, so unrelated status changes redraw neither.
 struct SectionHeading: View {
-    enum Kind { case `operator`, projects }
+    typealias Kind = SidebarSection
     let controller: AppController
     let kind: Kind
     @Environment(\.interfaceScale) private var scale
@@ -168,15 +168,9 @@ struct SectionHeading: View {
         let fold = kind == .operator ? controller.rows.operatorHeading : controller.rows.projectsHeading
         let title = kind == .operator ? (controller.rows.operatorPaused ? "Operator · paused" : "Operator") : "Projects"
         HStack(spacing: scale(Space.base)) {
-            SectionFoldLabel(title: title, fold: fold, hovering: hovering,
+            SectionFoldLabel(title: title, fold: fold, hovering: hovering, commands: commands,
                              enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
-                             openAttention: {
-                                 switch kind {
-                                 case .operator: controller.openOperatorAttention()
-                                 case .projects: controller.openProjectsAttention()
-                                 }
-                             })
-            .modifier(RowCommandActions(groups: commands))
+                             open: { controller.openSection(kind, at: $0) })
             switch kind {
             case .operator:
                 AddMenu(help: "Operator actions", enabled: controller.canPresentNewSignal) {
@@ -213,35 +207,40 @@ struct SectionHeading: View {
 }
 
 /// The OPERATOR or PROJECTS heading's words, and, while the two fold into each other, one open at a time:
-/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, what
-/// needs you in its section as one amber count, whose click opens the section at the first such row.
-/// Only the label folds; the heading's "+" keeps its own click.
+/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, its rows'
+/// status counts as a folded project's header draws them, each chip opening the section at its first row in
+/// that status. Only the label folds; the heading's "+" keeps its own click.
+///
+/// The words are VoiceOver's one element for the heading, with its fold and `commands`; the chips sit beside it, not
+/// in it, so each stays a button of its own rather than being combined into the heading.
 struct SectionFoldLabel: View {
     let title: String
     let fold: SectionFold
     let hovering: Bool
+    var commands: [[RowCommand]] = []
     let enabled: Bool
     let toggle: () -> Void
-    let openAttention: () -> Void
+    let open: (TaskStatus) -> Void
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
+        let folds = fold.folds && enabled
         HStack(spacing: scale(Space.base)) {
-            SidebarHeading(title)
-            Spacer(minLength: scale(Space.tight))
+            HStack(spacing: scale(Space.base)) {
+                SidebarHeading(title)
+                Spacer(minLength: scale(Space.tight))
+            }
+            .modifier(FoldOnTap(enabled: folds, action: toggle))
+            .accessibilityLabel(title)
+            .accessibilityValue(fold.folded ? "folded" : "")
+            .modifier(RowCommandActions(groups: commands))
             if fold.folds {
-                if fold.folded, fold.attention > 0 {
-                    Button(action: openAttention) {
-                        StatusCountChips(counts: [StatusCount(status: .needsInput, count: fold.attention)])
-                    }
-                    .buttonStyle(.plain)
-                }
+                if fold.folded { StatusCountChips(counts: fold.counts, open: open) }
                 SectionFoldChevron(folded: fold.folded, hovering: hovering)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if folds { toggle() } }
             }
         }
-        .modifier(FoldOnTap(enabled: fold.folds && enabled, action: toggle))
-        .accessibilityLabel(title)
-        .accessibilityValue(fold.folded ? "folded" : "")
     }
 }
 

@@ -51,7 +51,8 @@ import AiTermUI
             if pose == "fresh" { state.operatorSession?.lifecycle = .closing(then: .renew) }
             if pose == "taken-over" { state.takeOver(fixture.working.id) }
             // The Operator's section open, but where the pose is the projects': a taken-over task is theirs, and
-            // section-folded is the default, OPERATOR folded with its amber count.
+            // section-folded is the default, OPERATOR folded with its status counts; every other pose folds the projects, whose
+            // heading draws theirs.
             state.operatorOpen = !["taken-over", "section-folded"].contains(pose)
             if ["questions", "section-folded"].contains(pose) { state.operatorSession?.questions = [.init(id: "vat", task: fixture.working.id,
                 text: "Block orders without a VAT number, or export them with the field empty?", openedAt: Snapshots.clock.now)] }

@@ -105,16 +105,16 @@ import Testing
         controller.workspace.mutate { $0 = world.state }
         controller.live.handle(.sessionOpened(tab(.done)))
         controller.live.handle(.sessionOpened(SessionInfo.make("worker", window: "worker-window", task: driven, state: .needsInput)))
-        try #require(controller.rows.projectsHeading == SectionFold(folds: true, folded: true, attention: 1))
+        try #require(controller.rows.projectsHeading == SectionFold(folds: true, folded: true, counts: [StatusCount(status: .done, count: 1)]))
         try #require(controller.rows.projectsNeedingAttention.contains(.task(Self.taskId)))
 
         controller.teardown.seedSnapshotState(.removing, of: Self.taskId)
         #expect(!controller.rows.projectsNeedingAttention.contains(.task(Self.taskId)))
-        #expect(controller.rows.projectsHeading.attention == 0)
+        #expect(controller.rows.projectsHeading.counts.isEmpty, "a task on its way out is not counted")
 
         controller.teardown.seedSnapshotState(.stopped(note: "Not removed"), of: Self.taskId)
         #expect(controller.rows.projectsNeedingAttention.contains(.task(Self.taskId)))
-        #expect(controller.rows.projectsHeading.attention == 1)
+        #expect(controller.rows.projectsHeading.counts == [StatusCount(status: .done, count: 1)])
     }
 
     /// What the list draws from: a write that changes none of it redraws no row.
