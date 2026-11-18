@@ -1,0 +1,494 @@
+{
+  "archive" : [
+    {
+      "archivedAt" : "2026-11-14T12:00:00Z",
+      "task" : {
+        "agent" : "claude",
+        "appendTicket" : false,
+        "baseBranch" : "main",
+        "branch" : "feat\/pay-2",
+        "conversations" : [
+          {
+            "agent" : "claude",
+            "id" : "archived-conversation"
+          }
+        ],
+        "createdAt" : "2026-11-14T12:00:00Z",
+        "firstPrompt" : "\/psg:plan",
+        "id" : "E7A1C0DE-0000-4000-8000-000000000006",
+        "jira" : {
+          "key" : "PAY-2",
+          "summary" : "Earlier work",
+          "url" : "https:\/\/jira.example\/browse\/PAY-2"
+        },
+        "model" : "claude-opus-5-5",
+        "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
+        "reasoning" : "high",
+        "signalTask" : {
+          "configuration" : {
+            "agents" : [
+              {
+                "agent" : "claude",
+                "model" : "claude-opus-5-5",
+                "reasoning" : "high"
+              },
+              {
+                "agent" : "codex",
+                "model" : "gpt-6-astra",
+                "reasoning" : "medium"
+              }
+            ],
+            "collapsed" : false,
+            "createdAt" : "2026-11-14T12:00:00Z",
+            "enabled" : true,
+            "finish" : {
+              "deletesMergedBranch" : false,
+              "doneWhen" : {
+                "kind" : "operatorJudges"
+              },
+              "mergesWhenReady" : false,
+              "then" : "keep"
+            },
+            "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+            "name" : "Plan tickets",
+            "source" : {
+              "kind" : "jira",
+              "value" : {
+                "inOpenSprints" : false,
+                "labels" : [
+                  "operator"
+                ],
+                "projects" : [
+
+                ],
+                "statuses" : [
+
+                ]
+              }
+            },
+            "work" : {
+              "prompt" : "\/psg:plan",
+              "requestDescription" : true,
+              "ticketDescription" : true
+            }
+          },
+          "edges" : [
+
+          ],
+          "extraTabs" : [
+
+          ],
+          "item" : {
+            "kind" : "ticket",
+            "value" : {
+              "key" : "PAY-2",
+              "site" : "https:\/\/jira.example"
+            }
+          },
+          "journal" : [
+            {
+              "at" : "2026-11-14T12:00:00Z",
+              "id" : "E7A1C0DE-0000-4000-8000-000000000005",
+              "key" : "note",
+              "stage" : 1,
+              "text" : {
+                "kind" : "ours",
+                "value" : "The worker is planning retries."
+              }
+            }
+          ],
+          "launch" : {
+            "number" : 1,
+            "openedAt" : "2026-11-14T12:00:00Z",
+            "requestedAt" : "2026-11-14T12:00:00Z",
+            "workerPending" : false
+          },
+          "ownership" : 0,
+          "pendingStages" : [
+
+          ],
+          "phase" : {
+            "kind" : "archived"
+          },
+          "prompt" : "\/psg:plan",
+          "signal" : "E7A1C0DE-0000-4000-8000-000000000002",
+          "stage" : 1,
+          "startedAt" : "2026-11-14T12:00:00Z",
+          "takenOver" : false,
+          "thenApplied" : true
+        },
+        "title" : "Earlier work",
+        "worktreePath" : "\/synthetic\/shop\/.worktrees\/pay-2"
+      }
+    }
+  ],
+  "items" : [
+    {
+      "kind" : "project",
+      "project" : {
+        "addedAt" : "2026-11-14T12:00:00Z",
+        "collapsed" : false,
+        "id" : "E7A1C0DE-0000-4000-8000-000000000001",
+        "jiraProjects" : [
+
+        ],
+        "name" : "Shop",
+        "path" : "\/synthetic\/shop",
+        "provider" : "gitlab",
+        "remoteUrl" : "https:\/\/git.example\/shop\/web"
+      }
+    }
+  ],
+  "lastAgentByProject" : [
+
+  ],
+  "lastModelByAgent" : [
+
+  ],
+  "operatorSession" : {
+    "conversation" : "operator-conversation",
+    "createdAt" : "2026-11-14T12:00:00Z",
+    "generation" : 2,
+    "id" : "E7A1C0DE-0000-4000-8000-000000000007",
+    "ledger" : [
+      {
+        "arguments" : "{}",
+        "at" : "2026-11-14T12:00:00Z",
+        "key" : "tool:note:note",
+        "result" : {
+          "status" : "recorded"
+        }
+      }
+    ],
+    "oracleRounds" : [
+      {
+        "askedAt" : "2026-11-14T12:00:00Z",
+        "askedEvidence" : "question-bound",
+        "id" : "round",
+        "kind" : "critique",
+        "round" : 1,
+        "stage" : "running",
+        "tool" : "answer_worker"
+      }
+    ],
+    "paused" : false,
+    "questions" : [
+      {
+        "id" : "locale",
+        "openedAt" : "2026-11-14T12:00:00Z",
+        "ownership" : 0,
+        "stage" : 1,
+        "tab" : "main",
+        "task" : "E7A1C0DE-0000-4000-8000-000000000004",
+        "text" : "Which locale?",
+        "workerQuestion" : "Which locale?"
+      }
+    ],
+    "session" : "operator-session",
+    "snags" : [
+
+    ],
+    "startingFresh" : false,
+    "window" : "operator-window"
+  },
+  "signalSeen" : [
+    {
+      "at" : "2026-11-14T12:00:00Z",
+      "disposition" : "started",
+      "isMatching" : true,
+      "item" : {
+        "kind" : "ticket",
+        "value" : {
+          "key" : "PAY-1",
+          "site" : "https:\/\/jira.example"
+        }
+      },
+      "signal" : "E7A1C0DE-0000-4000-8000-000000000002"
+    }
+  ],
+  "signals" : [
+    {
+      "agents" : [
+        {
+          "agent" : "claude",
+          "model" : "claude-opus-5-5",
+          "reasoning" : "high"
+        },
+        {
+          "agent" : "codex",
+          "model" : "gpt-6-astra",
+          "reasoning" : "medium"
+        }
+      ],
+      "collapsed" : false,
+      "createdAt" : "2026-11-14T12:00:00Z",
+      "enabled" : true,
+      "finish" : {
+        "deletesMergedBranch" : false,
+        "doneWhen" : {
+          "kind" : "operatorJudges"
+        },
+        "mergesWhenReady" : false,
+        "then" : "keep"
+      },
+      "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+      "name" : "Plan tickets",
+      "source" : {
+        "kind" : "jira",
+        "value" : {
+          "inOpenSprints" : false,
+          "labels" : [
+            "operator"
+          ],
+          "projects" : [
+
+          ],
+          "statuses" : [
+
+          ]
+        }
+      },
+      "work" : {
+        "prompt" : "\/psg:plan",
+        "requestDescription" : true,
+        "ticketDescription" : true
+      }
+    },
+    {
+      "agents" : [
+        {
+          "agent" : "codex",
+          "model" : "gpt-6-astra",
+          "reasoning" : "medium"
+        }
+      ],
+      "collapsed" : false,
+      "createdAt" : "2026-11-14T12:00:01Z",
+      "enabled" : true,
+      "finish" : {
+        "deletesMergedBranch" : false,
+        "doneWhen" : {
+          "kind" : "approved"
+        },
+        "mergesWhenReady" : false,
+        "then" : "archive"
+      },
+      "id" : "E7A1C0DE-0000-4000-8000-000000000003",
+      "name" : "Build tickets",
+      "source" : {
+        "kind" : "jira",
+        "value" : {
+          "inOpenSprints" : false,
+          "labels" : [
+            "ready"
+          ],
+          "projects" : [
+
+          ],
+          "statuses" : [
+
+          ]
+        }
+      },
+      "work" : {
+        "prompt" : "\/psg:implement, then \/psg:review",
+        "requestDescription" : true,
+        "ticketDescription" : true
+      }
+    }
+  ],
+  "tasks" : [
+    {
+      "agent" : "claude",
+      "appendTicket" : false,
+      "baseBranch" : "main",
+      "branch" : "feat\/pay-1",
+      "conversations" : [
+        {
+          "agent" : "claude",
+          "id" : "worker-conversation"
+        }
+      ],
+      "createdAt" : "2026-11-14T12:00:00Z",
+      "firstPrompt" : "\/psg:plan",
+      "id" : "E7A1C0DE-0000-4000-8000-000000000004",
+      "jira" : {
+        "key" : "PAY-1",
+        "summary" : "Make retries safe",
+        "url" : "https:\/\/jira.example\/browse\/PAY-1"
+      },
+      "model" : "claude-opus-5-5",
+      "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
+      "reasoning" : "high",
+      "signalTask" : {
+        "configuration" : {
+          "agents" : [
+            {
+              "agent" : "claude",
+              "model" : "claude-opus-5-5",
+              "reasoning" : "high"
+            },
+            {
+              "agent" : "codex",
+              "model" : "gpt-6-astra",
+              "reasoning" : "medium"
+            }
+          ],
+          "collapsed" : false,
+          "createdAt" : "2026-11-14T12:00:00Z",
+          "enabled" : true,
+          "finish" : {
+            "deletesMergedBranch" : false,
+            "doneWhen" : {
+              "kind" : "operatorJudges"
+            },
+            "mergesWhenReady" : false,
+            "then" : "keep"
+          },
+          "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+          "name" : "Plan tickets",
+          "source" : {
+            "kind" : "jira",
+            "value" : {
+              "inOpenSprints" : false,
+              "labels" : [
+                "operator"
+              ],
+              "projects" : [
+
+              ],
+              "statuses" : [
+
+              ]
+            }
+          },
+          "work" : {
+            "prompt" : "\/psg:plan",
+            "requestDescription" : true,
+            "ticketDescription" : true
+          }
+        },
+        "edges" : [
+
+        ],
+        "extraTabs" : [
+          {
+            "agent" : "codex",
+            "agentPinned" : false,
+            "brief" : "Inspect the retry boundary.",
+            "key" : "inspect",
+            "launch" : {
+              "number" : 1,
+              "requestedAt" : "2026-11-14T12:00:00Z"
+            },
+            "model" : "gpt-6-astra",
+            "modelReason" : "Inspect the boundary.",
+            "reasoning" : "medium",
+            "sessionId" : "extra-session"
+          }
+        ],
+        "item" : {
+          "kind" : "ticket",
+          "value" : {
+            "key" : "PAY-1",
+            "site" : "https:\/\/jira.example"
+          }
+        },
+        "journal" : [
+          {
+            "at" : "2026-11-14T12:00:00Z",
+            "id" : "E7A1C0DE-0000-4000-8000-000000000005",
+            "key" : "note",
+            "stage" : 1,
+            "text" : {
+              "kind" : "ours",
+              "value" : "The worker is planning retries."
+            }
+          }
+        ],
+        "launch" : {
+          "number" : 1,
+          "openedAt" : "2026-11-14T12:00:00Z",
+          "requestedAt" : "2026-11-14T12:00:00Z",
+          "workerPending" : false
+        },
+        "ownership" : 0,
+        "pendingReplies" : {
+          "main" : {
+            "at" : "2026-11-14T12:00:00Z",
+            "fingerprint" : "previous-reply"
+          }
+        },
+        "pendingStages" : [
+          {
+            "configuration" : {
+              "agents" : [
+                {
+                  "agent" : "codex",
+                  "model" : "gpt-6-astra",
+                  "reasoning" : "medium"
+                }
+              ],
+              "collapsed" : false,
+              "createdAt" : "2026-11-14T12:00:01Z",
+              "enabled" : true,
+              "finish" : {
+                "deletesMergedBranch" : false,
+                "doneWhen" : {
+                  "kind" : "approved"
+                },
+                "mergesWhenReady" : false,
+                "then" : "archive"
+              },
+              "id" : "E7A1C0DE-0000-4000-8000-000000000003",
+              "name" : "Build tickets",
+              "source" : {
+                "kind" : "jira",
+                "value" : {
+                  "inOpenSprints" : false,
+                  "labels" : [
+                    "ready"
+                  ],
+                  "projects" : [
+
+                  ],
+                  "statuses" : [
+
+                  ]
+                }
+              },
+              "work" : {
+                "prompt" : "\/psg:implement, then \/psg:review",
+                "requestDescription" : true,
+                "ticketDescription" : true
+              }
+            },
+            "item" : {
+              "kind" : "ticket",
+              "value" : {
+                "key" : "PAY-1",
+                "site" : "https:\/\/jira.example"
+              }
+            },
+            "matchedAt" : "2026-11-14T12:00:00Z",
+            "signal" : "E7A1C0DE-0000-4000-8000-000000000003"
+          }
+        ],
+        "phase" : {
+          "kind" : "working"
+        },
+        "prompt" : "\/psg:plan",
+        "signal" : "E7A1C0DE-0000-4000-8000-000000000002",
+        "stage" : 1,
+        "startedAt" : "2026-11-14T12:00:00Z",
+        "takenOver" : false
+      },
+      "title" : "Make retries safe",
+      "windowId" : "worker-window",
+      "worktreePath" : "\/synthetic\/shop\/.worktrees\/pay-1"
+    }
+  ],
+  "terminals" : [
+
+  ]
+}

@@ -145,7 +145,7 @@ stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipC
 
 ## App composition inventory
 
-These types live in `AiTerm/Views`, not this primitive target. The [pattern guide](../../../docs/design/ui-patterns.md)
+These types live in `AiTerm/Views` (`HeadingValue` beside it, in `AiTerm/`), not this primitive target. The [pattern guide](../../../docs/design/ui-patterns.md)
 explains ownership and the full reusable vocabulary.
 
 | Types | Responsibility |

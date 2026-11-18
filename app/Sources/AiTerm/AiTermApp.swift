@@ -68,6 +68,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         buildMenu()
         archiveShortcut.start()
         controller.start()
+        if controller.workspace.file.clearedOperatorRecords { controller.notices.showToast(StateStore.clearedOperatorRecordsNote) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

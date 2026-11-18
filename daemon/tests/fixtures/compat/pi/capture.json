@@ -1,6 +1,6 @@
 {
   "agent": "pi",
-  "capturedAt": "2026-11-13",
+  "capturedAt": "2026-11-18",
   "launch": [
     "pi",
     "--model",
