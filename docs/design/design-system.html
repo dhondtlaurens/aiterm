@@ -1207,40 +1207,6 @@
 
 
 
-  /* --- 18 Nov 2026 proposal: a folded section heading's status counts */
-  /* SectionHeading: Size.menuRow tall, SidebarHeadingInset (Space.base leading, 3 pt trailing),
-     Space.base between, Space.base above and Space.tight below. */
-  #p-section-counts .sh { display: flex; align-items: center; gap: var(--space-base); height: var(--size-menu-row);
-                          padding-left: var(--space-base); padding-right: 3px; margin: var(--space-base) 0 var(--space-tight); }
-  #p-section-counts .sh .w { font: 600 11px/1 var(--font); color: var(--tertiary); white-space: nowrap; }
-  #p-section-counts .sh .sp { flex: 1; min-width: var(--space-tight); }
-  #p-section-counts .sh .slot { width: var(--size-slot); height: var(--size-slot); flex: none; display: flex;
-                                align-items: center; justify-content: center; color: var(--muted); }
-  #p-section-counts .sh .slot svg { width: 10px; height: 10px; }
-  #p-section-counts .sh .slot.closed svg { transform: rotate(-90deg); }
-  #p-section-counts .sh .slot.hide { visibility: hidden; }
-  /* StatusCountChips: Space.tight apart; each Size.chip tall, Radius.chip, Space.tight inside, Typography.chip.tabular,
-     a StatusMark at Size.statusMarkSmall (8 pt, ring 0.15 × 8 = 1.2 pt). */
-  #p-section-counts .scs { display: inline-flex; gap: var(--space-tight); flex: none; }
-  #p-section-counts .scc { display: inline-flex; align-items: center; gap: var(--space-tight); height: var(--size-chip); box-sizing: border-box;
-                           padding-inline: var(--space-tight); border-radius: var(--radius-chip); font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums;
-                           background: rgba(161, 164, 172, 0.14); box-shadow: inset 0 0 0 1px rgba(161, 164, 172, 0.30); color: var(--muted); }
-  #p-section-counts .scc.btn { cursor: pointer; }
-  #p-section-counts .scc.btn:hover { filter: brightness(1.25); }
-  #p-section-counts .scc.working { color: var(--text); }
-  #p-section-counts .scc.needs { background: var(--status-chip-attention-fill); box-shadow: inset 0 0 0 1px var(--status-chip-attention-stroke); color: var(--amber); }
-  #p-section-counts .scc.done { background: var(--status-chip-done-fill); box-shadow: inset 0 0 0 1px var(--status-chip-done-stroke); color: var(--link); }
-  #p-section-counts .scc svg { width: 8px; height: 8px; flex: none; display: block; }
-  #p-section-counts .scc svg circle { fill: none; stroke-width: 1.2; }
-  #p-section-counts .ring-idle { stroke: var(--idle-ring); }
-  #p-section-counts .ring-track { stroke: var(--spinner-track); }
-  #p-section-counts .ring-arc { stroke: var(--muted); stroke-linecap: round; transform-origin: 4px 4px; animation: mk-spin 1.1s linear infinite; }
-  #p-section-counts .ring-dash { stroke: var(--muted); stroke-dasharray: 1.6 1.2; transform-origin: 4px 4px; animation: mk-spin 3.3s linear infinite; }
-  #p-section-counts .ring-needs { stroke: var(--amber); }
-  #p-section-counts .ring-done { stroke: var(--accent); }
-  #p-section-counts .rest { font: 11px/1.4 var(--font); color: var(--muted); padding: var(--space-tight) var(--space-base) var(--space-base) 30px; }
-  #p-section-counts .figs .fig { flex: 0 1 auto; }
-
   .signal-states td:last-child { white-space: normal; }
   .native-reference { display:block; max-width:none; height:auto; }
 
@@ -2895,7 +2861,7 @@
 <tr><td><code>TaskRowBadges</code></td><td>Ticket/request/diff/branch badges; only the branch truncates.</td><td>../SidebarRowValues.swift</td></tr>
 <tr><td><code>QuietBadgeLine</code></td><td>Shared quiet ticket/request badge layout.</td><td>QuietBadgeLine.swift</td></tr>
 <tr><td><code>SectionHeading</code></td><td>The Operator and Projects headings: the paused title, the + menus (New Signal… alone under the Operator) and Pause Operator / Resume Operator in the Operator heading's context menu.</td><td>SidebarHeadings.swift</td></tr>
-<tr><td><code>SectionFoldLabel</code>, <code>SectionFoldChevron</code></td><td>Operator and Projects fold into each other: the heading's click switches, the chevron sits before the +, and folded, one amber count opens the section at its first row that needs you.</td><td>SidebarHeadings.swift</td></tr>
+<tr><td><code>SectionFoldLabel</code>, <code>SectionFoldChevron</code></td><td>Operator and Projects fold into each other: the heading's click switches, the chevron sits before the +, and folded, the section's status counts, as a folded project's, each chip opening the section at its first row in that status.</td><td>SidebarHeadings.swift</td></tr>
 <tr><td><code>HeadingRow</code></td><td>One heading row for a project or a signal on the same grid: fold, mark, title, counts while folded, its menu and help.</td><td>SidebarHeadings.swift</td></tr>
 <tr><td><code>HeadingValue</code></td><td>What a heading row draws; counts only while folded, child rows absent.</td><td>../HeadingValue.swift</td></tr>
 <tr><td><code>SignalOperatorRow</code></td><td>Active-workload chat row, event-driven activity, pause, waiting count and window recovery.</td><td>Operators/SignalRows.swift</td></tr>
@@ -3074,58 +3040,7 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <div class="section" id="p-section-counts">
-      <p class="eyebrow proposal-flag">Proposal · Status counts on a folded section · 18 Nov 2026</p>
-      <h2>A folded Operator or Projects heading says what is under it</h2>
-      <p class="why"><strong>Today:</strong> a folded project header draws <code>StatusCountChips</code> — idle,
-        working, waiting, needs input, done — so a glance tells you what is busy and what waits. But when the
-        <code>OPERATOR</code> or <code>PROJECTS</code> heading itself is folded, <code>SectionFoldLabel</code> draws
-        only one amber count of the rows that need you (<code>SectionFold.attention</code>), and a finished task of your
-        own is counted in that amber too. Nothing says how much is still running.</p>
-      <p class="why">Every chip below is the existing <code>StatusCountChip</code>, unchanged: same marks, inks, washes
-        and order (<code>SidebarModel.statusOrder</code>). No new token. The counts would be every row under the folded
-        section, whether its project or signal is itself folded or open — for the Operator, its own row plus each
-        signal’s tasks; for Projects, every project’s tasks and terminals; a task on its way out not counted, a row in
-        the background counted as working, as on a project header.</p>
-
-      <h3 style="margin-top: var(--space-section)">1 · What the folded heading counts</h3>
-      <div class="options">
-        <div class="option pick">
-          <header><span class="letter">A</span><h3>Every status, as a folded project</h3><span class="rec">Recommended</span></header>
-          <p>The heading wears the same chip strip a folded project does, summed over the whole section. <b>One
-            vocabulary everywhere</b>: what is busy, what waits on a turn, what needs you, what is done.</p>
-          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="sh"><span class="w">Operator</span><span class="sp"></span><span class="slot hide"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="rest">The Operator’s row and its signals, open.</div><div class="sh"><span class="w">Projects</span><span class="sp"></span><span class="scs"><span class="scc idle btn" title="2 idle"><svg viewBox="0 0 8 8"><circle class="ring-idle" cx="4" cy="4" r="3.4"/></svg>2</span><span class="scc working btn" title="3 working"><svg viewBox="0 0 8 8"><circle class="ring-track" cx="4" cy="4" r="3.4"/><circle class="ring-arc" cx="4" cy="4" r="3.4" stroke-dasharray="7 22"/></svg>3</span><span class="scc waiting btn" title="1 waiting"><svg viewBox="0 0 8 8"><circle class="ring-dash" cx="4" cy="4" r="3.4"/></svg>1</span><span class="scc needs btn" title="2 need input"><svg viewBox="0 0 8 8"><circle class="ring-needs" cx="4" cy="4" r="3.4"/></svg>2</span><span class="scc done btn" title="1 done"><svg viewBox="0 0 8 8"><circle class="ring-done" cx="4" cy="4" r="3.4"/></svg>1</span></span><span class="slot closed"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div></div></div><figcaption>Projects folded: every status under it</figcaption></figure><figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="sh"><span class="w">Operator</span><span class="sp"></span><span class="scs"><span class="scc working btn" title="2 working"><svg viewBox="0 0 8 8"><circle class="ring-track" cx="4" cy="4" r="3.4"/><circle class="ring-arc" cx="4" cy="4" r="3.4" stroke-dasharray="7 22"/></svg>2</span><span class="scc waiting btn" title="1 waiting"><svg viewBox="0 0 8 8"><circle class="ring-dash" cx="4" cy="4" r="3.4"/></svg>1</span><span class="scc needs btn" title="1 need input"><svg viewBox="0 0 8 8"><circle class="ring-needs" cx="4" cy="4" r="3.4"/></svg>1</span></span><span class="slot closed"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="sh"><span class="w">Projects</span><span class="sp"></span><span class="slot hide"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="rest">The projects, open.</div></div></div><figcaption>Operator folded: its row and its signals’ tasks</figcaption></figure></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">B</span><h3>Only what waits on you, split</h3></header>
-          <p>The amber and blue chips alone: needs input and done, no longer lumped into one amber number. Quieter,
-            but still does not say what is busy.</p>
-          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="sh"><span class="w">Operator</span><span class="sp"></span><span class="slot hide"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="rest">The Operator’s row and its signals, open.</div><div class="sh"><span class="w">Projects</span><span class="sp"></span><span class="scs"><span class="scc needs btn" title="2 need input"><svg viewBox="0 0 8 8"><circle class="ring-needs" cx="4" cy="4" r="3.4"/></svg>2</span><span class="scc done btn" title="1 done"><svg viewBox="0 0 8 8"><circle class="ring-done" cx="4" cy="4" r="3.4"/></svg>1</span></span><span class="slot closed"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div></div></div><figcaption>Projects folded: only what waits on you</figcaption></figure><figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="sh"><span class="w">Operator</span><span class="sp"></span><span class="scs"><span class="scc needs btn" title="1 need input"><svg viewBox="0 0 8 8"><circle class="ring-needs" cx="4" cy="4" r="3.4"/></svg>1</span></span><span class="slot closed"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="sh"><span class="w">Projects</span><span class="sp"></span><span class="slot hide"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="rest">The projects, open.</div></div></div><figcaption>Operator folded</figcaption></figure></div>
-        </div>
-        <div class="option">
-          <header><span class="letter">C</span><h3>Keep today’s single amber count</h3></header>
-          <p>No change: drawn for comparison.</p>
-          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="sh"><span class="w">Operator</span><span class="sp"></span><span class="slot hide"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="rest">The Operator’s row and its signals, open.</div><div class="sh"><span class="w">Projects</span><span class="sp"></span><span class="scs"><span class="scc needs btn" title="3 need input"><svg viewBox="0 0 8 8"><circle class="ring-needs" cx="4" cy="4" r="3.4"/></svg>3</span></span><span class="slot closed"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div></div></div><figcaption>Projects folded: today, one amber count of every row that needs you</figcaption></figure><figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="sh"><span class="w">Operator</span><span class="sp"></span><span class="scs"><span class="scc needs btn" title="1 need input"><svg viewBox="0 0 8 8"><circle class="ring-needs" cx="4" cy="4" r="3.4"/></svg>1</span></span><span class="slot closed"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="sh"><span class="w">Projects</span><span class="sp"></span><span class="slot hide"><svg viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="slot"><svg viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span></div><div class="rest">The projects, open.</div></div></div><figcaption>Operator folded: today</figcaption></figure></div>
-        </div>
-      </div>
-
-      <h3 style="margin-top: var(--space-section)">2 · What a click on a chip does</h3>
-      <p class="why">Today the amber count is a button: it opens the folded section at its first row that needs you
-        (<code>openOperatorAttention</code>, <code>openProjectsAttention</code>). The rest of the heading folds the
-        sections over.</p>
-      <div class="options">
-        <div class="option pick">
-          <header><span class="letter">A</span><h3>Every chip opens its section at its first row in that status</h3><span class="rec">Recommended</span></header>
-          <p>Generalises today’s amber jump: amber goes to the first row asking, the spinner to the first working one,
-            and so on, opening that row’s project or signal if it is folded. <b>Every chip behaves the same.</b></p>
-        </div>
-        <div class="option">
-          <header><span class="letter">B</span><h3>Only amber and blue jump; the quiet chips are a label</h3></header>
-          <p>Needs input and done keep a jump to their first row; idle, working and waiting fall through to the
-            heading’s own click, which just opens the section.</p>
-        </div>
-      </div>
-    </div>
+    <p class="no-proposals">No open proposals.</p>
   </section>
 
 </div>

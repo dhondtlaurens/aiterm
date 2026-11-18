@@ -34,7 +34,8 @@ same gap for a terminal that needs you.)
 `StatusCountChips` takes an optional per-status action. With it, each chip is its own plain button, labelled for
 VoiceOver and help as that chip alone ("2 working"); without it, the strip stays one ignored-children label, so folded
 project and signal headers are unchanged. `SectionFoldLabel` passes the action; the heading's own click still folds
-the sections over.
+the sections over. Only the heading's words are its combined accessibility element (with its fold and Pause/Resume
+actions); the chips and the chevron sit beside them, so VoiceOver reaches each chip as its own button.
 
 `operatorNeedingAttention` and `projectSectionsNeedingAttention` stay: the Dock badge, Focus View and
 `projectsNeedingAttention` read them. The visible behaviour change beyond the strip: a finished task of your own,
@@ -54,9 +55,11 @@ No new token: every chip is the existing `StatusCountChip`.
 - **Modify** `app/Sources/AiTerm/Views/SidebarHeadings.swift` — `SectionFoldLabel` draws `fold.counts` with one
   action per chip; `SectionHeading` wires it to `openSection`; doc comments updated.
 - **Modify** `app/Sources/AiTerm/Views/StatusCountChips.swift` — optional per-chip action and per-chip accessibility.
-- **Modify** `app/Sources/AiTerm/Snapshots/SignalSidebarSnapshots.swift` — a `projects-folded` pose (Operator open,
-  projects folded with rows in several statuses) beside `section-folded`; the comment on `section-folded` no longer
-  says "amber count".
+- **Modify** `app/Sources/AiTerm/Snapshots/SignalSidebarSnapshots.swift` — the comment on `section-folded` no longer
+  says "amber count". No new pose: every pose but `section-folded` and `taken-over` already opens the Operator and
+  folds the projects (`signals-sidebar` among them).
+- **Create** `app/Tests/AiTermTests/AccessibilityTree.swift` — the AX-tree reading `PickerClearAccessibilityTests`
+  had privately, shared with the new chip test; **modify** that suite to use it.
 - **Modify** `app/Sources/AiTermUI/README.md` — the `SectionFoldLabel` inventory line.
 - **Modify** `docs/operators.md` — the paragraph saying a folded section shows an amber count.
 - **Modify** `docs/design/design-system.html` — delete the proposal section, restore "No open proposals.", update the
@@ -75,17 +78,16 @@ No new token: every chip is the existing `StatusCountChip`.
 - Add (`SidebarModelTests` or the existing status-count tests): the `[TaskStatus]` overload counts background as
   working.
 - Add: with an action, each chip is a separate accessibility button labelled with its own count; without one, the
-  strip stays a single element (`RowAccessibilityTests`).
+  strip stays a single element (new `StatusCountChipsAccessibilityTests`, hosted, read through the AX tree).
 - Keep green unchanged: `SidebarRowRedrawTests.theSectionHeadingsDoNotRedrawForAStatusTheyDoNotDraw`.
-- Visual: `AITERM_SNAPSHOT_HOSTED=1 scripts/snapshots.sh build/<folder>` (the signal sidebar poses are hosted-only), read the `section-folded` and `projects-folded` PNGs against
+- Visual: `AITERM_SNAPSHOT_HOSTED=1 scripts/snapshots.sh build/<folder>` (the signal sidebar poses are hosted-only), read `signals-section-folded.png` (OPERATOR folded) and `signals-sidebar.png` (PROJECTS folded) against
   `app/Sources/AiTermUI/README.md`.
 - Gate: `scripts/test.sh` before each commit; `scripts/test.sh all` once before merging.
 
 ## To-dos
 
-- [ ] Counts in the projection: the public `[TaskStatus]` `statusCounts`, `SectionFold.counts`, the per-section row list, tests updated and added; the heading
-      draws the amber chip from `counts` until the next step.
-- [ ] Chips with actions: `StatusCountChips` action, `openSection(_:at:)`, `reveal` unfolding a terminal's project, `SectionFoldLabel` draws the full strip;
+- [x] Counts in the projection: the public `[TaskStatus]` `statusCounts`, `SectionFold.counts`, the per-section row list, tests updated and added.
+- [x] Chips with actions: `StatusCountChips` action, `openSection(_:at:)`, `reveal` unfolding a terminal's project, `SectionFoldLabel` draws the full strip;
       jump and accessibility tests.
-- [ ] Snapshot pose `projects-folded`; read both poses.
-- [ ] Docs: README inventory, `docs/operators.md`, design page synced and republished, proposal removed.
+- [x] Snapshots: read the folded OPERATOR and folded PROJECTS poses.
+- [x] Docs: README inventory, `docs/operators.md`, design page synced and republished, proposal removed.
