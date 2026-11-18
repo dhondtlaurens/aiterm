@@ -80,4 +80,14 @@ public enum SignalAction: Equatable, Sendable {
     case needChoice, chosen
 }
 
-public enum SignalTransitionError: Error, Equatable { case invalidEdge, workerIsWorking }
+/// A stage change refused, in the words the Operator reads.
+public enum SignalTransitionError: Error, Equatable, LocalizedError {
+    case invalidEdge, workerIsWorking
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidEdge: "The task’s stage can’t make that change from where it is now."
+        case .workerIsWorking: "The task is busy: its worker is at work or another step holds it. Try again once that ends."
+        }
+    }
+}

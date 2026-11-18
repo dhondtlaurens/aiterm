@@ -21,6 +21,8 @@ cp "$ROOT/LICENSE" "$OUT/Contents/Resources/LICENSE"
 # Every local build is a dev build: DEV on its Dock icon, no self-update. Only release.sh sets
 # AITERM_RELEASE=1.
 [[ "${AITERM_RELEASE:-0}" == 1 ]] || /usr/libexec/PlistBuddy -c "Add :AiTermDevBuild bool true" "$OUT/Contents/Info.plist"
+# pip builds the package in this tree; only current source modules belong in the bundle.
+rm -rf "$ROOT/daemon/build"
 "$PY" -m pip install --quiet --no-compile --target "$OUT/Contents/Resources/daemon" "$ROOT/daemon"
 # The delivery check, beside the package it drives: Settings › Agents' Run check runs it from here,
 # with the helper's own Python (`DeliveryCheck.command`).

@@ -2,9 +2,9 @@ import Foundation
 import Synchronization
 
 /// Git work that changes a repository runs on that repository's lane (`GitLanes`), away from
-/// presentation and the cooperative executor: creation, removal, a pull and a landing in one
-/// repository cannot race, and never wait for another repository's. Questions that change nothing —
-/// a head, whether a checkout has unsaved work — leave the lane for the shared pool.
+/// presentation and the cooperative executor: creation, removal, pull and rebase work in one
+/// repository cannot race, and never wait for another repository's. Questions that change nothing,
+/// a head or whether a checkout has unsaved work, leave the lane for the shared pool.
 public struct TaskWorkflow: Sendable {
     public struct Created: Sendable {
         public let task: TaskItem

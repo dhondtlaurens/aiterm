@@ -203,27 +203,16 @@ struct SheetSubtitle: View {
 
 /// A sheet's primary action: the house primary button (`PushButtonStyle`), answering ⌘↩ and only ⌘↩ — the keycaps it shows.
 /// A plain ⏎ stays with the focused control: a newline in the prompt editor, a pick in a dropdown.
-/// `busy` leads its title with a working `StatusMark` while what it started runs; the caller's action
-/// guards itself meanwhile, as Back does while a create runs.
 struct SheetPrimaryButton: View {
     let title: String
     var enabled = true
-    var busy = false
-    var help: String?
     let action: () -> Void
 
     var body: some View {
-        button.help(help ?? "")
-    }
-
-    private var button: some View {
         // The style draws the label on the accent and declares it, so the keycaps and the mark ink for it.
         Button(action: action) {
             HStack(spacing: Space.base) {
-                HStack(spacing: Space.snug) {
-                    if busy { StatusMark(status: .working, size: Size.statusMark) }
-                    Text(title)
-                }
+                Text(title)
                 Kbd("⌘", "↩")
             }
         }
@@ -254,20 +243,15 @@ struct SheetFooter<Status: View>: View {
     let primary: String?
     let canCancel: Bool
     let canSubmit: Bool
-    /// The primary's working mark and tooltip (`SheetPrimaryButton`).
-    let primaryBusy: Bool
-    let primaryHelp: String?
     let closeList: () -> Bool
     let cancel: () -> Void
     let submit: () -> Void
     let status: Status
 
     init(secondary: String? = "Cancel", primary: String?, canCancel: Bool = true, canSubmit: Bool = true,
-         primaryBusy: Bool = false, primaryHelp: String? = nil,
          closeList: @escaping () -> Bool = { false }, cancel: @escaping () -> Void, submit: @escaping () -> Void,
          @ViewBuilder status: () -> Status = { EmptyView() }) {
         self.secondary = secondary; self.primary = primary; self.canCancel = canCancel; self.canSubmit = canSubmit
-        self.primaryBusy = primaryBusy; self.primaryHelp = primaryHelp
         self.closeList = closeList; self.cancel = cancel; self.submit = submit; self.status = status()
     }
 
@@ -277,7 +261,7 @@ struct SheetFooter<Status: View>: View {
             Spacer(minLength: Space.base)
             if let secondary { Button(secondary, action: cancel).disabled(!canCancel) }
             if let primary {
-                SheetPrimaryButton(title: primary, enabled: canSubmit, busy: primaryBusy, help: primaryHelp, action: submit)
+                SheetPrimaryButton(title: primary, enabled: canSubmit, action: submit)
             }
         }
         .buttonStyle(.push(.secondary))

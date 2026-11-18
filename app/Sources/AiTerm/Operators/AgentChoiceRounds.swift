@@ -71,15 +71,13 @@ import AiTermCore
             if let previous { oracle.clear(previous.id) }
             return decided(.oracleOff)
         }
-        let arguments = try Self.json(["row": try JSONValue(encoding: proposal.row), "project": proposal.project.map { .string($0.uuidString) } ?? .null,
-                                       "reason": .string(proposal.reason)])
         let line = { (id: UUID) -> OracleLaunch.ProjectLine in self.workspace.state.project(id: id).map { .known($0) } ?? .gone(id) }
         let check = OracleLaunch.AgentChoiceCheck(forTab: scope == .tab, item: task.signalTask?.current.item.identity ?? "", title: task.title,
             stagePrompt: task.signalTask?.current.prompt ?? "", work: work, project: line(proposal.project ?? task.projectId),
             candidateProjects: projects.map { $0.map(line) }, permittedRows: rows, row: proposal.row, reason: proposal.reason,
             weeklyUsage: ports.weeklyUsage(), installed: ports.installedAgents())
         let outcome = await activity.acting(task: task.id, act: "consulting the Oracle") { [previous] in
-            await oracle.consult(.agentChoice(check), binding: .init(claim: claim, round: .init(key: binding, arguments: arguments, proposal: proposal.text)),
+            await oracle.consult(.agentChoice(check), binding: .init(claim: claim, round: .init(key: binding, proposal: proposal.text)),
                                  continuing: previous)
         }
         guard claim.allows(in: workspace) else { throw ActionUnavailable("The task changed while the Oracle read the choice.") }

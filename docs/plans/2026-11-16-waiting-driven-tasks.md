@@ -36,7 +36,7 @@ section counted the task as working. The intent stays; the state gets its own na
 
   | Condition | Line | Fallback |
   |---|---|---|
-  | `.approved` | `waiting on approval · Lawrence` (first names, `Lawrence +2` when they don't fit) | `waiting on reviewer approval` |
+  | `.approved` | `waiting on approval · Sam` (first names, `Sam +2` when they don't fit) | `waiting on reviewer approval` |
   | `.hasReviewer` | `waiting for a reviewer` | |
   | `.threadsResolved` | `waiting on 3 open threads` (`1 open thread`) | `waiting on review threads` |
   | `.merged` | `waiting for the merge` | |

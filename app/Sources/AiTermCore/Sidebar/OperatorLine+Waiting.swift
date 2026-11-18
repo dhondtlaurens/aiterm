@@ -73,8 +73,8 @@ public extension OperatorLine {
         text.count <= maxLength ? text : String(text.prefix(maxLength - 1)) + "…"
     }
 
-    /// `waiting on approval · Lawrence, Jan`: each reviewer's first name, as many as fit; else the first and how many
-    /// more (`Lawrence +2`); a first name too long even alone is cut.
+    /// `waiting on approval · Sam, Alex`: each reviewer's first name, as many as fit; else the first and how many
+    /// more (`Sam +2`); a first name too long even alone is cut.
     private static func approvalLine(_ names: [String]) -> String {
         let lead = "waiting on approval · "
         let first = names.map { $0.split(separator: " ").first.map(String.init) ?? $0 }

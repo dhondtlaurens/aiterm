@@ -189,7 +189,7 @@ extension HostRepositoryTests {
 
     @Test func gitLabReadsEachThreadWithItsIdAndLastNote() async throws {
         let discussions = #"""
-            [{"id":"d1","notes":[{"resolvable":true,"resolved":false,"body":"Rename this","author":{"username":"jan"},"system":false},
+            [{"id":"d1","notes":[{"resolvable":true,"resolved":false,"body":"Rename this","author":{"username":"alex"},"system":false},
                                   {"resolvable":true,"resolved":false,"body":"changed this line","author":{"username":"aiterm"},"system":true}]},
              {"id":"d2","notes":[{"resolvable":false,"body":"Nice work","author":{"username":"mia"},"system":false}]},
              {"id":"d3","notes":[{"resolvable":true,"resolved":true,"body":"Fixed","author":{"username":"mia"},"system":false}]}]
@@ -197,7 +197,7 @@ extension HostRepositoryTests {
         let stub = StubSession { request in Self.page(request) == 1 ? (200, Data(discussions.utf8)) : (200, Data("[]".utf8)) }
         let publisher = try CodeHosts.repository(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
         #expect(try await publisher.threads(of: 12) == [
-            ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this"),
+            ReviewThread(id: "d1", resolved: false, lastAuthor: "alex", lastBody: "Rename this"),
             ReviewThread(id: "d3", resolved: true, lastAuthor: "mia", lastBody: "Fixed"),
         ])
         #expect(stub.lastRequest?.url?.absoluteString.hasPrefix(Self.gitLabRequest + "/discussions?") == true)
@@ -205,22 +205,22 @@ extension HostRepositoryTests {
 
     @Test func gitLabReadsWhoApproved() async throws {
         let stub = StubSession { _ in
-            (200, Data(#"{"approved_by":[{"user":{"username":"jan","name":"Jan"}}]}"#.utf8))
+            (200, Data(#"{"approved_by":[{"user":{"username":"alex","name":"Alex"}}]}"#.utf8))
         }
         let publisher = try CodeHosts.repository(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
-        #expect(try await publisher.approvals(of: 12) == ["jan"])
+        #expect(try await publisher.approvals(of: 12) == ["alex"])
     }
 
     @Test func gitHubReadsThreadsByTheirNodeId() async throws {
         let threads = #"""
             {"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
-              {"id":"PRRT_1","isResolved":false,"comments":{"nodes":[{"body":"Rename this","author":{"login":"jan"}}]}},
+              {"id":"PRRT_1","isResolved":false,"comments":{"nodes":[{"body":"Rename this","author":{"login":"alex"}}]}},
               {"id":"PRRT_2","isResolved":true,"comments":{"nodes":[{"body":"Fixed","author":null}]}}]}}}}}
             """#
         let stub = StubSession { _ in (200, Data(threads.utf8)) }
         let publisher = try CodeHosts.repository(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
         #expect(try await publisher.threads(of: 88) == [
-            ReviewThread(id: "PRRT_1", resolved: false, lastAuthor: "jan", lastBody: "Rename this"),
+            ReviewThread(id: "PRRT_1", resolved: false, lastAuthor: "alex", lastBody: "Rename this"),
             ReviewThread(id: "PRRT_2", resolved: true, lastAuthor: nil, lastBody: "Fixed"),
         ])
     }
@@ -229,13 +229,13 @@ extension HostRepositoryTests {
         let stub = StubSession { request in
             if Self.page(request) > 1 { return (200, Data("[]".utf8)) }
             return (200, Data(#"""
-                    [{"user":{"login":"jan"},"state":"CHANGES_REQUESTED"},{"user":{"login":"mia"},"state":"APPROVED"},
-                     {"user":{"login":"jan"},"state":"APPROVED"},{"user":{"login":"mia"},"state":"COMMENTED"},
+                    [{"user":{"login":"alex"},"state":"CHANGES_REQUESTED"},{"user":{"login":"mia"},"state":"APPROVED"},
+                     {"user":{"login":"alex"},"state":"APPROVED"},{"user":{"login":"mia"},"state":"COMMENTED"},
                      {"user":{"login":"lou"},"state":"APPROVED"},{"user":{"login":"lou"},"state":"DISMISSED"}]
                 """#.utf8))
         }
         let publisher = try CodeHosts.repository(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
-        #expect(try await publisher.approvals(of: 88) == ["jan", "mia"])
+        #expect(try await publisher.approvals(of: 88) == ["alex", "mia"])
     }
 
     // MARK: The merge floor and the watcher require complete reads
@@ -309,16 +309,16 @@ extension HostRepositoryTests {
 
     @Test func gitHubApprovalsReadEveryPage() async throws {
         let first = "[" + (Array(repeating: #"{"user":{"login":"mia"},"state":"COMMENTED"}"#, count: 99)
-                           + [#"{"user":{"login":"jan"},"state":"APPROVED"}"#]).joined(separator: ",") + "]"
+                           + [#"{"user":{"login":"alex"},"state":"APPROVED"}"#]).joined(separator: ",") + "]"
         let stub = StubSession { request in
             switch Self.page(request) {
             case 1: return (200, Data(first.utf8))
-            case 2: return (200, Data(#"[{"user":{"login":"jan"},"state":"CHANGES_REQUESTED"}]"#.utf8))
+            case 2: return (200, Data(#"[{"user":{"login":"alex"},"state":"CHANGES_REQUESTED"}]"#.utf8))
             default: return (200, Data("[]".utf8))
             }
         }
         let publisher = try CodeHosts.repository(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
-        #expect(try await publisher.approvals(of: 88) == [], "jan's later review on page 2 takes the approval back")
+        #expect(try await publisher.approvals(of: 88) == [], "alex's later review on page 2 takes the approval back")
         let endless = StubSession { _ in (200, Data(first.utf8)) }
         let capped = try CodeHosts.repository(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: endless.session)
         await #expect(throws: IncompleteRead.self) { _ = try await capped.approvals(of: 88) }

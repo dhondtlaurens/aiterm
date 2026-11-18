@@ -9,7 +9,7 @@ import Testing
     private static let question = OracleLaunch.Question.workerAnswer(question: "Which key?", workerMessage: "Question: Which key?",
                                                                      proposal: "Use A.", brief: "")
     private static func binding(_ claim: SignalClaim?, proposal: String = "Use A.") -> OracleConsult.Binding {
-        .init(claim: claim, round: .init(key: "bound", arguments: "{}", proposal: proposal))
+        .init(claim: claim, round: .init(key: "bound", proposal: proposal))
     }
     private func rig() throws -> (SignalHarness, SignalClaim, SignalWorld) {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)

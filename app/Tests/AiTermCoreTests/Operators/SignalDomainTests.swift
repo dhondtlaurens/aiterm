@@ -368,6 +368,13 @@ import Testing
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.resume, to: task, at: now) }
     }
 
+    /// A refused stage change reaches the Operator as a sentence saying what was refused, never Foundation's generic one.
+    @Test func aRefusedStageChangeSaysWhatWasRefused() {
+        #expect(SignalTransitionError.invalidEdge.localizedDescription == "The task’s stage can’t make that change from where it is now.")
+        #expect(SignalTransitionError.workerIsWorking.localizedDescription
+                    == "The task is busy: its worker is at work or another step holds it. Try again once that ends.")
+    }
+
     @Test func aLaunchFailureBlocksOnlyALaunchingStage() throws {
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         var task = SignalTask(current: stage(signal(), item), startedAt: now)

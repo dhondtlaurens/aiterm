@@ -129,7 +129,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `Input` | Native plain/secure text field in shared chrome; optional caret-at-end on focus, optional `onFocus` and command-key delegation, monospaced option. |
 | `SearchField` | Native single-line field that delegates navigation to an open popup first. |
 | `Select` | `fieldBox` chrome over a borderless native pop-up: AppKit keeps the menu, click and keyboard, the house draws the title and chevrons. Fills its column, or fits its widest title when left to itself. Optional per-value tooltip and selectable predicate, with disabled items retained in the menu; monospaced option. It does not dim itself: whoever disables it fades it. |
-| `SegmentedControl` | A choice among a few values: neutral selected fill, house focus ring, selectable predicate, per-segment tooltip, labels inked for their ground. Not for tabs. |
+| `SegmentedControl` | A choice among a few values: Sidebar size and New Signal's source, query mode, event and Then. Neutral selected fill, house focus ring, selectable predicate, per-segment tooltip, labels inked for their ground. Not for tabs. |
 | `TabBar` | Underline tabs at the foot of a sheet's header: selected/unselected/rejected per its matrix, one focusable control answering ← →, the focus ring only for keyboard focus, `.isSelected` trait; the command-number keys are the sheet's (`TabShortcuts`). |
 | `Kbd` | Shortcut keycaps using the current surface's ink/wash. |
 | `PushButtonStyle` | The house push button, `.push(.primary)` (accent, declares `.surface(.accent)`) or `.push(.secondary)` (`button` ground, `border` edge); field-shaped, pressed/disabled/focus per its matrix; a native `Button` underneath. |
@@ -137,7 +137,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
 | `Hairline` | Shared unscaled border/separator, soft (`border`) or `.firm` (`borderStrong`, a stepper's connectors); use instead of a bare Divider. |
 
-Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` shares the toast/fold ease-out),
+Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` is `SidebarToast`'s ease-out),
 `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`, `RingGeometry` (the shared proportional ring
 stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`,
 `menuChrome`, `menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,

@@ -39,10 +39,6 @@ import AiTermCore
         guard workspace.canChangeWorkspace, !proposal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               workspace.state.operatorSession?.lifecycle.isChanging == false else { throw ActionUnavailable("The Operator cannot answer right now.") }
         let operatorID = workspace.state.operatorSession?.id, operatorGeneration = workspace.state.operatorSession?.generation
-        // What an Oracle round saves as the call it checked.
-        let arguments = try Self.json(["task": .string(id.uuidString), "tab": .string(tab), "proposal": .string(proposal),
-                                       "challenge": challenge.map(JSONValue.string) ?? .null,
-                                       "fromQuestion": fromQuestion.map(JSONValue.string) ?? .null, "person": .bool(person)])
         guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace), task.signalTask?.phase == .working,
               let question = ports.question(id, tab) else { throw ActionUnavailable("This worker has no current unanswered question.") }
         let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
@@ -65,9 +61,9 @@ import AiTermCore
             }
             humanAnswer = true
         }
-        let round = OracleConsult.Binding.Round(key: binding, arguments: arguments, proposal: proposal)
+        let round = OracleConsult.Binding.Round(key: binding, proposal: proposal)
         func markPerson(_ reason: String, replacing: OracleRound? = nil) {
-            oracle.markPerson(tool: Self.tool, key: binding, arguments: arguments, reason: reason, replacing: replacing)
+            oracle.markPerson(tool: Self.tool, key: binding, reason: reason, replacing: replacing)
         }
         var previous: OracleRound?
         if !humanAnswer {
