@@ -51,6 +51,7 @@ from aitermd.models import AgentKind, Frame, classify_agent
 
 from tools.delivery_check import (Live, answer_trust, idle, parse_version, read_json, scratch_claude_config, scratch_codex_home,
                                   screen_settings)
+from tools.compat_preflight import command as checked_command
 
 REPO = Path(__file__).resolve().parents[2]
 COMPAT = REPO / "compat"
@@ -367,13 +368,14 @@ def now_day() -> str:
 def run(argv: list[str], env: Mapping[str, str] | None = None, cwd: Path | None = None,
         seconds: float = 180) -> subprocess.CompletedProcess[str]:
     """A CLI run to its end, its stdin closed: `codex exec` otherwise waits on it for ever."""
-    return subprocess.run(argv, capture_output=True, text=True, timeout=seconds, stdin=subprocess.DEVNULL,
+    return subprocess.run(checked_command(argv), capture_output=True, text=True, timeout=seconds, stdin=subprocess.DEVNULL,
                           env={**os.environ, **(env or {})}, cwd=cwd)
 
 
 def cli_version(agent: AgentKind, env: Mapping[str, str] | None = None) -> str | None:
     try:
-        return parse_version(run([agent, "--version"], env=env, seconds=60).stdout)
+        result = run([agent, "--version"], env=env, seconds=60)
+        return parse_version(result.stdout) if result.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -641,7 +643,8 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
     model, reasoning = MODELS["claude"]
     values = {"model": model, "reasoning": reasoning}
     launch = fill(launches()["claude"]["task"], values)
-    command = " ".join(["env"] + [f"{key}={shlex.quote(value)}" for key, value in env.items()] + [shlex.quote(word) for word in launch])
+    command = " ".join(["env"] + [f"{key}={shlex.quote(value)}" for key, value in env.items()]
+                       + [shlex.quote(word) for word in checked_command(launch)])
     turns = ["plain", "shellCommand", "subagent", "backgroundShell", "approval"]
     session = await open_session(live, listener, "claude", work, command, claude_sessions=config / "sessions")
     try:
@@ -739,7 +742,7 @@ async def capture_codex(live: Live, listener: Listener, port: int, scratch: Path
     launch = fill(templates["task"], values)
     prefix = "env " + " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items()) + " "
     turns = ["plain", "shellCommand", "subagent", "approval"]
-    session = await open_session(live, listener, "codex", work, prefix + " ".join(map(shlex.quote, launch)))
+    session = await open_session(live, listener, "codex", work, prefix + shlex.join(checked_command(launch)))
     try:
         say("codex: a plain turn")
         await session.turn("Reply with only the word ALPHA followed by the result of 6 times 7.")
@@ -754,7 +757,7 @@ async def capture_codex(live: Live, listener: Listener, port: int, scratch: Path
     # The task launch never asks; the approval runs where Codex does, as the delivery check starts it.
     say("codex: a turn that asks for approval, in a session that asks")
     asking = fill(templates["task"][:1], values) + ["-s", "workspace-write", "-a", "on-request"] + fill(templates["task"][2:], values)
-    session = await open_session(live, listener, "codex", work, prefix + " ".join(map(shlex.quote, asking)))
+    session = await open_session(live, listener, "codex", work, prefix + shlex.join(checked_command(asking)))
     try:
         # Outside the sandbox's reach ($TMPDIR is in it), so Codex must ask: `outside` links there.
         # Approved, as declining ends the turn with no Stop; the file is the capture's to delete.
@@ -799,7 +802,7 @@ async def capture_pi(live: Live, listener: Listener, port: int, scratch: Path, v
     templates = launches()["pi"]
     launch = fill(templates["task"], values)
     turns = ["plain", "shellCommand"]
-    command = "env " + " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items()) + " " + " ".join(map(shlex.quote, launch))
+    command = "env " + " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items()) + " " + shlex.join(checked_command(launch))
     session = await open_session(live, listener, "pi", work, command)
     try:
         say("pi: a plain turn")
@@ -914,7 +917,8 @@ def main(argv: list[str] | None = None) -> int:
     written = asyncio.run(capture(agents, ns.into))
     if ns.written:
         ns.written.write_text(json.dumps(written, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    missing = [agent for agent in agents if agent not in written and cli_version(agent) is not None]
+    missing = [agent for agent in agents if agent not in written
+               and (os.environ.get("AITERM_COMPAT_BIN") or cli_version(agent) is not None)]
     return 1 if missing else 0
 
 

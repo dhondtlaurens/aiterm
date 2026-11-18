@@ -1,8 +1,8 @@
 {
-  "fetched_at": "2026-11-18T07:51:04.920253Z",
+  "fetched_at": "2026-11-18T09:30:32.413811Z",
   "etag": "W/\"1d1f786991e5e7063e695bca59cb6cb6\"",
-  "client_version": "0.169.0",
-  "identity": "861a11acbcdb1128e534dec28d9eee137233e1238b658ba1feafb8b7f7022e04",
+  "client_version": "0.170.0",
+  "identity": "652605f2e69c95360b9503685ce29bfa7a70a2f5fed4d8ee6cfbcf074891a262",
   "models": [
     {
       "slug": "gpt-6.2-sol",

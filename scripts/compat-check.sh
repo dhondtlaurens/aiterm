@@ -1,8 +1,10 @@
 #!/bin/zsh
-# scripts/compat-check.sh [claude,codex,pi] — after Claude Code, Codex or PI updates: does AiTerm still
+# scripts/compat-check.sh [claude,codex,pi] — update Claude Code, Codex and PI: does AiTerm still
 # work with it? Run from a worktree with iTerm2 open; it takes several minutes, opens iTerm2 windows
 # and spends a little of each CLI's quota on its cheapest model. Never part of the gate.
 #
+#   0. Checks latest releases, updates outdated CLIs, and pins fresh launches to checked binaries.
+#      Any missing CLI, failed lookup/update or version mismatch stops before capture.
 #   1. Captures each CLI live (daemon/tools/compat_capture.py): its hooks, status line, session and
 #      transcript files, model lists, --help and headless answers, scrubbed of anything private, into
 #      daemon/tests/fixtures/compat/<agent>/ in place of the last capture.
@@ -24,6 +26,10 @@ trap 'rm -rf "$work"' EXIT
 versions="$work/versions.json"
 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 failed=()
+
+print "0/4 Checking latest versions of $AGENTS"
+(cd "$ROOT/daemon" && env -u PYTHONPATH "$PY" -m tools.compat_preflight --agents "$AGENTS" --bin "$work/bin")
+export AITERM_COMPAT_BIN="$work/bin"
 
 print "1/4 Capturing $AGENTS"
 (cd "$ROOT/daemon" && env -u PYTHONPATH "$PY" -m tools.compat_capture capture --agents "$AGENTS" --written "$versions") \
