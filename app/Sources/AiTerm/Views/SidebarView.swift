@@ -35,6 +35,7 @@ extension EnvironmentValues {
 }
 
 struct SidebarView: View {
+    @State private var backgroundCards = BackgroundCardPresenter()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.motionStill) private var motionStill
 
@@ -156,6 +157,7 @@ struct SidebarView: View {
             // List's native scroll-edge extension must not paint a row or its selection into the
             // reserved titlebar band, even while rubber-banding or scrolling a selected row up.
             .clipped()
+            .background(BackgroundCardViewport(presenter: backgroundCards, controller: controller))
             SidebarFooterHost(controller: controller)
         }
         .ignoresSafeArea(.container, edges: .top)
@@ -167,6 +169,7 @@ struct SidebarView: View {
         // Declared, not defaulted: a component outside a row — the header, a divider, the footer —
         // otherwise read `.sheet`, the default for everything away from the sidebar.
         .surface(.sidebar)
+        .environment(\.backgroundCardPresenter, backgroundCards)
         .background { SidebarSheetPresenter(controller: controller) }
         // A fixture root can already have pinned motion. Do not overwrite its captured pose.
         .environment(\.motionStill, motionStill ?? (reduceMotion ? .reduceMotion : nil))

@@ -20,4 +20,15 @@ import Testing
                                 WorkItem(kind: .subagent, text: "explorer", holdsTurn: false)])
         #expect(!shown.isStillAtWork && shown.background.isEmpty)
     }
+
+    @Test func aDisplayDescriptionDoesNotChangeOperatorWorkTextOrReadiness() {
+        let raw = WorkItem(kind: .shell, text: "scripts/test.sh", holdsTurn: true)
+        var described = raw
+        described.displayLabel = "Run full validation"
+        let before = tab(.done, [raw]), after = tab(.done, [described])
+        #expect(after.background == before.background && after.background == ["scripts/test.sh"])
+        #expect(after.isStillAtWork == before.isStillAtWork)
+        described.holdsTurn = false
+        #expect(!tab(.done, [described]).isStillAtWork)
+    }
 }

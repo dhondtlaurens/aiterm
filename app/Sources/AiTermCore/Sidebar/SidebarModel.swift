@@ -296,7 +296,7 @@ public enum SidebarModel {
     /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, then the active test runs of
     /// the tabs that ended their turn, as in `backgroundJobs`.
     public static func displayJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { $0.work.map(\.job) }
+        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { $0.work.map(\.displayJob) }
         let tests = tabs.filter(\.state.turnEnded).compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }

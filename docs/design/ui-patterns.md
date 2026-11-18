@@ -41,6 +41,19 @@ and `QuietBadgeLine` share the status/agent/branch vocabulary. `BackgroundCardVi
 list under a background/working/input mark, only with verified work. Display evidence does not
 change persisted state or Operator readiness. Amber means the person needs to act.
 
+The work card floats in a borderless nonactivating child panel owned by the sidebar. Its heading
+stays fixed above at most five single-line job rows, with the jobs scrolling beyond that. It
+normally grows downward, fits inside the list viewport above the footer, and leaves row geometry
+unchanged. Native descriptions use the system face; raw shell-command fallbacks use monospace.
+The panel keeps hover tracking active while iTerm2 is key. Row and presenter share source
+eligibility, including no card during task teardown, and the open card observes current projected
+jobs rather than keeping a copied list. Empty/hidden/removed sources or scrolling the source mark
+out of the viewport close it; layout-induced clip movement repositions an eligible card. A click
+on the card invokes its source row’s activate action, and its context menu reuses that row’s
+commands. The card’s jobs still scroll without activating the source. The card captures wheel
+events within its bounds even when every job fits; move outside it to scroll the sidebar list.
+Unhandled wheel events are not forwarded to the underlying list across the panel boundary.
+
 `ToastView` and `Notice` share message hierarchy.
 `SidebarFooterHost`/`SelectedRowSidebarFooter` scope telemetry to selection. `UsageRing`, `UsageLine`,
 `ToneRing`, `MacMode` and `MacModeLine` keep readings neutral unless their own warning applies.

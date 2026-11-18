@@ -126,6 +126,18 @@ struct SectionFold: Equatable {
         }
     }
 
+    /// Only the open card resolves jobs here; row bodies already have their projected facts.
+    func backgroundJobs(for row: RowSelection) -> [BackgroundJob]? {
+        guard isDrawn(row) else { return nil }
+        switch row {
+        case .task(let id):
+            return (operatorOpen ? signalSections.flatMap(\.tasks) : sections.flatMap(\.tasks))
+                .first { $0.id == id }?.background
+        case .terminal(let id): return sections.flatMap(\.terminals).first { $0.id == id }?.background
+        default: return nil
+        }
+    }
+
     /// A child's heading, only while that heading is drawn. Headings and the Operator row have none.
     func visibleHeading(for row: RowSelection) -> RowSelection? {
         switch row {

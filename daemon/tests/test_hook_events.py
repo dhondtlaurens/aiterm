@@ -160,7 +160,7 @@ def test_a_claude_stop_lists_the_background_work_still_running():
              {"id": "t1", "type": "MCP task", "status": "running", "description": "Indexing the docs"}]
     event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
     assert event.background_work == (BackgroundJob("subagent", "Fix it", agent_id="a1"),
-                                     BackgroundJob("shell", "npm run test:run", task_id="b1"),
+                                     BackgroundJob("shell", "npm run test:run", task_id="b1", display_label="the gate"),
                                      BackgroundJob("monitor", "CI on !46", task_id="m1"),
                                      BackgroundJob("task", "Indexing the docs", task_id="t1"))
     assert [job.to_json() for job in event.background_work][0] == {"kind": "subagent", "text": "Fix it"}
@@ -184,6 +184,13 @@ def test_a_claude_stop_leaves_out_its_artifact_watches():
     assert event.background_work == (BackgroundJob("monitor", "CI on !46", task_id="m1"),
                                      BackgroundJob("monitor", "live updates for artifact deploys", task_id="m2"))
     assert event.running_subagents == frozenset()
+
+
+def test_a_shell_without_command_keeps_its_native_description_as_prose():
+    event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": [
+        {"id": "shell", "type": "shell", "status": "running", "description": "Run validation"}]})
+    assert event.background_work == (BackgroundJob("shell", "Run validation", task_id="shell",
+                                                 display_label="Run validation"),)
 
 
 def test_a_prompt_submitted_carries_its_text():
