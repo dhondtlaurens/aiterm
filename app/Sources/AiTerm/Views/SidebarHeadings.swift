@@ -67,7 +67,7 @@ struct HeadingRow: View, Equatable {
             AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) {
                 RowCommandMenu(groups: Array(commands.prefix(1)))
             }
-        case .signal(_, _, let paused):
+        case .signal(_, _, let paused, _, _):
             Group {
                 if paused { Image(systemName: "pause.fill").font(Typography.chip).foregroundStyle(Palette.tertiary) }
                 else { Color.clear }
@@ -121,17 +121,20 @@ struct HeadingRow: View, Equatable {
                 Task { if let current = controller.state.project(id: id) { await controller.projects.confirmRemove(project: current) } }
             }])
             return groups
-        case let .signal(_, removed, paused):
+        case let .signal(_, removed, paused, canMoveUp, canMoveDown):
             guard !removed else { return [] }
+            let id = value.id
             return [
                 [RowCommand(title: "Edit Signal…", enabled: controller.canPresentNewSignal) {
-                    if let current = controller.state.signal(id: value.id) { controller.presentNewSignal(editing: current) }
+                    if let current = controller.state.signal(id: id) { controller.presentNewSignal(editing: current) }
                 },
                  RowCommand(title: !paused ? "Switch Off" : "Switch On", enabled: enabled) {
-                    if let current = controller.state.signal(id: value.id) { controller.toggleEnabled(current) }
+                    if let current = controller.state.signal(id: id) { controller.toggleEnabled(current) }
                 }],
+                [RowCommand(title: "Move Up", enabled: enabled && canMoveUp) { controller.moveSignal(id, .up) },
+                 RowCommand(title: "Move Down", enabled: enabled && canMoveDown) { controller.moveSignal(id, .down) }],
                 [RowCommand(title: "Remove Signal…", role: .destructive, enabled: enabled) {
-                    if let current = controller.state.signal(id: value.id) { controller.removeSignal(current) }
+                    if let current = controller.state.signal(id: id) { controller.removeSignal(current) }
                 }]
             ]
         }

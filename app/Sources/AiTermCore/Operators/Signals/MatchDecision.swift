@@ -5,9 +5,11 @@ public enum MatchDecision: Equatable, Sendable {
     case continueTask(UUID, SignalStage)
     case skip(SignalMatch, reason: String)
 
+    /// `signals` come in heading order, which is their priority: when several match one item, the
+    /// highest takes it and the others wait as its pending stages.
     public static func decide(matches: [SignalMatch], signals: [Signal], tasks: [TaskItem], projects: [Project] = [], seen: [SignalSeen], complete: Bool) -> [Self] {
         guard complete else { return [] }
-        let enabled = signals.filter(\.isRunnable).sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
+        let enabled = signals.filter(\.isRunnable)
         let ranks = Dictionary(uniqueKeysWithValues: enabled.enumerated().map { ($0.element.id, $0.offset) })
         let ordered = matches.filter { match in
             ranks[match.signal] != nil && match.item.identity != nil && !seen.contains { prior in

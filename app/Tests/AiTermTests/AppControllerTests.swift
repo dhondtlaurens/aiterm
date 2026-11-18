@@ -389,6 +389,47 @@ import Testing
         #expect(controller.state == locked)
     }
 
+    /// A signal heading's Move Up and Move Down reorder the headings and save the order; a command kept
+    /// from an earlier menu rechecks the current edge, and a locked workspace refuses.
+    @Test func movingASignalThroughItsHeadingCommandReordersAndSavesTheHeadings() throws {
+        var world = SignalWorld()
+        let first = world.signal(name: "First"), second = world.signal(name: "Second"), third = world.signal(name: "Third")
+        let gone = world.signal(name: "Gone")
+        world.workingTask(signal: gone)
+        world.state.signals.removeAll { $0.id == gone }
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state; $0.operatorOpen = true }
+        func command(_ id: UUID, _ title: String) throws -> RowCommand {
+            let section = try #require(controller.rows.signalSections.first { $0.id == id })
+            return try #require(HeadingRow(value: HeadingValue(section), controller: controller).commands()
+                .flatMap { $0 }.first { $0.title == title })
+        }
+        #expect(try !command(first, "Move Up").enabled && !command(third, "Move Down").enabled)
+        let down = try command(first, "Move Down")
+        #expect(down.enabled)
+        down.action()
+        let up = try command(third, "Move Up")
+        #expect(up.enabled)
+        up.action()
+        #expect(controller.state.signals.map(\.id) == [second, third, first])
+        #expect(controller.rows.signalSections.map(\.id) == [second, third, first, gone])
+        let reordered = controller.state
+        down.action()
+        #expect(controller.state == reordered, "a retained command rechecks the new edge")
+        #expect(controller.state.tasks == world.state.tasks && controller.state.items == world.state.items)
+        let saved = try controller.savedWorkspace()
+        #expect(saved.signals.map(\.id) == [second, third, first])
+        #expect(saved == controller.state)
+
+        try controller.breakSaving()
+        let locked = controller.state
+        #expect(!controller.moveSignal(second, .down))
+        try command(second, "Move Down").action()
+        #expect(controller.state == locked)
+    }
+
     @Test func aProjectKeepsTheJiraProjectsItIsGivenOnceEach() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }

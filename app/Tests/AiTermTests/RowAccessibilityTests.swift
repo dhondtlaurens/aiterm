@@ -201,16 +201,22 @@ import Testing
         for unlocked in [false, true] {
             if unlocked { try controller.workspace.load() }
             for enabled in [false, true] {
-                var signal = Signal.make()
-                signal.enabled = enabled
-                let value = HeadingValue(SignalSection(signal: signal, tasks: []))
-                let view = HeadingRow(value: value, controller: controller)
-                let toggle = enabled ? "Switch Off" : "Switch On"
-                expectCommands(view.commands(), titles: [["Edit Signal…", toggle], ["Remove Signal…"]],
-                    disabled: unlocked ? [] : ["Edit Signal…", toggle, "Remove Signal…"], destructive: ["Remove Signal…"])
-                var removed = value
-                removed.kind = .signal(source: signal.start.source, removed: true, paused: false)
-                expectCommands(HeadingRow(value: removed, controller: controller).commands(), titles: [])
+                for (up, down) in [(false, true), (true, true), (true, false), (false, false)] {
+                    var signal = Signal.make()
+                    signal.enabled = enabled
+                    var section = SignalSection(signal: signal, tasks: [])
+                    section.canMoveUp = up; section.canMoveDown = down
+                    let value = HeadingValue(section)
+                    let view = HeadingRow(value: value, controller: controller)
+                    let toggle = enabled ? "Switch Off" : "Switch On"
+                    expectCommands(view.commands(), titles: [["Edit Signal…", toggle], ["Move Up", "Move Down"], ["Remove Signal…"]],
+                        disabled: unlocked ? (up ? [] : ["Move Up"]) + (down ? [] : ["Move Down"])
+                            : ["Edit Signal…", toggle, "Move Up", "Move Down", "Remove Signal…"],
+                        destructive: ["Remove Signal…"])
+                    var removed = value
+                    removed.kind = .signal(source: signal.start.source, removed: true, paused: false, canMoveUp: up, canMoveDown: down)
+                    expectCommands(HeadingRow(value: removed, controller: controller).commands(), titles: [])
+                }
             }
         }
     }
