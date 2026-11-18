@@ -3,9 +3,9 @@ import Testing
 @testable import AiTerm
 
 @MainActor struct SignalSnapshotTests {
-    @Test func everySourceAndEventHasEveryStepAndTheDrawingsStayStill() throws {
+    @Test func everyStepOfAJiraAndAGitLabSignalIsDrawnAndTheDrawingsStayStill() throws {
         let snapshots = SignalSnapshots.all
-        #expect(snapshots.count == 28)
+        #expect(snapshots.count == 14)
         #expect(Set(snapshots.map(\.file)).count == snapshots.count)
         let registered = Set(Snapshots.regressionSet.map(\.file))
         for snapshot in snapshots {

@@ -86,6 +86,16 @@ import Testing
         #expect(abs(host.fittingSize.height - scale(Size.control)) < 0.5)
     }
 
+    /// The small variant, for an action on a field's label row: a menu row tall, its label a step smaller.
+    @Test func theSmallVariantIsAMenuRowTall() {
+        let host = NSHostingView(rootView: Button("Write JQL") {}.buttonStyle(.push(.secondary)).controlSize(.small))
+        host.layoutSubtreeIfNeeded()
+        #expect(abs(host.fittingSize.height - Size.menuRow) < 0.5)
+        #expect(PushButtonStyle.font(.secondary, controlSize: .small) == Typography.caption)
+        #expect(PushButtonStyle.font(.primary, controlSize: .small) == Typography.label)
+        #expect(PushButtonStyle.font(.secondary, controlSize: .large) == Typography.body)
+    }
+
     /// Still a native button: its key equivalent fires it while it is enabled, and a disabled one takes
     /// neither the key nor the action.
     @Test func itKeepsItsKeyAndADisabledOneDoesNotFire() {

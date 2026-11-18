@@ -18,13 +18,14 @@ import Testing
         let digest = OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true)
         #expect(digest.tasks.first?.journal.contains { if case .quoted(let quote) = $0.text { quote.text == instruction } else { false } } == true)
     }
-    @Test func anOperatorJudgmentKeepsWatchingUntilItsOptedInMergeIsConfirmed() async throws {
-        var world = SignalWorld(); let signal = world.signal(); world.state.signals[0].finish.mergesWhenReady = true
+    /// The Operator never decides done: a done or skipped stage waits for its Done trigger, with or without a merge.
+    @Test(arguments: [("done", false), ("skipped", false), ("done", true)])
+    func finishStageHandsTheStageToItsDoneTrigger(outcome: String, merges: Bool) async throws {
+        var world = SignalWorld(); let signal = world.signal(merges: merges)
         let id = world.workingTask(signal: signal), h = try SignalHarness(world); defer { h.cleanUp() }
-        let answer = await make(h, world: world).respond(request(h, tool: "finish_stage", arguments(id, key: "done", extra: ["outcome": "done", "evidence": "The review passed."])))
+        let answer = await make(h, world: world).respond(request(h, tool: "finish_stage", arguments(id, key: "done", extra: ["outcome": .string(outcome), "evidence": "The review passed."])))
         #expect(answer.message == nil)
-        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .watching(.operatorJudges))
-        #expect(h.workspace.state.task(id: id)?.signalTask?.operatorJudged == true)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .watching)
     }
     @Test func newToolsReplayAcrossRestartAndRefuseChangedArgumentsAndOldAuthority() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
@@ -85,16 +86,6 @@ import Testing
         try h.workspace.load()
         let replay = await handler.respond(request(h, tool: "message_task", args))
         #expect(replay.value?["status"] == "uncertain" && calls == 1)
-    }
-
-    @Test func finishHandsHostConditionsToTheWatchInsteadOfInventingEvidence() async throws {
-        var world = SignalWorld(); let signal = world.signal(done: .approved)
-        let id = world.workingTask(signal: signal)
-        let h = try SignalHarness(world); defer { h.cleanUp() }
-        let handler = make(h, world: world)
-        let result = await handler.respond(request(h, tool: "finish_stage", arguments(id, key: "finish", extra: ["outcome": "done", "evidence": "Published the draft request."])))
-        #expect(result.message == nil)
-        #expect(h.workspace.state.signalItem(id: id)?.signalTask?.phase == .watching(.approved))
     }
 
     @Test func chatQuestionsCountAndOracleCallsReplayWithoutNewConsultations() async throws {
@@ -238,11 +229,11 @@ import Testing
         await entered.wait()
         let message = await handler.respond(request(h, tool: "message_task", arguments(id, key: "steer", extra: ["text": "Continue."])))
         #expect(message.message == "This worker is not idle and ready for a message." && messages == 0)
-        await #expect(throws: SignalTransitionError.workerIsWorking) { try await handler.stages.finish(id, action: .finish(.operatorJudges), judged: true) }
+        await #expect(throws: SignalTransitionError.workerIsWorking) { try await handler.stages.finish(id, action: .finish) }
         #expect(launches == 0 && h.workspace.state.task(id: id)?.signalTask?.current.signal == signal)
         release.signal()
         #expect(await round.value.value?["status"] == "answered")
-        try await handler.stages.finish(id, action: .finish(.operatorJudges), judged: true)
+        try await handler.stages.finish(id, action: .finish)
         #expect(launches == 1 && h.workspace.state.task(id: id)?.signalTask?.current.signal == next)
     }
 

@@ -2,25 +2,14 @@ import SwiftUI
 import AiTermCore
 import AiTermUI
 
+/// The Done trigger, merge when ready where the Start trigger's merge requests are the person's own, and Then.
 struct SignalDoneStep: View {
     @Bindable var model: SignalModel
     var body: some View {
-        FormField("Done when") {
-            HStack(alignment: .top, spacing: Space.gap) {
-                Select(values: Array(model.doneChoices.indices), selection: Binding(get: {
-                    model.doneChoices.firstIndex(of: model.done) ?? 0
-                }, set: { index in model.done = model.doneChoices[index] }),
-                       label: { Self.label(model.doneChoices[$0]) })
-                if case .ticketStatus = model.done {
-                    if statusChoices.isEmpty { Input(placeholder: "Status in Jira", text: $model.status) }
-                    else { Select(values: statusChoices, selection: $model.status, label: { $0 }) }
-                }
-            }
-            HelpText(Self.help(model.done))
-        }
+        SignalTriggerStep(model: model, start: false)
         if model.offersMerge {
             DescriptionToggle("Merge it when it’s ready", isOn: $model.mergeWhenReady,
-                              help: "Once it’s approved, the pipeline is green, every thread is resolved and the Oracle agrees. AiTerm merges; a worker never does.")
+                              help: "AiTerm merges through the host once it’s approved, its checks pass and its threads are resolved, unless the Oracle vetoes. Offered when the merge request is yours.")
         }
         FormField("Then") {
             SegmentedControl(values: SignalFinish.Then.allCases, selection: $model.then) { value, _ in
@@ -44,60 +33,37 @@ struct SignalDoneStep: View {
     private static func thenLabel(_ then: SignalFinish.Then) -> String {
         switch then { case .unknown: "Not supported by this version"; case .keep: "Keep the task"; case .archive: "Archive it"; case .remove: "Remove it" }
     }
-    private var statusChoices: [String] {
-        Array(Set(model.metadata.statuses.map(\.name) + (model.status.isEmpty ? [] : [model.status]))).sorted()
-    }
-    static func label(_ condition: DoneWhen) -> String {
-        switch condition {
-        case .operatorJudges: "The Operator judges it done"
-        case .hasReviewer: "Its merge request has a reviewer"
-        case .approved: "Its merge request is approved"
-        case .threadsResolved: "Every thread is resolved"
-        case .merged: "Its merge request is merged"
-        case .ticketStatus: "The ticket reaches a status"
-        case .myReviewPosted: "My review is posted"
-        case .mergedOrClosed: "Merged or closed"
-        case .unknown: "Unsupported condition"
-        }
-    }
-    static func help(_ condition: DoneWhen) -> String {
-        switch condition {
-        case .operatorJudges: "The Operator judges the work against your prompt."
-        case .hasReviewer: "Someone is set to review it. The Operator lets go of the task."
-        case .approved: "People on the host have approved its current changes."
-        case .threadsResolved: "No open thread is left on it. The Operator lets go of the task."
-        case .merged: "You or a colleague merges it. The Operator follows the task until then."
-        case .ticketStatus: "Its status in Jira. The Operator lets go of the task."
-        case .myReviewPosted: "AiTerm sees a review, comments or an approval from you, made after the task started."
-        case .mergedOrClosed: "You or a colleague merges or closes it."
-        case .unknown: "This version of AiTerm cannot follow this condition."
-        }
-    }
 }
 
-/// What a signal will do, end to end, in one paragraph: New Signal's closing block on its Done step.
+/// What a signal will do, end to end, in one paragraph: New Signal's closing block on its Done when step.
 struct SignalDoneSummary: View {
     let model: SignalModel
     var body: some View {
-        Text(life).font(Typography.body).foregroundStyle(Palette.text).fixedSize(horizontal: false, vertical: true)
+        life.font(Typography.body).foregroundStyle(Palette.text).fixedSize(horizontal: false, vertical: true)
     }
-    private var life: String {
-        let what = model.sourceKind == .jira ? "ticket that matches" : model.event == .reviewRequested ? "review you’re asked for" : "merge request of yours that needs you"
-        let agents = ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }.map(\.displayName).joined(separator: " or ")
+    private var life: Text {
+        let start = model.start
+        let what = switch (start.source, start.startRole) {
+        case (.jira, _): "Each ticket that matches starts a task"
+        case (_, .reviewer?): "Each merge request that matches starts a review task"
+        case (_, .author?), (_, .assignee?): "Each merge request that matches starts a task"
+        case (_, nil): "Each merge request that matches starts a task, a review task unless it’s yours"
+        }
+        // The query, never the description: free words do not read inside this sentence.
+        let query = model.done.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let condition = query.isEmpty ? Text("its Done query matches")
+            : Text("it matches ") + Text(query).fontWeight(.semibold)
         let ending = switch model.then {
         case .unknown: "this version cannot finish it"
-        case .keep: "the task is kept"
-        case .archive: "it’s archived"
-        case .remove: model.deleteMergedBranch ? "it’s removed, and its branch deleted only if it’s merged and unchanged" : "it’s removed"
+        case .keep: "its task is kept"
+        case .archive: "its task is archived"
+        case .remove: model.deleteMergedBranch ? "its task is removed, and its branch deleted only if it’s merged and unchanged" : "its task is removed"
         }
-        let condition = if case .ticketStatus = model.done { "the ticket reaches " + model.status }
-            else if model.done == .operatorJudges { "the Operator judges it done" }
-            else if model.done == .myReviewPosted { "your review is posted" }
-            else { SignalDoneStep.label(model.done).lowercased() }
-        let merge = model.finish.mergesWhenReady ? "AiTerm merges it when it’s ready and " : ""
+        let finish = model.finish.mergesWhenReady
+            ? Text("AiTerm merges it once it’s ready, and it’s done when merged or closed. ")
+            : Text("It’s done when ") + condition + Text(", or its merge request is merged or closed. ")
         let count = model.startCount.map { "\($0) \($0 == 1 ? "item matches" : "items match") now and \($0 == 1 ? "starts" : "start") at once." }
             ?? "AiTerm checks for matches when you save."
-        return "Each \(what) starts a task for \(agents). The Operator and the Oracle answer its questions and ask you only when they disagree or it’s yours to decide. "
-            + "It’s done when \(condition); then \(merge)\(ending). \(count)"
+        return Text(what + ", and a later match continues it. ") + finish + Text("Then ") + Text(ending).fontWeight(.semibold) + Text(". " + count)
     }
 }

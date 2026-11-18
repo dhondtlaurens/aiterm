@@ -122,28 +122,28 @@ import Testing
         { _ = rows.entries; _ = rows.signalSections; _ = rows.terminals }
     }
 
-    /// A done check that read only new reviewers or a new thread count changes the waiting task's line, and nothing else.
-    @Test func newReviewersOrThreadCountsAloneRedrawTheWaitingLine() throws {
+    /// A host read that found only what a merge lacks changes the waiting task's line, and nothing else.
+    @Test func mergeBlockersAloneRedrawTheWaitingLine() throws {
         let controller = try controller(); defer { controller.shutdown() }
-        let signal = Signal(name: "Requests", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
-            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .approved, then: .keep))
+        let signal = Signal(name: "Requests", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(then: .keep, mergesWhenReady: true))
         var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
-        record.phase = .watching(.approved)
+        record.phase = .watching
         controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record }
         let rows = controller.rows
         func line() -> String? { rows.signalSections.first?.tasks.first?.operatorLine?.text }
-        #expect(line() == "waiting on reviewer approval")
-        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ann Peeters"]) } }
-        #expect(line() == "waiting on approval · Ann")
-        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ben Aerts"]) } }
-        #expect(line() == "waiting on approval · Ben")
+        #expect(line() == "status = Done")
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(mergeBlockers: [.approval]) } }
+        #expect(line() == "waiting to merge · approval")
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(mergeBlockers: [.checks]) } }
+        #expect(line() == "waiting to merge · checks")
     }
     /// Each fact a driven row draws, changed alone, derives the rows once and changes that row: its blocked reason,
     /// what it waits on, a question for it, and its window closing with its worker's conversation saved.
     @Test func eachDrawnDrivenFactDerivesOnceAndChangesItsRow() throws {
         let controller = try controller(); defer { controller.shutdown() }
-        let signal = Signal(name: "Requests", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
-            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .approved, then: .keep))
+        let signal = Signal(name: "Requests", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(then: .keep, mergesWhenReady: true))
         var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date())
         record.phase = .blocked; record.blockedReason = "Pick a project."
         controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record; $0.operatorSession = OperatorSession(createdAt: Date()) }
@@ -160,11 +160,11 @@ import Testing
         let blocked = try changesOnce { controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.blockedReason = "Pick an agent." } } }
         #expect(blocked.before.operatorLine?.tooltip == "Pick a project." && blocked.after.operatorLine?.tooltip == "Pick an agent.")
 
-        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.phase = .watching(.approved) } }
+        controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.phase = .watching } }
         let waiting = try changesOnce {
-            controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(reviewers: ["Ann Peeters"]) } }
+            controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(mergeBlockers: [.approval]) } }
         }
-        #expect(waiting.before.operatorLine?.text == "waiting on reviewer approval" && waiting.after.operatorLine?.text == "waiting on approval · Ann")
+        #expect(waiting.before.operatorLine?.text == "status = Done" && waiting.after.operatorLine?.text == "waiting to merge · approval")
 
         let asked = try changesOnce {
             controller.workspace.mutate { $0.operatorSession?.questions = [.init(id: "q", task: Self.taskId, text: "Which locale?", openedAt: Date())] }
@@ -185,8 +185,8 @@ import Testing
     }
     @Test func journalAndReplyIntentsDoNotDeriveOrInvalidateDrawnRows() throws {
         let controller = try controller(); defer { controller.shutdown() }
-        let signal = Signal(name: "Tickets", createdAt: Date(), source: .jira(JiraConditions()), work: SignalWork(prompt: "Work"),
-            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+        let signal = Signal(name: "Tickets", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(then: .keep))
         var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"), startedAt: Date()); record.phase = .working
         controller.workspace.mutate { $0.signals = [signal]; $0.updateSignalTask(Self.taskId) { $0 = record } }
         // The ordinary row initially has no SignalTask to update.

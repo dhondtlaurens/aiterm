@@ -6,7 +6,7 @@ import Testing
 @Suite struct SignalDomainTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    @Test(arguments: [TaskPhase.launching, .choosing, .working, .watching(.approved), .blocked,
+    @Test(arguments: [TaskPhase.launching, .choosing, .working, .watching, .blocked,
                       .done, .archived, .unknown(.string("future"))])
     func aTaskIsUnderTheOperatorExactlyWhenItHasARecord(_ phase: TaskPhase) throws {
         var world = SignalWorld()
@@ -19,8 +19,8 @@ import Testing
     }
 
     func signal(_ name: String = "Tickets", createdAt: Date? = nil) -> Signal {
-        Signal(name: name, createdAt: createdAt ?? now, source: .jira(JiraConditions()),
-               work: SignalWork(prompt: "/psg:plan"), agents: [], finish: SignalFinish(doneWhen: .operatorJudges))
+        Signal(name: name, createdAt: createdAt ?? now, start: SignalTrigger(source: .jira, query: "labels = operator"),
+               done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "/psg:plan"), agents: [], finish: SignalFinish())
     }
 
     func stage(_ signal: Signal, _ item: ItemRef, prompt: String? = nil) -> SignalStage {
@@ -42,7 +42,7 @@ import Testing
     @Test func anIdleMatchCannotJumpAheadOfStagesQueuedWhileTheWorkerWasBusy() throws {
         let original = signal(), first = signal("First"), second = signal("Second"), latest = signal("Latest")
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
-        var task = SignalTask(current: stage(original, item), startedAt: now); task.phase = .watching(.approved)
+        var task = SignalTask(current: stage(original, item), startedAt: now); task.phase = .watching
         for next in [first, second] {
             task = try SignalTransitions.apply(.matched(stage(next, item)), to: task, at: now, workerIsWorking: true)
         }
@@ -50,13 +50,9 @@ import Testing
         #expect(task.current.signal == first.id && task.phase == .launching)
         #expect(task.pendingStages.map(\.signal) == [second.id, latest.id])
     }
-    @Test func jqlQuotesAllChipsAndManualQueryWins() {
-        let conditions = JiraConditions(labels: ["agent\"ready", "back\\log"], inOpenSprints: true,
-                                        assignee: "me", statuses: ["In Progress"], projects: ["PAY"])
-        #expect(JQL.compile(conditions) == #"labels in ("agent\"ready", "back\\log") AND sprint in openSprints() AND assignee = currentUser() AND status in ("In Progress") AND project in ("PAY")"#)
-        var manual = conditions; manual.jql = " project = OTHER ORDER BY updated DESC "
-        #expect(JQL.compile(manual) == "project = OTHER ORDER BY updated DESC")
-        #expect(JQL.compile(JiraConditions()) == "")
+    @Test func aTicketKeyIsQuotedIntoItsJQL() {
+        #expect(JiraQueryReader.ticket("PAY-1") == #"key = "PAY-1""#)
+        #expect(JiraQueryReader.ticket(#"PAY"1\"#, matching: "status = Done") == #"key = "PAY\"1\\" AND (status = Done)"#)
     }
 
     @Test func itemIdentityCanonicalizesRemoteAndKeepsHostAndTicketSite() {
@@ -68,14 +64,46 @@ import Testing
         #expect(ItemRef.ticket(site: "https://jira.example", key: "PAY-1").identity != ItemRef.ticket(site: "https://other.example", key: "PAY-1").identity)
     }
 
-    @Test func finishChoicesFollowSourceAndCannotMergeSomeoneElsesRequest() {
-        let review = SignalSource.gitLab(RequestConditions(event: .reviewRequested))
-        #expect(SignalFinish(doneWhen: .myReviewPosted, then: .archive).isValid(for: review))
-        #expect(!SignalFinish(doneWhen: .approved, mergesWhenReady: true).isValid(for: review))
-        #expect(SignalFinish(doneWhen: .approved, then: .remove, deletesMergedBranch: true).isValid(for: .jira(JiraConditions())),
-                "Remove offers a branch cleanup that still requires proof the branch was merged.")
-        #expect(!SignalFinish(doneWhen: .merged, mergesWhenReady: true).isValid(for: .jira(JiraConditions())))
-        #expect(!SignalFinish(doneWhen: .ticketStatus("Done")).isValid(for: .gitHub(RequestConditions(event: .myRequest))))
+    struct Validity: CustomTestStringConvertible, Sendable {
+        var start: SignalTrigger
+        var done = SignalTrigger(source: .jira, query: "status = Done")
+        var finish = SignalFinish()
+        var valid: Bool
+        var testDescription: String { start.query + " / " + done.query }
+    }
+    static let validity: [Validity] = [
+        Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), valid: true),
+        Validity(start: SignalTrigger(source: .jira, query: "  "), valid: false),
+        Validity(start: SignalTrigger(source: .gitLab, query: "review-state:unreviewed"), valid: false),
+        Validity(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"), done: SignalTrigger(source: .gitLab, query: "reviewer:any"), valid: true),
+        Validity(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"), done: SignalTrigger(source: .gitLab, query: "author:@me reviewer:@me"), valid: false),
+        Validity(start: SignalTrigger(source: .gitHub, query: "user-review-requested:@me"), done: SignalTrigger(source: .gitHub, query: "is:issue"), valid: false),
+        Validity(start: SignalTrigger(source: .unknown("linear"), query: "mine"), valid: false),
+        // Merge when ready only where the Start trigger's merge requests are the person's own.
+        Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(mergesWhenReady: true), valid: true),
+        Validity(start: SignalTrigger(source: .gitLab, query: "author:@me"), finish: SignalFinish(mergesWhenReady: true), valid: true),
+        Validity(start: SignalTrigger(source: .gitHub, query: "assignee:@me"), finish: SignalFinish(mergesWhenReady: true), valid: true),
+        Validity(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"), finish: SignalFinish(mergesWhenReady: true), valid: false),
+        Validity(start: SignalTrigger(source: .gitHub, query: "review-requested:@me"), finish: SignalFinish(mergesWhenReady: true), valid: false),
+        Validity(start: SignalTrigger(source: .gitHub, query: "repo:shop/webshop"), finish: SignalFinish(mergesWhenReady: true), valid: false),
+        // Remove offers a branch cleanup that still requires proof the branch was merged.
+        Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(then: .remove, deletesMergedBranch: true), valid: true),
+        Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(then: .archive, deletesMergedBranch: true), valid: false),
+        Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(then: .unknown("later")), valid: false),
+    ]
+    @Test(arguments: validity) func aSignalRunsOnlyWithQueriesThatRunAndAFinishItsStartAllows(_ row: Validity) {
+        var value = signal(); value.start = row.start; value.done = row.done; value.finish = row.finish
+        #expect(value.isValid == row.valid && value.isRunnable == row.valid)
+        value.enabled = false
+        #expect(!value.isRunnable)
+    }
+
+    @Test func aStartQueryNamesItsRole() {
+        #expect(SignalTrigger(source: .gitLab, query: "reviewer:@me -author:@me").startRole == .reviewer)
+        #expect(SignalTrigger(source: .gitHub, query: "is:open AUTHOR:@ME").startRole == .author)
+        #expect(SignalTrigger(source: .gitHub, query: "-assignee:@me user-review-requested:@me").startRole == .reviewer)
+        #expect(SignalTrigger(source: .gitHub, query: "repo:shop/webshop").startRole == nil)
+        #expect(SignalTrigger(source: .jira, query: "assignee = currentUser()").startRole == nil)
     }
 
     @Test func completeReadStartsOnlyMappedItemsNotAlreadyMatchingForThisSignal() {
@@ -129,18 +157,18 @@ import Testing
         task = try SignalTransitions.apply(.matched(stage(third, item)), to: task, at: now)
         #expect(task.current.signal == first.id && task.pendingStages.map(\.signal) == [second.id, third.id])
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.advancePending, to: task, at: now, workerIsWorking: true) }
-        task = try SignalTransitions.apply(.finish(.operatorJudges), to: task, at: now)
+        task = try SignalTransitions.apply(.finish, to: task, at: now)
         #expect(task.phase == .launching && task.current.signal == second.id && task.stage == 2)
         #expect(!task.canRunThen && task.pendingStages.map(\.signal) == [third.id])
         task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
-        task = try SignalTransitions.apply(.finish(.operatorJudges), to: task, at: now)
+        task = try SignalTransitions.apply(.finish, to: task, at: now)
         #expect(task.current.signal == third.id && task.stage == 3)
         task = try SignalTransitions.apply(.workerStarted, to: task, at: now)
-        task = try SignalTransitions.apply(.finish(.operatorJudges), to: task, at: now)
+        task = try SignalTransitions.apply(.finish, to: task, at: now)
         #expect(task.phase == .done && task.canRunThen)
     }
 
-    @Test(arguments: [TaskPhase.watching(.approved), .done, .archived])
+    @Test(arguments: [TaskPhase.watching, .done, .archived])
     func idleStageContinuesInSameTask(_ phase: TaskPhase) throws {
         let s = signal(), next = signal("Next"), item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
         var task = SignalTask(current: stage(s, item), startedAt: now); task.phase = phase
@@ -154,8 +182,9 @@ import Testing
         let queued = SignalStage(signal: second.id, item: .request(remote: "git@git.example:shop/web.git", number: 7),
                                  matchedAt: now.addingTimeInterval(-30), configuration: other, prompt: "Review the request.")
         var task = SignalTask(current: stage(first, item, prompt: "Plan the ticket."), startedAt: now); task.phase = .working
-        task.pendingStages = [queued]
-        let next = try SignalTransitions.apply(.finish(.operatorJudges), to: task, at: now.addingTimeInterval(60))
+        task.pendingStages = [queued]; task.doneMatched = false
+        let next = try SignalTransitions.apply(.finish, to: task, at: now.addingTimeInterval(60))
+        #expect(next.doneMatched == nil, "A new stage reads its own Done baseline.")
         #expect(next.current == queued && next.current.configuration.work.prompt == "/psg:review")
         #expect(next.stage == task.stage + 1 && next.ownership == task.ownership + 1)
         #expect(next.startedAt == now.addingTimeInterval(60) && next.pendingStages.isEmpty)
@@ -178,16 +207,28 @@ import Testing
         #expect(id == task.id && continued.configuration == new)
     }
 
-    @Test func doneCheckDistinguishesUnreadableHostAndReviewBeforeStage() {
+    struct Edge: CustomTestStringConvertible, Sendable {
+        var before: Bool?
+        var matches: Bool
+        var merged = false
+        var closed = false
+        var done: Bool
+        var testDescription: String { "\(String(describing: before)) → \(matches)\(merged ? " merged" : "")\(closed ? " closed" : "")" }
+    }
+    static let edges: [Edge] = [
+        Edge(before: false, matches: true, done: true),
+        Edge(before: true, matches: true, done: false),
+        Edge(before: false, matches: false, done: false),
+        Edge(before: true, matches: false, done: false),
+        // No observation yet: a match is the baseline, not an edge.
+        Edge(before: nil, matches: true, done: false),
+        Edge(before: true, matches: true, merged: true, done: true),
+        Edge(before: nil, matches: false, closed: true, done: true),
+    ]
+    @Test(arguments: edges) func doneIsTheQueryStartingToMatchOrTheRequestMergedOrClosed(_ row: Edge) {
         var facts = DoneCheck.Facts()
-        #expect(DoneCheck.evaluate(.approved, facts: facts, stageStartedAt: now) == .unknown)
-        facts.hostReadComplete = true; facts.approved = true; facts.reviewPostedAt = now.addingTimeInterval(-1)
-        #expect(DoneCheck.evaluate(.approved, facts: facts, stageStartedAt: now) == .reached)
-        #expect(DoneCheck.evaluate(.myReviewPosted, facts: facts, stageStartedAt: now) == .waiting)
-        facts.reviewPostedAt = now
-        #expect(DoneCheck.evaluate(.myReviewPosted, facts: facts, stageStartedAt: now) == .reached)
-        facts.ticketReadComplete = true; facts.ticketStatus = "Done"
-        #expect(DoneCheck.evaluate(.ticketStatus("Done"), facts: facts, stageStartedAt: now) == .reached)
+        facts.doneMatches = row.matches; facts.merged = row.merged; facts.closed = row.closed
+        #expect(DoneCheck.reached(facts, before: row.before) == row.done)
     }
 
     @Test func freshStartOnlyForAnOpenIdleChat() {
@@ -209,9 +250,7 @@ import Testing
             let decoded = try json.decode(type)
             #expect(try JSONValue(encoding: decoded) == json)
         }
-        try check(SignalSource.self); try check(ItemRef.self); try check(DoneWhen.self)
-        try check(TaskPhase.self); try check(JournalText.self)
-        #expect(try !json.decode(SignalSource.self).isSupported)
+        try check(ItemRef.self); try check(TaskPhase.self); try check(JournalText.self)
     }
 
     @Test func newWorkspaceKeysCoexistWithCurrentContracts() throws {
@@ -299,10 +338,10 @@ import Testing
     }
 
     @Test func unsupportedFinishAndUnknownRecordsStayInertAndCanBePersisted() throws {
-        var s = signal(); s.finish = SignalFinish(doneWhen: .myReviewPosted)
+        var s = signal(); s.done = SignalTrigger(source: .unknown("future"), query: "mine")
         #expect(!s.isRunnable)
         #expect(try JSONValue(encoding: s).decode(Signal.self) == s)
-        s.finish = SignalFinish(doneWhen: .unknown(["kind": "future"]))
+        s.done.source = .jira; s.finish = SignalFinish(then: .unknown("future"))
         #expect(!s.isRunnable)
         #expect(try JSONValue(encoding: s).decode(Signal.self) == s)
         var task = SignalTask(current: stage(s, .ticket(site: "https://jira.example", key: "PAY-1")), startedAt: now)
@@ -310,6 +349,24 @@ import Testing
         #expect(throws: SignalTransitionError.self) {
             try SignalTransitions.apply(.matched(stage(s, task.current.item)), to: task, at: now)
         }
+    }
+
+    /// A task's line carries the triggers and finish its stage matched with; the signals list the current ones.
+    @Test func theDigestKeepsAStagesTriggersAfterItsSignalIsEditedOrRemoved() throws {
+        var world = SignalWorld(); let signal = world.signal(merges: true), id = world.workingTask(signal: signal)
+        world.state.signals[0].start.query = "labels = later"
+        world.state.signals[0].done = SignalTrigger(source: .gitLab, query: "reviewer:any")
+        world.state.signals[0].finish = SignalFinish(then: .archive)
+        var digest = OperatorDigest(state: world.state, at: now, oracleOn: false)
+        var line = try #require(digest.tasks.first { $0.id == id })
+        #expect(line.start == OperatorDigest.TriggerLine(SignalTrigger(source: .jira, query: "labels = operator")))
+        #expect(line.done == OperatorDigest.TriggerLine(SignalTrigger(source: .jira, query: "status = Done")))
+        #expect(line.finish == SignalFinish(then: .keep, mergesWhenReady: true))
+        #expect(digest.signals.first?.done.query == "reviewer:any" && digest.signals.first?.start.query == "labels = later")
+        world.state.signals = []
+        digest = OperatorDigest(state: world.state, at: now, oracleOn: false)
+        line = try #require(digest.tasks.first { $0.id == id })
+        #expect(line.done.query == "status = Done" && digest.signals.isEmpty)
     }
 
     @Test func digestExcludesQuotedHostTextAndPersistsTheTaskRecord() throws {
@@ -403,16 +460,6 @@ import Testing
         let phase = try saved.decode(TaskPhase.self)
         #expect(phase == .unknown(saved))
         #expect(try JSONValue(encoding: phase) == saved)
-    }
-
-    @Test(arguments: [DoneWhen.hasReviewer, .approved, .threadsResolved, .merged, .myReviewPosted, .mergedOrClosed])
-    func hostDoneConditionsRequireACompleteRead(_ condition: DoneWhen) {
-        var facts = DoneCheck.Facts()
-        facts.hasReviewer = true; facts.approved = true; facts.threadsResolved = true
-        facts.merged = true; facts.reviewPostedAt = now
-        #expect(DoneCheck.evaluate(condition, facts: facts, stageStartedAt: now) == .unknown)
-        facts.hostReadComplete = true
-        #expect(DoneCheck.evaluate(condition, facts: facts, stageStartedAt: now) == .reached)
     }
 
     @Test func aStageWaitsInChoosingUntilTheOperatorChoosesThenLaunchesUnderANewOwnership() throws {

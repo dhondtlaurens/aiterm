@@ -35,7 +35,7 @@ signed-in providers; run `/login` in PI if none are available.
 **Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet summarises
 the destination before launch. An ordinary **New Review…** uses the normal agent launch command;
 signal workers also use the task-branch publishing guard. See the
-[Operator guide](operators.md#publishing-done-conditions-and-merging) for publishing and merge boundaries.
+[Operator guide](operators.md#publishing-done-and-merging) for publishing and merge boundaries.
 
 ## Operator
 
@@ -43,8 +43,8 @@ Choose the Operator's Claude Code model and reasoning, the Oracle's agent/model/
 standing instructions under **Steer the Operator**. The page explains what each role does and
 when it asks you. Saved instructions reach the current chat and subsequent Oracle checks.
 
-A **signal** watches Jira, GitLab or GitHub, starts a task per matching item and follows your
-prompt and done condition. Permitted workers and automatic merging are chosen per signal.
+A **signal** watches Jira, GitLab or GitHub, starts a task per item matching its Start query and
+follows your prompt until the item matches its Done query. Permitted workers and automatic merging are chosen per signal.
 The Operator and Oracle answer worker questions together; questions needing you arrive in the
 Operator's own chat. With the Oracle off, those answers reach you and automatic merging waits.
 

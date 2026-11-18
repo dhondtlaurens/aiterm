@@ -49,7 +49,7 @@ import Synchronization
         let stub = StubSession { _ in (200, Data(#"{"isLast":true,"issues":[]}"#.utf8)) }
         let client = JiraClient(config: config, session: stub.session)
         _ = try await client.myOpenIssues()
-        _ = try await JiraQueryReader(client: client, conditions: JiraConditions(jql: JiraClient.openIssuesJQL))
+        _ = try await JiraQueryReader(client: client, jql: JiraClient.openIssuesJQL)
             .poll(since: nil, full: true)
         let bodies = try stub.requests.map { request in
             try JSONDecoder().decode([String: JSONValue].self, from: request.httpBody ?? Data())

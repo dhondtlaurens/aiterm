@@ -6,8 +6,8 @@ import Testing
 @Suite(.blocking) struct SignalForwardCompatibilityTests {
     @Test func anUnsupportedSavedCombinationDoesNotPreventSavingTheWorkspace() throws {
         var world = SignalWorld(); _ = world.signal()
-        world.state.signals[0].source = .gitHub(RequestConditions(event: .reviewRequested))
-        world.state.signals[0].finish = SignalFinish(doneWhen: .approved, mergesWhenReady: true)
+        world.state.signals[0].start = SignalTrigger(source: .gitHub, query: "user-review-requested:@me")
+        world.state.signals[0].finish = SignalFinish(mergesWhenReady: true)
         #expect(!world.state.signals[0].isRunnable)
         let folder = try ScratchFolder.make("aiterm-signal-future-")
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -18,18 +18,18 @@ import Testing
     @Test func futureStringChoicesRoundTripAndRemainInert() throws {
         let raw: JSONValue = "from-a-newer-build"
         #expect(try JSONValue(encoding: raw.decode(SignalFinish.Then.self)) == raw)
-        #expect(try JSONValue(encoding: raw.decode(RequestConditions.Event.self)) == raw)
+        #expect(try JSONValue(encoding: raw.decode(SignalTrigger.Source.self)) == raw)
         #expect(try JSONValue(encoding: raw.decode(SignalSeen.Disposition.self)) == raw)
-        let source: JSONValue = ["kind": "gitHub", "value": ["event": raw, "waitingOnMyReply": true, "sentBackToMe": true, "projects": []]]
-        #expect(try !source.decode(SignalSource.self).isSupported)
-        #expect(try JSONValue(encoding: source.decode(SignalSource.self)) == source)
-        let finish: JSONValue = ["doneWhen": ["kind": "operatorJudges"], "then": raw, "mergesWhenReady": false, "deletesMergedBranch": false]
-        #expect(try !finish.decode(SignalFinish.self).isValid(for: .jira(JiraConditions())))
         var world = SignalWorld(); let signal = world.signal(), item = world.ticket().item
+        var future = world.state.signals[0]
+        future.start.source = try raw.decode(SignalTrigger.Source.self)
+        #expect(!future.isRunnable)
+        future.start.source = .jira; future.finish.then = try raw.decode(SignalFinish.Then.self)
+        #expect(!future.isRunnable)
         let old = SignalSeen(signal: signal, item: item, disposition: .started, at: world.now)
         var object = try #require(JSONValue(encoding: old).objectValue); object["disposition"] = raw
-        let future = try JSONValue.object(object).decode(SignalSeen.self)
+        let seen = try JSONValue.object(object).decode(SignalSeen.self)
         let match = SignalMatch(signal: signal, item: item, project: world.project.id, matchedAt: world.now)
-        #expect(MatchDecision.decide(matches: [match], signals: world.state.signals, tasks: [], seen: [future], complete: true).isEmpty)
+        #expect(MatchDecision.decide(matches: [match], signals: world.state.signals, tasks: [], seen: [seen], complete: true).isEmpty)
     }
 }

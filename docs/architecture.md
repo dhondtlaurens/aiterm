@@ -94,10 +94,10 @@ Associated enum kinds use inert unknown fallbacks rather than losing the workspa
 
 | Owner | Decisions/effects |
 | --- | --- |
-| `MatchDecision`, `SignalTransitions`, `DoneCheck`, `FreshStartPolicy` | Pure identity/routing, the stage machine (`SignalTransitions.apply` of a `SignalAction` to the phases launching, choosing, working, watching, blocked, done and archived), source-specific completion and idle fresh-start decisions. Pending stages outrank Then. |
+| `MatchDecision`, `SignalTransitions`, `DoneCheck`, `FreshStartPolicy` | Pure identity/routing, the stage machine (`SignalTransitions.apply` of a `SignalAction` to the phases launching, choosing, working, watching, blocked, done and archived), the done edge (the Done query starting to match, or a merge or close) and idle fresh-start decisions. Pending stages outrank Then. |
 | `SignalPoller`, source readers | Shared complete reads, minute polling, ten-minute Jira sweeps and failure backoff. Partial reads cannot start tasks. |
-| `ItemRouter` | Map matches to existing tasks/projects, persist skipped reasons, choose the oldest signal in a shared pass. No clone or pick-up writes. |
-| `StageRunner` | Persist launch intent, prepare/restore the same task, launch one worker, advance or block its stage; a stage with a row or project left to choose waits in `choosing` until a decided choice is applied. |
+| `ItemRouter` | Map matches to existing tasks/projects, persist skipped reasons, choose the oldest signal in a shared pass, make a merge request a review task unless the account authored it or is an assignee. No clone or pick-up writes. |
+| `StageRunner` | Persist launch intent, prepare/restore the same task, store the Done baseline before launch, launch one worker, advance or block its stage; a stage with a row or project left to choose waits in `choosing` until a decided choice is applied. |
 | `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
 | `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition from one `RequestStatus` read per pass and Core's pure `MergeReadiness`, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
 | `ThenRunner`, `TaskTeardown` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
@@ -113,7 +113,7 @@ Every consequential effect asks its `SignalClaim` again after each suspension: `
 task, stage, ownership, pause, a switched-off signal, the stage's configuration and cancellation.
 Host binding checks repository origin, request identity and branch. Merging additionally requires an
 explicit per-stage opt-in, approvals, green checks, resolved threads, Oracle yes, unchanged local
-and host heads and host confirmation. A done condition of Merged only watches. Skills publish;
+and host heads and host confirmation, and never applies to a review task. Skills publish;
 AiTerm guards worker pushes and owns automatic merges. The Oracle is read-only and never writes
 workspace state. Current saved settings/instructions govern each new check; a check whose Oracle
 setting or standing instructions changed while it ran is discarded and asked again, for every use.

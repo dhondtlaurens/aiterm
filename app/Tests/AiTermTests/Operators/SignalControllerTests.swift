@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalControllerTests {
-    @Test(arguments: [TaskPhase.done, .archived, .watching(.operatorJudges)])
+    @Test(arguments: [TaskPhase.done, .archived, .watching])
     func aQueuedStageStartsAfterACompanionsTurnEndsWithoutAnotherMatch(phase: TaskPhase) async throws {
         var world = SignalWorld(); let original = world.signal(), id = world.workingTask(signal: original)
         let next = world.signal()
@@ -129,8 +129,8 @@ import Testing
         let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
             ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         var invalid = world.state.signals[0]
-        invalid.source = .gitHub(RequestConditions(event: .reviewRequested))
-        invalid.finish = SignalFinish(doneWhen: .approved, mergesWhenReady: true)
+        invalid.start = SignalTrigger(source: .gitHub, query: "user-review-requested:@me")
+        invalid.finish = SignalFinish(mergesWhenReady: true)
         await #expect(throws: ActionUnavailable.self) { try await root.save(invalid) }
         #expect(h.workspace.state.signals == world.state.signals)
     }

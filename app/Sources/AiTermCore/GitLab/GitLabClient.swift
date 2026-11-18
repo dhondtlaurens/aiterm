@@ -22,6 +22,8 @@ public enum GitLabError: Equatable, LocalizedError {
     case unauthorized, network(String), badResponse(Int), decoding, projectNotFound(String)
     /// Nothing at the host answers GitLab's API — a mistyped host, or a web page in front of it.
     case noAPI(String)
+    /// GraphQL answered with an error of its own, in GitLab's words.
+    case refused(String)
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +34,7 @@ public enum GitLabError: Equatable, LocalizedError {
         // A valid token that cannot see a project is a different instruction from a bad token.
         case .projectNotFound(let path): return "GitLab has no project at \(path), or your token cannot see it."
         case .noAPI(let host): return "GitLab’s API was not found at \(host). Check the host URL in Settings › Integrations."
+        case .refused(let message): return "GitLab refused it: \(message)"
         }
     }
 }

@@ -14,14 +14,13 @@ struct SignalClaim: Equatable {
     }
     /// Whether an effect owner may still act on this claim: the workspace can change, the claim
     /// holds, the Operator is not paused, its signal is not switched off, the stage's configuration
-    /// is supported and valid, its phase is known, and the current task is not cancelled.
+    /// is valid, its phase is known, and the current task is not cancelled.
     @MainActor func allows(in workspace: WorkspaceStore) -> Bool {
         let state = workspace.state
         guard workspace.canChangeWorkspace, !Task.isCancelled, holds(in: state), state.operatorSession?.paused != true,
               state.signal(id: signal)?.enabled != false,
               let record = state.signalItem(id: task)?.signalTask else { return false }
-        let configuration = record.current.configuration
-        guard configuration.source.isSupported, configuration.finish.isValid(for: configuration.source) else { return false }
+        guard record.current.configuration.isValid else { return false }
         if case .unknown = record.phase { return false }
         return true
     }

@@ -59,10 +59,11 @@ struct ReadmeDesktop: View {
         // weights at work, `Operator watching`, and the flag's Codex asking to run npm install, waiting on you.
         var weights = task(acme, "Tune the ranking weights", "feat/ml-415-weights", .claude, "a5", jira: "ML-415")
         var flag = task(acme, "Flag the new ranking", "feat/ml-416-flag", .codex, "a6", jira: "ML-416")
-        let signal = Signal(name: "Ranking v2", createdAt: clock.now, source: .jira(JiraConditions(labels: ["operator"])),
+        let signal = Signal(name: "Ranking v2", createdAt: clock.now, start: SignalTrigger(source: .jira, query: "labels = operator"),
+                            done: SignalTrigger(source: .gitLab, query: "review-state:approved"),
                             work: SignalWork(prompt: "/psg:plan, then /psg:implement and /psg:review"),
                             agents: [AgentChoice(agent: .claude, model: "opus", reasoning: "high")],
-                            finish: SignalFinish(doneWhen: .approved, then: .keep))
+                            finish: SignalFinish(then: .keep))
         for pair in [(weights.id, "ML-415"), (flag.id, "ML-416")] {
             let stage = SignalStage(signal: signal.id, item: .ticket(site: site.absoluteString, key: pair.1), matchedAt: clock.now, configuration: signal)
             var record = SignalTask(current: stage, startedAt: clock.now)

@@ -34,9 +34,10 @@ review, commit, push, draft merge request and comment rounds. Do not invent a se
 tab or a check loop. Workers may publish only their own branch, never force-push, push the
 default, a protected or another branch, or merge. The local guard is not a sandbox; do not ask
 workers to bypass it with an executable path or another transport.
-finish_stage records done, blocked, failed or skipped with evidence. Done hands the task to its
-source-aware done condition; it does not invent host evidence. Pending stages run before the
-final stage's keep, archive or remove action. Unsaved work keeps its worktree.
+finish_stage records done, blocked, failed or skipped with evidence. Done hands the stage to
+its Done trigger, which AiTerm checks against the task's own ticket or merge request; it does
+not invent host evidence. Pending stages run before the final stage's keep, archive or remove
+action. Unsaved work keeps its worktree.
 note records a short decision or handover. report_snag records a checked AiTerm discrepancy
 and workaround; jira_search only reads. Use a fresh key for each distinct action, and the same
 key and arguments for a retry. An uncertain result means inspect before doing anything else.

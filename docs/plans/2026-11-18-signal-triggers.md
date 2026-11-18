@@ -1,8 +1,8 @@
 # Signals: a Start and a Done trigger, each a query you describe
 
-Status: agreed 18 Nov 2026 on `feat/jql`, branched from local `main` at a21c1673. Challenged by Codex in three
+Status: agreed 18 Nov 2026; step briefs in `2026-11-18-signal-triggers/` on `feat/jql`, branched from local `main` at a21c1673. Challenged by Codex in three
 rounds on 18 Nov 2026; every finding is fixed below (done as an edge with a baseline read before launch, no
-compatibility with old signals through the existing load-time reset, every caller of the deleted types in its
+compatibility with old signals and no handling of them, every caller of the deleted types in its
 step, the composition point `AppController+Signals`, the stage's triggers in the Operator's status). Visual design: the proposal
 "Signals: a Start and a Done trigger" on the Proposals tab of `docs/design/design-system.html`, option A
 (describe above, query below, both visible) picked.
@@ -23,7 +23,7 @@ A signal becomes: name · Start trigger · prompt (with the description checkbox
 Merge when ready (where offered) · Then. A **trigger** is a source (Jira, GitLab, GitHub), the description you
 wrote and the query; the query is what runs. **Write JQL** (or **Write GitLab query**, **Write GitHub query**)
 runs the Operator's Claude once, headless and read-only, as `OracleRunner` runs the Oracle, and fills the
-query field; the description is kept with the signal. AiTerm validates the query (Jira through a search, GitLab
+query field; the description is kept with the signal. AiTerm validates the query (Jira through its strict JQL parse, `POST /rest/api/3/jql/parse`, GitLab
 through AiTerm's own parser, GitHub through its search) and sends a failing query back to the agent once with
 the error. The match preview stays.
 
@@ -61,8 +61,8 @@ the error. The match preview stays.
    done query for the task's item and stores the result on the stage (matches, does not match); the worker is
    launched only after that read is complete (an unreadable source holds the launch with the same backoff as an
    unreadable Start source; a Jira-started task with no merge request yet reads as "does not match"). Every
-   later read compares against the last stored one, also while the worker is busy, so a review posted during
-   the first turn ends the stage. A done query that already matches at the baseline waits for a fresh match (or
+   later complete read compares against the last stored one and replaces it. Reads still skip a busy worker:
+   a review posted during the first turn shows as a change at the first read after it, which ends the stage. A done query that already matches at the baseline waits for a fresh match (or
    a merge or close), so evidence from an earlier round never ends a new one. (Decided in triage of the plan review:
    the person's own framing of Done as "a second trigger", and today's `myReviewPosted` stage boundary.)
    In a done query `review-state:` follows the role it names (`reviewer:@me review-state:approved` is your own
@@ -74,23 +74,20 @@ the error. The match preview stays.
    the reviewer back to unreviewed, so `reviewer:@me review-state:unreviewed` starts each re-review in the same
    task and conversation; the Done query (`reviewer:@me review-state:approved`) ends it. Not `approved-by:@me`:
    an approval survives a review asked again, while the review state is reset to unreviewed.
-8. **The Done step**: Done when (a trigger), **Merge it when it's ready** (kept, offered when the merge request
-   is yours or the start is Jira; workers never merge, so this is the only way a signal merges, after the
-   Oracle's veto), Then (keep, archive, remove; delete the merged branch with remove). **Gone**: the fixed
+8. **The Done step**: Done when (a trigger), **Merge it when it's ready** (kept, offered when the Start query's
+   role is author or assignee or the start is Jira, never applied to a review task; workers never merge, so
+   this is the only way a signal merges: once the host says it can be merged, after the Oracle's veto, no
+   longer waiting on a done condition), Then (keep, archive, remove; delete the merged branch with remove). **Gone**: the fixed
    done list (has a reviewer, approved, threads resolved, merged, ticket status, my review posted, merged or
    closed: each is now a query) and **the Operator judges it done**. `finish_stage` still records a stage's
    outcome, but no longer ends a stage by itself.
 9. **Review task or own task is decided per merge request**, no longer per signal: a review task (checks out
    the colleague's branch, never pushes) unless the account authored the merge request or is one of its
    assignees.
-10. **No compatibility with old signals** (the person's call, 18 Nov 2026). The old shape (`source` with
-    conditions or events, `finish.doneWhen`, a stage's embedded configuration in that shape) is not read and
-    not converted. The existing load-time reset (`StateStore`'s `OperatorRecordsReset`, which already keeps a
-    `state.json.before-reset-…` copy) is extended: besides an undecodable `operatorSession` and `signalTask`, it
-    drops each `signals` entry that does not decode, and the `signalSeen` rows of signals no longer present.
-    A task, active or archived, whose `signalTask` is in the old shape therefore **becomes an ordinary task of
-    its project**: it keeps its worktree, branch, window and conversation (and its Take Over mark), and loses its
-    journal, pending stages, done watch and merge when ready. That is intended. `JiraConditions`,
+10. **No compatibility with old signals, and no handling of them** (the person's call, 18 Nov 2026: nobody has
+    signals saved yet). Nothing reads, converts or drops the old shape; `Models.swift`, `OperatorRecordsReset` and
+    `scripts/reset-operator-state.sh` are unchanged. A stage's embedded configuration changes shape, so an old
+    `signalTask` is cleared by the existing reset, as for any record shape change. `JiraConditions`,
     `RequestConditions`, `SignalSource`, `JQL.compile`, `DoneWhen` and `SignalFinish.choices` are deleted.
 
 ### The conventions as queries (the writer's examples and the proof)
@@ -98,14 +95,14 @@ the error. The match preview stays.
 | Situation | Reads | Start query | Prompt | Done query |
 |---|---|---|---|---|
 | Review requested (and asked again) | GitLab | `reviewer:@me review-state:unreviewed draft:no` | `/psg:peer-review` | `reviewer:@me review-state:approved` |
-| Returned to you | GitLab | `assignee:@me review-state:requested_changes,reviewed` | `/psg:review` | `review-state:unreviewed` |
+| Returned to you | GitLab | `assignee:@me review-state:requested_changes,reviewed` | `/psg:review` | `-review-state:requested_changes,reviewed` |
 | Waiting on my reply | GitLab | `assignee:@me threads:waiting-on-me` | `/psg:review` | `-threads:waiting-on-me` |
 | Approved by others | GitLab | `assignee:@me review-state:approved draft:no threads:resolved` | check it is ready; Merge when ready on | `state:merged` |
 | Assigned to me, reviewed by another | GitLab | `assignee:@me reviewer:any -reviewer:@me` | | |
 | Assigned to another, reviewed by me | GitLab | `reviewer:@me -assignee:@me` | | |
 | Sprint tickets | Jira | `assignee = currentUser() AND sprint in openSprints() AND statusCategory = "To Do"` | `/psg:plan, then /psg:implement and /psg:review` | GitLab `reviewer:any` |
 | Handed to me in review (convention option A) | Jira | `assignee = currentUser() AND status = "In Review"` | | Jira `assignee != currentUser()` |
-| Review requested on GitHub | GitHub | `is:pr is:open user-review-requested:@me draft:false` | `/psg:peer-review` | `reviewed-by:@me` |
+| Review requested on GitHub | GitHub | `is:pr is:open user-review-requested:@me draft:false` | `/psg:peer-review` | `-user-review-requested:@me` |
 
 Examples in code, fixtures and docs stay generic (no company names, internal hosts or real tickets).
 
@@ -117,8 +114,6 @@ Examples in code, fixtures and docs stay generic (no company names, internal hos
 - Modify `Operators/Signals/Signal.swift`: `start` and `done` triggers; `SignalFinish` keeps then, merges when
   ready and branch deletion; `DoneWhen` and `choices(for:)` go; `isRunnable` needs a valid start and done.
 - Delete `Operators/Signals/SignalSource.swift` (`SignalSource`, `JiraConditions`, `RequestConditions`, `JQL`).
-- Modify `StateStore.swift`: `OperatorRecordsReset` also drops undecodable `signals` entries and the `signalSeen`
-  rows of signals no longer present.
 - Create `Operators/Signals/Queries/GitLabQuery.swift`: parse the search syntax into a role and GraphQL filters,
   with errors that name the token; the AiTerm thread tokens kept apart.
 - Create `Operators/Signals/Queries/GitHubQuery.swift`: normalise (`is:pr`), split off the thread tokens.
@@ -138,7 +133,8 @@ Examples in code, fixtures and docs stay generic (no company names, internal hos
   (source and query) from the stage's saved configuration, and each signal its current ones, so `run_status` and
   `read_task` give a renewed Operator the rule a working stage actually runs under, also after its signal is
   edited or removed.
-- Modify `Sidebar/OperatorLine+Waiting.swift`: what a waiting task waits on, from the done trigger.
+- Modify `Sidebar/OperatorLine+Waiting.swift`: a waiting task's line is its Done trigger's description, or its
+  query when it has none; merge blockers keep their line.
 - Modify `Jira/JiraClient+Signals.swift`: the person picker goes; statuses and labels stay for the writer.
 
 **AiTerm (app)**
@@ -188,9 +184,7 @@ Examples in code, fixtures and docs stay generic (no company names, internal hos
     task without a merge request not done; the edge (a done query matching when the stage starts does not end
     it; a later fresh match does), and round 2 of a review not ended by round 1's approval.
   - Saved format: `SignalSavedFormatTests`, `SavedEnumBytesTests` and `SignalForwardCompatibilityTests` cover the
-    new shape. A workspace from the previous release with an old-shape signal, an active and an archived task
-    under it loads: the signal and its seen rows are gone, both tasks are ordinary tasks with worktree, branch,
-    conversation and Take Over mark kept, and the before-reset copy exists.
+    new shape; `state-0.58.json` loses its old-shape signals.
   - `OperatorDigest`: a task line shows its stage's Done trigger after the signal's Done query is edited, and
     after the signal is removed.
   - Done timing: the baseline is stored before launch; a done query that starts matching during the worker's
@@ -208,15 +202,14 @@ Examples in code, fixtures and docs stay generic (no company names, internal hos
 
 ## To-dos
 
-- [ ] **Queries and readers.** `GitLabQuery`, `GitHubQuery`, the GraphQL listing and done read in
-  `GitLabAccount`, search in `GitHubAccount`, `GitLabQueryReader`, `GitHubQueryReader`, and a JQL-string
-  initializer on `JiraQueryReader` beside today's `conditions:` one (removed in the next step), with their
-  tests. Not wired yet; the app runs as before.
-- [ ] **Triggers end to end, typed by hand.** `SignalTrigger`, `Signal` with start and done, the old types
-  deleted and old-shape signals left out on load, `SignalConnections` on the new readers, done as an edge on the
+- [x] **Queries and readers.** `GitLabQuery`, `GitHubQuery`, the GraphQL listing and done read in
+  `GitLabAccount`, search in `GitHubAccount`, `GitLabQueryReader` and `GitHubQueryReader` (one generic
+  `RequestQueryReader` behind both), and `JiraQueryReader` on a JQL string, with their tests. Built unwired; the
+  next step wired them in and removed the conditions initializer.
+- [x] **Triggers end to end, typed by hand.** `SignalTrigger`, `Signal` with start and done, the old types
+  deleted, `SignalConnections` on the new readers, done as an edge on the
   done trigger, review or own per merge request, `operatorJudged` and the judged done removed with the tool
-  description and its fixture, the done baseline read before launch (`StageRunner`, `RequestWatch`), the
-  load-time reset extended. Every caller of the deleted types changes in this step, as found by `git grep` on
+  description and its fixture, the done baseline read before launch (`StageRunner`, `RequestWatch`) . Every caller of the deleted types changes in this step, as found by `git grep` on
   18 Nov 2026: `HeadingValue`, `RequestWatch`, `SignalClaim`, `SignalConnections`, `SignalHostIO`,
   `SignalModel`, `SignalOperatorController`, `SignalOperatorToolHandler+Calls`, `StageRunner`,
   `Views/SidebarHeadings`, `Views/Operators/SignalDoneStep`, `SignalStartsStep`, the snapshots
@@ -228,8 +221,23 @@ Examples in code, fixtures and docs stay generic (no company names, internal hos
   ready and Then, the heading tooltip; `SignalStartsStep`, `SignalConditionPicker`, the person picker and their
   wiring in `AppController+Signals.swift` deleted. A signal can be made and runs with a query you type.
   Saved-format, journey and model tests green; snapshots.
-- [ ] **Describe it, Write the query.** `QueryWriter` and `QueryWriterRunner` with validation and the one retry,
+- [x] **Describe it, Write the query.** `QueryWriter` and `QueryWriterRunner` with validation and the one retry,
   wired in `AppController+Signals.swift`; Describe it with its Write button on the label row (option A), the
-  description saved with the trigger, the writing state; the Metrics value; snapshots.
-- [ ] **Docs and proof.** `operators.md`, the AiTermUI README, `ui-patterns.md`, the design page synced with the
+  description saved with the trigger, the writing state; snapshots. (The trigger editors' Metrics height lands
+  in the previous step, with the hand-typed query field.)
+- [x] **Docs and proof.** `operators.md`, the AiTermUI README, `ui-patterns.md`, the design page synced with the
   proposal removed, and the live run of the conventions table recorded here.
+
+## Live proof (18 Nov 2026, read-only)
+
+- **GitLab** (the maintainer's CE 19.5.3): the GraphQL that `GitLabQuery` renders for each GitLab Start query of
+  the conventions table ran against the account's lists and returned exactly what GitLab's own filters return
+  (review requested and unreviewed, no drafts: 0 and 0; approved, no drafts: 2 and 2; authored: 4 and 4), with
+  no GraphQL errors. The thread tokens are applied by AiTerm after the listing.
+- **The writer**: the exact read-only Claude invocation `QueryWriter` builds (Opus 5.5, medium effort; the saved
+  Operator profile was not readable from the session) ran once per description, eleven in all, most worded
+  unlike the prompt's examples. Every answer was the expected query on one line; "assigned to someone else where
+  I'm the reviewer" came back as `reviewer:@me assignee:any -assignee:@me`, stricter than the example.
+- **Jira** (the maintainer's Jira Cloud): both written JQL Start queries are accepted (2 and 3 matching tickets).
+- Not run: the dev build end to end (`scripts/run-dev.sh` replaces the running app; the maintainer's call).
+

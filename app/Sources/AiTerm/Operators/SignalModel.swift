@@ -3,34 +3,22 @@ import Observation
 import AiTermCore
 
 @Observable @MainActor final class SignalModel: Identifiable {
-    enum SourceKind: String, CaseIterable { case jira, gitLab, gitHub }
-    enum QueryMode: String, CaseIterable { case conditions, jql }
-    struct Metadata: Sendable {
-        var users: [JiraUser] = []
-        var labels: [String] = []
-        var statuses: [JiraStatusRef] = []
-        var projects: [JiraProjectRef] = []
-    }
     nonisolated let id = UUID()
-    static let stepNames = ["Signal", "Starts when", "Prompt", "Agents", "Done"]
+    static let stepNames = ["Signal", "Starts when", "Prompt", "Agents", "Done when"]
     let projects: [Project], context: SignalContext
     private let original: Signal?, createdAt: Date
     private let seen: [SignalSeen]
     var name = ""
-    private(set) var sourceKind = SourceKind.jira
-    var queryMode = QueryMode.conditions
-    var jira = JiraConditions()
-    var jql = ""
-    private(set) var event = RequestConditions.Event.reviewRequested
-    var waitingOnMyReply = true
-    var sentBackToMe = true
-    var requestProjects: [String] = []
+    var start = SignalTrigger(source: .jira, query: "") { didSet { startWriting.edited(from: oldValue, to: start) } }
+    var done = SignalTrigger(source: .jira, query: "") { didSet { doneWriting.edited(from: oldValue, to: done) } }
+    /// Each trigger's Write button: whether Claude is writing its query, whether the query in the field is the one Claude
+    /// wrote and AiTerm checked, and why the last write failed.
+    private(set) var startWriting = QueryWriting()
+    private(set) var doneWriting = QueryWriting()
     var prompt = ""
     var ticketDescription = true
     var requestDescription = true
     private(set) var agentRows: [AgentChoiceRow]
-    var done = DoneWhen.hasReviewer
-    var status = ""
     var mergeWhenReady = false
     var then = SignalFinish.Then.archive
     var deleteMergedBranch = false
@@ -41,27 +29,26 @@ import AiTermCore
     private(set) var startCount: Int?
     private(set) var previewError: String?
     private(set) var previewing = false
-    private(set) var metadata = Metadata()
-    private(set) var metadataError: String?
-    private(set) var assignees: [JiraUser] = []
     let completions = PromptCompletions()
-    let jqlCompletions = PromptCompletions()
+    /// The query and description editors offer no completions.
+    let startCompletions = PromptCompletions(), doneCompletions = PromptCompletions()
+    let startDescribeCompletions = PromptCompletions(), doneDescribeCompletions = PromptCompletions()
     @ObservationIgnored var readiness: @MainActor ([AgentKind]) -> SignalReadiness = { _ in .ready }
     @ObservationIgnored private var previewKey: UUID?
-    @ObservationIgnored private let readPreview: @MainActor (SignalSource) async throws -> SignalRead
-    @ObservationIgnored private let readMetadata: @MainActor () async throws -> Metadata
-    @ObservationIgnored private let readUsers: @MainActor (String) async throws -> [JiraUser]
+    @ObservationIgnored private let readPreview: @MainActor (SignalTrigger) async throws -> SignalRead
     @ObservationIgnored private let save: @MainActor (Signal) async throws -> Void
+    /// Writes a trigger's query from its description, as a Start (`true`) or Done trigger: `QueryWriterRunner` in the app.
+    @ObservationIgnored var writeQuery: @MainActor (SignalTrigger, Bool) async -> QueryWriterRunner.Outcome = { _, _ in
+        .failed("AiTerm can’t write queries here.", query: nil)
+    }
     @ObservationIgnored var loadCompletions: @MainActor () async -> Void = {}
     @ObservationIgnored var checkReadiness: @MainActor () async -> Void = {}
 
     init(signal: Signal? = nil, projects: [Project], context: SignalContext, seen: [SignalSeen] = [], at: Date = Date(),
-         preview: @escaping @MainActor (SignalSource) async throws -> SignalRead = { _ in SignalRead(items: [], complete: true) },
-         metadata: @escaping @MainActor () async throws -> Metadata = { Metadata() },
-         users: @escaping @MainActor (String) async throws -> [JiraUser] = { _ in [] },
+         preview: @escaping @MainActor (SignalTrigger) async throws -> SignalRead = { _ in SignalRead(items: [], complete: true) },
          save: @escaping @MainActor (Signal) async throws -> Void) {
         self.original = signal; self.createdAt = signal?.createdAt ?? at; self.projects = projects; self.context = context; self.seen = seen
-        self.readPreview = preview; self.readMetadata = metadata; self.readUsers = users; self.save = save
+        self.readPreview = preview; self.save = save
         agentRows = (signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }).map { choice in
             var choice = choice
             if let model = context.models[choice.agent]?.first(where: { $0.id == choice.model }) {
@@ -71,63 +58,39 @@ import AiTermCore
             return AgentChoiceRow(choice: choice)
         }
         guard let signal else { return }
-        name = signal.name; prompt = signal.work.prompt
+        name = signal.name; prompt = signal.work.prompt; start = signal.start; done = signal.done
         ticketDescription = signal.work.ticketDescription; requestDescription = signal.work.requestDescription
-        done = signal.finish.doneWhen; then = signal.finish.then; mergeWhenReady = signal.finish.mergesWhenReady
+        then = signal.finish.then; mergeWhenReady = signal.finish.mergesWhenReady
         deleteMergedBranch = signal.finish.deletesMergedBranch
-        if case .ticketStatus(let text) = done { status = text; done = .ticketStatus("") }
-        switch signal.source {
-        case .jira(let conditions):
-            jira = conditions; jql = conditions.jql ?? ""; queryMode = jql.isEmpty ? .conditions : .jql
-        case .gitLab(let conditions): sourceKind = .gitLab; load(conditions)
-        case .gitHub(let conditions): sourceKind = .gitHub; load(conditions)
-        case .unknown: break
-        }
-    }
-    private func load(_ conditions: RequestConditions) {
-        event = conditions.event; waitingOnMyReply = conditions.waitingOnMyReply; sentBackToMe = conditions.sentBackToMe
-        requestProjects = conditions.projects
     }
     /// Whether the sheet edits a saved signal rather than making a new one.
     var isEditing: Bool { original != nil }
     var title: String { isEditing ? "Edit signal" : "New signal" }
     var createLabel: String { isEditing ? "Save" : "Create Signal" }
-    var source: SignalSource {
-        if sourceKind == .jira {
-            var conditions = jira; conditions.jql = queryMode == .jql ? jql : nil; return .jira(conditions)
-        }
-        let conditions = RequestConditions(event: event, waitingOnMyReply: waitingOnMyReply, sentBackToMe: sentBackToMe, projects: requestProjects)
-        return sourceKind == .gitLab ? .gitLab(conditions) : .gitHub(conditions)
+    /// What the match preview reads: the Start trigger's source and query.
+    var startKey: String { start.source.rawValue + "\n" + start.query }
+    /// Why AiTerm will not run the typed Start or Done query, once there is one; Jira checks its own.
+    var startRefusal: QueryRefusal? { refusal(of: start, start: true) }
+    var doneRefusal: QueryRefusal? { refusal(of: done, start: false) }
+    private func refusal(of trigger: SignalTrigger, start: Bool) -> QueryRefusal? {
+        trigger.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : trigger.refusal(start: start)
     }
-    var sourceKey: String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return (try? encoder.encode(source)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-    }
-    /// A Jira signal starts nothing until it says which tickets: an empty query would match every ticket the account can see.
-    var hasJiraQuery: Bool {
-        if queryMode == .jql { return !jql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        var conditions = jira; conditions.jql = nil; return !JQL.compile(conditions).isEmpty
-    }
-    var doneChoices: [DoneWhen] { SignalFinish.choices(for: source) }
-    var offersMerge: Bool { done != .merged && (sourceKind == .jira || event == .myRequest) }
+    /// Merge when ready is offered where the Start trigger's merge requests are the person's own.
+    var offersMerge: Bool { start.offersMerge }
     var finish: SignalFinish {
-        let condition: DoneWhen = if case .ticketStatus = done { .ticketStatus(status.trimmingCharacters(in: .whitespacesAndNewlines)) } else { done }
-        return SignalFinish(doneWhen: condition, then: then, mergesWhenReady: offersMerge && mergeWhenReady,
-                            deletesMergedBranch: then == .remove && deleteMergedBranch)
+        SignalFinish(then: then, mergesWhenReady: offersMerge && mergeWhenReady, deletesMergedBranch: then == .remove && deleteMergedBranch)
     }
-    func selectSource(_ kind: SourceKind) {
-        guard kind != sourceKind else { return }
-        sourceKind = kind
-        resetDone()
-    }
-    func setEvent(_ event: RequestConditions.Event) {
-        guard event != self.event else { return }
-        self.event = event
-        resetDone()
-    }
-    private func resetDone() {
-        done = sourceKind == .jira ? .hasReviewer : event == .reviewRequested ? .myReviewPosted : .threadsResolved
-        mergeWhenReady = false
+    private var signal: Signal {
+        func trimmed(_ trigger: SignalTrigger) -> SignalTrigger {
+            var trigger = trigger
+            trigger.query = trigger.query.trimmingCharacters(in: .whitespacesAndNewlines)
+            trigger.description = trigger.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trigger
+        }
+        return Signal(id: original?.id ?? id, name: name.trimmingCharacters(in: .whitespacesAndNewlines), createdAt: createdAt,
+                      enabled: original?.enabled ?? true, collapsed: original?.collapsed ?? false, start: trimmed(start), done: trimmed(done),
+                      work: SignalWork(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                       ticketDescription: ticketDescription, requestDescription: requestDescription), agents: agents, finish: finish)
     }
     var offeredAgents: [AgentKind] { ModelChoice.pair.filter { context.defaults[$0] != nil } }
     func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
@@ -165,10 +128,9 @@ import AiTermCore
         guard let index = agentRows.firstIndex(where: { $0.id == id }) else { return }; agentRows[index].choice.reasoning = reasoning
     }
     func canAdvance(step: Int) -> Bool {
-        guard !starting, TaskCreator.isNamed(name), original?.source.isSupported != false else { return false }
+        guard !starting, TaskCreator.isNamed(name) else { return false }
         if step == 1 { return true }
-        guard sourceKind != .jira || hasJiraQuery,
-              sourceKind == .jira || event == .reviewRequested || waitingOnMyReply || sentBackToMe else { return false }
+        guard start.isValid(start: true) else { return false }
         if step == 2 { return true }
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         if step == 3 { return true }
@@ -177,33 +139,66 @@ import AiTermCore
                 model.id == choice.model && (choice.reasoning == nil || model.efforts.contains(choice.reasoning!))
             }
         }) else { return false }
-        return step == 4 || finish.isValid(for: source)
+        return step == 4 || signal.isValid
     }
     func create() async -> Bool {
         guard canAdvance(step: 5) else { return false }
-        let signal = Signal(id: original?.id ?? id, name: name.trimmingCharacters(in: .whitespacesAndNewlines), createdAt: createdAt,
-                            enabled: original?.enabled ?? true, collapsed: original?.collapsed ?? false, source: source,
-                            work: SignalWork(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
-                                             ticketDescription: ticketDescription, requestDescription: requestDescription), agents: agents, finish: finish)
+        let signal = signal
         starting = true; error = nil; defer { starting = false }
         do { try await save(signal); return true }
         catch { self.error = OperationIssue.reason(of: error); return false }
     }
     func loadPreview() async {
-        let key = UUID(), expected = source; previewKey = key
+        let key = UUID(), expected = start; previewKey = key
         previewing = true; previewItems = []; startCount = nil; previewError = nil
         defer { if previewKey == key { previewing = false } }
-        guard sourceKind != .jira || hasJiraQuery else {
-            previewError = queryMode == .jql ? "Enter a JQL query to check matches." : "Add a condition to check matches."; return
+        guard !expected.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            previewError = "Enter a query to check matches."; return
         }
+        // A refused query says why under its field; there is nothing to read.
+        guard expected.isValid(start: true) else { return }
         do {
             let read = try await readPreview(expected)
-            guard previewKey == key, source == expected, !Task.isCancelled else { return }
+            guard previewKey == key, reads(expected), !Task.isCancelled else { return }
             try received(preview: read)
         } catch {
-            guard previewKey == key, source == expected, !Task.isCancelled else { return }
+            guard previewKey == key, reads(expected), !Task.isCancelled else { return }
             previewError = OperationIssue.reason(of: error)
         }
+    }
+    /// Whether a preview of `trigger` still answers the Start trigger: the same source and query, as `startKey` keys it;
+    /// a description edited meanwhile changes nothing the read used.
+    private func reads(_ trigger: SignalTrigger) -> Bool { start.source == trigger.source && start.query == trigger.query }
+    func writing(start: Bool) -> QueryWriting { start ? startWriting : doneWriting }
+    /// Whether the trigger's Write button can be pressed: it has a description and a source AiTerm reads.
+    func canWrite(start: Bool) -> Bool {
+        let trigger = start ? self.start : done
+        if case .unknown = trigger.source { return false }
+        return !trigger.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    /// Asks Claude for the trigger's query from its description and puts the answer in the query field, keeping the
+    /// description. Only the Write button calls it. A query that still fails is put in the field with the reason.
+    func write(start: Bool) async {
+        guard canWrite(start: start), !writing(start: start).busy else { return }
+        let asked = start ? self.start : done
+        setWriting(start) { $0 = QueryWriting(busy: true) }
+        let outcome = await writeQuery(asked, start)
+        let now = start ? self.start : done
+        // A source switched while Claude wrote makes its query the wrong syntax; a description or query edited meanwhile
+        // is the person's newer word, which the answer must not replace.
+        guard now.source == asked.source, now.description == asked.description, now.query == asked.query else {
+            setWriting(start) { $0.busy = false }; return
+        }
+        let query: String?, error: String?
+        switch outcome {
+        case .written(let written): query = written; error = nil
+        case .failed(let why, let written): query = written; error = why
+        }
+        if let query { if start { self.start.query = query } else { done.query = query } }
+        setWriting(start) { $0 = QueryWriting(written: error == nil, error: error) }
+    }
+    private func setWriting(_ start: Bool, _ change: (inout QueryWriting) -> Void) {
+        if start { change(&startWriting) } else { change(&doneWriting) }
     }
     /// The same complete value is accepted by a source read and by a rendering fixture.
     func received(preview read: SignalRead) throws {
@@ -211,13 +206,27 @@ import AiTermCore
         previewItems = read.items
         startCount = SignalStarts.items(in: read.items, signal: original?.id, projects: projects, seen: seen).count
     }
-    func received(metadata: Metadata) { self.metadata = metadata; assignees = metadata.users; metadataError = nil }
-    func loadMetadata() async {
-        do { let value = try await readMetadata(); guard !Task.isCancelled else { return }; received(metadata: value) }
-        catch { if !Task.isCancelled { metadataError = OperationIssue.reason(of: error) } }
-    }
-    func searchAssignees(_ query: String) async {
-        do { let users = try await readUsers(query); if !Task.isCancelled { assignees = users } }
-        catch { if !Task.isCancelled { assignees = [] } }
+}
+
+/// A trigger's Write button and what it last did.
+struct QueryWriting: Equatable {
+    /// Claude is writing the query.
+    var busy = false
+    /// The query in the field is the one Claude wrote and AiTerm checked.
+    var written = false
+    /// Why the last write gave no checked query.
+    var error: String?
+
+    /// The person changed the trigger: an edit clears the error, a new source what was written for the old one.
+    mutating func edited(from old: SignalTrigger, to new: SignalTrigger) {
+        if old.description != new.description || old.query != new.query { error = nil }
+        if old.source != new.source { written = false; error = nil }
     }
 }
+
+#if DEBUG
+extension SignalModel {
+    /// A rendering fixture's trigger in the middle of, or after, a write.
+    func seed(writing: QueryWriting, start: Bool) { setWriting(start) { $0 = writing } }
+}
+#endif

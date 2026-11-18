@@ -18,7 +18,7 @@ final class SignalPoller {
         var next: Date = .distantPast
     }
     /// A failed read is tried again after this long.
-    private static let failureBackOff: TimeInterval = 300
+    static let failureBackOff: TimeInterval = 300
     /// A Jira read key reads every matching key again after this long, not only those changed since its cursor.
     private static let jiraSweep: TimeInterval = 600
     private let work: OperatorWork

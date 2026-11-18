@@ -159,10 +159,10 @@ import AiTermUI
         var world = SignalWorld(); let id = world.signal(); _ = world.workingTask(signal: id)
         world.state.signals[0].enabled = false
         let live = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].source, removed: false, paused: true))
+        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].start.source, removed: false, paused: true))
         world.state.signals = []
         let removed = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.source, removed: true, paused: false))
+        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.start.source, removed: true, paused: false))
     }
 
     @Test func aRemovedSignalsFoldIsRuntimeOnlyAndStartsOpen() throws {
@@ -209,9 +209,11 @@ import AiTermUI
         #expect(controller.state.project(id: world.project.id)?.collapsed == true, "an already-open signal still owns the task")
     }
 
-    @Test func unsupportedSavedSignalsExplainWhyTheyCannotRunInTheirHeading() {
+    @Test func aSignalsHeadingNamesItsQueriesAndWhyItCannotRun() {
         var world = SignalWorld(); _ = world.signal()
-        world.state.signals[0].source = .gitHub(RequestConditions(event: .unknown("future")))
+        let help = HeadingValue(SignalSidebar(state: world.state, entries: []).signals[0]).help
+        #expect(help.hasPrefix("Starts: labels = operator\nDone: status = Done") && !help.contains("cannot run"))
+        world.state.signals[0].start.source = .unknown("future")
         let sidebar = SignalSidebar(state: world.state, entries: [])
         #expect(HeadingValue(sidebar.signals[0]).help.contains("cannot run"))
     }
@@ -225,8 +227,8 @@ import AiTermUI
         controller.workspace.mutate { $0.operatorSession?.paused = true }
         #expect(!controller.backpack.operatorCanStartWork)
         world.state.tasks = []; _ = world.signal()
-        world.state.signals[0].source = .gitHub(RequestConditions(event: .reviewRequested))
-        world.state.signals[0].finish = SignalFinish(doneWhen: .approved, mergesWhenReady: true)
+        world.state.signals[0].start = SignalTrigger(source: .gitHub, query: "user-review-requested:@me")
+        world.state.signals[0].finish = SignalFinish(mergesWhenReady: true)
         controller.workspace.mutate { $0 = world.state }
         #expect(!controller.backpack.operatorCanStartWork, "An unsupported saved signal cannot start work.")
     }
@@ -404,7 +406,7 @@ import AiTermUI
         #expect(SectionCrossing.direction(of: try #require(keyDown("a", code: 0, in: window))) == nil)
     }
     @Test func signalRowsDescribeActsQuestionsWatchingAndTheirOwnPause() throws {
-        var world = SignalWorld(); let signal = world.signal(done: .hasReviewer); let id = world.workingTask(signal: signal)
+        var world = SignalWorld(); let signal = world.signal(done: SignalTrigger(source: .gitLab, description: "When a reviewer is asked", query: "reviewer:any")); let id = world.workingTask(signal: signal)
         func row(acts: [UUID: String] = [:]) throws -> TaskRow {
             let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])
             return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).signals.first?.tasks.first)
@@ -415,8 +417,8 @@ import AiTermUI
         #expect(try row().operatorLine?.text == "waiting on you")
         #expect(try row().status == .needsInput)
         world.state.operatorSession?.questions = []
-        world.state.updateSignalTask(id) { $0.phase = .watching(.hasReviewer) }
-        #expect(try row().operatorLine?.text == "waiting for a reviewer")
+        world.state.updateSignalTask(id) { $0.phase = .watching }
+        #expect(try row().operatorLine?.text == "When a reviewer is asked")
         #expect(try row().status == .waiting)
         world.state.signals[0].enabled = false
         #expect(try row().operatorLine == .paused)

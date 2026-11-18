@@ -33,8 +33,9 @@ The footer shows the selected tab's context, Mac readings and supported agents' 
 ### Start and steer work from signals
 
 Create a **Signal** (⌘S) for matching Jira tickets, reviews asked of you, or your merge requests
-that need a reply. The **Operator** starts a task for each item in its existing project, gives the
-worker your prompt and follows its done condition. The Oracle helps answer worker questions;
+that need a reply: a Start and a Done query on Jira, GitLab or GitHub, which you describe and Claude
+writes, or you type yourself. The **Operator** starts a task for each item in its existing project,
+gives the worker your prompt and ends the stage when the item starts to match the Done query. The Oracle helps answer worker questions;
 questions for you arrive in the Operator's chat. Choose the permitted agents and what happens
 when work finishes. See [the Operator guide](docs/operators.md).
 

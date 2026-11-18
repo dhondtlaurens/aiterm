@@ -14,12 +14,13 @@ import Testing
     private func tab(_ id: UUID, _ state: SessionState) -> SessionInfo {
         SessionInfo.make("worker", window: "worker-window", task: id, state: state)
     }
-    private func watching(_ condition: DoneWhen, facts: SignalWaitFacts? = nil) -> (SignalWorld, UUID) {
-        var world = SignalWorld(); let signal = world.signal(done: condition), id = world.workingTask(signal: signal)
+    private func watching(_ done: SignalTrigger, facts: SignalWaitFacts? = nil) -> (SignalWorld, UUID) {
+        var world = SignalWorld(); let signal = world.signal(done: done), id = world.workingTask(signal: signal)
         world.state.tasks[0].mr = .init(iid: 102, title: "Work", url: "https://git.example/shop/web/-/merge_requests/102")
-        world.state.updateSignalTask(id) { $0.phase = .watching(condition); $0.waitingOn = facts }
+        world.state.updateSignalTask(id) { $0.phase = .watching; $0.waitingOn = facts }
         return (world, id)
     }
+    private static let approved = SignalTrigger(source: .gitLab, query: "reviewer:@me review-state:approved")
 
     // MARK: - A working task whose workers ended their turn
 
@@ -39,83 +40,42 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         let working = try row(world, sessions: [tab(id, .working)])
         #expect(working.status == .working && working.operatorLine == nil, "The line reads its quiet working")
-        world.state.updateSignalTask(id) { $0.phase = .watching(.approved) }
+        world.state.updateSignalTask(id) { $0.phase = .watching }
         #expect(try row(world, sessions: [tab(id, .working)]).status == .working)
     }
 
-    // MARK: - A task watching its done condition
+    // MARK: - A task watching its Done trigger
 
-    @Test func everyDoneConditionSaysWhatItWaitsForWithTheWaitingRing() throws {
-        let lines: [(DoneWhen, String, String)] = [
-            (.operatorJudges, "waiting for the Operator", "Waiting for the Operator to judge this stage done."),
-            (.hasReviewer, "waiting for a reviewer", "Waiting for someone to be asked to review !102."),
-            (.approved, "waiting on reviewer approval", "Waiting for a reviewer to approve !102."),
-            (.threadsResolved, "waiting on review threads", "Waiting for the review threads on !102 to be resolved."),
-            (.merged, "waiting for the merge", "Waiting for !102 to be merged."),
-            (.mergedOrClosed, "waiting for merge or close", "Waiting for !102 to be merged or closed."),
-            (.ticketStatus("Done"), "waiting for ticket to reach Done", "Waiting for PAY-1 to move to “Done”."),
-            (.myReviewPosted, "waiting for you to post the review", "Waiting for your review of !102 to be posted."),
-        ]
-        for (condition, text, tooltip) in lines {
-            var (world, _) = watching(condition)
-            world.state.tasks[0].jira = JiraRef(key: "PAY-1", summary: "Make retries safe", url: "https://jira.example/browse/PAY-1")
-            let row = try row(world)
-            #expect(row.status == .waiting, "\(condition)")
-            #expect(row.operatorLine?.text == text, "\(condition)")
-            #expect(row.operatorLine?.tooltip == tooltip, "\(condition)")
-            #expect((row.operatorLine?.text.count ?? 99) <= OperatorLine.maxLength, "\(condition)")
-        }
-        let (unknown, _) = watching(.unknown(["kind": "future"]))
-        #expect(try row(unknown).status == .idle, "A condition this version cannot read waits on nothing it knows")
-    }
-    @Test func anApprovalNamesTheRequestsReviewersByFirstName() throws {
-        let (one, _) = watching(.approved, facts: SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire"]))
-        #expect(try row(one).operatorLine?.text == "waiting on approval · Lawrence")
-        #expect(try row(one).operatorLine?.tooltip == "Waiting for Lawrence De Spiegeleire to approve !102.")
-        let (two, _) = watching(.approved, facts: SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire", "jan-dv"]))
-        #expect(try row(two).operatorLine?.text == "waiting on approval · Lawrence, jan-dv")
-        #expect(try row(two).operatorLine?.tooltip == "Waiting for Lawrence De Spiegeleire or jan-dv to approve !102.")
-        let (none, _) = watching(.approved, facts: SignalWaitFacts(reviewers: []))
-        #expect(try row(none).operatorLine?.text == "waiting on reviewer approval", "No reviewer asked yet")
-        let (unread, _) = watching(.approved, facts: SignalWaitFacts(openThreads: 2))
-        #expect(try row(unread).operatorLine?.text == "waiting on reviewer approval", "Reviewers not read")
+    /// The line is the Done trigger's description when the person wrote one, else its query, with the waiting ring.
+    @Test func aWatchingTaskSaysItsDoneTriggersDescriptionElseItsQuery() throws {
+        let (query, _) = watching(Self.approved)
+        #expect(try row(query).status == .waiting)
+        #expect(try row(query).operatorLine?.text == "reviewer:@me review-state:approved")
+        #expect(try row(query).operatorLine?.tooltip == "Waiting for its Done trigger: reviewer:@me review-state:approved")
+        var described = Self.approved; described.description = "When I’ve approved it"
+        let (words, _) = watching(described)
+        #expect(try row(words).operatorLine?.text == "When I’ve approved it")
+        var blank = Self.approved; blank.description = "  "
+        #expect(try row(watching(blank).0).operatorLine?.text == "reviewer:@me review-state:approved", "blank words are no description")
     }
     @Test func aLongLineIsCutToFortyCharactersAndTheTooltipKeepsItAll() {
-        let many = OperatorLine.waiting(for: .approved, facts: SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire", "Jan De Visscher", "Nathan Geleyn"]), request: "!103")
-        #expect(many.text == "waiting on approval · Lawrence +2")
-        #expect(many.tooltip == "Waiting for Lawrence De Spiegeleire, Jan De Visscher or Nathan Geleyn to approve !103.")
-        let long = OperatorLine.waiting(for: .approved, facts: SignalWaitFacts(reviewers: ["Maximiliaan-Alexander Vandenberghe", "Jan"]))
-        #expect(long.text.count == OperatorLine.maxLength && long.text.hasSuffix("… +1"), "\(long.text)")
-        let status = OperatorLine.waiting(for: .ticketStatus("Ready for Acceptance Testing"), facts: nil, ticket: "PAY-1")
-        #expect(status.text == "waiting for ticket to reach Ready for A…")
-        #expect(status.text.count == OperatorLine.maxLength)
-        #expect(status.tooltip == "Waiting for PAY-1 to move to “Ready for Acceptance Testing”.")
+        let query = #"status = "Ready for Acceptance Testing" AND labels = operator"#
+        let long = OperatorLine.waiting(for: SignalTrigger(source: .jira, query: query), facts: nil)
+        #expect(long.text == "status = \"Ready for Acceptance Testing\"…" && long.text.count == OperatorLine.maxLength)
+        #expect(long.tooltip == "Waiting for its Done trigger: " + query)
     }
-    @Test func openThreadsAreCountedWhenTheDoneCheckReadThem() throws {
-        let (three, _) = watching(.threadsResolved, facts: SignalWaitFacts(openThreads: 3))
-        #expect(try row(three).operatorLine?.text == "waiting on 3 open threads")
-        #expect(try row(three).operatorLine?.tooltip == "Waiting for 3 open review threads on !102 to be resolved.")
-        let (one, _) = watching(.threadsResolved, facts: SignalWaitFacts(openThreads: 1))
-        #expect(try row(one).operatorLine?.text == "waiting on 1 open thread")
-        let (unread, _) = watching(.threadsResolved)
-        #expect(try row(unread).operatorLine?.text == "waiting on review threads")
-    }
-    @Test func aMetConditionHeldForTheMergeSaysWhatTheMergeLacks() throws {
-        let (judged, _) = watching(.operatorJudges, facts: SignalWaitFacts(mergeBlockers: [.checks]))
-        #expect(try row(judged).status == .waiting)
-        #expect(try row(judged).operatorLine?.text == "waiting to merge · checks")
-        #expect(try row(judged).operatorLine?.tooltip == "Its done condition is met. !102 merges once it has green checks.")
-        let all = OperatorLine.waiting(for: .approved, facts: SignalWaitFacts(reviewers: ["Ann"], mergeBlockers: [.approval, .checks, .threads, .push]))
+    @Test func aTaskHeldForItsMergeSaysWhatTheMergeLacks() throws {
+        let (held, _) = watching(Self.approved, facts: SignalWaitFacts(mergeBlockers: [.checks]))
+        #expect(try row(held).status == .waiting)
+        #expect(try row(held).operatorLine?.text == "waiting to merge · checks")
+        #expect(try row(held).operatorLine?.tooltip == "!102 merges once it has green checks.")
+        let all = OperatorLine.waiting(for: Self.approved, facts: SignalWaitFacts(mergeBlockers: [.approval, .checks, .threads, .push]))
         #expect(all.text == "waiting to merge · approval, checks, th…" && all.text.count == OperatorLine.maxLength)
-        #expect(all.tooltip == "Its done condition is met. The request merges once it has an approval, green checks, every thread resolved and its local commits pushed.")
-        #expect(OperatorLine.waiting(for: .approved, facts: SignalWaitFacts(mergeBlockers: [])).text == "waiting to merge")
-        let host = OperatorLine.waiting(for: .approved, facts: SignalWaitFacts(mergeBlockers: [.host]), request: "!102")
+        #expect(all.tooltip == "The request merges once it has an approval, green checks, every thread resolved and its local commits pushed.")
+        #expect(OperatorLine.waiting(for: Self.approved, facts: SignalWaitFacts(mergeBlockers: [])).text == "waiting to merge")
+        let host = OperatorLine.waiting(for: Self.approved, facts: SignalWaitFacts(mergeBlockers: [.host]), request: "!102")
         #expect(host.text == "waiting to merge · host check")
-        #expect(host.tooltip == "Its done condition is met. !102 merges once it has the host’s go-ahead (no conflicts, nothing else it waits on).")
-    }
-    @Test func withoutARequestTheSentenceSaysTheRequest() {
-        #expect(OperatorLine.waiting(for: .merged, facts: nil).tooltip == "Waiting for the request to be merged.")
-        #expect(OperatorLine.waiting(for: .ticketStatus("Done"), facts: nil).tooltip == "Waiting for the ticket to move to “Done”.")
+        #expect(host.tooltip == "!102 merges once it has the host’s go-ahead (no conflicts, nothing else it waits on).")
     }
 
     // MARK: - What stays as it was
@@ -142,9 +102,9 @@ import Testing
     // MARK: - Counted as waiting, never as working
 
     @Test func aFoldedSectionCountsWaitingTasksAsWaiting() throws {
-        var world = SignalWorld(); let signal = world.signal(done: .approved)
+        var world = SignalWorld(); let signal = world.signal(done: Self.approved)
         let first = world.workingTask(signal: signal), second = world.workingTask(signal: signal)
-        world.state.updateSignalTask(second) { $0.phase = .watching(.approved) }
+        world.state.updateSignalTask(second) { $0.phase = .watching }
         world.state.signals[0].collapsed = true
         let entries = SidebarModel.entries(state: world.state, sessions: [tab(first, .idle)], branchByCwd: [:], projectBranch: [:])
         let section = try #require(SignalSidebar(state: world.state, entries: entries).signals.first)
@@ -153,7 +113,7 @@ import Testing
         #expect(SidebarModel.statusCountsLabel(heading.counts) == "2 waiting")
     }
     @Test func theOperatorRowAndTheDockBadgeDoNotCountAWaitingTask() throws {
-        var world = SignalWorld(); let signal = world.signal(done: .approved), id = world.workingTask(signal: signal)
+        var world = SignalWorld(); let signal = world.signal(done: Self.approved), id = world.workingTask(signal: signal)
         let worker = tab(id, .idle)
         let operatorRow = SignalOperatorRowValue.make(state: world.state, sessions: [worker])
         #expect(operatorRow.status == .idle)

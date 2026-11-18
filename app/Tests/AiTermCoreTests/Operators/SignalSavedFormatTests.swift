@@ -43,18 +43,21 @@ import Testing
         let project = Project.make(id: id(1), name: "Shop", path: "/synthetic/shop", provider: .gitlab,
             remoteUrl: "https://git.example/shop/web", addedAt: at)
         let first = Signal(id: id(2), name: "Plan tickets", createdAt: at,
-            source: .jira(JiraConditions(labels: ["operator"])), work: SignalWork(prompt: "/psg:plan"),
-            agents: [claude, codex], finish: SignalFinish(doneWhen: .operatorJudges, then: .keep))
+            start: SignalTrigger(source: .jira, description: "Tickets labelled operator", query: "labels = operator"),
+            done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "/psg:plan"),
+            agents: [claude, codex], finish: SignalFinish(then: .keep))
         let next = Signal(id: id(3), name: "Build tickets", createdAt: at.addingTimeInterval(1),
-            source: .jira(JiraConditions(labels: ["ready"])), work: SignalWork(prompt: "/psg:implement, then /psg:review"),
-            agents: [codex], finish: SignalFinish(doneWhen: .approved, then: .archive))
+            start: SignalTrigger(source: .jira, query: "labels = ready"),
+            done: SignalTrigger(source: .gitLab, description: "When it is approved", query: "review-state:approved"),
+            work: SignalWork(prompt: "/psg:implement, then /psg:review"),
+            agents: [codex], finish: SignalFinish(then: .archive, mergesWhenReady: true))
         var task = TaskItem.make(id: id(4), project: project.id, title: "Make retries safe", branch: "feat/pay-1",
             worktreePath: "/synthetic/shop/.worktrees/pay-1", jira: JiraRef(key: "PAY-1", summary: "Make retries safe", url: "https://jira.example/browse/PAY-1"),
             model: claude.model, reasoning: claude.reasoning, firstPrompt: first.work.prompt, createdAt: at, windowId: "worker-window")
         task.conversations = [TaskConversation(agent: .claude, id: "worker-conversation")]
         var record = SignalTask(current: SignalStage(signal: first.id, item: .ticket(site: "https://jira.example", key: "PAY-1"), matchedAt: at,
             configuration: first, prompt: first.work.prompt), startedAt: at)
-        record.phase = .working
+        record.phase = .working; record.doneMatched = false
         record.launch = LaunchAttempt(number: 1, requestedAt: at, openedAt: at, workerPending: false)
         record.pendingStages = [SignalStage(signal: next.id, item: record.current.item, matchedAt: at, configuration: next)]
         record.pendingReplies = ["main": SignalWorkerReply(at: at, fingerprint: "previous-reply")]
