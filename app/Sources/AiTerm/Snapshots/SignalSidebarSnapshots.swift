@@ -14,7 +14,7 @@ import AiTermUI
     private static func waiting(_ pose: String) -> (TaskPhase, SignalWaitFacts?)? {
         switch pose {
         case "watching": (.watching(.hasReviewer), nil)
-        case "approval", "waiting-folded": (.watching(.approved), SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire"]))
+        case "approval", "waiting-folded": (.watching(.approved), SignalWaitFacts(reviewers: ["Sam Rivera"]))
         case "threads": (.watching(.threadsResolved), SignalWaitFacts(openThreads: 3))
         default: nil
         }
@@ -75,7 +75,7 @@ import AiTermUI
                 let stage = SignalStage(signal: signal.id, item: .ticket(site: "https://jira.example", key: "PAY-14\(offset)"), matchedAt: Snapshots.clock.now, configuration: signal)
                 var record = SignalTask(current: stage, startedAt: Snapshots.clock.now)
                 record.phase = offset == 0 ? .watching(.approved) : .working
-                record.waitingOn = SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire", "Jan De Visscher"])
+                record.waitingOn = SignalWaitFacts(reviewers: ["Sam Rivera", "Alex Kim"])
                 state.tasks[index].signalTask = record
                 state.tasks[index].mr = MergeRequestRef(iid: 102 + offset, title: "Work", url: "https://git.example/shop/web/-/merge_requests/\(102 + offset)")
             }

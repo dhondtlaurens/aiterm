@@ -53,8 +53,7 @@ public enum Palette {
     public static let sidebarFooter = hex(0x131416)
     /// The sheet: its whole ground, its footer included, a step lighter than the window it hangs on.
     public static let surface = hex(0x1E1F23)
-    /// Cards and groups on a sheet: `groupChrome`'s default fill — a Settings card, a sheet card, a
-    /// question waiting on you.
+    /// Cards and groups on a sheet: `groupChrome`'s default fill for Settings cards and sheet cards.
     public static let surfaceRaised = hex(0x26272C)
     /// The fill of anything that hangs over content: a dropdown, a `ChipsPicker`'s results, the
     /// completion popup, the background-work card and the toast (`menuChrome`). Lighter than a card,
@@ -133,7 +132,7 @@ public enum Palette {
     /// Subordinate ink on the accent: `onAccent` at 75 %, where `muted` would be a grey on blue.
     /// `Surface.accent.secondaryInk` is this.
     public static let onAccentSecondary = onAccent.opacity(0.75)
-    /// A spinner's unfilled track on the accent — a busy primary button's mark — where
+    /// A spinner's unfilled track on the accent (`StatusMark` on `Surface.accent`), where
     /// `spinnerTrack`'s grey would read as a smudge.
     public static let spinnerTrackOnAccent = onAccent.opacity(0.3)
     /// A keycap's fill on a primary button (`Kbd`): enough white to lift the cap off the accent.

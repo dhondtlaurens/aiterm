@@ -40,9 +40,8 @@ public extension View {
     }
 
     /// The box a group of controls is drawn in: the card ground (`surfaceRaised`) inside the soft
-    /// hairline, at the group radius — a Settings card, each of the Interface tab's groups, a question
-    /// waiting on you. A question edges itself in `Palette.statusChipAttentionStroke` while it waits; a
-    /// segmented track passes `field` and `borderStrong`, as a field is drawn.
+    /// hairline, at the group radius: a Settings card or each of the Interface tab's groups. A segmented
+    /// track passes `field` and `borderStrong`, as a field is drawn.
     func groupChrome(fill: Color = Palette.surfaceRaised, edge: Color = Palette.border) -> some View {
         background(RoundedRectangle(cornerRadius: Radius.group).fill(fill))
             .overlay(RoundedRectangle(cornerRadius: Radius.group).strokeBorder(edge, lineWidth: 1))

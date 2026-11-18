@@ -47,13 +47,13 @@ import Testing
             if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[]}"#.utf8)) }
             if path.hasSuffix("reviews") { return (200, Data("[]".utf8)) }
             return (200, Data((github
-                ? #"{"number":7,"title":"Work","state":"open","html_url":"https://github.com/shop/web/pull/7","head":{"ref":"work","sha":"head","label":"shop:work","repo":{"full_name":"shop/web"}},"base":{"ref":"main","repo":{"full_name":"shop/web"}},"requested_reviewers":[{"login":"lawrence-ds"}]}"#
-                : #"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","reviewers":[{"name":"Lawrence De Spiegeleire","username":"lawrence"},{"username":"jan"}]}"#).utf8))
+                ? #"{"number":7,"title":"Work","state":"open","html_url":"https://github.com/shop/web/pull/7","head":{"ref":"work","sha":"head","label":"shop:work","repo":{"full_name":"shop/web"}},"base":{"ref":"main","repo":{"full_name":"shop/web"}},"requested_reviewers":[{"login":"sam-rv"}]}"#
+                : #"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","reviewers":[{"name":"Sam Rivera","username":"sam"},{"username":"alex"}]}"#).utf8))
         }
         let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), gitHub: GitHubConfig(token: "fake"), session: stub.session)
         let io = SignalHostIO(workspace: h.workspace, git: RecordingGitRunner(), connections: { links }); io.remote = { _, _ in remote }
         let facts = try await io.read(try #require(h.workspace.state.task(id: id))).facts
-        #expect(facts.reviewers == (github ? ["lawrence-ds"] : ["Lawrence De Spiegeleire", "jan"]))
+        #expect(facts.reviewers == (github ? ["sam-rv"] : ["Sam Rivera", "alex"]))
         #expect(facts.openThreads == nil && !facts.approved)
         #expect(stub.requests.count == 2, "The request and its approvals, as before")
     }
@@ -103,7 +103,7 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let stub = StubSession { request in
             let path = request.url!.path
-            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[{"user":{"username":"jan"}}]}"#.utf8)) }
+            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[{"user":{"username":"alex"}}]}"#.utf8)) }
             if path.hasSuffix("discussions") { return (200, Data("[]".utf8)) }
             return (200, Data(#"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"opened","sha":"head","head_pipeline":{"status":"success"},"detailed_merge_status":"mergeable","reviewers":[{"username":"reviewer"}]}"#.utf8))
         }
@@ -129,7 +129,7 @@ import Testing
         let stub = StubSession { request in
             let path = request.url!.path
             let page = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value
-            if path.hasSuffix("/reviews") { return (200, Data((page == "1" ? #"[{"user":{"login":"jan"},"state":"APPROVED"}]"# : "[]").utf8)) }
+            if path.hasSuffix("/reviews") { return (200, Data((page == "1" ? #"[{"user":{"login":"alex"},"state":"APPROVED"}]"# : "[]").utf8)) }
             if path.hasSuffix("/check-runs") { return (200, Data(#"{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"success"}]}"#.utf8)) }
             if path.hasSuffix("/status") { return (200, Data(#"{"total_count":0,"statuses":[]}"#.utf8)) }
             if path == "/graphql" { return (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}"#.utf8)) }

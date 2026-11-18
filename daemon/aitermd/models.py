@@ -31,7 +31,7 @@ class Harness:
     # The route its status-line shim posts to, if it has one (agents.STATUSLINE_PARSERS).
     statusline_route: str | None = None
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
-    # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
+    # before the CLI loads its hooks, so the screen is the only sign of it (screens.shows_trust_prompt).
     trust_prompt: tuple[str, ...] = ()
     # Text that marks a prompt open on the CLI's screen, which delivery must not type into
     # (delivery.open_prompt): an approval, a startup dialog -- folder trust, an update offer -- and

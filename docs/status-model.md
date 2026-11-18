@@ -268,6 +268,8 @@ The app waits on the same fact before closing a removed task's window: `forgetRe
 waits while any of the task's sessions is still `working` or `needsInput`. It closes the window
 on the first pass after they have all settled, so
 an agent whose worktree just vanished finishes its final message before the window disappears.
+While that window holds another row's tab (`TaskTeardown.holdsOtherWork`), the app leaves the
+window alone and keeps the row saying Worktree missing until the other row's tab leaves.
 
 ## Why the branch is not iTerm2's to tell
 

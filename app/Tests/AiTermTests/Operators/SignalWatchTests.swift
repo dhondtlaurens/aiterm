@@ -36,14 +36,14 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }; let runner = stages(h, at: world.now)
         let then = ThenRunner(workspace: h.workspace, journal: h.journal, stages: runner, now: { world.now }, ports: .init(
             workerIsWorking: { _ in false }, archive: { _, _ in }, remove: { _, _ in }))
-        var snapshot = ready(); snapshot.facts.approved = false; snapshot.facts.reviewers = ["Lawrence De Spiegeleire"]; snapshot.facts.openThreads = 2
+        var snapshot = ready(); snapshot.facts.approved = false; snapshot.facts.reviewers = ["Sam Rivera"]; snapshot.facts.openThreads = 2
         let watch = RequestWatch(workspace: h.workspace, stages: runner, then: then, ports: .init(
             workerIsWorking: { _ in false }, read: { _ in snapshot }, oracleMerge: { _, _ in false }, merge: { _, _ in }))
         await watch.pass()
-        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn == SignalWaitFacts(reviewers: ["Lawrence De Spiegeleire"], openThreads: 2))
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn == SignalWaitFacts(reviewers: ["Sam Rivera"], openThreads: 2))
         snapshot.facts.hostReadComplete = false; snapshot.facts.reviewers = []
         await watch.pass()
-        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn?.reviewers == ["Lawrence De Spiegeleire"])
+        #expect(h.workspace.state.task(id: id)?.signalTask?.waitingOn?.reviewers == ["Sam Rivera"])
     }
     /// Judged done but held for merge when ready: the line must name what the merge lacks, not the met condition.
     @Test func aMetConditionHeldForTheMergeSavesWhatTheMergeLacks() async throws {

@@ -29,7 +29,7 @@ The status mark always reflects current work. The title stays “Operator”. Re
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on
 someone: a turn's background work that wakes the agent again (`background`), or a driven task that waits
 (`waiting`): its workers ended their turn and the Operator is to read it (`worker done · Operator to
-review`), or its done condition is someone else's to meet (`waiting on approval · Lawrence`, `waiting on
+review`), or its done condition is someone else's to meet (`waiting on approval · Sam`, `waiting on
 3 open threads`). The status tooltip names whom or what where the done check already read it, and says the generic
 words otherwise; it stays within 40 characters and the tooltip carries the whole sentence. The solid spinner
 is only for a worker or the Operator at work now. A waiting task is never counted as working: a folded

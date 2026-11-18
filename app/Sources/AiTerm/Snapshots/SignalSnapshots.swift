@@ -52,7 +52,7 @@ import AiTermUI
             let number = event == .myRequest ? 96 : 412
             let title = event == .myRequest ? "Coupon field loses focus on mobile" : "Search facets count hidden products"
             let url = remote + (kind == .gitHub ? "/pull/" : "/-/merge_requests/") + String(number)
-            let request = MergeRequest(iid: number, title: title, sourceBranch: "fix/coupon-focus", targetBranch: "main", author: "jan",
+            let request = MergeRequest(iid: number, title: title, sourceBranch: "fix/coupon-focus", targetBranch: "main", author: "alex",
                                        state: "opened", draft: false, url: url, description: "A synthetic merge request description.")
             read = SignalRead(items: [SignalItem(item: .request(remote: remote, number: number), title: title,
                                                 description: request.description, mergeRequest: request)], complete: true)

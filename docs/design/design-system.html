@@ -397,8 +397,8 @@
     height: var(--size-menu-row); padding-inline: var(--space-gap);
     border-radius: var(--radius-control); font-size: 13px; color: var(--muted);
   }
-  /* controlActive under the selected segment, its label in the surface's ink. The agent picker
-     sets it in bodyEmphasis; .regular keeps Typography.body, as Sidebar size does. */
+  /* controlActive under the selected segment, its label in the surface's ink.
+     .regular keeps Typography.body, as Sidebar size does. */
   .ai-seg > span.on { background: var(--control-active); color: var(--text); font-weight: 500; }
   .ai-seg > span.on.regular { font-weight: 400; }
   /* Keyed to enabled, not to selection: an unselected but enabled segment draws at full opacity. */
@@ -1347,7 +1347,7 @@
           <div class="chip" style="background: #26272C"></div>
           <div><div class="name">surfaceRaised</div><div class="value">#26272C</div><div class="appkit">literal 0x26272C</div></div>
           <div class="use">Cards and groups on a sheet: <code>groupChrome</code>'s default fill, a
-            Settings card, a sheet card, a question waiting on you.</div>
+            Settings card or a sheet card.</div>
         </div>
         <div class="token">
           <div class="chip" style="background: #2A2C31"></div>
@@ -1534,8 +1534,8 @@
         <div class="token">
           <div class="chip wash" style="--w: rgba(255,255,255,0.3); background-color: #007AFF"></div>
           <div><div class="name">spinnerTrackOnAccent</div><div class="value">#FFFFFF · 30 %</div><div class="appkit">onAccent.opacity(0.3)</div></div>
-          <div class="use">A spinner's unfilled track on the accent, a busy primary button's mark,
-            where <code>spinnerTrack</code>'s grey would read as a smudge.</div>
+          <div class="use">A spinner's unfilled track on the accent (<code>StatusMark</code> on
+            <code>Surface.accent</code>), where <code>spinnerTrack</code>'s grey would read as a smudge.</div>
         </div>
         <div class="token">
           <div class="chip wash" style="--w: rgba(255,255,255,0.22); background-color: #007AFF"></div>
@@ -2559,7 +2559,7 @@
           </div>
           <div class="rules">
             <div class="yes"><span class="h">Use it for</span>Two to four options that should all
-              stay visible: the agent picker, Sidebar size, a task's end. A disabled value drops to
+              stay visible: Sidebar size and New Signal's source, query mode, event and Then. A disabled value drops to
               <code>Opacity.disabled</code> and explains itself in a tooltip; ← and → skip it.</div>
             <div class="no"><span class="h">Not for</span>A long list, or anything that needs to
               scroll: that is <code>Select</code>. Nor a sheet's navigation: Settings' panes are a
