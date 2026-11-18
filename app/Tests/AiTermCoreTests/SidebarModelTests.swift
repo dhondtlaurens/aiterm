@@ -84,6 +84,20 @@ import Synchronization
         #expect(SidebarModel.displayJobs(of: [active, ended]) == SidebarModel.backgroundJobs(of: [active, ended]))
     }
 
+    @Test func displayDescriptionsPreserveTabOrderAndRawBackgroundObligations() {
+        var first = SessionInfo.make("first", tabIndex: 0, state: .done)
+        first.work = [WorkItem(kind: .shell, text: "scripts/test.sh", holdsTurn: true, displayLabel: "Run validation")]
+        var second = SessionInfo.make("second", tabIndex: 1, state: .working)
+        second.work = [WorkItem(kind: .subagent, text: "default", holdsTurn: false, displayLabel: "Inspect fixture")]
+        let display = SidebarModel.displayJobs(of: [second, first])
+        #expect(display.map(\.label) == ["Run validation", "Inspect fixture"])
+        #expect(display.map(\.text) == ["scripts/test.sh", "default"])
+        #expect(SidebarModel.backgroundJobs(of: [second, first]) == [BackgroundJob(kind: .shell, text: "scripts/test.sh")])
+        #expect(SidebarModel.aggregate(tabs: [second, first]) == .working)
+        second.state = .done
+        #expect(SidebarModel.aggregate(tabs: [second, first]) == .background)
+    }
+
     /// The agent takes its turn up again by itself: nothing for Focus View or the Dock badge, and a collapsed
     /// header counts it with working.
     @Test func aRowInTheBackgroundIsNotWaitingOnYou() {

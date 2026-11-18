@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -77,6 +77,7 @@ _SESSION_META = b'"session_meta"'
 # are not locked, so an outstanding read must hold back both kinds of work.
 CODEX_READ = "the Codex rollout read"
 READ_BYTES = 8 * 1024 * 1024
+MAX_CHILD_LABELS = 4096
 # A turn boundary a rollout records: a task started, or one completed.
 Boundary = Literal["working", "done"]
 
@@ -85,6 +86,7 @@ class CodexReading(NamedTuple):
     context: int | None
     version: str | None
     turn: tuple[Boundary, float] | None
+    child_labels: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(slots=True)
@@ -92,13 +94,14 @@ class _RolloutCursor(JsonlCursor):
     version: str | None = None
     turn: tuple[Boundary, float] | None = None
     context: int | None = None
+    child_labels: dict[str, str] = field(default_factory=dict)
     # Whether the first clipped tail line still needs dropping once it is complete.
     clipped: bool = False
 
     def consume(self, lines: list[bytes], thread_id: str) -> None:
         for line in lines:
             if not any(marker in line for marker in (_SESSION_META, b'"task_started"', b'"task_complete"',
-                                                     b'"turn_aborted"', _TOKEN_COUNT)):
+                                                     b'"turn_aborted"', b'"SubAgentActivity"', _TOKEN_COUNT)):
                 continue
             try:
                 record = json.loads(line)
@@ -125,6 +128,15 @@ class _RolloutCursor(JsonlCursor):
                 if total is not None and window is not None and window > 0:
                     if (percent := clamped_percent(total / window * 100)) is not None:
                         self.context = percent
+            elif kind == "item_completed" and isinstance(item := payload.get("item"), dict):
+                if (item.get("type") == "SubAgentActivity" and item.get("kind") == "started"
+                        and (child := nonempty_string(item.get("agent_thread_id")))
+                        and (path := nonempty_string(item.get("agent_path")))):
+                    label = " ".join(path.rsplit("/", 1)[-1].replace("_", " ").replace("-", " ").split())
+                    if label:
+                        self.child_labels[child] = label[0].upper() + label[1:]
+                        while len(self.child_labels) > MAX_CHILD_LABELS:
+                            del self.child_labels[next(iter(self.child_labels))]
 
 
 class CodexSessionFiles:
@@ -174,8 +186,8 @@ class CodexSessionFiles:
                     cursor.clipped = True
             else:
                 if old.offset == stat.st_size:
-                    return CodexReading(old.context, old.version, old.turn)
-                cursor = replace(old)
+                    return CodexReading(old.context, old.version, old.turn, tuple(old.child_labels.items()))
+                cursor = replace(old, child_labels=dict(old.child_labels))
             lines = cursor.read_lines(path, stat.st_size)
         except OSError:
             return CodexReading(None, None, None)
@@ -186,7 +198,7 @@ class CodexSessionFiles:
             cursor.clipped = False
         cursor.consume(lines, thread_id)
         self._rollouts[path] = cursor
-        return CodexReading(cursor.context, cursor.version, cursor.turn)
+        return CodexReading(cursor.context, cursor.version, cursor.turn, tuple(cursor.child_labels.items()))
 
     def rate_limits(self) -> tuple[dict[str, Any], int | None] | None:
         """The newest `rate_limits` block any Codex session has written, with the record's own
@@ -441,6 +453,7 @@ def rollout_plan(registry: SessionRegistry, status: StatusEngine, threads: Codex
                  tabs: dict[str, str]) -> corroboration.ReadPlan[dict[str, CodexReading | None]]:
     """Each tab's rollout, by the thread `tabs` names: its context fill, version and last turn boundary."""
     captured = dict(tabs)
+    generations = {sid: status.child_generations(sid) for sid in captured}
 
     def key(session: SessionInfo) -> corroboration.SessionKey:
         return corroboration.SessionKey.capture(session, threads.thread(session.session_id))
@@ -462,11 +475,12 @@ def rollout_plan(registry: SessionRegistry, status: StatusEngine, threads: Codex
     def apply(readings: dict[str, CodexReading | None]) -> list[str]:
         changed: list[str] = []
         for sid, reading in readings.items():
-            context, version, boundary = reading or CodexReading(None, None, None)
-            registry.set_cli_version(sid, version)
-            changed += status.apply_metadata(sid, context=context)
-            if boundary is not None:
-                changed += status.apply_evidence(sid, rollout_evidence(boundary))
+            value = reading or CodexReading(None, None, None)
+            registry.set_cli_version(sid, value.version)
+            changed += status.apply_metadata(sid, context=value.context)
+            if value.turn is not None:
+                changed += status.apply_evidence(sid, rollout_evidence(value.turn))
+            changed += status.apply_child_labels(sid, value.child_labels, generations[sid])
         return changed
 
     return corroboration.ReadPlan(CODEX_READ, read, dict.fromkeys(captured), apply, keys, key)

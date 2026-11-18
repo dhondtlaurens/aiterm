@@ -40,6 +40,9 @@ class _Child:
     stopped_at: float | None = None
     label: str = "Subagent"
     conversation: str | None = None
+    generation: int = 0
+    accepts_labels: bool = True
+    display_label: str | None = None
 
 
 @dataclass(slots=True)
@@ -56,6 +59,10 @@ class Turn:
     rollout_at: float = float("-inf")
     # The subagents running, by id.
     children: dict[str, _Child] = field(default_factory=dict)
+    # A repeated child id may still have cached metadata for its previous run: use its
+    # native type/Stop fallback rather than guessing which assignment a label belongs to.
+    child_history: set[str] = field(default_factory=set)
+    child_generation: int = 0
     # A hook, title or session file said the foreground turn ended while a child still runs: the
     # last child to stop finishes the change.
     deferred_done: bool = False
@@ -311,9 +318,14 @@ class StatusEngine:
         if s is None or not subagent_id:
             return []
         turn = self._turn(session_id)
+        turn.child_generation += 1
+        accepts_labels = subagent_id not in turn.child_history and len(turn.child_history) < 4096
+        if accepts_labels:
+            turn.child_history.add(subagent_id)
         # A resumed child starts again under the same id with fresh completion evidence.
         turn.children[subagent_id] = _Child(transcript, self._clock(),
-                                          label=label or "Subagent", conversation=s.conversation_id)
+                                          label=label or "Subagent", conversation=s.conversation_id,
+                                          generation=turn.child_generation, accepts_labels=accepts_labels)
         shown = self._show_children(session_id)
         # An input request must stay visible; every other state means the
         # task is actively progressing while this child is alive.
@@ -364,9 +376,25 @@ class StatusEngine:
         for child_id, child in children.items():
             if child_id in descriptions:
                 child.label = descriptions[child_id]
-        shown = tuple(BackgroundJob("subagent", child.label, agent_id=child_id)
+        shown = tuple(BackgroundJob("subagent", child.label, agent_id=child_id, display_label=child.display_label)
                       for child_id, child in children.items() if child.conversation == s.conversation_id)
         return self.reg.set_shown_subagents(session_id, shown) or changed
+
+    def child_generations(self, session_id: str) -> dict[str, int]:
+        turn = self._turns.get(session_id)
+        return {key: child.generation for key, child in turn.children.items()} if turn else {}
+
+    def apply_child_labels(self, session_id: str, labels: tuple[tuple[str, str], ...],
+                           captured: Mapping[str, int]) -> list[str]:
+        session, turn = self.reg.get(session_id), self._turns.get(session_id)
+        if session is None or turn is None:
+            return []
+        for key, label in labels:
+            child = turn.children.get(key)
+            if (child is not None and child.accepts_labels and child.conversation == session.conversation_id
+                    and captured.get(key, child.generation) == child.generation):
+                child.display_label = label
+        return [session_id] if self._show_children(session_id) else []
 
     def subagent_transcripts(self) -> set[str]:
         """The transcripts release_dead_subagents needs: those of every child counted, its turn under

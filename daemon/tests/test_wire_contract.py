@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import replace
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, get_args
@@ -230,6 +231,10 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
             {"id": "review-1", "type": "subagent", "status": "running", "description": "Review the fix"},
             {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}]})
         await svc.tick()
+        # Exercise the additive display-only wire field on an existing item, without changing
+        # its raw text, position or turn obligation. Native-reader integration is tested separately.
+        stopped = svc.registry.get(worker).stop_work
+        svc.registry.set_stop_work(worker, (replace(stopped[0], display_label="Review checkout changes"), *stopped[1:]))
         replies["workspace.snapshot"] = await app.call("workspace.snapshot")
 
         mark = app.mark()

@@ -33,6 +33,49 @@ def turn_state(files: CodexSessionFiles, thread: str):
     return files.reading(thread).turn
 
 
+def test_native_child_path_is_available_incrementally_before_completion(tmp_path):
+    path = write_rollout(tmp_path, "parent", [versioned("parent", "0.169.0")])
+    files = CodexSessionFiles(tmp_path)
+    assert files.reading("parent").child_labels == ()
+    activity = {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+        "type": "SubAgentActivity", "kind": "started", "agent_thread_id": "child",
+        "agent_path": "/root/inspect_fixture"}}}
+    with path.open("a") as stream:
+        stream.write(json.dumps(activity) + "\n")
+    result = files.reading("parent")
+    assert result.child_labels == (("child", "Inspect fixture"),)
+    assert result.turn is None
+    assert files.reading("parent") == result
+    # A rewrite must not carry metadata from the previous file.
+    path.write_text(json.dumps(versioned("parent", "0.169.0")) + "\n")
+    assert files.reading("parent").child_labels == ()
+
+
+@pytest.mark.parametrize("change", [
+    {"kind": "completed"}, {"agent_thread_id": None}, {"agent_path": "/root/"},
+    {"agent_path": None}, {"type": "unknown"},
+])
+def test_unknown_child_metadata_does_not_invent_a_description(tmp_path, change):
+    item = {"type": "SubAgentActivity", "kind": "started", "agent_thread_id": "child", "agent_path": "/root/inspect"} | change
+    write_rollout(tmp_path, "parent", [{"type": "event_msg", "payload": {"type": "item_completed", "item": item}}])
+    assert CodexSessionFiles(tmp_path).reading("parent").child_labels == ()
+
+
+def test_child_metadata_is_bounded_and_partial_records_wait_for_newline(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex, "MAX_CHILD_LABELS", 2)
+    records = [{"type": "event_msg", "payload": {"type": "item_completed", "item": {
+        "type": "SubAgentActivity", "kind": "started", "agent_thread_id": str(i), "agent_path": f"/root/task_{i}"}}}
+        for i in range(3)]
+    path = write_rollout(tmp_path, "parent", records[:2])
+    with path.open("a") as stream:
+        stream.write(json.dumps(records[2]))
+    files = CodexSessionFiles(tmp_path)
+    assert files.reading("parent").child_labels == (("0", "Task 0"), ("1", "Task 1"))
+    with path.open("a") as stream:
+        stream.write("\n")
+    assert files.reading("parent").child_labels == (("1", "Task 1"), ("2", "Task 2"))
+
+
 def test_an_unparsable_line_is_skipped_and_logged_once(tmp_path, caplog):
     write_rollout(tmp_path, "t", [versioned("t", "0.160.0"),
         '{"type":"event_msg","payload":{"type":"token_count",broken}}',
@@ -40,8 +83,8 @@ def test_an_unparsable_line_is_skipped_and_logged_once(tmp_path, caplog):
         {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_complete"}}])
     files = CodexSessionFiles(tmp_path)
 
-    assert files.reading("t") == (50, "0.160.0", ("done", 101.0))
-    assert files.reading("t") == (50, "0.160.0", ("done", 101.0))
+    assert files.reading("t") == (50, "0.160.0", ("done", 101.0), ())
+    assert files.reading("t") == (50, "0.160.0", ("done", 101.0), ())
     warnings = [record for record in caplog.records if record.levelname == "WARNING"]
     assert len(warnings) == 1
     assert "thread t" in warnings[0].getMessage()
@@ -497,7 +540,7 @@ def test_large_rollout_first_sight_read_budget(tmp_path, monkeypatch, meta_first
     files = CodexSessionFiles(tmp_path)
     monkeypatch.setattr(type(path), "open", counted)
     reading = files.reading("t")
-    assert reading == (None, "0.160.0", ("done", 101.0))
+    assert reading == (None, "0.160.0", ("done", 101.0), ())
     # The first line uses readline; all other facts share the bounded tail read.
     assert len(opened) <= 2
     assert sum(read_bytes) <= READ_BYTES
@@ -507,7 +550,7 @@ def test_large_rollout_first_sight_read_budget(tmp_path, monkeypatch, meta_first
 def test_one_thread_read_looks_up_its_path_once(tmp_path, monkeypatch):
     path = write_rollout(tmp_path, "t", [versioned("t", "0.160.0"), token_count(30, 100)])
     files, checked = CodexSessionFiles(tmp_path), []
-    assert files.reading("t") == (30, "0.160.0", None)
+    assert files.reading("t") == (30, "0.160.0", None, ())
     original = type(path).is_file
 
     def is_file(candidate):
@@ -516,7 +559,7 @@ def test_one_thread_read_looks_up_its_path_once(tmp_path, monkeypatch):
         return original(candidate)
 
     monkeypatch.setattr(type(path), "is_file", is_file)
-    assert files.reading("t") == (30, "0.160.0", None)
+    assert files.reading("t") == (30, "0.160.0", None, ())
     assert checked == [path]  # Before: three known-path checks, one for each field.
 
 
@@ -564,9 +607,9 @@ def test_a_rollout_created_after_the_tick_listing_reports_context_in_the_same_ti
     write_rollout(tmp_path, "late", [versioned("late", "0.160.0"), token_count(50, 100),
         {"type": "event_msg", "timestamp": "1970-01-01T00:01:41Z", "payload": {"type": "task_started"}}],
         day=datetime.now().strftime("%Y/%m/%d"))
-    assert files.reading("late") == (50, "0.160.0", ("working", 101.0))
+    assert files.reading("late") == (50, "0.160.0", ("working", 101.0), ())
     files.begin_tick()
-    assert files.reading("late") == (50, "0.160.0", ("working", 101.0))
+    assert files.reading("late") == (50, "0.160.0", ("working", 101.0), ())
 
 
 def test_a_version_stat_failure_after_the_path_check_returns_no_version(tmp_path, monkeypatch):

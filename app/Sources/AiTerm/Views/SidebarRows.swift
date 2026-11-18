@@ -216,9 +216,10 @@ struct TaskRowView: View {
         let mark = removing ? TaskRowMark.status(.working) : row.mark
         // The same work card is inspectable while the agent works or asks for input, including
         // driven rows. A removal spinner offers no card.
-        let jobs = removing ? [] : row.background
+        let jobs = BackgroundCardPresenter.eligible(row.background, source: .task(row.id), controller: controller)
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(id: row.id, selected: selected, activate: { if !removing { controller.choose(task: row.id) } }) {
+        let activate: () -> Void = { if !removing { controller.choose(task: row.id) } }
+        SelectableRow(id: row.id, selected: selected, activate: activate) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.title, dimmed: removing)
@@ -253,7 +254,7 @@ struct TaskRowView: View {
                 TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
-            .backgroundCard(jobs)
+            .backgroundCard(jobs, source: .task(row.id), activate: activate, commands: commands)
         }
         .accessibilityLabel(voiceOver.label)
         .accessibilityValue(BackgroundCard(jobs: jobs).accessibilityValue(status: row.status,
@@ -341,7 +342,8 @@ struct TerminalRowView: View {
         #endif
         let selected = controller.focus.isSelected(row.id)
         let commands = commands()
-        SelectableRow(id: row.id, selected: selected, activate: { if let terminal { controller.choose(.terminal(terminal.id)) } }) {
+        let activate: () -> Void = { if let terminal { controller.choose(.terminal(terminal.id)) } }
+        SelectableRow(id: row.id, selected: selected, activate: activate) {
             SidebarRowContent(avatars: row.avatars) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.name)
@@ -359,7 +361,7 @@ struct TerminalRowView: View {
                 StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
-            .backgroundCard(row.background)
+            .backgroundCard(row.background, source: .terminal(row.id), activate: activate, commands: commands)
         }
         .accessibilityLabel(row.name)
         .accessibilityValue(BackgroundCard(jobs: row.background).accessibilityValue(status: row.status))

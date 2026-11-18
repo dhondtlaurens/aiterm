@@ -211,6 +211,12 @@ import Testing
         let row = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }
         #expect(row?.status == before)
         #expect(row?.background == [BackgroundJob(kind: .subagent, text: "Review")])
+        event.work[0].displayLabel = "Inspect checkout changes"
+        #expect(invalidates(readsTheList(rows)) { controller.live.handle(.sessionChanged(event)) })
+        let renamed = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }
+        #expect(renamed?.background.first?.label == "Inspect checkout changes")
+        #expect(renamed?.background.first?.text == "Review")
+        #expect(renamed?.status == before)
     }
 
     /// Context fills, sidebar moves, remembered choices and menu validation do not derive the rows again.

@@ -177,6 +177,28 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
     assert svc.registry.get(sid).state == "working"
 
 
+async def test_native_descriptions_are_published_for_existing_children_and_shells(make_service, tmp_path, monkeypatch):
+    from tests.builders import child_launch, shell_launch, write_transcript
+    svc, sid, path = await background_session(make_service, tmp_path)
+    svc.status.apply_event(sid, HookEvent("claude", "subagentStart", None, None,
+                                        subagent_id="child", subagent_label="general-purpose"))
+    published = []
+
+    async def broadcast(event, payload):
+        published.append(payload)
+
+    monkeypatch.setattr(svc.publisher, "broadcast", broadcast)
+    write_transcript(path, child_launch() + shell_launch(at=104, description="Run validation"))
+    await svc.tick()
+    assert published[-1]["work"] == [
+        {"kind": "subagent", "text": "general-purpose", "holdsTurn": False, "displayLabel": "Review checkout"},
+        {"kind": "shell", "text": "npm run test", "holdsTurn": False, "displayLabel": "Run validation"}]
+    svc.status.apply_event(sid, HookEvent("claude", "subagentStop", None, None, subagent_id="child"))
+    await svc.tick()
+    assert all(item["kind"] != "subagent" for item in svc.registry.get(sid).to_json()["work"])
+    assert svc.registry.get(sid).state == "working"
+
+
 @pytest.mark.parametrize("replacement", ["process", "conversation", "sessionStart", "closed"])
 async def test_background_read_cannot_attach_to_replaced_identity(make_service, tmp_path, monkeypatch, replacement):
     from aitermd.agents.claude import ShellReading, ShellTask
@@ -1462,8 +1484,9 @@ async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tm
     svc, it, files, r, w = stack
     gate = {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "scripts/test.sh"}
     sid, base, child = await _claude_child_in_background(svc, r, w, tmp_path, 945, gate)
-    assert [job.to_json() for job in svc.registry.get(sid).stop_work] == [{"kind": "subagent", "text": "Review the docs"},
-                                                                           {"kind": "shell", "text": "scripts/test.sh"}]
+    assert [job.to_json() for job in svc.registry.get(sid).stop_work] == [
+        {"kind": "subagent", "text": "Review the docs"},
+        {"kind": "shell", "text": "scripts/test.sh", "displayLabel": "the gate"}]
     _append(child, CHILD_REPORT)
     os.utime(child, (3000, 3000))
     await svc.tick()
@@ -1472,7 +1495,7 @@ async def test_a_turn_that_ended_on_its_subagent_says_what_it_waits_on(stack, tm
     await svc.tick()
     session = svc.registry.get(sid)
     assert (session.state, [job.to_json() for job in session.stop_work]) == (
-        "done", [{"kind": "shell", "text": "scripts/test.sh"}])
+        "done", [{"kind": "shell", "text": "scripts/test.sh", "displayLabel": "the gate"}])
 
 
 async def test_a_child_whose_transcript_is_nowhere_ends_at_the_tick_after_its_subagent_stop(stack, tmp_path):
@@ -1563,8 +1586,9 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": [
         {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"}]})
     session = svc.registry.get(sid)
-    assert (session.state, session.stop_work) == ("done", (BackgroundJob("shell", "npm run test:run", task_id="b1"),))
-    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True}]
+    assert (session.state, session.stop_work) == (
+        "done", (BackgroundJob("shell", "npm run test:run", task_id="b1", display_label="the gate"),))
+    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True, "displayLabel": "the gate"}]
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     assert svc.registry.get(sid).stop_work == ()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})

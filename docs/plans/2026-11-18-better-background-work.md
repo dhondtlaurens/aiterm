@@ -91,9 +91,10 @@ that open task/terminal, rather than retaining a second copy handed over by a ro
 no-longer-drawn source closes the card, and a label-only projection update refreshes it. Share one
 source-eligibility rule between row and presenter: in particular a task with
 `controller.teardown.state(of: id)?.inProgress == true` offers no jobs and closes an open card,
-even while its projected row and background jobs still exist. Accept the already-projected row
-facts when called from a row, avoiding a whole-projection search during every row draw. Use an
-AppKit view anchor converted into the sidebar's coordinates across hosting boundaries;
+even while its projected row and background jobs still exist. Row eligibility uses the jobs
+already present on that projected row. Separately, each presenter refresh looks up the open
+source in the projection; anchor layout and open-source configuration can trigger that lookup.
+Use an AppKit view anchor converted into the sidebar's coordinates across hosting boundaries;
 `SidebarListViewport` is a separate NSHostingView, so SwiftUI preferences alone must not be
 assumed to cross it.
 
@@ -112,9 +113,15 @@ Preserve the delayed transition from mark to card and the ability to scroll whil
 Only one card is open per sidebar. Close it when its jobs become empty, its source row vanishes
 or is reused, task teardown begins, another mark takes ownership, or the native list scrolls
 its anchor away. Inner
-card scrolling must not count as list scrolling. Reposition on window resize, scale or layout
+card scrolling must not count as list scrolling. The panel captures wheel events within its
+bounds even when every job fits and no inner scrolling is needed. Move outside the card to
+scroll the sidebar list; unhandled wheel events are not forwarded across the window boundary.
+This is a deliberate interaction trade-off of the separate panel, recorded as a Minor in review.
+Reposition on window resize, scale or layout
 changes without changing selection or activating iTerm. The overlay must intercept events
-only inside its card; uncovered rows keep their existing click/keyboard behaviour.
+only inside its card; uncovered rows keep their existing click/keyboard behaviour. A click on the
+card invokes the source row’s existing activate action, and its context menu uses the same row
+commands. Scrolling the jobs does not activate the source.
 
 Covered rows must neither draw a hover wash nor show their row/branch/badge tooltips through
 the card. Use the separate native child window deliberately: SwiftUI z-order in the same window
@@ -147,9 +154,10 @@ Paths in the following table are relative to the repository root.
 | Modify | `app/Sources/AiTerm/Views/SidebarRows.swift` | Source-row identity/anchor handoff, covered-row interaction isolation where needed, and standalone fixture integration without changing row geometry. |
 | Modify | `app/Sources/AiTerm/Snapshots/SidebarSnapshots.swift` | Representative cards for long labels, counts and scales using the same card content/layout; do not expect ImageRenderer to capture a native child panel. |
 | Modify | `daemon/tests/builders.py`, `daemon/tests/test_claude_background.py`, `daemon/tests/test_codex_sessions.py`, `daemon/tests/test_status.py`, `daemon/tests/test_models.py`, `daemon/tests/test_hook_events.py` | Synthetic native metadata, ID joins, lifecycle isolation and ordered projection coverage. |
-| Modify | `daemon/tests/test_service.py`, `daemon/tests/test_tick_budgets.py`, `daemon/tests/test_compat_captures.py` | Guarded reader-to-event integration, bounded unchanged-tick I/O, and matching existing native captures. |
+| Modify | `daemon/tests/test_service.py`, `daemon/tests/test_compat_captures.py` | Guarded reader-to-event integration and matching existing native captures; reuse the existing unchanged-tick I/O suite in `daemon/tests/test_tick_budgets.py` unchanged. |
 | Modify | `daemon/tests/test_wire_contract.py`, affected session frames under `daemon/tests/wire/`, `daemon/tests/wire/PROVENANCE.md` | Exercise and document the deliberate optional protocol field; review only intended frame differences. |
-| Modify | `app/Tests/AiTermCoreTests/DaemonTypesTests.swift`, `app/Tests/AiTermCoreTests/WireContractTests.swift`, `app/Tests/AiTermCoreTests/SidebarModelTests.swift`, `app/Tests/AiTermCoreTests/Operators/WorkerTabsTests.swift`, `app/Tests/AiTermTests/SidebarProjectionTests.swift` | Decode/fallback, description-only redraw and preservation of raw text/readiness/ordering. |
+| Modify | `app/Tests/AiTermCoreTests/DaemonTypesTests.swift`, `app/Tests/AiTermCoreTests/SidebarModelTests.swift`, `app/Tests/AiTermCoreTests/Operators/WorkerTabsTests.swift`, `app/Tests/AiTermTests/SidebarProjectionTests.swift` | Decode/fallback, description-only redraw and preservation of raw text/readiness/ordering; reuse the existing strict `WireContractTests.swift` round trips unchanged. |
+| Modify | `app/Tests/AiTermTests/SidebarInteractionTests.swift` | Bind the tiling controller to its owned hosted window for frame-equivalence checks; retain exact request comparisons and print mismatched parameters. |
 | Modify | `app/Tests/AiTermTests/BackgroundCardTests.swift` | Replace fixed-row-height assumptions and prove sizing/hover/speech with useful labels. |
 | Create | `app/Tests/AiTermTests/BackgroundCardPresentationTests.swift` | Real native List placement, hit testing, scrolling, disappearing sources and presenter lifetime. Reuse `HostedSidebar` and hidden test windows. |
 | Modify | `docs/daemon-protocol.md`, `docs/status-model.md`, `docs/design/ui-patterns.md` | Document display-label ownership, supported fallbacks and the larger card's presentation. |
@@ -193,15 +201,18 @@ Tests must fail for the old behaviour and assert externally meaningful results:
   host architecture, not that hover cannot leak. After closing the card, app-owned geometry/hit
   testing again resolves the covered coordinates to the underlying row's hover/help target.
   Actual OS event/tooltip isolation remains the stated AppKit assumption, not a tested popup.
-- Deliver synthetic mouse enter/exit/move and wheel events directly to the hidden windows or
-  native tracking handlers; never move the person's real cursor or use `keepVisible`. Verify
+- Deliver synthetic mouse enter/exit events directly to native tracking handlers; never move
+  the person's real cursor or use `keepVisible`. Verify
   event/tracking callbacks in a positive control before counting a negative hover assertion;
   if `window.sendEvent` does not exercise SwiftUI tracking, use the explicit presenter handlers
   and the structural isolation proof, and record that limit. Cache drawing where it is useful,
   rather than claiming a missing tooltip/hover from an event that never reached its handler.
-  Prove mark-to-card delayed handoff, inner scrolling and return to uncovered list interaction.
+  Prove mark-to-card delayed handoff, native clip-view scrolling and return to uncovered list
+  interaction.
   Inspect native tracking options to require `.activeAlways`; directly sent events alone do
-  not establish that tracking also runs while the app is inactive.
+  not establish that tracking also runs while the app is inactive. OS mouse-move/wheel dispatch
+  remains a platform assumption: direct synthetic wheel events did not drive the hidden SwiftUI
+  scroller in the implementation probe, so the tests assert actual clip-view movement instead.
 - Verify one owner; close on empty/removal/reuse/list scroll and when the sidebar hides/closes.
   Start task teardown while its row/jobs still exist and the pointer state is on the card: it
   must close and the row must offer none. Verify bottom-row/short-viewport placement,
@@ -221,24 +232,25 @@ merging this HEAD to main, run plain `scripts/test.sh all` with no suite overrid
 
 ## To-dos
 
-- [ ] Before any product edit, record the starting HEAD and capture
+- [x] Before any product edit, record the starting HEAD and capture
   `scripts/snapshots.sh build/background-before`. Then add the optional display metadata end to
   end, including label/font/speech/help rendering in `BackgroundCard.swift`, absent-field
   fallback, a deliberate wire example, and tests proving raw text, readiness and display ordering
   are unchanged. The card still uses its current placement and height in this step.
-- [ ] Enrich existing Claude shell/child labels from Stop and confirmed parent launch records,
+- [x] Enrich existing Claude shell/child labels from Stop and confirmed parent launch records,
   with reader/status/Service tests for identity, availability and lifetime boundaries.
-- [ ] Enrich existing Codex children from the incremental native ID/path activity, proving a
+- [x] Enrich existing Codex children from the incremental native ID/path activity, proving a
   label-only redraw and guarded lifecycle/cache behaviour without additional scans.
-- [ ] Move the current-height card into the shared floating presenter, observing the current
+- [x] Move the current-height card into the shared floating presenter, observing the current
   projected jobs for the open source. Prove native List anchors, hit testing, covered-row
   hover/tooltip isolation, one-owner hover and source lifetime with hosted tests.
-- [ ] Give that presenter/card downward growth through five job rows, a fixed heading and
+- [x] Give that presenter/card downward growth through five job rows, a fixed heading and
   scrolling jobs, plus viewport-aware placement. Prove sizing, short/bottom-row placement and
   interface scaling while leaving row geometry unchanged. Label/font/speech rendering remains
   owned by the first step; this step changes geometry only.
-- [ ] Update the representative snapshots and product/protocol docs, inspect before/after
-  evidence, run the branch gate and take the implemented change through review.
+- [x] Update the representative snapshots and product/protocol docs and inspect before/after evidence.
+- [x] Run the final branch gate.
+- [x] Take the implemented change through review (the psg implement handoff).
 
 ## Plan challenge
 
@@ -260,3 +272,91 @@ Three independent Claude review rounds completed; all findings addressed, none l
 No product implementation or runtime proof has been claimed in this planning phase. Native OS
 tooltip/event isolation is a documented platform assumption; the planned hidden tests prove host
 structure and synthetic routing, not observation of the system tooltip popup manager.
+
+## Implementation and evidence · 18 November 2026
+
+The plan was committed as `c8d16101` after the docs-only gate. The first five implementation
+slices, docs/snapshot work and change review above are complete; the plain branch gate passed.
+
+- The optional display label is carried through daemon work projection, native readers, wire
+  decoding and sidebar display. Raw `text`, work membership/order and `holdsTurn` remain the
+  status/Operator inputs. PI and unsupported inventories keep their existing fallbacks.
+- The card uses one borderless nonactivating child panel, with inactive-app tracking and shared
+  teardown eligibility. It tracks layout/resize while the source mark is visible and dismisses
+  when scrolling takes that mark away. Late hover events from a retired panel are ignored.
+- One through five jobs have measured intrinsic heights at every scale. Only jobs scroll, with
+  a fixed heading; a short viewport reduces the visible count. Native-host tests cover source
+  switching, empty/removal/teardown, late events, short/bottom placement, resizing/scaling,
+  inactive tracking options and direct native event delivery, with hidden test windows.
+- Before images: `build/background-before/`, captured at the plan commit before product edits.
+  After images: `build/background-after/`, including long-label truncation and seven jobs with
+  five visible. These were read and compared by the implementer. ImageRenderer cannot draw the
+  native scroll view, so debug snapshots clip the same production lines for appearance proof;
+  this does not replace the native scrolling tests.
+- Hosted content evidence: `build/background-hosted/background-card-{standard,large,extraLarge}.png`,
+  from the real hidden panel's `cacheDisplay` during the focused hosted suite. Inspected the
+  standard and extra-large captures: five visible descriptions and a real native scrollbar.
+  Host geometry and synthetic event checks remain separate from OS tooltip-manager assumptions.
+- The wire fixture change is intentional: only `reply.workspace.snapshot.json` gains the new
+  optional field, documented in its provenance. No compatibility or Signal/Operator contract
+  golden was changed.
+
+Focused red/green runs established the new label and size behaviour, and the native host suite
+passed after the resize and retired-event fixes. Before the change review, plain
+`scripts/test.sh` exited 0:
+1,536 daemon tests passed (one live integration skipped), mypy checked 88 files, ruff passed,
+and 2,650 Swift tests passed across the selected targets and separate snapshot pass. The Swift
+runner reported four existing known-issue annotations, not new unexpected failures. That run
+covered the parser/font, native lifecycle and projection assertions before the review fixes.
+Review re-verification is recorded below.
+
+## Change review
+
+Round 1 found two Important and two Minor issues, all fixed:
+
+- Card clicks now invoke the same activation closure as their source task or terminal row,
+  including first-click acceptance while inactive. The card also uses the source row’s existing
+  context-menu command groups. Native click tests reproduced both broken selections before the
+  fix and pass for both source types afterward.
+- Every hosted opening now starts from the actual row anchor’s hover state and its production
+  delay/observation path. A plain same-window SwiftUI overlay fails the same child-window
+  predicate that the real card passes. Covered/uncovered frame checks, covered-point hit-test
+  restoration after close, and removal of the row’s actual anchor on teardown now back the
+  earlier proof claims. Teardown is exercised while pointer state is on the card and projected
+  raw jobs remain. The focused hosted suite passes seven tests, with all scale/source cases.
+- The Files table distinguishes the two unchanged suites reused for their existing coverage.
+- The open-card fixtures no longer reserve extra row height: cards overlap neighbouring rows
+  at their normal intrinsic size. Refreshed `build/background-after/` and inspected standard
+  seven-job and extra-large three-job PNGs.
+
+The native proof remains structural/synthetic. A direct wheel-event probe did not move the
+hidden SwiftUI scroller; clip-view movement is asserted instead. This does not establish OS
+wheel dispatch or tooltip-manager behaviour.
+
+After the fixes, plain `scripts/test.sh` exited 0: 1,536 daemon tests passed (one live integration
+skipped), mypy checked 88 files, ruff passed, and 2,652 Swift tests passed (123 + 1,131 + 1,397 +
+the separate snapshot test). The runner reported the same four existing known-issue annotations.
+The final source tree stayed unchanged after that green gate; this review record is documentation.
+
+Round 2 completed after the CLI usage limit reset. Claude accepted every round-1 fix and found
+no new Critical/Important issue. Its two Minor findings were triaged as follows:
+
+- Listed: an open card captures wheel events even when all jobs fit. The sidebar list therefore
+  scrolls only after the pointer moves outside the card. This interaction trade-off is now
+  explicit in the design above and `docs/design/ui-patterns.md`; no wheel forwarding was added.
+- Fixed: the design now distinguishes row eligibility, which uses existing projected row facts,
+  from presenter refresh, which looks up the open source and can run on anchor layout or
+  open-source configuration. It no longer promises that every row layout avoids that lookup.
+
+No Critical/Important finding remains open. The one listed Minor is the scrolling trade-off;
+product source code is unchanged from the green gate and inspected screenshots.
+
+
+Re-verification exposed an isolation problem in the existing terminal interaction test: three
+paths produced different frame parameters from the first path, despite the same methods and
+window IDs. The test left `controller.tiling.sidebarWindow` unset, making its frame calculation
+fall back to `NSScreen.main`, which can vary as concurrent native tests change key windows.
+The test now supplies its own hosted window, matching the real app’s ownership. Its exact
+request comparisons remain in place, with actual JSON parameters included in failure output.
+The plain-overlay control also orders its window without making it key. The two affected
+suites passed together: 20 tests. These are test-isolation changes; product behaviour is unchanged.

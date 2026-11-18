@@ -8,7 +8,33 @@ from tests.builders import (
     shell_launch as launch,
     shell_completed as completed,
     write_transcript as write,
+    child_launch,
 )
+
+
+def test_descriptions_join_native_ids_without_turning_agents_into_shells(tmp_path):
+    path = tmp_path / "parent.jsonl"
+    write(path, launch(description="Run validation") + child_launch())
+    reading = BackgroundTranscripts().read_with_labels({"session": (str(path), 100)})["session"]
+    assert reading.child_labels == (("child", "Review checkout"),)
+    assert [(t.job.task_id, t.job.text, t.job.display_label) for t in reading.shells.tasks] == [
+        ("job1", "npm run test", "Run validation")]
+
+
+def test_child_description_survives_uncertain_shell_and_metadata_overflow(tmp_path, monkeypatch):
+    from aitermd.agents import claude
+    monkeypatch.setattr(claude, "MAX_LABELS", 2)
+    path = tmp_path / "parent.jsonl"
+    write(path, launch() + child_launch() + [completed(status="unknown")])
+    reader = BackgroundTranscripts()
+    result = reader.read_with_labels({"session": (str(path), 100)})["session"]
+    assert result.shells is None
+    assert result.child_labels == (("child", "Review checkout"),)
+    # Independent descriptor bounds must never clear the shell tracker's state.
+    write(path, launch() + sum((child_launch(str(i), str(i), at=103 + i * 2) for i in range(5)), []))
+    result = BackgroundTranscripts().read_with_labels({"session": (str(path), 100)})["session"]
+    assert result.shells.tasks[0].job.task_id == "job1"
+    assert len(result.child_labels) <= 2
 
 
 def read(reader, path, since=100):

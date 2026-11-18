@@ -37,3 +37,10 @@ synthetic Service and FakeIterm, no live account or iTerm2). Only the session pa
 `event.session.opened`, `event.session.changed`, `reply.sessions.list` and
 `reply.workspace.snapshot`; the snapshot's working Claude tab now lists its Stop's subagent with
 `holdsTurn` and leaves out the Stop's shell, which no reader shows while that turn works.
+
+On 18 Nov 2026, the background-card change deliberately added optional `displayLabel` to work
+items. The synthetic snapshot gives its existing review item a display label while preserving
+raw `text` and `holdsTurn`; only `reply.workspace.snapshot.json` changes. Re-captured through the
+same synthetic Service/FakeIterm producer with `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest
+tests/test_wire_contract.py`; native-reader enrichment is covered separately. No compatibility
+capture or Operator contract golden was regenerated.
