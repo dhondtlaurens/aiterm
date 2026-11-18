@@ -36,12 +36,17 @@ import AiTermCore
     }
     /// Whether `id`'s worker is at work or another Operator effect holds the task.
     private func atWork(_ id: UUID) -> Bool { ports.workerIsWorking(id) || effects.holds(id) }
-    /// Launches a launching stage, holding the task from its restore through its launch.
+    /// Launches a launching stage, holding the task from its restore through its launch. A stage whose signal no longer
+    /// matches its item is dropped instead, and the next pending stage launches in its place.
     func run(_ id: UUID) async {
+        while await launchOnce(id) {}
+    }
+    /// One launch attempt; whether a stale stage was dropped and the next one is launching.
+    private func launchOnce(_ id: UUID) async -> Bool {
         guard !isStopped, !ports.workerIsWorking(id),
               let initial = workspace.state.signalItem(id: id), let claim = SignalClaim(initial), claim.allows(in: workspace),
               let record = initial.signalTask, record.phase == .launching, record.current.configuration.isRunnable,
-              effects.claim(id) else { return }
+              effects.claim(id) else { return false }
         let signal = record.current.configuration
         let launchGeneration = generation
         defer { effects.release(id) }
@@ -49,11 +54,17 @@ import AiTermCore
             // The row comes back to the sidebar with its worktree, even when the claim was lost meanwhile.
             if workspace.state.archived(id: id) != nil {
                 _ = try await ports.restore(initial)
-                guard holds(claim, generation: launchGeneration) else { return }
+                guard holds(claim, generation: launchGeneration) else { return false }
             }
-            guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id) else { return }
-            guard try await baseline(id, claim: claim, generation: launchGeneration) else { return }
+            guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id) else { return false }
+            // A stale stage is dropped also while its Done trigger cannot be read, so it holds up nothing behind it.
+            guard try await baseline(id, claim: claim, generation: launchGeneration) else {
+                return holds(claim, generation: launchGeneration) && isStale(id) ? try await drop(id) : false
+            }
+            var stale = false
             let launched: String? = try await activity.acting(task: id, act: "starting its worker") {
+                // Checked with the launch intent, with no await between, so a full read published meanwhile counts.
+                if isStale(id) { stale = true; return nil }
                 let attempt = LaunchAttempt(number: (record.launch?.number ?? 0) + 1, requestedAt: now(), workerPending: true)
                 workspace.mutate { state in
                     state.updateSignalItem(id) { task in
@@ -63,14 +74,20 @@ import AiTermCore
                 }
                 guard workspace.flush() else { return nil }
                 try await journal.append(.ours("Starting stage \(record.stage) from \(signal.name)."), task: id)
+                if let line = workspace.state.task(id: id)?.signalTask?.merge.flatMap({ $0.handBackOwed ? $0.line : nil }) {
+                    try await journal.append(.ours(line), task: id)
+                }
                 guard holds(claim, generation: launchGeneration), let before = workspace.state.task(id: id) else { return nil }
                 // The checkout saves itself on the task, even once the claim is lost.
                 if !before.hasCheckout { _ = try await ports.prepare(before, signal) }
                 guard holds(claim, generation: launchGeneration), !ports.workerIsWorking(id), let task = workspace.state.task(id: id) else { return nil }
-                let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (task.firstPrompt ?? signal.work.prompt)
+                // A stage AiTerm merged whose worker was gone resumes with the carry-on line, not its prompt again.
+                let owed = task.signalTask?.merge.flatMap { $0.handBackOwed ? $0.line : nil }
+                let prompt = WorkerPrompt.worktreeLine(branch: task.branch) + "\n\n" + (owed ?? task.firstPrompt ?? signal.work.prompt)
                 return try await ports.launch(task, prompt)
             }
-            guard let window = launched, holds(claim, generation: launchGeneration) else { return }
+            if stale { return try await drop(id) }
+            guard let window = launched, holds(claim, generation: launchGeneration) else { return false }
             let at = now()
             try workspace.mutate { state in
                 try state.updateSignalItem(id) { task in
@@ -82,14 +99,44 @@ import AiTermCore
             }
             workspace.flush()
             changed(id, "Its stage started.")
+            return false
         } catch {
             guard !isStopped, generation == launchGeneration, claim.allows(in: workspace),
                   let record = workspace.state.signalItem(id: id)?.signalTask,
-                  let next = try? SignalTransitions.apply(.launchFailed(OperationIssue.reason(of: error)), to: record, at: now()) else { return }
+                  let next = try? SignalTransitions.apply(.launchFailed(OperationIssue.reason(of: error)), to: record, at: now()) else { return false }
             workspace.mutate { $0.updateSignalTask(id) { $0 = next } }
             workspace.flush()
             changed(id, "Its worker could not start.")
+            return false
         }
+    }
+    /// Whether the launching stage came after another, has never launched, and the latest full read of its signal no
+    /// longer matched its item. No evidence, such as an incremental read alone, keeps it.
+    private func isStale(_ id: UUID) -> Bool {
+        let state = workspace.state
+        guard let record = state.signalItem(id: id)?.signalTask, record.phase == .launching, record.launch == nil,
+              record.previousStage != nil, let item = record.current.item.identity else { return false }
+        return state.signalSeen.contains { $0.signal == record.current.signal && $0.item.identity == item && !$0.isMatching }
+    }
+    /// Drops the stale stage, the task going back to the stage before it, and journals it. Whether the next pending stage
+    /// is now launching.
+    private func drop(_ id: UUID) async throws -> Bool {
+        guard let record = workspace.state.signalItem(id: id)?.signalTask else { return false }
+        let next = try SignalTransitions.apply(.dropped, to: record, at: now())
+        let name = workspace.state.signal(id: record.current.signal)?.name ?? record.current.configuration.name
+        let earlier = record.previousStage?.agent
+        workspace.mutate { state in
+            state.updateSignalItem(id) { task in
+                // The earlier stage's agent row comes back before any next stage sets its own.
+                if let earlier { task.agent = earlier.agent; task.model = earlier.model; task.reasoning = earlier.reasoning }
+                task.signalTask = next
+                if next.phase == .launching { task.prepareLaunch(candidates: nil, at: now()) }
+            }
+        }
+        guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }
+        try await journal.append(.ours("Dropped stage \(record.stage) from \(name): \(record.current.item.identity ?? "its item") no longer matches it."), task: id)
+        changed(id, "A pending stage no longer matched its item and was dropped.")
+        return workspace.state.signalItem(id: id)?.signalTask?.phase == .launching
     }
     /// Reads and saves the stage's Done baseline once per stage, before its launch intent. An unreadable trigger holds
     /// the launch, the stage still launching with the reason, until the back-off ends. Whether the launch goes on.
@@ -154,8 +201,7 @@ import AiTermCore
         workspace.mutate { $0.updateSignalItem(id) { task in
             task.signalTask = next; task.signalTask?.candidateProjects = nil; task.signalTask?.choice = choice
             if let project = choice.project { task.projectId = project }
-            let row = choice.launchSwitch ?? choice.row
-            task.agent = row.agent; task.model = row.model; task.reasoning = row.reasoning
+            task.useAgentRow(choice.launchSwitch ?? choice.row)
         } }
         guard workspace.flush() else { throw ActionUnavailable("The agent choice couldn’t be saved.") }
         try await journal.append(.ours(choice.journalLine), task: id)

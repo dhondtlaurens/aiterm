@@ -68,19 +68,26 @@ launch and are never dropped. The stage is stale when the latest *full* read of 
 item (`signalSeen[].isMatching == false`, which `ItemRouter` already maintains). A pair with no seen entry, or one
 seen only through incremental reads, is kept: there's no evidence it stopped matching.
 
-A new core transition, `.dropped`, takes a launching or choosing stage to done and starts the next pending stage.
-`StageRunner` journals `Dropped the stage from <signal>: <item> no longer matches it.` and checks the next stage the
-same way. When nothing is left, the stage is done and the tick's existing `canRunThen` path runs Then.
-`ItemRouter` and `startPending` are unchanged.
+A new core transition, `.dropped`, gives the task back to the earlier stage as it was left (`previousStage`), with the
+task's agent row restored too, and starts the next pending stage. `StageRunner` journals `Dropped stage <n> from
+<signal>: <item> no longer matches it.` and checks the next stage the same way. With nothing left, an earlier stage
+that was done is done again and the tick's existing `canRunThen` path runs its Then. One that was still watching its
+Done trigger (the Operator's `finish_stage` done starts pending stages at once) goes back to watching, and Then waits
+for its Done. `ItemRouter` and `startPending` are unchanged.
 
 ## Files
 
 - **Modify** `app/Sources/AiTermCore/Operators/Signals/SignalTask.swift`: add `merge: SignalMerge?` (the request,
-  the head, the commit once known, and whether the hand-back is owed), cleared by a new stage.
+  the head, the commit once known, and whether the hand-back is owed), cleared by a new stage. Added during the
+  build: `previousStage: EarlierStage?`, the earlier stage as it was left (its phase, Done baseline, merge record, launch
+  and choice), set when a stage continues and cleared once its worker starts. A dropped stage gives the task back to
+  that stage exactly: still watching its Done trigger when `finish_stage` done had started the pending stage, or done
+  with its own Then rather than the dropped signal's.
 - **Modify** `app/Sources/AiTermCore/Operators/Signals/DoneCheck.swift`: `reached` takes whether AiTerm merged it;
   if so, `merged` alone doesn't end the stage.
 - **Modify** `app/Sources/AiTermCore/Operators/Signals/StageMachine.swift`: a `.dropped` action (launching or
-  choosing → done, then the next pending stage); `continueStage` clears `merge`.
+  choosing → the earlier stage as it was left, watching or done, then the next pending stage); `continueStage` saves
+  that earlier stage and clears `merge`.
 - **Modify** `app/Sources/AiTerm/Operators/RequestWatch.swift`: save the merge intent before merging, recognise
   AiTerm's merge, hand back with `handBack`/`hasWorker` ports, block when the worker is gone, pass the flag to
   `DoneCheck`.
@@ -92,8 +99,9 @@ same way. When nothing is left, the stage is done and the tick's existing `canRu
   it; resume with an owed hand-back sends the carry-on line.
 - **Modify** `app/Sources/AiTerm/Operators/SignalOperatorController.swift`: wire the new ports.
 - **Modify** `app/Sources/AiTermCore/Operators/Signals/OperatorLaunch.swift`: one sentence saying that after
-  AiTerm's own merge the worker gets one line and works on, and its Done trigger ends the stage. Any prompt test
-  that pins this text is updated on purpose.
+  AiTerm's own merge the worker gets one line and works on, and its Done trigger ends the stage, plus the stale-stage
+  drop. Its contract fixture `app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals/brief.md` is edited to
+  match on purpose, and the change is recorded in that folder's `PROVENANCE.md`.
 - **Modify** `docs/operators.md`: the "Publishing, done and merging" section (merged is done only when someone
   else merged it, plus the hand-back, the line, and the worker-gone block) and the pending-stages paragraph (stale
   stages are dropped and journaled).
@@ -114,17 +122,23 @@ same way. When nothing is left, the stage is done and the tick's existing `canRu
   - New: a `.waiting` answer followed by a read that shows the merge hands back.
   - New: with no worker tab the stage blocks with the reason, and resume sends the line. A resume that fails its
     Messaging check keeps the line owed, and the next resume sends it.
-- `SignalDomainTests` (core): `.dropped` takes a launching or choosing stage to done and starts the next pending
-  stage; it is refused from other phases.
+- `SignalDomainTests` (core): `.dropped` gives a launching or choosing stage's task back to the earlier stage as it
+  was left (done, or still watching with its baseline and merge) and starts the next pending stage; it is refused
+  from other phases.
 - StageRunner and engine tests (`SignalEngineTests` or `SignalJourneyTests`):
   - A stale pending stage is dropped and journaled; the next pending stage launches, or Then follows.
+  - After `finish_stage` done, a stale pending stage is dropped and the earlier stage keeps watching, with its agent
+    row restored.
   - A stage whose item stops matching while it waits in choosing, or held by its baseline, is dropped at its launch.
     So is one whose item stops matching in a full read published while its baseline read is suspended.
   - A stale stage whose Done baseline stays unreadable is dropped, and the next pending stage or Then follows.
   - A pair with no full-read evidence launches.
   - A first stage and a resumed stage are never dropped.
-- `SignalHostIOTests`: the snapshot carries the merge commit.
-- `SignalSavedFormatTests`: the new optional field round-trips, and old saved state still decodes.
+- `SignalWorkerIOTests`: a message or a launch saves the hand-back as made together with its pending reply, and a
+  busy worker leaves it owed.
+- `SignalHostIOTests`: a merge that fails its local-head check before calling the host never calls `intend`.
+- `SignalDomainTests` also covers the new optional fields round-tripping and staying absent while nil, so the saved
+  state fixtures are unchanged (`SignalSavedFormatTests` still decodes them).
 - Run `scripts/test.sh swift -- --filter SignalWatch` while iterating, `scripts/test.sh` before each commit, and
   `scripts/test.sh all` once before merging. No live run: the merge path is proven through the harness's fakes,
   since a live merge needs a real request.

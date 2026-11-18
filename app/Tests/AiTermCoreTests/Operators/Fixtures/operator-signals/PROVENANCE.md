@@ -139,3 +139,13 @@ and the Operator no longer judges done.
   `OperatorLaunch.brief`. The capped live evaluation was not rerun in this step.
 - `state-0.58.json`: old-shape signals removed; signals are not read across this change. Its `signals` and
   `signalSeen` lists are empty; its tasks, archive and Operator session are unchanged.
+
+## After AiTerm merges
+
+18 Nov 2026. A stage AiTerm merges itself goes back to its worker with one line and ends on its Done
+trigger; a pending stage whose signal no longer matches its item is dropped before it launches.
+
+- `brief.md`: two sentences in the brief's finish_stage paragraph, edited by hand to equal
+  `OperatorLaunch.brief`. The capped live evaluation was not rerun in this step.
+- `state.json`, `tools.json` and `state-0.58.json` were not touched: the task record's new `merge` and
+  `previousStage` fields are absent while nil.

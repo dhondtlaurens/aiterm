@@ -5,9 +5,10 @@ public enum SignalTransitions {
         var next = task
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
+            next.previousStage = EarlierStage(of: next)
             next.current = stage; next.stage += 1; next.ownership += 1; next.startedAt = at; next.thenApplied = nil
             next.phase = .launching; next.launch = nil; next.blockedReason = nil
-            next.choice = nil; next.choosableRows = nil; next.waitingOn = nil; next.doneMatched = nil
+            next.choice = nil; next.choosableRows = nil; next.waitingOn = nil; next.doneMatched = nil; next.merge = nil
         }
         func startPending() {
             guard !next.pendingStages.isEmpty else { return }
@@ -16,7 +17,7 @@ public enum SignalTransitions {
         switch action {
         case .workerStarted:
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
-            next.phase = .working
+            next.phase = .working; next.previousStage = nil
         case .workRequested:
             guard task.phase == .working || task.phase == .done || task.phase == .watching else {
                 throw SignalTransitionError.invalidEdge
@@ -41,6 +42,18 @@ public enum SignalTransitions {
             guard !workerIsWorking else { throw SignalTransitionError.workerIsWorking }
             guard task.phase.canContinue else { throw SignalTransitionError.invalidEdge }
             startPending()
+        case .dropped:
+            // Only a stage that came after another and never launched: the task goes back to the stage before it as it
+            // was left, still watching its Done trigger or done, and the next pending stage follows.
+            guard task.phase == .launching || task.phase == .choosing, task.launch == nil, let previous = task.previousStage else {
+                throw SignalTransitionError.invalidEdge
+            }
+            next.current = previous.stage; next.previousStage = nil; next.blockedReason = nil
+            next.phase = previous.phase == .watching ? .watching : .done
+            next.doneMatched = previous.doneMatched; next.waitingOn = previous.waitingOn; next.merge = previous.merge
+            next.launch = previous.launch; next.choice = previous.choice
+            next.choosableRows = nil; next.candidateProjects = nil
+            startPending()
         case .block(let reason):
             guard task.phase.isActive else { throw SignalTransitionError.invalidEdge }
             next.phase = .blocked; next.blockedReason = reason
@@ -50,7 +63,7 @@ public enum SignalTransitions {
         case .adopted:
             let lostReply = task.phase == .blocked && task.launch?.workerPending == true && task.launch?.openedAt == nil
             guard task.phase == .launching || lostReply else { throw SignalTransitionError.invalidEdge }
-            next.phase = .working; next.blockedReason = nil
+            next.phase = .working; next.blockedReason = nil; next.previousStage = nil
             next.launch?.openedAt = at; next.launch?.workerPending = false
         case .needChoice:
             guard task.phase == .launching else { throw SignalTransitionError.invalidEdge }
@@ -71,6 +84,8 @@ public enum SignalTransitions {
 
 public enum SignalAction: Equatable, Sendable {
     case workerStarted, workRequested, matched(SignalStage), watch, finish, advancePending
+    /// A launching or choosing stage whose signal no longer matches its item, dropped before its worker launched.
+    case dropped
     case block(String), resume, archive
     /// A launching stage whose worker could not start blocks with the reason.
     case launchFailed(String)

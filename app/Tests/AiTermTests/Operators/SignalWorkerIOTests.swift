@@ -16,7 +16,7 @@ import Synchronization
         let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
             daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
         let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            workerIsWorking: io.busy, prepare: { task, _ in task }, launch: io.launch, restore: { $0 }))
+            workerIsWorking: io.busy, prepare: { task, _ in task }, launch: { try await io.launch($0, prompt: $1) }, restore: { $0 }))
         await stages.run(id)
         #expect(daemon.requests("window.createTask").count == 1)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
@@ -92,7 +92,7 @@ import Synchronization
         let router = ItemRouter(workspace: h.workspace, now: { world.now }, workerIsWorking: native.busy)
         _ = router.apply(signals: [signal], read: SignalRead(items: [world.ticket()], complete: true))
         let stages = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
-            workerIsWorking: native.busy, prepare: { task, _ in task }, launch: native.launch, restore: { $0 }))
+            workerIsWorking: native.busy, prepare: { task, _ in task }, launch: { try await native.launch($0, prompt: $1) }, restore: { $0 }))
         await stages.run(id)
         #expect(daemon.requests("session.closeIdle").isEmpty && daemon.requests("window.createTask").isEmpty && daemon.requests("tab.create").isEmpty)
         for index in live.sessions.indices { live.sessions[index].state = .done }
@@ -156,6 +156,54 @@ import Synchronization
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .blocked)
         #expect(h.workspace.state.task(id: id)?.signalTask?.blockedReason?.contains("billing") == true)
         #expect(io.question(id, tab: "main") == nil)
+    }
+    /// The main worker counts only as a listed agent: `workerTab` gives a first tab even when none is open.
+    @Test func aTaskHasAMainWorkerOnlyWhileItsAgentIsListed() throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { RecordingDaemon() }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let task = try #require(h.workspace.state.task(id: id))
+        #expect(task.workerTab("main", in: live.sessions) != nil && !io.hasMainWorker(task))
+        live.sessions = [OperatorServiceFixtures.session("worker", tag: id, state: .done, conversation: "steering")]
+        #expect(io.hasMainWorker(task))
+    }
+    /// The carry-on line after AiTerm's merge is saved as sent in the same change that saves the reply it waits for, by a
+    /// message or a resumed launch alike; a worker that cannot take it leaves it owed.
+    @Test(arguments: ["message", "launch", "busy"]) func aHandBackIsSavedAsMadeWithThePendingReply(_ path: String) async throws {
+        var world = SignalWorld(); let signal = world.signal(merges: true), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        h.workspace.mutate { $0.updateSignalItem(id) {
+            $0.worktreePath = h.folder.path
+            $0.signalTask?.phase = path == "launch" ? .launching : .watching
+            if path == "launch" { $0.windowId = nil }
+            $0.signalTask?.merge = SignalMerge(request: SignalRequestRef(remote: "git@git.example:shop/web.git", number: 7), head: "aabbcc")
+        } }
+        h.workspace.flush()
+        let live = LiveSessions(workspace: h.workspace), daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        if path != "launch" {
+            live.sessions = [OperatorServiceFixtures.session("worker", tag: id, state: path == "busy" ? .working : .done, conversation: "steering")]
+        }
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        let task = try #require(h.workspace.state.task(id: id))
+        let made: (inout SignalTask) -> Void = { $0.merge?.handBackOwed = false }
+        switch path {
+        case "launch": _ = try await io.launch(task, prompt: "AiTerm merged !7 at aabbcc; carry on.", saving: made)
+        case "busy":
+            await #expect(throws: ActionUnavailable.self) {
+                try await io.message(task, text: "AiTerm merged !7 at aabbcc; carry on.", tab: "main", allowed: { true }, saving: made)
+            }
+            #expect(try h.file.load().task(id: id)?.signalTask?.merge?.handBackOwed == true)
+            return
+        default: try await io.message(task, text: "AiTerm merged !7 at aabbcc; carry on.", tab: "main", allowed: { true }, saving: made)
+        }
+        let saved = try #require(try h.file.load().task(id: id)?.signalTask)
+        #expect(saved.merge?.handBackOwed == false && saved.pendingReplies?["main"] != nil)
+        if path == "message" { #expect(saved.phase == .working) }
     }
     @Test func firstWorkerUsesGuardedPublishingProfileAndSavedLaunchIntent() async throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)

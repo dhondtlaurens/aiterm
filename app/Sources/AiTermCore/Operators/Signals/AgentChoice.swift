@@ -111,7 +111,7 @@ public extension TaskItem {
         guard let record = signalTask, record.phase == .launching else { return }
         switch AgentChoiceNeed.decide(permitted: record.current.configuration.agents, projects: candidates, conversationAgent: firstWorkerConversation?.agent) {
         case .ready(let row):
-            agent = row.agent; model = row.model; reasoning = row.reasoning
+            useAgentRow(row)
         case .choose(let rows, let projects):
             guard var next = try? SignalTransitions.apply(.needChoice, to: record, at: at) else { return }
             next.choosableRows = rows; next.candidateProjects = projects

@@ -302,4 +302,110 @@ import Testing
         #expect(h.workspace.state.task(id: id)?.signalTask?.stage == 2)
     }
 
+    /// A world with a working first stage and pending stages queued behind it, one per extra signal name.
+    private func queued(_ names: [String], agents: [AgentChoice] = [SignalWorld.agent]) -> (SignalWorld, id: UUID, pending: [UUID]) {
+        var world = SignalWorld(); let first = world.signal(then: .archive), id = world.workingTask(signal: first)
+        let pending = names.enumerated().map { world.signal(name: $0.element, age: Double($0.offset + 1), agents: agents) }
+        let stages = pending.map { SignalStage(signal: $0, item: world.ticket().item, matchedAt: world.now,
+                                               configuration: world.state.signal(id: $0)!, prompt: world.state.signal(id: $0)!.name + ".") }
+        world.state.updateSignalTask(id) { $0.pendingStages = stages; $0.doneMatched = false }
+        world.state.signalSeen = pending.map { SignalSeen(signal: $0, item: world.ticket().item, disposition: .started, at: world.now) }
+        return (world, id, pending)
+    }
+    /// What a full read of `signal` that no longer lists the item leaves behind.
+    private func stopsMatching(_ signal: UUID, in h: SignalHarness) {
+        let router = ItemRouter(workspace: h.workspace, now: { Date() })
+        router.apply(signals: [signal], read: SignalRead(items: [], complete: true))
+        #expect(h.workspace.state.signalSeen.contains { $0.signal == signal && !$0.isMatching })
+    }
+    /// A pending stage whose signal no longer matches its item on the latest full read is dropped, journaled, and the
+    /// next pending stage launches; with none left, the task is the earlier stage's again and its Then follows.
+    @Test(arguments: [false, true]) func aStalePendingStageIsDroppedAndTheNextOneOrThenFollows(another: Bool) async throws {
+        let (world, id, pending) = queued(another ? ["Review it", "Release notes"] : ["Review it"])
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        stopsMatching(pending[0], in: h)
+        var prompts: [String] = []
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, prompt in prompts.append(prompt); return "worker" }, restore: { $0 }))
+        try await runner.finish(id, action: .finish)
+        let record = try #require(h.workspace.state.task(id: id)?.signalTask)
+        let journal = try TaskJournal.read(task: id, folder: h.folder.appendingPathComponent("journals"))
+        #expect(journal.contains { $0.text == .ours("Dropped stage 2 from Review it: \(world.ticket().item.identity!) no longer matches it.") })
+        if another {
+            #expect(prompts.count == 1 && prompts[0].hasSuffix("Release notes.") && record.current.signal == pending[1] && record.phase == .working)
+        } else {
+            #expect(prompts.isEmpty && record.current.signal == world.state.signals[0].id && record.phase == .done && record.canRunThen)
+        }
+    }
+    /// The Operator's `finish_stage` done sends the stage to its Done trigger and starts the pending stage at once; a stale
+    /// one is dropped and the earlier stage keeps watching, its Then not run.
+    @Test func aStaleStageAfterFinishStageDoneLeavesTheEarlierStageWatching() async throws {
+        let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        let (world, id, pending) = queued(["Review it"], agents: [codex])
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        stopsMatching(pending[0], in: h)
+        var launches = 0
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in launches += 1; return "worker" }, restore: { $0 }))
+        try await runner.finish(id, action: .watch)
+        let record = try #require(h.workspace.state.task(id: id)?.signalTask)
+        #expect(launches == 0 && record.current.signal == world.state.signals[0].id && record.phase == .watching && !record.canRunThen)
+        #expect(record.doneMatched == false)
+        let task = try #require(h.workspace.state.task(id: id))
+        #expect(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning) == SignalWorld.agent,
+                "the earlier stage's agent row is back, not the dropped stage's")
+    }
+    /// A stage taken from the queue whose item stopped matching while it waited, for its agent choice, on an unreadable
+    /// Done trigger, or during its Done baseline read, is dropped rather than launched.
+    @Test(arguments: ["choosing", "held", "during baseline"]) func aStageWhoseItemStoppedMatchingWhileItWaitedIsDropped(_ wait: String) async throws {
+        let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        let (world, id, pending) = queued(["Review it"], agents: wait == "choosing" ? [SignalWorld.agent, codex] : [SignalWorld.agent])
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var launches = 0; let readable = wait != "held"
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in launches += 1; return "worker" }, restore: { $0 },
+            doneMatches: { _ in
+                if wait == "during baseline" { stopsMatching(pending[0], in: h) }
+                guard readable else { throw ActionUnavailable("Jira did not answer.") }
+                return false
+            }))
+        h.workspace.mutate { $0.updateSignalTask(id) { $0.doneMatched = false } }
+        try await runner.finish(id, action: .finish)
+        switch wait {
+        case "choosing":
+            #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .choosing)
+            stopsMatching(pending[0], in: h)
+            try await runner.choose(id, choice: AgentChoiceRecord(row: codex, project: nil, reason: "A review suits Codex.",
+                                                                  decided: .oracleAgreed, round: 1, note: nil, at: world.now))
+        case "held":
+            #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .launching)
+            stopsMatching(pending[0], in: h)
+            await runner.run(id)
+        default: break
+        }
+        #expect(launches == 0)
+        #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .done && h.workspace.state.task(id: id)?.signalTask?.canRunThen == true)
+    }
+    /// Without a full read saying so, as after an incremental read alone, a pending stage launches; and a task's first
+    /// stage is never dropped, whatever its signal last read.
+    @Test func aStageWithoutEvidenceOrTheTasksFirstLaunches() async throws {
+        let (world, id, pending) = queued(["Review it"])
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        ItemRouter(workspace: h.workspace, now: { world.now }).apply(signals: [pending[0]], read: SignalRead(items: [], complete: true, full: false))
+        var launches = 0
+        let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in launches += 1; return "worker" }, restore: { $0 }))
+        try await runner.finish(id, action: .finish)
+        #expect(launches == 1 && h.workspace.state.task(id: id)?.signalTask?.current.signal == pending[0])
+
+        var fresh = SignalWorld(); let only = fresh.signal(), first = fresh.workingTask(signal: only)
+        fresh.state.updateSignalTask(first) { $0.phase = .launching; $0.doneMatched = false }
+        fresh.state.signalSeen = [SignalSeen(signal: only, item: fresh.ticket().item, disposition: .started, at: fresh.now, isMatching: false)]
+        let g = try SignalHarness(fresh); defer { g.cleanUp() }
+        var started = 0
+        let own = StageRunner(workspace: g.workspace, journal: g.journal, now: { fresh.now }, ports: .init(
+            workerIsWorking: { _ in false }, prepare: { task, _ in task }, launch: { _, _ in started += 1; return "worker" }, restore: { $0 }))
+        await own.run(first)
+        #expect(started == 1 && g.workspace.state.task(id: first)?.signalTask?.phase == .working)
+    }
 }
