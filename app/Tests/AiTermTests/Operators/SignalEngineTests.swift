@@ -24,17 +24,20 @@ import Testing
         #expect(task.signalTask?.pendingStages.map(\.signal) == [latest])
         #expect(launches == [id])
     }
-    @Test func differentQueriesInOnePassGiveTheSharedItemToTheOldestSignal() throws {
+    /// The higher heading takes an item both signals match in one pass, even when it is the newer signal.
+    @Test(arguments: [false, true]) func differentQueriesInOnePassGiveTheSharedItemToTheHigherSignal(newerMovedUp: Bool) throws {
         var world = SignalWorld()
         let oldest = world.signal(age: -10), newer = world.signal(age: 10)
+        if newerMovedUp { world.state.move(signalId: newer, .up) }
+        let (higher, lower) = newerMovedUp ? (newer, oldest) : (oldest, newer)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let router = ItemRouter(workspace: h.workspace, now: { world.now })
         let read = SignalRead(items: [world.ticket()], complete: true)
-        let ids = router.apply(observations: [.init(signals: [newer], read: read), .init(signals: [oldest], read: read)])
+        let ids = router.apply(observations: [.init(signals: [lower], read: read), .init(signals: [higher], read: read)])
         let task = try #require(h.workspace.state.tasks.first)
         #expect(ids == [task.id] && h.workspace.state.tasks.count == 1)
-        #expect(task.signalTask?.current.signal == oldest)
-        #expect(task.signalTask?.pendingStages.map(\.signal) == [newer])
+        #expect(task.signalTask?.current.signal == higher)
+        #expect(task.signalTask?.pendingStages.map(\.signal) == [lower])
     }
 
     @Test func switchingOffAnOwnerDefersItsSavedLaunchUntilItIsOnAgain() async throws {

@@ -27,7 +27,7 @@ then cancels.
 Creation keys are disabled while a sheet is open or the workspace cannot change. A task/review
 needs a compatible project; a terminal also accepts a plain folder. Row menus keep Rename, Open in…,
 Pull, Archive and Remove. The Operator heading's context menu has Pause Operator, or Resume Operator
-while paused; its + has only New Signal…. Signal menus have Edit, Switch Off/On and Remove. Take Over
+while paused; its + has only New Signal…. Signal menus have Edit, Switch Off/On, Move Up/Move Down and Remove. Take Over
 is on the menu of a task still under the Operator; there is no Hand Back.
 
 `KeyBindings.all` feeds Settings › Interface; `KeyboardSettingsTests` compares it to the actual

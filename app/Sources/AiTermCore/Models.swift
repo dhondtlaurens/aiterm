@@ -388,7 +388,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var sidebarFrame: CGRect? = nil
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
-    /// The signals, in the order they were created. The app is their only writer.
+    /// The signals in their headings' order, which is also their priority (`MatchDecision`): a new one
+    /// is appended, and Move Up / Move Down swap neighbours. The app is their only writer.
     public var signals: [Signal] = []
     public var signalSeen: [SignalSeen] = []
     public var operatorSession: OperatorSession?
@@ -478,6 +479,23 @@ public struct AppState: Codable, Equatable, Sendable {
             n += direction
         }
         return nil
+    }
+
+    /// Signals move one place among the live signals, whose order is their headings' and their priority
+    /// (`MatchDecision`). A removed signal's leftover heading is not in `signals`, so it is never a neighbour.
+    public func canMove(signalId: UUID, _ step: MoveStep) -> Bool { signalNeighbour(of: signalId, step) != nil }
+
+    @discardableResult
+    public mutating func move(signalId: UUID, _ step: MoveStep) -> Bool {
+        guard let i = signals.firstIndex(where: { $0.id == signalId }), let n = signalNeighbour(of: signalId, step) else { return false }
+        signals.swapAt(i, n)
+        return true
+    }
+
+    private func signalNeighbour(of id: UUID, _ step: MoveStep) -> Int? {
+        guard let i = signals.firstIndex(where: { $0.id == id }) else { return nil }
+        let n = i + (step == .up ? -1 : 1)
+        return signals.indices.contains(n) ? n : nil
     }
 
     private enum CodingKeys: String, CodingKey {

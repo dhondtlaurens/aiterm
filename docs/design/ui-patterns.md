@@ -18,6 +18,11 @@ stay above both. The order is saved. Movement is disabled at each group's edges,
 is locked, or while the target row is being removed or archived. Signal-owned rows have no movement
 commands; Take Over returns them to their project's usual task or review group.
 
+Signal headings have Move Up and Move Down in the same place as a project heading's, before Remove.
+Each moves the signal one place among the live signals; that order is saved and is the signals'
+priority for an item several of them match. A removed signal's heading has no commands, is drawn
+after the live ones and is never a neighbour, so the first and last live signals disable one each.
+
 Restoring an archived row keeps the existing date-based insertion rule, so it may return at the
 top of a manually reordered group. Existing rows keep their chosen relative order; the archived
 row's previous manual position is not remembered.

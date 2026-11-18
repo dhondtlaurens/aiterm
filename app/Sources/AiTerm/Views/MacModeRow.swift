@@ -6,8 +6,9 @@ import AiTermCore
 /// one that will turn the mode off.
 enum BackpackNeed: Equatable { case lostHotspot, lowBattery(level: Int) }
 
-/// The Mac's mode in SYSTEM, decided apart from the view so a test reads it. At the desk it draws no line of its own — the Mac's readings
-/// row is its row — and in the backpack a `ToneRing` and its words.
+/// The Mac's mode in SYSTEM, decided apart from the view so a test reads it. At the desk it says
+/// nothing — the Mac's readings row is its row — and in the backpack its words join System's
+/// heading in its tone: `System · backpack mode`.
 enum MacMode: Equatable {
     case desk
     case turningOn, on, needsYou(BackpackNeed), turningOff
@@ -24,7 +25,7 @@ enum MacMode: Equatable {
         }
     }
 
-    /// The Backpack Mode line's words; nil at the desk, which draws no line.
+    /// The words System's heading carries; nil at the desk, whose heading is its word alone.
     var words: String? {
         switch self {
         case .desk: nil
@@ -35,8 +36,8 @@ enum MacMode: Equatable {
         }
     }
 
-    /// The line's colour, its ring's and its words': ready while on, attention when it needs you,
-    /// idle while it switches. Nil at the desk.
+    /// The words' colour: ready while on, attention when it needs you, idle while it switches. Nil
+    /// at the desk.
     var tone: SettingsTone? {
         switch self {
         case .desk: nil
@@ -47,7 +48,7 @@ enum MacMode: Equatable {
     }
 }
 
-/// One drawn line: the mode, and the tooltip and VoiceOver sentence.
+/// The mode as the footer draws it, and its tooltip and VoiceOver sentence.
 struct MacModeLine: Equatable {
     let mode: MacMode
     let help: String

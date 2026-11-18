@@ -137,14 +137,19 @@ import Testing
         #expect(MatchDecision.decide(matches: [], signals: [s], tasks: [], seen: [], complete: true).isEmpty)
     }
 
-    @Test func oldestSignalOwnsNewItemAndOtherSignalsQueue() {
+    /// Heading order is priority: the higher heading takes a shared item whatever the signals' ages, and
+    /// a switched-off signal between them neither takes it nor queues.
+    @Test func higherSignalOwnsNewItemAndOtherSignalsQueue() {
         let old = signal("Old", createdAt: now.addingTimeInterval(-1)), new = signal("New")
+        var off = signal("Off", createdAt: now.addingTimeInterval(-2)); off.enabled = false
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), project = UUID()
-        let matches = [new, old].map { SignalMatch(signal: $0.id, item: item, project: project, matchedAt: now) }
-        let decisions = MatchDecision.decide(matches: matches, signals: [new, old], tasks: [], seen: [], complete: true)
-        #expect(decisions.count == 1)
-        guard case .start(let first, let pending) = decisions.first else { Issue.record("Expected start"); return }
-        #expect(first.signal == old.id && pending.map(\.signal) == [new.id])
+        let matches = [old, off, new].map { SignalMatch(signal: $0.id, item: item, project: project, matchedAt: now) }
+        for (headings, owner, queued) in [([new, off, old], new, old), ([old, off, new], old, new)] {
+            let decisions = MatchDecision.decide(matches: matches, signals: headings, tasks: [], seen: [], complete: true)
+            #expect(decisions.count == 1)
+            guard case .start(let first, let pending) = decisions.first else { Issue.record("Expected start"); return }
+            #expect(first.signal == owner.id && pending.map(\.signal) == [queued.id])
+        }
     }
 
     @Test func activeStageQueuesFoldsAndPendingWorkOutranksThen() throws {
@@ -195,7 +200,7 @@ import Testing
         old.work = SignalWork(prompt: "/psg:plan"); new.work = SignalWork(prompt: "/psg:review")
         let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1"), project = Project.make()
         let matches = [new, old].map { SignalMatch(signal: $0.id, item: item, project: project.id, matchedAt: now) }
-        guard case .start(_, let pending) = MatchDecision.decide(matches: matches, signals: [new, old], tasks: [], seen: [], complete: true).first else {
+        guard case .start(_, let pending) = MatchDecision.decide(matches: matches, signals: [old, new], tasks: [], seen: [], complete: true).first else {
             Issue.record("Expected a new task"); return
         }
         #expect(pending.map(\.configuration) == [new])

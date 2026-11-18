@@ -64,6 +64,14 @@ extension AppController {
         }
     }
 
+    /// Moves a signal's heading one place among the live signals, which also changes its priority for
+    /// items several signals match. The neighbour is the current one, so a stale menu at a new edge does nothing.
+    @discardableResult
+    func moveSignal(_ id: UUID, _ step: MoveStep) -> Bool {
+        guard canChangeWorkspace else { return false }
+        return workspace.mutate { $0.move(signalId: id, step) }
+    }
+
     func toggleEnabled(_ signal: Signal) {
         guard canChangeWorkspace, var current = state.signal(id: signal.id) else { return }
         current.enabled.toggle()

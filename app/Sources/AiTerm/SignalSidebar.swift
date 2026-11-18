@@ -9,6 +9,8 @@ struct SignalSection: Equatable, Identifiable {
     var removed = false
     var id: UUID { signal.id }
     var removedFolded = false
+    /// Whether Move Up and Move Down have a live neighbour; always false on a removed signal's heading.
+    var canMoveUp = false, canMoveDown = false
     var collapsed: Bool { (removed ? removedFolded : signal.collapsed) || tasks.isEmpty }
 }
 
@@ -39,6 +41,8 @@ struct SignalSidebar {
             section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
             section.removed = state.signal(id: signal.id) == nil
             section.removedFolded = foldedRemovedSignals.contains(signal.id)
+            section.canMoveUp = state.canMove(signalId: signal.id, .up)
+            section.canMoveDown = state.canMove(signalId: signal.id, .down)
             return section
         }
         projects = entries.map { entry in

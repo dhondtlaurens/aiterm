@@ -144,6 +144,10 @@ a review asked again sets your review state back to unreviewed, so
 `reviewer:@me review-state:unreviewed` starts each re-review in the same task and conversation.
 Use `review-state:` there rather than `approved-by:@me`: an approval survives a review asked again.
 
+The order of the signal headings is their priority. When several signals match the same item in one
+pass, the higher heading starts its task and the others wait as pending stages. Move a heading with
+**Move Up** and **Move Down** in its context menu; a new signal is added at the bottom.
+
 Only one stage launches or works at once. Matches arriving during that stage wait, one per signal,
 in arrival order. They start after the current work ends and never during a worker's turn.
 Pending work takes precedence over archive/remove: only the last stage applies its final action.

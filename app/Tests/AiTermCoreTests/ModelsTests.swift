@@ -502,6 +502,41 @@ import Foundation
         }
     }
 
+    /// A signal swaps with the live signal beside it. A removed signal is no longer in `signals`, so its
+    /// leftover heading is never a neighbour, and nothing but the signal order changes.
+    @Test func signalsMoveOnePlaceAndStopAtTheirEdges() throws {
+        var world = SignalWorld()
+        let first = world.signal(name: "First"), second = world.signal(name: "Second"), third = world.signal(name: "Third")
+        let gone = world.signal(name: "Gone")
+        world.workingTask(signal: gone)
+        world.state.signals.removeAll { $0.id == gone }
+        world.state.signals[1].enabled = false
+        let original = world.state
+
+        #expect(!world.state.canMove(signalId: first, .up) && world.state.canMove(signalId: first, .down))
+        #expect(world.state.canMove(signalId: second, .up) && world.state.canMove(signalId: second, .down))
+        #expect(world.state.canMove(signalId: third, .up) && !world.state.canMove(signalId: third, .down))
+        for id in [gone, UUID()] {
+            for step in [MoveStep.up, .down] {
+                #expect(!world.state.canMove(signalId: id, step))
+                let moved = world.state.move(signalId: id, step)
+                #expect(!moved && world.state == original)
+            }
+        }
+        let blockedUp = world.state.move(signalId: first, .up), blockedDown = world.state.move(signalId: third, .down)
+        #expect(!blockedUp && !blockedDown && world.state == original)
+
+        let down = world.state.move(signalId: first, .down)
+        #expect(down)
+        #expect(world.state.signals.map(\.id) == [second, first, third])
+        let up = world.state.move(signalId: third, .up)
+        #expect(up)
+        #expect(world.state.signals.map(\.id) == [second, third, first])
+        #expect(world.state.signals.map(\.enabled) == [false, true, true])
+        #expect(world.state.tasks == original.tasks && world.state.items == original.items)
+        #expect(world.state.signalSeen == original.signalSeen && world.state.operatorSession == original.operatorSession)
+    }
+
     @Test func testStateWithDividersRoundTripsThroughJSON() throws {
         var state = AppState.empty
         state.append(project: project("a"))
