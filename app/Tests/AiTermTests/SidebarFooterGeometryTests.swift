@@ -11,9 +11,9 @@ struct SidebarFooterGeometryTests {
     private let fiveHour = UsageLine(window: .fiveHour, percent: 84, reset: "16:40", warning: true)
     private let week = UsageLine(window: .weekly, percent: 84, reset: "Wed 16:28", warning: true)
 
-    /// Each ring and number is hovered and read as its words — the labels alone say "wk", a ring
-    /// and "Wed". SwiftUI builds no accessibility tree for a test, so the words are checked here, and
-    /// the footer hands them to `.help` and `.accessibilityLabel` as they are.
+    /// Each ring and number is read as its words — the labels alone say "wk", a ring and "Wed".
+    /// SwiftUI builds no accessibility tree for a test, so the words are checked here, and the footer
+    /// hands them to `.accessibilityLabel` as they are.
     @Test func everyRingAndNumberIsReadInWords() {
         #expect(UsageLine(window: .weekly, percent: 61, reset: "Fri 23:33", warning: false, resetInFull: "Friday 23:33").help
                 == "Weekly limit, 61 % used, resets Friday 23:33")
