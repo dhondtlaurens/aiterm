@@ -87,8 +87,11 @@ protocol CreationKind {
 }
 
 extension CreationKind {
-    /// New Task and New Review have three steps — what and where from, the prompt, the agent — and
-    /// the agent's, the last, creates and sums up where the window opens.
+    /// New Task and New Review have three steps — what and where from, the agent, the prompt — and
+    /// the prompt's, the last, creates and sums up where the window opens. The agent comes first so
+    /// the prompt's `/` completions are the chosen agent's own, never a default's.
+    static var agentStep: Int { 2 }
+    static var promptStep: Int { 3 }
     static var lastStep: Int { 3 }
 
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}

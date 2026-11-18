@@ -53,8 +53,8 @@ directory. Starting another agent there adds its avatar to the task.
 
 ## Creation sheets
 
-Task: Task (ticket, name, branch) → Prompt → Agent. Review: Review (merge request, ticket, name,
-branch) → Prompt → Agent. Signal: Signal → Starts when → Prompt → Agents → Done when. Add/Edit Project,
+Task: Task (ticket, name, branch) → Agent → Prompt. Review: Review (merge request, ticket, name,
+branch) → Agent → Prompt. Signal: Signal → Starts when → Agents → Prompt → Done when. Add/Edit Project,
 New Terminal and Add Divider have one confined step. A search field's results open when you click
 it or type, not when the sheet focuses it.
 

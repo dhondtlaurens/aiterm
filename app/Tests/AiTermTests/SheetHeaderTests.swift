@@ -103,10 +103,10 @@ import Testing
     /// them, and none of their ordinary steps — a ticket or branch picked, the agent, the prompt with its
     /// checkbox, the command and where it opens — is cut short: nothing in them scrolls.
     @Test(arguments: ["step1-closed.png", "step1-picked.png", "step1-worktreeinclude.png", "step1-gitlab-picked.png",
-                      "step2-prompt.png", "step3-agent.png",
+                      "step2-agent.png", "step3-prompt.png",
                       "review-step1.png", "review-step1-picked.png", "review-ticket-found.png", "review-request-found-ticket.png",
                       "review-ticket-none.png", "review-in-task.png", "review-step1-worktreeinclude.png", "review-step2.png",
-                      "review-step3.png", "review-step2-ticket.png"])
+                      "review-step3.png", "review-step3-ticket.png"])
     func everyCreationStepIsOneHeightAndFits(file: String) throws {
         let snapshot = try #require(SheetSnapshots.all.first { $0.file == file })
         let view = snapshot.view()
@@ -123,7 +123,7 @@ import Testing
 
     /// New Signal keeps `Sheet.height` on every step.
     @Test func newSignalKeepsTheSheetHeight() {
-        for step in 1...5 {
+        for step in SignalModel.stepNames.indices.map({ $0 + 1 }) {
             let model = SignalSnapshots.model(.jira)
             let sheet = SignalSheet(model: model).seeded(step: step)
             #expect(height(of: sheet) == Sheet.fittingHeight(Sheet.height), "step \(step)")

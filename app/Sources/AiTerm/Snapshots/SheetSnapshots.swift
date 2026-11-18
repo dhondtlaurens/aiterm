@@ -17,13 +17,13 @@ enum SheetSnapshots {
             Snapshot("step1-worktreeinclude.png") {
                 taskSheet(step: 1, draft: picked(), worktreeIncludes: [".env", "certs/dev.pem"])
             },
-            Snapshot("step3-agent.png") { taskSheet(step: 3, draft: picked()) },
-            Snapshot("step2-prompt.png") {
+            Snapshot("step2-agent.png") { taskSheet(step: TaskCreation.agentStep, draft: picked()) },
+            Snapshot("step3-prompt.png") {
                 var draft = picked()
                 draft.promptText = "/superpowers:brainstorming\nStart with the worker's shutdown path and the queue drain."
-                return taskSheet(step: 2, draft: draft)
+                return taskSheet(step: TaskCreation.promptStep, draft: draft)
             },
-            Snapshot("step2-completions.png") { completions() },
+            Snapshot("step3-completions.png") { completions() },
             Snapshot("step1-gitlab-issues.png") { taskSheet(step: 1, draft: draft(), ticketsOpen: true, results: mixedTickets) },
             Snapshot("step1-gitlab-picked.png") {
                 var draft = draft()
@@ -51,20 +51,20 @@ enum SheetSnapshots {
                     $0.branchQuery = reviewTicket.key
                 }
             },
-            Snapshot("review-step2-ticket.png") {
-                reviewSheet(step: 2) {
+            Snapshot("review-step3-ticket.png") {
+                reviewSheet(step: ReviewCreation.promptStep) {
                     $0.draft.apply(ticket: reviewTicket)
                     $0.draft.found(mr: mergeRequests[1], from: reviewTicket.key)
                     $0.promptText = "/code-review"
                 }
             },
-            Snapshot("review-step2.png") { reviewSheet(step: 2) { $0.draft.apply(mr: mergeRequests[0]) } },
+            Snapshot("review-step2.png") { reviewSheet(step: ReviewCreation.agentStep) { $0.draft.apply(mr: mergeRequests[0]) } },
             // The last step is reached only with a branch, which its destination line names.
-            Snapshot("review-step3.png") { reviewSheet(step: 3) { $0.draft.apply(mr: mergeRequests[0]) } },
+            Snapshot("review-step3.png") { reviewSheet(step: ReviewCreation.lastStep) { $0.draft.apply(mr: mergeRequests[0]) } },
             // A branch that is already a task's: the sheet says the review opens there.
             Snapshot("review-in-task.png") {
                 let working = Fixture().working
-                return reviewSheet(step: 3, owner: working) {
+                return reviewSheet(step: ReviewCreation.lastStep, owner: working) {
                     $0.draft.setTitle(working.title)
                     $0.draft.setBranch(working.branch)
                 }
@@ -224,7 +224,7 @@ enum SheetSnapshots {
         let open: () -> Void
 
         var body: some View {
-            NewTaskSheet(model: model).seeded(step: 2)
+            NewTaskSheet(model: model).seeded(step: TaskCreation.promptStep)
                 .onAppear(perform: open)
                 .onChange(of: model.catalogueLoaded) { _, loaded in if loaded { open() } }
         }

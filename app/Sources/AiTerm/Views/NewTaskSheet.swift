@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Task's three steps: Task, Prompt, Agent. The first holds everything about where the task
+/// New Task's three steps: Task, Agent, Prompt. The first holds everything about where the task
 /// comes from and where it lives — an optional ticket, its name, its branch and base — so a new
 /// task opens on its name, not on a ticket search.
 struct NewTaskSheet: View {
@@ -33,33 +33,33 @@ struct NewTaskSheet: View {
                 if baseOpen { baseOpen = false; return true }
                 return false
             }),
-            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: 2, model: model), closeList: {
+            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: TaskCreation.agentStep, model: model)),
+            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: TaskCreation.promptStep, model: model), closeList: {
                 guard completions.isOpen else { return false }
                 completions.close(); return true
             }),
-            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: 3, model: model)),
         ]
     }
     @ViewBuilder private var content: some View {
         switch step {
         case 1: NewTaskFirstStep(model: model, ticketsOpen: $ticketsOpen, baseOpen: $baseOpen)
-        case 2:
+        case TaskCreation.agentStep: AgentStep(model: model)
+        default:
             PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
                 if model.draft.ticket?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                     DescriptionToggle("Add the ticket’s description", isOn: $model.draft.appendTicket,
                                       help: "It goes to the agent under your prompt.")
                 }
             }
-        default: AgentStep(model: model)
         }
     }
-    /// Every step needs a name and a branch, which the first step asks for; the agent's step needs
-    /// an agent that can run too.
+    /// Every step needs a name and a branch, which the first step asks for; the agent's step and
+    /// the prompt's after it need an agent that can run too.
     static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
         guard !model.creating else { return false }
         guard TaskCreator.isNamed(model.draft.title), !model.draft.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !model.draft.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        return step != TaskCreation.lastStep || model.agentIsReady
+        return step < TaskCreation.agentStep || model.agentIsReady
     }
     private var destination: Destination? {
         guard step == TaskCreation.lastStep, !model.worktreeSlug.isEmpty else { return nil }

@@ -91,6 +91,7 @@ struct TaskCreationModelTests {
     @Test func agentStepCannotContinueWithoutASelectableCurrentModel() async {
         let model = fixture(agent: .pi, model: "", catalogue: { _ in [] })
         await model.loadAgentCatalogue()
+        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.agentStep, model: model))
         #expect(!NewTaskSheet.canAdvance(step: TaskCreation.lastStep, model: model))
     }
 
@@ -102,9 +103,7 @@ struct TaskCreationModelTests {
         model.draft.setTitle("Fix the login form")
         #expect(NewTaskSheet.canAdvance(step: 1, model: model))
         model.draft.setTitle("   ")
-        #expect(!NewTaskSheet.canAdvance(step: 1, model: model))
-        #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
-        #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
+        for step in 1...TaskCreation.lastStep { #expect(!NewTaskSheet.canAdvance(step: step, model: model)) }
     }
 
     /// No agent CLI at all — a fresh Mac. Step 1 still continues; the agent step does not, even
@@ -115,6 +114,7 @@ struct TaskCreationModelTests {
         model.draft.setTitle("Fix the login form")
         #expect(model.selectedModelIsCurrent)
         #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: TaskCreation.agentStep, model: model))
         #expect(!NewTaskSheet.canAdvance(step: TaskCreation.lastStep, model: model))
     }
 
@@ -124,7 +124,7 @@ struct TaskCreationModelTests {
         let model = fixture()
         await model.loadAgentCatalogue()
         model.draft.setTitle("Fix the login form")
-        let sheet = NewTaskSheet(model: model).seeded(step: 2)
+        let sheet = NewTaskSheet(model: model).seeded(step: TaskCreation.promptStep)
         // The task's own body, and the shared frame's it hands its step to, under the sheet's loads.
         let wholeSheet = { _ = sheet.body; Self.drawFrame(of: sheet.body) }
         #expect(!invalidates(wholeSheet, by: { model.promptText = "g" }))

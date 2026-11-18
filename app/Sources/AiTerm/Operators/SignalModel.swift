@@ -4,7 +4,10 @@ import AiTermCore
 
 @Observable @MainActor final class SignalModel: Identifiable {
     nonisolated let id = UUID()
-    static let stepNames = ["Signal", "Starts when", "Prompt", "Agents", "Done when"]
+    static let stepNames = ["Signal", "Starts when", "Agents", "Prompt", "Done when"]
+    /// Each step's number, its place in `stepNames`. The agents come before the prompt so its `/`
+    /// completions follow a choice already made.
+    static let nameStep = 1, startStep = 2, agentsStep = 3, promptStep = 4, doneStep = 5
     let projects: [Project], context: SignalContext
     private let original: Signal?, createdAt: Date
     private let seen: [SignalSeen]
@@ -129,20 +132,20 @@ import AiTermCore
     }
     func canAdvance(step: Int) -> Bool {
         guard !starting, TaskCreator.isNamed(name) else { return false }
-        if step == 1 { return true }
+        if step == Self.nameStep { return true }
         guard start.isValid(start: true) else { return false }
-        if step == 2 { return true }
-        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        if step == 3 { return true }
+        if step == Self.startStep { return true }
         guard !agents.isEmpty, agents.allSatisfy({ choice in
             offeredAgents.contains(choice.agent) && models(for: choice.agent).contains { model in
                 model.id == choice.model && (choice.reasoning == nil || model.efforts.contains(choice.reasoning!))
             }
         }) else { return false }
-        return step == 4 || signal.isValid
+        if step == Self.agentsStep { return true }
+        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return step == Self.promptStep || signal.isValid
     }
     func create() async -> Bool {
-        guard canAdvance(step: 5) else { return false }
+        guard canAdvance(step: Self.doneStep) else { return false }
         let signal = signal
         starting = true; error = nil; defer { starting = false }
         do { try await save(signal); return true }

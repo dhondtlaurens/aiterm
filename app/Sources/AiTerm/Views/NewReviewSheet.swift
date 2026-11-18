@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// New Review's three steps: Review, Prompt, Agent. The first holds where the review comes from and
+/// New Review's three steps: Review, Agent, Prompt. The first holds where the review comes from and
 /// what it checks out — the merge request, the ticket, the name and the branch — on one page, as New
 /// Task's does.
 struct NewReviewSheet: View {
@@ -40,17 +40,18 @@ struct NewReviewSheet: View {
                 if branchOpen { branchOpen = false; return true }
                 return false
             }),
-            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: 2, model: model), closeList: {
+            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: ReviewCreation.agentStep, model: model)),
+            Step(name: "Prompt", canAdvance: canChange && Self.canAdvance(step: ReviewCreation.promptStep, model: model), closeList: {
                 guard completions.isOpen else { return false }
                 completions.close(); return true
             }),
-            Step(name: "Agent", canAdvance: canChange && Self.canAdvance(step: 3, model: model)),
         ]
     }
     @ViewBuilder private var content: some View {
         switch step {
         case 1: NewReviewFirstStep(model: model, mrOpen: $mrOpen, branchOpen: $branchOpen, ticketsOpen: $ticketsOpen)
-        case 2:
+        case ReviewCreation.agentStep: AgentStep(model: model)
+        default:
             PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
                 if model.draft.mr?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                     DescriptionToggle("Add the merge request’s description", isOn: $model.draft.appendRequest,
@@ -61,7 +62,6 @@ struct NewReviewSheet: View {
                                       help: "When it has one, under the merge request’s.")
                 }
             }
-        default: AgentStep(model: model)
         }
     }
     /// Every step needs a name and a branch, which the first step asks for: a review derives neither.
@@ -70,7 +70,7 @@ struct NewReviewSheet: View {
     }
     static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
         canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating)
-            && (step != ReviewCreation.lastStep || model.agentIsReady)
+            && (step < ReviewCreation.agentStep || model.agentIsReady)
     }
     static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String, branch: String) -> Destination? {
         guard step == ReviewCreation.lastStep, !branch.isEmpty else { return nil }

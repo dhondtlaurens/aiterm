@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermCore
 import AiTermUI
 
-/// Signal → Starts when → Prompt → Agents → Done when, in the shared `SteppedSheet`.
+/// Signal → Starts when → Agents → Prompt → Done when, in the shared `SteppedSheet`.
 struct SignalSheet: View {
     @Bindable var model: SignalModel
     @State private var step = 1
@@ -29,10 +29,11 @@ struct SignalSheet: View {
     }
     /// Each editor's step closes its completion popup first.
     private var steps: [Step] {
-        let popups = [2: model.startCompletions, 3: model.completions, 5: model.doneCompletions]
+        let popups = [SignalModel.startStep: model.startCompletions, SignalModel.promptStep: model.completions,
+                      SignalModel.doneStep: model.doneCompletions]
         return SignalModel.stepNames.enumerated().map { index, name in
             let number = index + 1, completions = popups[number]
-            return Step(name: name, canAdvance: model.canAdvance(step: number), whyNot: number == 4 ? model.agentsWhyNot : nil,
+            return Step(name: name, canAdvance: model.canAdvance(step: number), whyNot: number == SignalModel.agentsStep ? model.agentsWhyNot : nil,
                         closeList: {
                             guard let completions, completions.isOpen else { return false }
                             completions.close(); return true
@@ -41,24 +42,24 @@ struct SignalSheet: View {
     }
     @ViewBuilder private var content: some View {
         switch step {
-        case 1:
+        case SignalModel.nameStep:
             HelpText(Text("A signal starts tasks for you. ").fontWeight(.semibold)
                      + Text("It has two triggers: when a task starts, and when it is done. Each one reads Jira, GitLab or GitHub."))
             FormField("Name") {
                 Input(placeholder: "Name the signal", text: $model.name)
                 HelpText("Its heading under Operator in the sidebar.")
             }
-        case 2:
+        case SignalModel.startStep:
             SignalTriggerStep(model: model, start: true)
             if model.startRefusal == nil { SignalMatchPreview(model: model) }
-        case 3:
+        case SignalModel.agentsStep: AgentsStep(model: model)
+        case SignalModel.promptStep:
             PromptStep(text: $model.prompt, agent: .claude, completions: model.completions, label: "Prompt",
                        placeholder: "Describe what the worker does with each \(model.start.source == .jira ? "ticket" : "merge request").",
                        help: "Start to end, including how the work is checked. Type / for skills, @ for files.") {
                 if model.start.source == .jira { ticketToggle; requestToggle }
                 else { requestToggle; ticketToggle }
             }
-        case 4: AgentsStep(model: model)
         default: SignalDoneStep(model: model)
         }
     }
