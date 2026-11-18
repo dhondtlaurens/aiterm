@@ -91,9 +91,9 @@ of its current picks.
 
 | Pattern | Decisions in order |
 | --- | --- |
-| `NewTaskSheet` | Task (ticket, name, branch beside its base) → Prompt → Agent. |
-| `NewReviewSheet` | Review (merge request, ticket, name, branch) → Prompt → Agent. |
-| `SignalSheet` | Signal → Starts when → Prompt → Agents → Done when. |
+| `NewTaskSheet` | Task (ticket, name, branch beside its base) → Agent → Prompt. |
+| `NewReviewSheet` | Review (merge request, ticket, name, branch) → Agent → Prompt. |
+| `SignalSheet` | Signal → Starts when → Agents → Prompt → Done when. |
 | `SignalTriggerStep`, `SignalMatchPreview` | A Start or Done trigger: Reads (Jira, GitLab, GitHub), Describe it with its Write button on the label row, the query, and on Start the complete-read preview. |
 | `AgentsStep`, `AgentStep`, `ModelReasoningFields` | Agent/Model/Reasoning as selects; the signal edits a list of permitted rows. |
 | `SignalDoneStep` | The Done trigger, merge opt-in where offered, Then, optional merged-branch deletion. |

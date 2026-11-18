@@ -207,7 +207,7 @@ import Foundation
         let m = model()
         m.draft.setTitle("Review")
         m.draft.setBranch("feat-gift-card")
-        let sheet = NewReviewSheet(model: m).seeded(step: 2)
+        let sheet = NewReviewSheet(model: m).seeded(step: ReviewCreation.promptStep)
         #expect(!invalidates({ _ = sheet.body }, by: { m.promptText = "/code-review" }))
         #expect(invalidates({ _ = sheet.body }, by: { m.draft.setBranch("feat-other") }))
     }
@@ -341,6 +341,7 @@ import Foundation
         m.draft.setTitle("Review")
         m.draft.setBranch("main")
         await m.loadAgentCatalogue()
+        #expect(!NewReviewSheet.canAdvance(step: ReviewCreation.agentStep, model: m))
         #expect(!NewReviewSheet.canAdvance(step: ReviewCreation.lastStep, model: m))
     }
 
@@ -353,6 +354,7 @@ import Foundation
         await m.loadAgentCatalogue()
         #expect(m.selectedModelIsCurrent)
         #expect(NewReviewSheet.canAdvance(step: 1, model: m))
+        #expect(!NewReviewSheet.canAdvance(step: ReviewCreation.agentStep, model: m))
         #expect(!NewReviewSheet.canAdvance(step: ReviewCreation.lastStep, model: m))
     }
 

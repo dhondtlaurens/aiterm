@@ -261,11 +261,11 @@ public enum Sheet {
     /// The sheets whose content runs past any one height and scrolls: New Signal and the
     /// Archive; and the most a sheet that fits its content (`NameSheet`, Backpack Mode) grows to.
     public static let height: CGFloat = 560
-    /// New Task's and New Review's every step, so the sheet does not jump from one to the next: their
-    /// prompt editor and ticket checkbox fit under the title and above the footer.
-    /// The last step shows the agent fields and destination summary. A notice in the footer is
-    /// taller and scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
-    public static let creationHeight: CGFloat = 500
+    /// New Task's and New Review's every step, so the sheet does not jump from one to the next: New
+    /// Signal's height. Their last step, the prompt, fits its editor, a review's two description
+    /// checkboxes and the summary of where it opens and what runs. A notice in the footer is taller
+    /// and scrolls the step instead (`SheetHeaderTests.everyCreationStepIsOneHeightAndFits`).
+    public static let creationHeight: CGFloat = height
     /// A signal trigger's description and query editors in New Signal: three lines each, short enough that the match preview
     /// stays on the sheet beneath it.
     public static let queryEditorHeight: CGFloat = 56

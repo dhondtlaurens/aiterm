@@ -42,12 +42,12 @@ import AiTermCore
     private static let project = Project.make(name: "acme-web", path: "/p", provider: .gitlab, addedAt: Date())
 
     /// Opening in a task instead of a new worktree must never be a surprise, so both places the
-    /// sheet says where the review goes say which: the destination line, on steps 1 and 3, and the
+    /// sheet says where the review goes say which: the destination line, on the last step, and the
     /// button.
     @Test func testTheSheetSaysWhetherTheReviewOpensInATask() {
         let owner = TaskItem.make(project: UUID(), title: "Gift card", branch: "feat/gift-card", worktreePath: "/p/.worktrees/gift-card",
             model: "sonnet", appendTicket: true, createdAt: Date())
-        for step in [3] {
+        for step in [ReviewCreation.lastStep] {
             #expect(NewReviewSheet.destination(step: step, project: Self.project, owner: owner, slug: "review-gift-card",
                                                branch: "feat/gift-card")?.text
                     == "Opens in iTerm2 · task “Gift card” · feat/gift-card")
@@ -63,20 +63,20 @@ import AiTermCore
         #expect(NewReviewSheet.createLabel(owner: nil) == "Create Review")
         var review = owner
         review.kind = .review
-        #expect(NewReviewSheet.destination(step: 3, project: Self.project, owner: review, slug: "review-gift-card",
+        #expect(NewReviewSheet.destination(step: ReviewCreation.lastStep, project: Self.project, owner: review, slug: "review-gift-card",
                                            branch: "feat/gift-card")?.text
                 == "Opens in iTerm2 · review “Gift card” · feat/gift-card")
         #expect(NewReviewSheet.createLabel(owner: review) == "Open in Review")
     }
 
-    /// Finding the unused worktree slug looks at the disk, so step 2, which draws no destination,
+    /// Finding the unused worktree slug looks at the disk, so the agent step, which draws no destination,
     /// never asks for it.
     @Test func theDestinationAsksForTheSlugOnlyWhereItIsDrawn() {
         var reads = 0
         func slug() -> String { reads += 1; return "review-gift-card" }
-        #expect(NewReviewSheet.destination(step: 2, project: Self.project, owner: nil, slug: slug(), branch: "feat/x") == nil)
+        #expect(NewReviewSheet.destination(step: ReviewCreation.agentStep, project: Self.project, owner: nil, slug: slug(), branch: "feat/x") == nil)
         #expect(reads == 0)
-        #expect(NewReviewSheet.destination(step: 3, project: Self.project, owner: nil, slug: slug(), branch: "feat/x")?.text
+        #expect(NewReviewSheet.destination(step: ReviewCreation.lastStep, project: Self.project, owner: nil, slug: slug(), branch: "feat/x")?.text
                 == "Opens in iTerm2 · acme-web/.worktrees/review-gift-card · feat/x")
         #expect(reads == 1)
     }
@@ -356,15 +356,15 @@ import AiTermCore
         #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
     }
 
-    /// The prompt's completion popup is a list too: on step 2, ⎋ closes only the popup, and the
+    /// The prompt's completion popup is a list too: on step 3, ⎋ closes only the popup, and the
     /// next one cancels the sheet. The footer's hidden ⎋ button hears the key before the text view
     /// does, so the popup is the frame's to close (docs/keyboard.md).
     @Test func escapeClosesTheCompletionPopupBeforeCancelling() async throws {
-        let s = try presenting(step: 2)
+        let s = try presenting(step: ReviewCreation.promptStep)
         defer { s.window.orderOut(nil) }
         s.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
         settle(s.content)
-        #expect(!s.content.descendants(NSTextView.self).isEmpty, "step 2: Prompt")
+        #expect(!s.content.descendants(NSTextView.self).isEmpty, "step 3: Prompt")
         try #require(s.model.completions.isOpen, "the popup is open before ⎋")
 
         pressEscape(s)
@@ -387,18 +387,19 @@ import AiTermCore
         #expect(h.created.drafts.isEmpty)
     }
 
-    /// ⌘↩ does what the primary button says: Continue on steps 1 and 2, Create Review on step 3.
+    /// ⌘↩ does what the primary button says: Continue on the Review and Agent steps, Create Review on
+    /// the Prompt step, the last.
     @Test func commandReturnAdvancesEachStepAndCreatesOnTheLast() async throws {
         let h = harness(title: "Review it", branch: "main", mrOpen: false, createFails: true)
         defer { h.window.orderOut(nil) }
         #expect(self.field(Self.mrPlaceholder, in: h.host) != nil)
         pressCommandReturn(h)
-        #expect(!h.host.descendants(NSTextView.self).isEmpty)
-        #expect(h.created.drafts.isEmpty)
-        pressCommandReturn(h)
         await eventually { h.model.catalogueLoaded }
         settle(h.host)
-        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty)
+        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty, "the Agent step")
+        #expect(h.created.drafts.isEmpty)
+        pressCommandReturn(h)
+        #expect(!h.host.descendants(PromptTextView.self).isEmpty, "the Prompt step")
         #expect(h.created.drafts.isEmpty)
         pressCommandReturn(h)
         await eventually { !h.created.drafts.isEmpty }
@@ -406,7 +407,7 @@ import AiTermCore
         #expect(h.created.drafts.first?.title == "Review it")
         #expect(h.created.drafts.first?.branch == "main")
         #expect(h.model.error == CreationFailure(reason: "Refused.", detail: nil))
-        #expect(!h.host.descendants(NSPopUpButton.self).isEmpty)
+        #expect(!h.host.descendants(PromptTextView.self).isEmpty, "a refused create stays on the last step")
     }
 }
 

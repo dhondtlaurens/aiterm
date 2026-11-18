@@ -18,7 +18,7 @@ import Testing
         var draft = TaskDraft.initial(project: project, state: .empty, git: controller.git, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         draft.promptText = "One\nTwo\n/s"
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
-        let host = testHost(NewTaskSheet(model: model).seeded(step: 2), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let host = testHost(NewTaskSheet(model: model).seeded(step: TaskCreation.promptStep), size: CGSize(width: Sheet.width, height: Sheet.height))
         let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host

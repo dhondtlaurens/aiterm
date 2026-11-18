@@ -7,7 +7,7 @@ import AiTermUI
     static var all: [Snapshot] {
         var values: [Snapshot] = []
         for source in [SignalTrigger.Source.jira, .gitLab] {
-            for step in 1...5 {
+            for step in SignalModel.stepNames.indices.map({ $0 + 1 }) {
                 values.append(Snapshot("signal-\(source.rawValue)-\(step).png") { SignalSheet(model: model(source)).seeded(step: step) })
             }
         }
@@ -15,7 +15,7 @@ import AiTermUI
             // A Start query that names no role of the account's is refused under its field.
             Snapshot("signal-gitLab-refused.png") {
                 let model = model(.gitLab); model.start.query = "review-state:unreviewed draft:no"
-                return SignalSheet(model: model).seeded(step: 2)
+                return SignalSheet(model: model).seeded(step: SignalModel.startStep)
             },
             // The account's own merge requests: merge when ready is offered, and on.
             Snapshot("signal-gitLab-merge.png") {
@@ -24,7 +24,7 @@ import AiTermUI
                                             query: "author:@me threads:waiting-on-me")
                 model.done = SignalTrigger(source: .gitLab, description: "When no thread waits on my reply", query: "-threads:waiting-on-me")
                 model.mergeWhenReady = true; model.then = .keep
-                return SignalSheet(model: model).seeded(step: 5)
+                return SignalSheet(model: model).seeded(step: SignalModel.doneStep)
             },
             // Claude writing the Start query: the button is its own progress, the fields stay editable.
             Snapshot("signal-jira-writing.png") { writing(.jira) },
@@ -36,7 +36,7 @@ import AiTermUI
     private static func writing(_ source: SignalTrigger.Source) -> SignalSheet {
         let model = model(source, matched: false); model.start.query = ""
         model.seed(writing: QueryWriting(busy: true), start: true)
-        return SignalSheet(model: model).seeded(step: 2)
+        return SignalSheet(model: model).seeded(step: SignalModel.startStep)
     }
     /// A signal of `source` with both triggers described and written by Claude; `matched` with its match preview read.
     static func model(_ source: SignalTrigger.Source, matched: Bool = true) -> SignalModel {

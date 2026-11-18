@@ -16,9 +16,9 @@ import Testing
         let model = SignalModel(projects: world.state.projects, context: context, preview: { trigger in
             previewed.append(trigger); return SignalRead(items: [world.ticket(), world.ticket("OTHER-1")], complete: true)
         }, save: { saved.append($0) })
-        #expect(!model.canAdvance(step: 1))
+        #expect(!model.canAdvance(step: SignalModel.nameStep))
         model.name = "Sprint tickets"
-        #expect(model.canAdvance(step: 1))
+        #expect(model.canAdvance(step: SignalModel.nameStep))
         model.start.query = " labels = ready "
         model.prompt = "Plan, build and review it."
         await model.loadPreview()
@@ -27,9 +27,9 @@ import Testing
         model.ticketDescription = false
         model.requestDescription = true
         model.then = .archive
-        #expect(model.canAdvance(step: 4) && !model.canAdvance(step: 5), "a Done trigger needs its query")
+        #expect(!model.canAdvance(step: SignalModel.doneStep), "a Done trigger needs its query")
         model.done = SignalTrigger(source: .gitLab, query: "reviewer:any")
-        #expect(model.canAdvance(step: 5))
+        #expect(model.canAdvance(step: SignalModel.doneStep))
         #expect(await model.create())
         let signal = try #require(saved.first)
         #expect(saved.count == 1 && signal.name == "Sprint tickets")
@@ -57,13 +57,27 @@ import Testing
         #expect(model.start == SignalTrigger(source: .jira, query: "") && model.prompt.isEmpty)
         #expect(!model.isEditing && model.title == "New signal")
         model.name = "Tickets"
-        #expect(model.canAdvance(step: 1) && !model.canAdvance(step: 2), "No query would match every ticket the account can see.")
+        #expect(!model.canAdvance(step: SignalModel.startStep), "No query would match every ticket the account can see.")
         await model.loadPreview()
         #expect(previewed == 0 && model.previewError != nil)
         model.start.query = "sprint in openSprints()"
-        #expect(model.canAdvance(step: 2) && !model.canAdvance(step: 3))
+        #expect(model.canAdvance(step: SignalModel.startStep))
+        #expect(!model.canAdvance(step: SignalModel.promptStep))
         model.prompt = "Fix it."
-        #expect(model.canAdvance(step: 3))
+        #expect(model.canAdvance(step: SignalModel.promptStep))
+    }
+    enum Part: CaseIterable, Sendable { case query, agents, prompt }
+    /// A signal saves only whole: without its Start query, its agents or its prompt, create refuses it.
+    @Test(arguments: Part.allCases) func createRefusesASignalMissingAPart(missing: Part) async {
+        let model = SignalModel(projects: [], context: context, save: { _ in Issue.record("An incomplete signal must not save") })
+        model.name = "Tickets"; model.start.query = "labels = ready"; model.done.query = "status = Done"; model.prompt = "Fix it."
+        #expect(model.canAdvance(step: SignalModel.doneStep))
+        switch missing {
+        case .query: model.start.query = " "
+        case .agents: model.removeAgent(model.agentRows[0].id)
+        case .prompt: model.prompt = " "
+        }
+        #expect(await model.create() == false)
     }
     /// A GitLab Start query AiTerm refuses says why, blocks the step and is never read.
     @Test func aRefusedGitLabQuerySaysWhyAndIsNotPreviewed() async {
@@ -72,11 +86,11 @@ import Testing
                                 save: { _ in })
         model.name = "Reviews"; model.start = SignalTrigger(source: .gitLab, query: "review-state:unreviewed draft:no")
         #expect(model.startRefusal?.message == "Name yourself in one role: author:@me, assignee:@me or reviewer:@me.")
-        #expect(!model.canAdvance(step: 2))
+        #expect(!model.canAdvance(step: SignalModel.startStep))
         await model.loadPreview()
         #expect(previewed == 0 && model.previewError == nil)
         model.start.query = "reviewer:@me review-state:unreviewed draft:no"
-        #expect(model.startRefusal == nil && model.canAdvance(step: 2))
+        #expect(model.startRefusal == nil && model.canAdvance(step: SignalModel.startStep))
         model.done = SignalTrigger(source: .gitLab, query: "author:@me reviewer:@me")
         #expect(model.doneRefusal != nil)
         model.done.query = ""
@@ -99,19 +113,12 @@ import Testing
         #expect(saved?.id == original.id && saved?.createdAt == original.createdAt)
         #expect(saved?.finish.deletesMergedBranch == true && saved?.finish.mergesWhenReady == false)
     }
-    @Test func anUnlistedAgentModelCannotBeSaved() async {
-        let model = SignalModel(projects: [], context: context, save: { _ in Issue.record("Invalid choices must not save") })
-        model.name = "Tickets"; model.start.query = "labels = operator"; model.done.query = "status = Done"; model.prompt = "Fix it."
-        model.removeAgent(model.agentRows[0].id)
-        #expect(!model.canAdvance(step: 4))
-        #expect(await model.create() == false)
-    }
     @Test func readinessNeverDisablesCreate() async {
         let model = SignalModel(projects: [], context: context, save: { _ in })
         model.name = "Tickets"; model.start.query = "labels = ready"; model.done.query = "status = Done"; model.prompt = "Fix it."
         for readiness in [SignalReadiness.checking, .ready, .notReady(["Messaging needs attention"])] {
             model.readiness = { _ in readiness }
-            #expect(model.canAdvance(step: 5))
+            #expect(model.canAdvance(step: SignalModel.doneStep))
             #expect(await model.create())
         }
     }
@@ -121,7 +128,7 @@ import Testing
                             done: SignalTrigger(source: .gitHub, query: "reviewed-by:@me"), work: SignalWork(prompt: "Fix it."),
                             agents: [AgentChoice(agent: .claude, model: "removed", reasoning: nil)], finish: SignalFinish(then: .archive))
         let model = SignalModel(signal: signal, projects: [], context: context, save: { _ in })
-        #expect(!model.canAdvance(step: 4))
+        #expect(!model.canAdvance(step: SignalModel.agentsStep))
         #expect(model.agentsWhyNot == ModelReasoningFields.unavailableHelp)
     }
 
