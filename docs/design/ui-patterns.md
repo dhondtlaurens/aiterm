@@ -36,9 +36,13 @@ Signal tasks use the same two-line task row as ordinary tasks: title, badges and
 same avatar and status grid. The Operator adds no status line and never replaces task badges.
 `OperatorBadge` on the Operator’s own row describes its current action. `OperatorActivityTracker`
 assigns a new identity to every start, result, failure and return to watching, including repeated
-words. `DecodeWordsView` decodes for 0.5 seconds, retaining the text’s case, ink and width, then
-stops. `OperatorActivityCaption` keeps a quick completed action readable for one second,
-including its decode, before returning to the current status; a new event replaces it immediately.
+words. `DecodeWordsView` morphs from the words standing to the new ones over 0.5 seconds: the new
+words settle from the left behind a short band of glyphs in each character’s case, the old words
+standing past it, then it stops. The first words a caption is given stand as they are, so the line
+always runs from words to words and is never empty. `OperatorActivityCaption` keeps a quick
+completed action readable for one second, including its decode, before returning to the current
+status; a new event replaces it immediately, and a caption that has just appeared (its section
+unfolded) shows the current words without replaying an action that already ended.
 The status mark always reflects current work. The title stays “Operator”. Reduce Motion swaps; snapshots remain still.
 
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on

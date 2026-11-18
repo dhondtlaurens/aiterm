@@ -1154,8 +1154,8 @@
   .op .prop ol { margin: 0; padding-left: var(--space-block); color: var(--text); display: flex; flex-direction: column; gap: var(--space-hairline); }
   .op .static-agent { display: flex; align-items: center; gap: var(--space-base); font: 500 13px/1 var(--font); color: var(--text); }
   .op .dim { opacity: 0.4; }
-  /* Acting: no box, the words in the surface's ink. New words decode once over OperatorBadge.decodeDuration
-     (0.5 s), then stand still; the row's spinner carries the motion. The page replays it every 6 s. */
+  /* Acting: no box, the words in the surface's ink. New words morph once from the words standing over
+     OperatorBadge.decodeDuration (0.5 s), then stand still; the row's spinner carries the motion. The page replays it every 6 s. */
   .op .ob.acting { background: none; padding-inline: 0; }
   .op .ob.acting .tx { color: var(--text); }
   .op .mk-row.sel .ob.acting { background: none; }
@@ -2866,8 +2866,8 @@
 <tr><td><code>HeadingValue</code></td><td>What a heading row draws; counts only while folded, child rows absent.</td><td>../HeadingValue.swift</td></tr>
 <tr><td><code>SignalOperatorRow</code></td><td>Active-workload chat row, event-driven activity, pause, waiting count and window recovery.</td><td>Operators/SignalRows.swift</td></tr>
 <tr><td><code>OperatorActivityCaption</code></td><td>Holds a quick completed action for one second in the Operator caption; newer events replace it immediately.</td><td>OperatorBadge.swift</td></tr>
-<tr><td><code>OperatorBadge</code></td><td>The Operator activity caption decodes once per event identity, including repeated words; Reduce Motion swaps.</td><td>OperatorBadge.swift</td></tr>
-<tr><td><code>DecodeWordsView</code></td><td>Own-case unsettled glyphs that retain text width and ink.</td><td>OperatorBadge.swift</td></tr>
+<tr><td><code>OperatorBadge</code></td><td>The Operator activity caption decodes once per event identity, including repeated words, from the words standing to the new ones; Reduce Motion swaps.</td><td>OperatorBadge.swift</td></tr>
+<tr><td><code>DecodeWordsView</code></td><td>Morphs old words into new: the new settle from the left behind a four-character band of own-case glyphs, the old stand past it at their width; one self-drawn line, cut at the tail in its own face, never empty.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>StatusMark</code></td><td>Idle, working, input, done and background rings; Reduce Motion keeps shape.</td><td>StatusMark.swift</td></tr>
 <tr><td><code>StatusCountChips</code></td><td>Folded heading counts in shared status vocabulary.</td><td>StatusCountChips.swift</td></tr>
 <tr><td><code>AvatarGroupView</code></td><td>Agent marks and overflow count.</td><td>AvatarGroupView.swift</td></tr>
@@ -2954,8 +2954,12 @@
       <code>DecodeWordsView</code> for 0.5 seconds per event, including consecutive events with identical words.
       The title stays “Operator”. Each start, result, failure and return to watching gets a new runtime identity;
       new activity replaces the previous action immediately. <code>OperatorActivityCaption</code> holds quick completed
-      actions for one second (decode plus reading time), so an event that finishes within a display frame remains visible.
-      Status marks remain current. The words retain their ink, case and width.
+      actions for one second (decode plus reading time), so an event that finishes within a display frame remains visible;
+      a caption that has just appeared (its section unfolded) shows the current words without replaying an ended action.
+      Status marks remain current. A change morphs from the words standing to the new ones: the new words settle from
+      the left behind a band of four glyphs in each character’s case, and the old words stand past it at the width they
+      were laid out in. The first words stand as they are, so the line always runs from words to words, never from or
+      into nothing. The words keep their ink and case.
       Reduce Motion swaps; snapshots stand still. Context renewal waits for a safe boundary at 150,000 tokens;
       age alone does not restart the chat.</p>
       <table class="patterns signal-states"><thead><tr><th>State</th><th>Drawn behavior</th></tr></thead><tbody>
