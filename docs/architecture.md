@@ -135,7 +135,9 @@ read (`RequestStatus`: one fetch of the request, its approvals, and the checks o
 fetch names), and merge readiness is a pure rule per host (`MergeReadiness.gitHub`,
 `MergeReadiness.gitLab`). Review threads are read by each host's own `threads(of:)`;
 `ReviewThreadsReader` picks the host from the request's address and asks only github.com or the
-configured GitLab host and port. A token's user is kept per host and token until Settings saves
+configured GitLab host and port, reading the request beside them for whether it merged. Which of
+the rows' Jira tickets sit in a Done lane is one `statusCategory = Done` search per pass
+(`DoneTicketsReading`, `TicketDoneWatcher`); a GitLab issue is not asked. A token's user is kept per host and token until Settings saves
 (`HostUserMemo`). Commands use typed arguments and hermetic Git configuration in tests.
 
 `Harness` is the one agent table: each agent's launch, model, resume and read-only headless

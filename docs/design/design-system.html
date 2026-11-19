@@ -322,6 +322,14 @@
   .ai-badge .diff .added { color: var(--diff-added); }
   .ai-badge .diff .removed { color: var(--diff-removed); }
   .ai-badge .suffix { display: inline-flex; align-items: center; gap: var(--space-hairline); }
+  /* Badge(checked:): a Size.cornerBadge disc in green on the 10 pt icon's bottom-trailing corner, overhanging
+     it by Space.hairline, ringed 1 pt in the surface's occludingBackground, a white check stroked 1 pt inside. */
+  .ai-badge .checked-mark { position: relative; display: inline-flex; width: 10px; height: 10px; flex: none; }
+  .ai-badge .checked-mark > svg { display: block; }
+  .ai-badge .checked-mark .ck { position: absolute; right: calc(-1 * var(--space-hairline)); bottom: calc(-1 * var(--space-hairline));
+                                width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+                                box-shadow: 0 0 0 1px var(--surface); display: block; }
+  .ai-badge .checked-mark .ck svg { display: block; width: 6px; height: 6px; }
   /* Badge(style: .quiet): no padding, no wash at rest, label in secondaryInk; the hovered wash is
      drawn Space.tight outside the content. */
   .ai-badge.quiet { background: transparent; padding-inline: 0; color: var(--muted); }
@@ -505,6 +513,7 @@
   .tabs button.proposal-tab, .tabs button.proposal-tab[aria-selected="true"] { color: var(--amber); }
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
+
 
 
   .bs2 .cb { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-slot); font: 13px/1 var(--font); color: var(--text); }
@@ -1954,6 +1963,8 @@
       <div class="sizes">
         <div class="step"><div class="label m">tabIndicator <span style="color: var(--muted)">2 pt</span></div>
           <div class="draw"><div class="box" style="width: 52px; height: 2px; border-radius: 0"></div><span class="purpose">The bar under a <code>TabBar</code>'s selected tab, drawn over the sheet header's rule: twice a hairline, so it reads as the selection rather than as a second rule. A stroke, so it does not scale.</span></div></div>
+        <div class="step"><div class="label m">cornerBadge <span style="color: var(--muted)">6 pt</span></div>
+          <div class="draw"><div class="dot" style="width: 6px; height: 6px"></div><span class="purpose">The green check a <code>Badge(checked:)</code> wears on its icon's corner — a Jira ticket done, a request merged — over the badge's 10 pt icon, overhanging it by <code>Space.hairline</code>.</span></div></div>
         <div class="step"><div class="label m">statusMarkSmall <span style="color: var(--muted)">8 pt</span></div>
           <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The status mark inside a count chip, where the usual size would overflow it; and a <code>ToneRing</code>, leading a Settings card's status line.</span></div></div>
         <div class="step"><div class="label m">statusMark <span style="color: var(--muted)">10 pt</span></div>
@@ -2195,7 +2206,11 @@
             nothing extra. An optional <code>suffix</code> (<code>Badge.Suffix(icon:text:)</code>) closes the badge
             with an icon and a short text, <code>Space.hairline</code> apart and both in the label's ink — a
             merge request's resolved review threads, a bubble and <code>2/5</code>; a badge that is only an
-            icon and a suffix is drawn with both. A badge is a chip at its own width, never squeezed or stretched by the
+            icon and a suffix is drawn with both. <code>checked</code> marks the icon finished — a Jira
+            ticket in a Done lane, a request merged — with a <code>Size.cornerBadge</code> disc in
+            <code>Palette.green</code> on the icon's bottom-trailing corner, a white check stroked inside,
+            overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
+            the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. A badge is a chip at its own width, never squeezed or stretched by the
             row around it. <code>style: .quiet</code> drops the box at rest: no outer padding, the
             label in the surface's <code>secondaryInk</code>, and the hovered wash drawn
             <code>Space.tight</code> outside the content so nothing moves; its content shape keeps the
@@ -2243,6 +2258,13 @@
               <span class="ai-badge quiet">
                 <span>!87</span>
                 <span class="suffix"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.8h6a1 1 0 0 1 1 1v3.4a1 1 0 0 1-1 1H4.6L2.6 8.8V7.2H2a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>2/5</span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">quiet · checked · a merged request, a done ticket</span>
+              <span style="display: inline-flex; gap: var(--space-gap); --brand-ink: currentColor">
+                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>PAY-198</span></span>
+                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span><span class="suffix"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.8h6a1 1 0 0 1 1 1v3.4a1 1 0 0 1-1 1H4.6L2.6 8.8V7.2H2a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>4/4</span></span>
               </span>
             </div>
             <div class="demo">

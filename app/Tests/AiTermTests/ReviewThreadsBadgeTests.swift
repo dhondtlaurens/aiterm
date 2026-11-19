@@ -63,6 +63,50 @@ import AiTermUI
         #expect(TaskRowBadges(row: row(mr: nil), details: BadgeDetails(), threads: ReviewThreads(resolved: 2, total: 5)).mergeRequest == nil)
     }
 
+    /// Merged: the mark wears the check, and the tooltip and VoiceOver say so after the count.
+    @Test func aMergedRequestIsCheckedAndSaysMerged() {
+        let link = badge(ReviewThreads(resolved: 4, total: 4, merged: true))
+        #expect(link?.checked == true)
+        #expect(link?.threads?.text == "4/4")
+        #expect(link?.help == "Add diff setting · 4 of 4 threads resolved · merged")
+        #expect(link?.accessibilityLabel == "!87, 4 of 4 threads resolved, merged")
+    }
+
+    /// Merged without a thread, and with the number off: still checked, still said.
+    @Test func aMergedRequestWithoutThreadsOrNumberIsStillChecked() {
+        let bare = badge(ReviewThreads(resolved: 0, total: 0, merged: true))
+        #expect(bare?.checked == true)
+        #expect(bare?.threads == nil)
+        #expect(bare?.help == "Add diff setting · merged")
+        #expect(bare?.accessibilityLabel == "!87, merged")
+        let markOnly = badge(ReviewThreads(resolved: 0, total: 0, merged: true), details: BadgeDetails(mergeRequest: false))
+        #expect(markOnly?.checked == true)
+        #expect(markOnly?.accessibilityLabel == "!87 · Add diff setting, merged")
+    }
+
+    @Test func anOpenRequestIsNotChecked() {
+        #expect(badge(ReviewThreads(resolved: 2, total: 5))?.checked == false)
+        #expect(badge(nil)?.checked == false)
+    }
+
+    /// A Jira ticket in a Done lane wears the check on its own mark; a GitLab issue is never asked,
+    /// so it never does, whatever it is handed.
+    @Test func aDoneJiraTicketIsCheckedAndAGitLabIssueNever() {
+        func ticket(_ gitLabIssue: Bool, done: Bool) -> TaskRowBadges.Link? {
+            var row = TaskRow(id: UUID(), title: "t", jiraKey: gitLabIssue ? "#53" : "SHOP-12", jiraUrl: "https://example/t", mr: nil,
+                              branch: .none, avatars: AvatarGroup(marks: [], overflow: 0), status: .idle)
+            row.ticketIsGitLabIssue = gitLabIssue
+            return TaskRowBadges(row: row, details: BadgeDetails(), ticketDone: done).ticket
+        }
+        let done = ticket(false, done: true)
+        #expect(done?.checked == true)
+        #expect(done?.help == "https://example/t · done")
+        #expect(done?.accessibilityLabel == "SHOP-12, done")
+        #expect(ticket(false, done: false)?.checked == false)
+        #expect(ticket(true, done: true)?.checked == false)
+        #expect(ticket(true, done: true)?.help == "https://example/t")
+    }
+
     @Test func aGitHubPullRequestCountsTheSameWay() {
         let pull = MergeRequestRef(iid: 12, title: "Faster images", url: "https://github.com/acme/shop/pull/12")
         let link = TaskRowBadges(row: row(mr: pull), details: BadgeDetails(), threads: ReviewThreads(resolved: 1, total: 4)).mergeRequest
