@@ -53,14 +53,19 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
 
 /// How many of a merge or pull request's review threads are resolved, of all of them: GitLab's
 /// resolvable discussions, GitHub's review threads. A plain comment or a system note cannot be
-/// resolved and is not one. A count, not a sentence: the app words it.
+/// resolved and is not one. A count, not a sentence: the app words it. Read with it, whether the
+/// request has merged, which is where its review ends.
 public struct ReviewThreads: Equatable, Sendable {
     public var resolved: Int, total: Int
-    public init(resolved: Int, total: Int) { self.resolved = resolved; self.total = total }
+    /// The host reports the request merged: GitLab's `merged` state, GitHub's `merged` flag.
+    public var merged: Bool
+    public init(resolved: Int, total: Int, merged: Bool = false) {
+        self.resolved = resolved; self.total = total; self.merged = merged
+    }
 
     /// One flag per thread, true when it is resolved.
-    public init(resolutions: [Bool]) {
-        self.init(resolved: resolutions.filter { $0 }.count, total: resolutions.count)
+    public init(resolutions: [Bool], merged: Bool = false) {
+        self.init(resolved: resolutions.filter { $0 }.count, total: resolutions.count, merged: merged)
     }
 }
 

@@ -118,6 +118,9 @@ public enum Size {
     /// name, not ``trailingGlyph``'s: that one feeds the trailing column's inset arithmetic, and a
     /// change there must not move this glyph.
     public static let chevron: CGFloat = 10
+    /// The green check a `Badge(checked:)` wears on its icon's corner: a ticket done, a request merged.
+    /// Over the badge's 10 pt icon, overhanging it by `Space.hairline`.
+    public static let cornerBadge: CGFloat = 6
     /// A vendor mark beside a picked item in a picker's field: the ticket, the merge request, the
     /// Jira project.
     public static let pickerLogo: CGFloat = 13
