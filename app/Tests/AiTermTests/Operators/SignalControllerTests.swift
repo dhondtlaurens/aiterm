@@ -94,6 +94,33 @@ import Testing
         await root.reconcile(); await ports.work.settled()
         #expect(await reader.calls.count == 2)
     }
+    /// The controller watches the network while it runs: a read that failed is read again on the first tick after the
+    /// network returns, and stopping the controller stops the watch.
+    @Test func theNetworkReturningMakesAFailedSourceReadDueOnTheNextTick() async throws {
+        var world = SignalWorld(); _ = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var ports = OperatorPorts.scratch(); let clock = TestClock(world.now)
+        ports.clock.now = { clock.now }
+        var returned: (@MainActor () -> Void)?, watching = false
+        ports.network = NetworkWatch { handler in returned = handler; watching = true; return { watching = false } }
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        let reader = OfflineSignalReader()
+        root.sourceRegistrations = { signals in signals.map {
+            SignalPoller.Registration(id: $0.id, sourceHost: "gitlab.example", readKey: "threads", isJira: false, reader: reader)
+        } }
+        root.start(); await ports.work.settled()
+        #expect(await reader.reads == 1 && watching)
+        clock.advance(by: 61)
+        await root.reconcile(); await ports.work.settled()
+        #expect(await reader.reads == 1, "A failed read waits out its back-off.")
+        returned?()
+        await root.reconcile(); await ports.work.settled()
+        #expect(await reader.reads == 2)
+        root.stop()
+        #expect(!watching)
+    }
     /// A save that lands while a tick runs reads the edited signal's source at once, not a minute later.
     @Test func aSaveWhileATickRunsReadsTheEditedSignalBeforeTheNextMinute() async throws {
         var world = SignalWorld(); _ = world.signal()
@@ -285,5 +312,13 @@ private actor CountingSignalReader: SignalSourceReader {
     func poll(since: Date?, full: Bool) async throws -> SignalRead {
         calls.append(Call(since: since, full: full))
         return SignalRead(items: [], complete: true, full: full)
+    }
+}
+
+private actor OfflineSignalReader: SignalSourceReader {
+    var reads = 0
+    func poll(since: Date?, full: Bool) async throws -> SignalRead {
+        reads += 1
+        throw URLError(.notConnectedToInternet)
     }
 }

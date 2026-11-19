@@ -17,7 +17,7 @@ final class SignalPoller {
         var lastFull: Date?
         var next: Date = .distantPast
     }
-    /// A failed read is tried again after this long.
+    /// A failed read is tried again after this long, or on the first tick after the network comes back.
     static let failureBackOff: TimeInterval = 300
     /// A Jira read key reads every matching key again after this long, not only those changed since its cursor.
     private static let jiraSweep: TimeInterval = 600
@@ -28,6 +28,8 @@ final class SignalPoller {
     private var reading: [String: Task<Void, Never>] = [:]
     private var progress: [String: Progress] = [:]
     private var generation = UUID()
+    /// How often the network has come back, so a read that was already waiting then and fails afterwards is not held back.
+    private var networkReturns = 0
     var canPoll: @MainActor () -> Bool = { true }
     var onPass: @MainActor ([SignalObservation]) -> Void = { _ in }
     var onFailure: @MainActor ([UUID], String) -> Void = { _, _ in }
@@ -47,6 +49,12 @@ final class SignalPoller {
         generation = UUID()
         for pass in reading.values { pass.cancel() }
         reading.removeAll(); registrations = []
+    }
+    /// The network is back: every read key is due on the next tick, a failed one included. Cursors stay, and a pass still
+    /// reading goes on; a read it started before now that fails is due on the next tick too, not after the back-off.
+    func networkReturned() {
+        networkReturns += 1
+        for key in progress.keys { progress[key]?.next = .distantPast }
     }
     /// Starts a pass for each source host with none still reading and a read key that is due.
     func tick() {
@@ -74,7 +82,7 @@ final class SignalPoller {
         }
     }
     private func read(_ registration: Registration, host: String, sharing: [Registration], generation: UUID) async -> SignalObservation? {
-        let key = host + ":" + registration.readKey, at = now()
+        let key = host + ":" + registration.readKey, at = now(), returns = networkReturns
         let before = progress[key] ?? Progress()
         guard at >= before.next else { return nil }
         let full = !registration.isJira || before.lastFull.map { at.timeIntervalSince($0) >= Self.jiraSweep } != false
@@ -87,7 +95,9 @@ final class SignalPoller {
             return SignalObservation(signals: sharing.map(\.id), read: read)
         } catch {
             guard !Task.isCancelled, self.generation == generation, canPoll() else { return nil }
-            var next = before; next.next = at.addingTimeInterval(Self.failureBackOff); progress[key] = next
+            var next = before
+            next.next = networkReturns == returns ? at.addingTimeInterval(Self.failureBackOff) : .distantPast
+            progress[key] = next
             onFailure(sharing.map(\.id), error.localizedDescription)
             return nil
         }

@@ -60,6 +60,49 @@ import Testing
         poller.stop()
     }
 
+    /// The 19 Nov wake: a read that failed while the network was gone is read on the first tick after it returns, not five
+    /// minutes later, and a read that succeeded keeps its cursor.
+    @Test func theNetworkReturningMakesAFailedReadDueAndKeepsASucceededCursor() async {
+        let clock = SignalPollClock(), failing = SignalPollReader(), fine = SignalPollReader(), work = OperatorWork()
+        await failing.setFailing(true)
+        let poller = SignalPoller(work: work, now: { clock.date })
+        var failures = 0
+        poller.onFailure = { _, _ in failures += 1 }
+        poller.replace([.init(id: UUID(), sourceHost: "gitlab", readKey: "threads", isJira: false, reader: failing),
+                        .init(id: UUID(), sourceHost: "jira", readKey: "query", isJira: true, reader: fine)])
+        poller.tick(); await work.settled()
+        #expect(await fine.calls.count == 1 && failures == 1)
+        clock.date += 61
+        poller.tick(); await work.settled()
+        #expect(await failing.calls.count == 1, "A failed read waits out its back-off.")
+        await failing.setFailing(false)
+        clock.date += 5
+        poller.networkReturned()
+        poller.tick(); await work.settled()
+        #expect(await failing.calls.count == 2 && failures == 1)
+        #expect(await fine.calls.map(\.full) == [true, false, false], "The Jira read stays a changes-only read.")
+        #expect(await fine.calls.last?.since != nil)
+        poller.stop()
+    }
+
+    /// A read that was already waiting when the network came back, and times out afterwards, is not held for the back-off.
+    @Test func aReadThatFailsAfterTheNetworkReturnedIsDueOnTheNextTick() async {
+        let clock = SignalPollClock(), entered = TestLatch(), release = TestLatch(), work = OperatorWork()
+        let reader = SignalTimingOutReader(entered: entered, release: release)
+        let poller = SignalPoller(work: work, now: { clock.date })
+        var failures = 0
+        poller.onFailure = { _, _ in failures += 1 }
+        poller.replace([.init(id: UUID(), sourceHost: "gitlab", readKey: "threads", isJira: false, reader: reader)])
+        poller.tick(); await entered.wait()
+        poller.networkReturned(); release.signal()
+        await work.settled()
+        #expect(failures == 1)
+        clock.date += 61
+        poller.tick(); await work.settled()
+        #expect(await reader.calls == 2)
+        poller.stop()
+    }
+
     @Test func stopDropsALateReadAndOverlappingTicksStartNoDuplicate() async {
         let clock = SignalPollClock(), entered = TestLatch(), release = TestLatch(), work = OperatorWork()
         let reader = SignalHeldReader(entered: entered, release: release)
@@ -78,11 +121,24 @@ import Testing
 private actor SignalPollReader: SignalSourceReader {
     struct Call: Sendable { var since: Date?; var full: Bool }
     var calls: [Call] = []
-    var complete = true
+    var complete = true, failing = false
     func setComplete(_ value: Bool) { complete = value }
+    func setFailing(_ value: Bool) { failing = value }
     func poll(since: Date?, full: Bool) async throws -> SignalRead {
         calls.append(Call(since: since, full: full))
+        if failing { throw URLError(.notConnectedToInternet) }
         return SignalRead(items: [], complete: complete, full: full)
+    }
+}
+/// Times out every read; the first one only once released.
+private actor SignalTimingOutReader: SignalSourceReader {
+    let entered: TestLatch, release: TestLatch
+    var calls = 0
+    init(entered: TestLatch, release: TestLatch) { self.entered = entered; self.release = release }
+    func poll(since: Date?, full: Bool) async throws -> SignalRead {
+        calls += 1
+        if calls == 1 { entered.signal(); await release.wait() }
+        throw URLError(.timedOut)
     }
 }
 private struct SignalHeldReader: SignalSourceReader {
