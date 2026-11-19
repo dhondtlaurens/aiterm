@@ -18,6 +18,9 @@ public struct OperatorSession: Codable, Equatable, Sendable {
         public var deliveredAt: Date?
         public var gate: GateRequest?
         public var gateConsumedAt: Date?
+        /// Why the Operator or AiTerm closed this question without the person's answer. A withdrawn
+        /// question is never consent: a shell gate asks again for the same command.
+        public var withdrawn: String?
         public init(id: String, task: UUID?, text: String, openedAt: Date, resolvedAt: Date? = nil) {
             self.id = id; self.task = task; self.text = text; self.openedAt = openedAt; self.resolvedAt = resolvedAt
         }
@@ -48,6 +51,16 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var snags: [OperatorSnag] = []
     public init(id: UUID = UUID(), createdAt: Date) { self.id = id; self.createdAt = createdAt }
     public var waitingOnYou: Int { questions.filter { $0.resolvedAt == nil }.count }
+    /// Closes, as withdrawn, every open shell-gate question. Only the chat that tried the command can
+    /// retry it, so once that chat's generation ends nobody needs the person's answer.
+    @discardableResult
+    public mutating func withdrawGateQuestions(at: Date, reason: String) -> Bool {
+        var changed = false
+        for index in questions.indices where questions[index].gate != nil && questions[index].resolvedAt == nil {
+            questions[index].resolvedAt = at; questions[index].withdrawn = reason; changed = true
+        }
+        return changed
+    }
     public mutating func cached(key: String, at: Date) -> JSONValue? {
         ledger.removeAll { at.timeIntervalSince($0.at) > 7 * 86400 }
         guard let index = ledger.firstIndex(where: { $0.key == key }) else { return nil }

@@ -46,7 +46,13 @@ extension SignalOperatorToolHandler {
             return ["status": "recorded", "question": .string(key!),
                     "next": "This only updates the waiting count. Write the actual question as plain text in your chat; a tool argument is not visible chat."]
         case .resolveQuestion:
-            try questions.resolveQuestion(key: try call.string("question"), answer: try call.string("answer"))
+            let question = try call.string("question")
+            if let reason = call.optionalString("withdraw") {
+                guard call.optionalString("answer") == nil else { throw ToolRefusal("Pass the person's answer or withdraw, not both.") }
+                try questions.withdrawQuestion(key: question, reason: reason)
+                return ["status": "withdrawn"]
+            }
+            try questions.resolveQuestion(key: question, answer: try call.string("answer"))
             return ["status": "resolved"]
         case .reportSnag:
             let snag = OperatorSnag(key: key!, title: try call.string("title"), showed: try call.string("showed"),

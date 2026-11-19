@@ -210,7 +210,7 @@
   },
   {
     "name": "resolve_question",
-    "description": "Record the person’s answer in this chat to a recorded question.",
+    "description": "Record the person’s answer in this chat to a recorded question. To drop your own open question nobody needs answered any more, such as a gated command you no longer run, pass withdraw with a short reason instead of answer; a withdrawal is never consent.",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,
@@ -225,13 +225,16 @@
         },
         "answer": {
           "type": "string",
-          "description": "answer"
+          "description": "The person’s exact answer. Omit it when you withdraw."
+        },
+        "withdraw": {
+          "type": "string",
+          "description": "Why you no longer need the answer. Omit it when you record the person’s answer."
         }
       },
       "required": [
         "key",
-        "question",
-        "answer"
+        "question"
       ]
     }
   },

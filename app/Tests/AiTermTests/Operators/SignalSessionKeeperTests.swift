@@ -130,6 +130,28 @@ import Testing
         #expect(try h.file.load().operatorSession?.lifecycle == .open(since: world.now, wake: nil))
     }
 
+    /// Only the chat that tried a gated command can retry it: when its generation ends, its open gate
+    /// questions close as withdrawn, never as allowed, and the fresh chat inherits only real questions.
+    @Test func aRenewalWithdrawsTheOldChatsGateQuestions() async throws {
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
+        world.state.operatorSession = .open(createdAt: world.now, window: "old-window", conversation: "old-conversation")
+        let at = world.now
+        var gated = OperatorSession.Question(id: "gate-1", task: nil, text: "May the Operator run this command?", openedAt: at)
+        gated.gate = GateRequest(command: "./deploy", directory: "/synthetic")
+        world.state.operatorSession?.questions = [gated, .init(id: "q", task: task, text: "Choose the scope", openedAt: at)]
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
+            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _, digest in
+                #expect(digest.waitingOnYou == 1 && digest.questions.map(\.id) == ["q"])
+                return "fresh-window"
+            }))
+        await keeper.freshIfDue(contextTokens: 150_000, idle: true)
+        let saved = try #require(try h.file.load().operatorSession)
+        #expect(saved.generation == 2 && saved.waitingOnYou == 1)
+        let gate = try #require(saved.questions.first { $0.id == "gate-1" })
+        #expect(gate.resolvedAt == world.now && gate.withdrawn != nil && gate.answer == nil && gate.gateConsumedAt == nil)
+    }
+
     @Test func aFailedCloseKeepsTheOldTokenAndTheIntentSurvivesARestart() async throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
         world.state.operatorSession = .open(createdAt: world.now, window: "old-window")

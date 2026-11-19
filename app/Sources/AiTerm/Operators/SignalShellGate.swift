@@ -30,7 +30,8 @@ import AiTermCore
             return answer("allow", "A plain read.", rewrite: rewrite)
         }
         if let index = state.operatorSession?.questions.lastIndex(where: {
-            $0.gate == gate && $0.resolvedAt != nil && $0.gateConsumedAt == nil
+            // A withdrawn question was never answered: it neither allows nor denies, and the gate asks again.
+            $0.gate == gate && $0.resolvedAt != nil && $0.withdrawn == nil && $0.gateConsumedAt == nil
         }), let asked = state.operatorSession?.questions[index] {
             workspace.mutate { $0.operatorSession?.questions[index].gateConsumedAt = now() }
             guard workspace.flush() else { return answer("deny", "The person's decision could not be saved.") }
@@ -38,7 +39,8 @@ import AiTermCore
             return answer(allowed ? "allow" : "deny", allowed ? "Allowed once by the person." : "The person did not allow this command.")
         }
         if let asked = state.operatorSession?.questions.first(where: { $0.gate == gate && $0.resolvedAt == nil }) {
-            return answer("deny", "Ask the person in your chat, then resolve_question with question \(asked.id) and their exact answer.")
+            return answer("deny", "Ask the person in your chat, then resolve_question with question \(asked.id) and their exact answer. "
+                          + "If you drop this command, resolve_question with question \(asked.id) and withdraw instead.")
         }
         let outcome = await consult(.shellGate(command: command, directory: directory, reason: request.arguments["description"]?.stringValue,
                                                status: OperatorDigest(state: state, at: now(), oracleOn: true)))
@@ -60,7 +62,8 @@ import AiTermCore
             workspace.mutate { $0.operatorSession?.questions.append(question) }
             guard workspace.flush() else { return answer("deny", "The shell question could not be saved.") }
             changed()
-            return answer("deny", "Ask the person as plain text in your chat: \(question.text)\nThen resolve_question with question \(key) and their exact answer. Never assume consent.")
+            return answer("deny", "Ask the person as plain text in your chat: \(question.text)\nThen resolve_question with question \(key) and their exact answer. Never assume consent. "
+                          + "If you drop this command instead, resolve_question with question \(key) and withdraw with your reason.")
         }
     }
 }
