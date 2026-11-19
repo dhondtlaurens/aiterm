@@ -124,7 +124,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 
 | Type | Responsibility |
 | --- | --- |
-| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink)/diff/suffix, action/menu and accessibility label (words for a count). |
+| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink; `checked`: a `Size.cornerBadge` green check on its corner, ringed in the surface's `occludingBackground`)/diff/suffix, action/menu and accessibility label (words for a count). |
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
 | `FormField` | Label/control stack with dropdown overhang above following content; an optional accessory (a small push button) at the trailing end of the label row. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
@@ -155,7 +155,7 @@ explains ownership and the full reusable vocabulary.
 | --- | --- |
 | `SectionHeading`, `HeadingRow`, `HeadingValue`, `SignalOperatorRow` | The OPERATOR and PROJECTS headings with their + menus (New Signal… alone under the Operator), the paused title and Pause Operator/Resume Operator in the Operator heading’s context menu; one heading row for a project or a signal, drawn from its `HeadingValue` (mark, fold, counts while folded, menu); the Operator’s row, which opens the active workload’s chat, in a task row’s grid. |
 | `SectionFoldLabel`, `SectionFoldChevron` | OPERATOR and PROJECTS fold into each other, projects open by default: the heading's click switches; the chevron sits in the trailing slot before the "+", shown folded and, open, only under the pointer; folded, its rows' `StatusCountChips`, as a folded project's header draws them, one button per chip opening the section at its first row in that status. |
-| `TaskRowView`, `OperatorActivityCaption`, `OperatorBadge`, `DecodeWordsView` | The same two-line task row under projects/signals, drawn from the projection's `TaskRow` (its trailing `mark` and whether it `needsYou`); only the Operator activity caption decodes, by event identity, morphing from the words standing to the new ones (never from or into nothing), with a Reduce Motion swap. |
+| `TaskRowView`, `OperatorActivityCaption`, `OperatorBadge`, `DecodeWordsView` | The same two-line task row under projects/signals, drawn from the projection's `TaskRow` (its trailing `mark` and whether it `needsYou`); only the Operator activity caption decodes, when its words change, morphing from the words standing to the new ones (never from or into nothing) in one view whose layer never animates on its own, every word in the secondary ink but needs-you's chip, with a Reduce Motion swap. |
 | `SteppedSheet`, `Step`, `SheetLayout`, `SheetStepper`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
 | `NewTaskSheet`, `NewReviewSheet`, `SignalSheet` | Source/name/prompt/agent/finish in one order, omitting inapplicable steps. |
 | `ProjectSheet`, `NameSheet` | Add/Edit Project including Jira links/import; one-step terminal/divider/name forms. |

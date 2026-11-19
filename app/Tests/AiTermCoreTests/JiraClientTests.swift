@@ -566,6 +566,51 @@ import Synchronization
 
     /// Answers the picker with `picker[query]` as Current Search and `history[query]` as History,
     /// and a JQL search with a ticket per key `search` returns for it — nil answers HTTP 400.
+    /// The done tickets among a row's keys: one search naming them all, kept to Jira's Done category,
+    /// answering only the done ones.
+    @Test func doneKeysAsksOnceForTheDoneOnes() async throws {
+        let stub = keyStub(search: { $0 == #"key in ("SHOP-1", "SHOP-2", "WEB-3") AND statusCategory = Done"# ? ["SHOP-2"] : nil })
+        let done = try await JiraClient(config: config, session: stub.session).doneKeys(among: ["SHOP-1", "SHOP-2", "WEB-3"])
+        #expect(done == ["SHOP-2"])
+        #expect(jqls(stub).count == 1)
+    }
+
+    /// Jira fails the whole `key in (…)` when one key no longer resolves: each is then asked alone,
+    /// so only that one is lost and the others still answer.
+    @Test func doneKeysLosesOnlyAKeyJiraCannotResolve() async throws {
+        let stub = keyStub(search: { jql in
+            switch jql {
+            case #"key = "SHOP-1" AND statusCategory = Done"#: return ["SHOP-1"]
+            case #"key = "SHOP-2" AND statusCategory = Done"#: return []
+            default: return nil
+            }
+        })
+        let done = try await JiraClient(config: config, session: stub.session).doneKeys(among: ["SHOP-1", "GONE-9", "SHOP-2"])
+        #expect(done == ["SHOP-1"])
+        #expect(jqls(stub) == [#"key in ("SHOP-1", "GONE-9", "SHOP-2") AND statusCategory = Done"#,
+                               #"key = "SHOP-1" AND statusCategory = Done"#, #"key = "GONE-9" AND statusCategory = Done"#,
+                               #"key = "SHOP-2" AND statusCategory = Done"#])
+    }
+
+    /// More keys than one search names go in several, each asking for as many as it names.
+    @Test func doneKeysBatchesManyKeys() async throws {
+        let keys = (1...JiraClient.doneKeysPerSearch + 1).map { "SHOP-\($0)" }
+        let stub = keyStub(search: { _ in ["SHOP-1"] })
+        let done = try await JiraClient(config: config, session: stub.session).doneKeys(among: keys)
+        #expect(done == ["SHOP-1"])
+        let limits = stub.requests.compactMap { request in
+            (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])?["maxResults"] as? Int
+        }
+        #expect(limits == [JiraClient.doneKeysPerSearch, 1])
+        #expect(jqls(stub).last == "key in (\"\(keys.last!)\") AND statusCategory = Done")
+    }
+
+    @Test func doneKeysOfNoneAsksNothing() async throws {
+        let stub = keyStub()
+        #expect(try await JiraClient(config: config, session: stub.session).doneKeys(among: []).isEmpty)
+        #expect(stub.requests.isEmpty)
+    }
+
     private func keyStub(picker: [String: [String]] = [:], history: [String: [String]] = [:],
                          search: @escaping @Sendable (String) -> [String]? = { _ in [] }) -> StubSession {
         StubSession { request in

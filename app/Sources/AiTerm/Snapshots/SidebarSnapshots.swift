@@ -272,7 +272,8 @@ enum SidebarSnapshots {
     }
 
     /// Four reviews under the fixture's project — one whose merge request never had a thread, one
-    /// with 2 of 5 resolved, one with all 6, and a GitHub pull request with 1 of 4, selected — each
+    /// with 2 of 5 resolved, one with all 6 and merged, its mark checked, and a GitHub pull request
+    /// with 1 of 4, merged and selected — each
     /// window open, so no caption stands under them. The badge without its number is
     /// `ReviewThreadsBadgeTests`'.
     private static func reviewThreads(_ file: String) -> Snapshot {
@@ -292,7 +293,7 @@ enum SidebarSnapshots {
                            review("Gift cards at the till", 95, url: gitLab + "95"),
                            review("Faster product images", 12, url: "https://github.com/acme/storefront/pull/12")]
             let counts: [ReviewThreads] = [.init(resolved: 0, total: 0), .init(resolved: 2, total: 5),
-                                           .init(resolved: 6, total: 6), .init(resolved: 1, total: 4)]
+                                           .init(resolved: 6, total: 6, merged: true), .init(resolved: 1, total: 4, merged: true)]
             controller.workspace.mutate { $0.tasks = reviews }
             for (review, threads) in zip(reviews, counts) { controller.reviewThreads.seedSnapshotThreads(threads, of: review.id) }
             controller.focus.browse(.task(reviews[3].id))
@@ -301,7 +302,8 @@ enum SidebarSnapshots {
     }
 
     /// A task from GitLab issue #55, a review of issue #53's merge request — one mark, `#53 !29`,
-    /// then its threads — and a Jira ticket's review, which keeps two badges.
+    /// then its threads, merged, so the shared mark wears the check — and a Jira ticket's review,
+    /// which keeps two badges, its ticket done.
     private static func gitLabIssues(_ file: String) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller(), project = fixture.project
@@ -322,7 +324,8 @@ enum SidebarSnapshots {
                         item("Drop the unused CDN origin", branch: "agent/SHOP-1720",
                              ticket: JiraRef(key: "SHOP-1720", summary: "Drop the unused CDN origin", url: "https://example/SHOP-1720"), mr: 7)]
             controller.workspace.mutate { $0.tasks = rows }
-            controller.reviewThreads.seedSnapshotThreads(.init(resolved: 1, total: 2), of: rows[1].id)
+            controller.reviewThreads.seedSnapshotThreads(.init(resolved: 1, total: 2, merged: true), of: rows[1].id)
+            controller.ticketsDone.seedSnapshotDone(true, of: rows[2].id)
             return taskRows(controller)
         }
     }

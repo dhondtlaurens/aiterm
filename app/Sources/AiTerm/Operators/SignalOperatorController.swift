@@ -44,6 +44,7 @@ import AiTermCore
     @ObservationIgnored private var settingsDue = Date.distantPast
     @ObservationIgnored private var hooks: [() -> Void] = []
     @ObservationIgnored private var savedObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var stopNetworkWatch: (@MainActor () -> Void)?
     @ObservationIgnored private var lastNote: OperatorNote?
     @ObservationIgnored lazy var oracle: OracleConsult = makeOracle()
     private func makeOracle() -> OracleConsult {
@@ -293,6 +294,7 @@ import AiTermCore
         if automatic { loop = PollLoop(interval: ports.reconcileInterval) { [weak self] in
             guard let self, !self.isStopped else { return nil }; await self.reconcile(); return self.ports.reconcileInterval
         } }
+        stopNetworkWatch = ports.network.start { [weak self] in self?.poller.networkReturned() }
         waker.restore()
         schedule {
             let delivered = await self.ports.notifications.readDelivered()
@@ -307,6 +309,7 @@ import AiTermCore
         isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); chat.stop(); hostPass?.cancel()
         for job in jobs.values { job.cancel() }; jobs.removeAll()
         if let savedObserver { NotificationCenter.default.removeObserver(savedObserver); self.savedObserver = nil }
+        stopNetworkWatch?(); stopNetworkWatch = nil
     }
     private func schedule(_ body: @escaping @MainActor () async -> Void) {
         guard !isStopped else { return }; let id = UUID()
