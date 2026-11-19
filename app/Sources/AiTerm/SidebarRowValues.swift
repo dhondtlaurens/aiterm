@@ -108,6 +108,15 @@ struct TaskRowBadges: Equatable {
         var threads: Badge.Suffix? = nil
         /// What VoiceOver reads when the badge says more than its label: the count, in words.
         var accessibilityLabel: String? = nil
+        /// Finished: a Jira ticket in a Done lane, a merge request merged. The mark wears the corner check.
+        var checked = false
+
+        /// Marks it finished, `word` ("done", "merged") after the rest in the tooltip and for VoiceOver.
+        mutating func finish(_ word: String) {
+            checked = true
+            accessibilityLabel = "\(accessibilityLabel ?? label ?? help), \(word)"
+            help += " · \(word)"
+        }
     }
 
     /// The SF Symbol a merge request's thread count stands behind.
@@ -126,13 +135,17 @@ struct TaskRowBadges: Equatable {
     /// The line's marks: in the ink of their words, or the vendor's colours once Settings asks.
     var markInk: Badge.MarkInk
 
-    /// `threads` is the row's merge request's, as last read; `nil` while there is no answer.
-    init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil) {
+    /// `threads` is the row's merge request's, as last read, with whether it merged; `nil` while there
+    /// is no answer. `ticketDone` is whether its Jira ticket was last read in a Done lane; a GitLab
+    /// issue is never asked.
+    init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil, ticketDone: Bool = false) {
         let ticketHost: CodeHost? = row.ticketIsGitLabIssue ? .gitLab : nil
         ticket = row.jiraKey.map { key in
-            details.jiraTicket
+            var link = details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
                 : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
+            if ticketDone && ticketHost == nil { link.finish("done") }
+            return link
         }
         mergeRequest = row.mr.map { mr in
             var link = details.mergeRequest
@@ -145,6 +158,7 @@ struct TaskRowBadges: Equatable {
                 link.help += " · \(words)"
                 link.threads = Badge.Suffix(icon: .symbol(Self.threadsSymbol), text: "\(threads.resolved)/\(threads.total)")
             }
+            if threads?.merged == true { link.finish("merged") }
             return link
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil

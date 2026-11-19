@@ -14,6 +14,11 @@ import SwiftUI
 /// resolved review threads of all of them — both in the label's ink, so on a quiet badge they sit
 /// back with it and on the accent they turn white with it.
 ///
+/// `checked` marks the icon as finished — a ticket in Jira's Done, a request merged: a
+/// `Size.cornerBadge` green disc with a white check on the icon's bottom-trailing corner,
+/// overhanging it by `Space.hairline` and cut from the ground by an unscaled one-point ring of the
+/// surface's `occludingBackground`. A shape as well as a colour, so it does not rest on green alone.
+///
 /// A `.quiet` badge drops the box at rest: its text sits on the row in secondary ink, and the wash
 /// only appears under the pointer, outset by `Space.tight` so the text does not move. The sidebar's
 /// project headers and task and terminal rows draw their badges this way, where four boxes in a row
@@ -43,6 +48,8 @@ public struct Badge: View {
     /// yields to white like everything else there.
     private let iconTint: Color?
     private let diff: Diff?
+    /// Whether the icon wears the corner check. Without an icon there is nothing to wear it.
+    private let checked: Bool
     private let suffix: Suffix?
     private let style: Style
     private let markInk: MarkInk
@@ -101,11 +108,12 @@ public struct Badge: View {
                 iconTint: Color? = nil,
                 diff: Diff? = nil,
                 suffix: Suffix? = nil,
+                checked: Bool = false,
                 style: Style = .boxed,
                 markInk: MarkInk = .own,
                 accessibilityLabel: String? = nil,
                 action: (() -> Void)? = nil) {
-        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, style: style,
+        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, checked: checked, style: style,
                   markInk: markInk, accessibilityLabel: accessibilityLabel, action: action, menu: nil)
     }
 
@@ -117,18 +125,19 @@ public struct Badge: View {
                              markInk: MarkInk = .own,
                              accessibilityLabel: String? = nil,
                              @ViewBuilder menu items: () -> Items) {
-        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, style: style,
+        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, checked: false, style: style,
                   markInk: markInk, accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
     }
 
     private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, suffix: Suffix?,
-                 style: Style, markInk: MarkInk, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
+                 checked: Bool, style: Style, markInk: MarkInk, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
         self.label = label
         self.icon = icon
         self.help = help
         self.iconTint = iconTint
         self.diff = diff.flatMap { $0.isEmpty ? nil : $0 }
         self.suffix = suffix
+        self.checked = checked
         self.style = style
         self.markInk = markInk
         self.accessibilityText = accessibilityLabel
@@ -235,6 +244,13 @@ public struct Badge: View {
     private func iconView(_ source: IconSource) -> some View {
         Icon(source, size: scale(Self.iconSize),
              tint: Self.iconTint(surface: surface, override: iconTint, markInk: markInk, style: style))
+            .overlay(alignment: .bottomTrailing) {
+                if checked {
+                    CornerCheck(ground: surface.occludingBackground)
+                        .frame(width: scale(Size.cornerBadge), height: scale(Size.cornerBadge))
+                        .offset(x: scale(Space.hairline), y: scale(Space.hairline))
+                }
+            }
     }
 
     /// `+12 −3`: the two counts sit `Space.hairline` apart, closer than the label before them, so
@@ -265,6 +281,40 @@ public struct Badge: View {
                 .font(Typography.chip.tabular)
                 .foregroundStyle(ink)
         }
+    }
+}
+
+/// `Badge(checked:)`'s corner mark: a `Palette.green` disc, its white check stroked in
+/// `CheckGlyph`'s proportions, inside a ring of the ground it sits on so it reads apart from the
+/// icon it overlaps. The ring is a hairline and does not scale.
+private struct CornerCheck: View {
+    let ground: Color
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Palette.green)
+            CheckGlyph().stroke(Palette.onAccent, style: StrokeStyle(lineWidth: CheckGlyph.strokeWidth, lineCap: .round, lineJoin: .round))
+        }
+        .background { Circle().stroke(ground, lineWidth: Self.ring) }
+    }
+
+    /// The ring that cuts the disc from the icon beneath, stroked on the disc's edge under its fill,
+    /// so a one-point hairline shows outside it. Unscaled, as every border is.
+    private static let ring: CGFloat = 2
+}
+
+/// A check's two strokes, in proportions of its box, inset so the round caps stay inside the disc.
+private struct CheckGlyph: Shape {
+    /// The check's stroke at `Size.cornerBadge`: thin enough to leave the disc's green around it.
+    static let strokeWidth: CGFloat = 1
+
+    func path(in rect: CGRect) -> Path {
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y) }
+        var path = Path()
+        path.move(to: point(0.27, 0.52))
+        path.addLine(to: point(0.44, 0.69))
+        path.addLine(to: point(0.74, 0.34))
+        return path
     }
 }
 

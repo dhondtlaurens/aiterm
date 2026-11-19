@@ -149,6 +149,19 @@ struct BadgeTests {
         }
     }
 
+    /// The corner check is drawn over the icon, never beside it: a checked badge is the same chip,
+    /// the same width and height, as the unchecked one at every scale, so the badge line does not move
+    /// when a ticket is done or a request merges.
+    @Test func aCheckedBadgeIsTheSameChipAsAnUncheckedOne() {
+        for scale in InterfaceScale.all {
+            let threads = Badge.Suffix(icon: .symbol("bubble.left"), text: "4/4")
+            #expect(Self.size(Badge("!81", icon: .brand(Palette.gitlab), suffix: threads, checked: true, style: .quiet), scale)
+                    == Self.size(Badge("!81", icon: .brand(Palette.gitlab), suffix: threads, style: .quiet), scale), "at ×\(scale.factor)")
+            #expect(Self.size(Badge(icon: .brand(Palette.jira), checked: true, style: .quiet), scale)
+                    == Self.size(Badge(icon: .brand(Palette.jira), style: .quiet), scale), "at ×\(scale.factor)")
+        }
+    }
+
     private static func width(_ badge: Badge) -> CGFloat {
         let host = NSHostingView(rootView: badge)
         host.layoutSubtreeIfNeeded()
