@@ -34,15 +34,18 @@ its `HeadingValue` contains only the heading's drawn facts, folded counts and to
 
 Signal tasks use the same two-line task row as ordinary tasks: title, badges and branch, with the
 same avatar and status grid. The Operator adds no status line and never replaces task badges.
-`OperatorBadge` on the Operator’s own row describes its current action. `OperatorActivityTracker`
-assigns a new identity to every start, result, failure and return to watching, including repeated
-words. `DecodeWordsView` morphs from the words standing to the new ones over 0.5 seconds: the new
-words settle from the left behind a short band of glyphs in each character’s case, the old words
-standing past it, then it stops. The first words a caption is given stand as they are, so the line
-always runs from words to words and is never empty. `OperatorActivityCaption` keeps a quick
-completed action readable for one second, including its decode, before returning to the current
-status; a new event replaces it immediately, and a caption that has just appeared (its section
-unfolded) shows the current words without replaying an action that already ended.
+`OperatorBadge` on the Operator’s own row describes its current action, every word in the surface’s
+secondary ink; only needs-you stands out, in the attention chip. One view, `DecodeWordsView`, draws
+the words whatever they say, in a line that spans the row so a change never resizes it, and its layer
+never animates on its own. It morphs only when the words change, from the words standing to the new
+ones over 0.5 seconds: the new words settle from the left behind a short band of glyphs in each
+character’s case, the old words standing past it, then it stops. The first words a caption is given
+stand as they are, so the line always runs from words to words and is never empty.
+`OperatorActivityTracker` assigns a new identity to every start, result, failure and return to
+watching; `OperatorActivityCaption` keeps a quick completed action readable for one second (its
+result carries the same words, so nothing moves) before returning to the current status; a new event
+replaces it immediately, and a caption that has just appeared (its section unfolded) shows the
+current words without replaying an action that already ended.
 The status mark always reflects current work. The title stays “Operator”. Reduce Motion swaps; snapshots remain still.
 
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on

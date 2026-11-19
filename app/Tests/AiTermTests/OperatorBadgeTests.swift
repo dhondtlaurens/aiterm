@@ -6,10 +6,10 @@ import AiTermUI
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The operator badge draws an `OperatorLine`: its words alone, no mark, one
-/// `Size.chip` line whatever it says, quiet with no box, acting with no box in the surface's ink, needs-you in the
-/// attention chip's pair — a selected row's too, which is neutral — and on the accent the surface's wash and ink. Acting words decode through glyphs once
-/// when they change, then stand still (P3, decision 3): at once under Reduce Motion and in the snapshots.
+/// The operator badge draws an `OperatorLine`: its words alone, no mark, one `Size.chip` line whatever it says, every
+/// word in the surface's secondary ink with no box, needs-you alone in the attention chip's pair (a selected row's
+/// too, which is neutral) and on the accent the surface's wash and ink. Its words morph through glyphs once when
+/// they change, then stand still: at once under Reduce Motion and in the snapshots.
 @MainActor
 struct OperatorBadgeTests {
     private func caption(_ line: OperatorLine, completed: OperatorLine? = nil, event: UUID) -> some View {
@@ -39,6 +39,29 @@ struct OperatorBadgeTests {
 
     /// Unfolding the Operator section draws a new caption: it shows the current words at once, neither decoding them
     /// nor replaying an action that ended while it was folded.
+    /// A quick act morphs in once: its end, a new event with the same words, moves nothing, and a second later the
+    /// line morphs back to its status.
+    @Test func aQuickActsEndMovesNothingUntilTheLineReturnsToItsStatus() async throws {
+        let watching = OperatorLine("watching 1 task in 1 signal")
+        let reading = OperatorLine("reading status", look: .acting)
+        let host = testHost(caption(watching, event: UUID()), size: CGSize(width: 280, height: Size.chip))
+        let window = testWindow(hosting: host, styleMask: [.borderless])
+        defer { window.close() }
+        settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
+        let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        host.rootView = caption(reading, event: UUID())
+        settle(host, describing: "the act to morph in") { !words.isDecoding && words.shown == reading.text }
+        let frames = words.frames
+        // The act ends: its completed event carries the same words.
+        host.rootView = caption(watching, completed: reading, event: UUID())
+        settle(host, for: 0.2)
+        #expect(words.shown == reading.text && words.frames == frames, "the same words moved \(words.frames - frames) frames")
+        await eventually(describing: "the line to return to watching") {
+            host.layoutSubtreeIfNeeded()
+            return words.shown == watching.text && !words.isDecoding
+        }
+    }
+
     @Test func aCaptionThatAppearsShowsItsWordsWithoutReplayingAnEndedAction() {
         let watching = OperatorLine("watching 3 tasks in 2 signals")
         let host = testHost(caption(watching, completed: OperatorLine("reading status", look: .acting), event: UUID()),
@@ -52,25 +75,20 @@ struct OperatorBadgeTests {
         #expect(words?.frames == 0, "nothing decoded")
     }
 
-    @Test func aNewEventRetriggersIdenticalWordsButSelectionDoesNot() {
+    @Test func theSameWordsMoveNothingWhateverTheirEventOrInk() {
         var now: CFTimeInterval = 100
-        let view = DecodeWordsView(), first = UUID(), second = UUID()
+        let view = DecodeWordsView()
         view.now = { now }
         let font = Typography.chip.nsFont, duration = OperatorBadge.decodeDuration
-        view.configure(text: "reading status", font: font, ink: .white, duration: duration, event: first)
+        view.configure(text: "reading status", font: font, ink: .white, duration: duration)
         #expect(!view.isDecoding && view.shown == "reading status", "the first words stand")
-        view.configure(text: "reading status", font: font, ink: .gray, duration: duration, event: first)
-        #expect(!view.isDecoding)
-        view.configure(text: "reading status", font: font, ink: .gray, duration: duration, event: second)
-        #expect(view.isDecoding && view.shown == "reading status", "it starts from the words standing")
-        now += duration / 2; view.tick()
-        #expect(view.shown != "reading status" && view.shown.count == "reading status".count, "a band scrambles: \(view.shown)")
-        #expect(OperatorBadge.decodes(.quiet, motionStill: nil, event: second))
-        #expect(OperatorBadge.decodes(.needsYou, motionStill: nil, event: second))
-        #expect(!OperatorBadge.decodes(.quiet, motionStill: .reduceMotion, event: second))
-        #expect(!OperatorBadge.decodes(.acting, motionStill: .snapshot, event: second))
+        view.configure(text: "reading status", font: font, ink: .gray, duration: duration)
+        #expect(!view.isDecoding && view.shown == "reading status", "a new ink is no new words")
         now += duration; view.tick()
-        #expect(!view.isDecoding && view.shown == "reading status")
+        #expect(view.frames == 0, "nothing ran")
+        #expect(OperatorBadge.decodes(motionStill: nil))
+        #expect(!OperatorBadge.decodes(motionStill: .reduceMotion))
+        #expect(!OperatorBadge.decodes(motionStill: .snapshot))
     }
 
     private func fitting(_ line: OperatorLine, width: CGFloat? = nil) -> CGSize {
@@ -89,15 +107,12 @@ struct OperatorBadgeTests {
     }
 
     @Test func stillUnderReduceMotion() {
-        #expect(OperatorBadge.decodes(.acting, motionStill: nil))
-        #expect(!OperatorBadge.decodes(.acting, motionStill: .reduceMotion))
-        #expect(!OperatorBadge.decodes(.acting, motionStill: .snapshot))
-        #expect(!OperatorBadge.decodes(.quiet, motionStill: nil))
-        #expect(!OperatorBadge.decodes(.needsYou, motionStill: nil))
-        // Acting stands in the surface's ink, decoding or not; quiet sits back in its secondary ink.
+        #expect(!OperatorBadge.decodes(motionStill: .reduceMotion))
+        // One ink for every word but needs-you's, so a change never switches it: the surface's secondary ink.
         for surface in [Surface.sidebar, .selected, .accent] {
-            #expect(OperatorBadge.ink(.acting, surface: surface) == surface.ink)
-            #expect(OperatorBadge.ink(.quiet, surface: surface) == surface.secondaryInk)
+            for look in [OperatorLine.Look.quiet, .ended, .acting] {
+                #expect(OperatorBadge.ink(look, surface: surface) == surface.secondaryInk, "\(look)")
+            }
         }
         // A still acting badge draws the same twice: nothing moves in a snapshot.
         let line = OperatorLine("answering Claude", look: .acting)
@@ -204,32 +219,42 @@ struct OperatorBadgeTests {
     }
 
     /// The caption once was empty: its settled words sat in a text layer that cut a line a hair wider than its slot
-    /// with an ellipsis in a 36 pt face of its own, which drew nothing. At every interface scale the words are drawn,
-    /// in every frame of a morph and once settled, and a morph to shorter words keeps the old words' width until it ends.
+    /// with an ellipsis in a 36 pt face of its own, which drew nothing. Then it flickered: its layer faded each frame
+    /// in from the last, stretched to the new size, so the words changed weight and flashed bigger. At every
+    /// interface scale the words are drawn, in every frame of a morph and once settled, in a line a change never
+    /// resizes, and the line never animates on its own.
     @Test(arguments: InterfaceScale.all)
     func theWordsAreDrawnInEveryFrameAndOnceSettled(scale: InterfaceScale) throws {
-        func badge(_ text: String, event: UUID) -> some View {
-            OperatorBadge(line: OperatorLine(text), event: event).interfaceScale(scale).surface(.washed)
+        func badge(_ text: String) -> some View {
+            OperatorBadge(line: OperatorLine(text)).interfaceScale(scale).surface(.washed)
         }
         let long = "watching 3 tasks in 2 signals", short = "working"
-        let host = testHost(badge(long, event: UUID()), size: CGSize(width: 280, height: 30), appearance: NSAppearance(named: .darkAqua))
+        let host = testHost(badge(long), size: CGSize(width: 280, height: 30), appearance: NSAppearance(named: .darkAqua))
         let window = testWindow(hosting: host, styleMask: [.borderless])
         defer { window.close() }
         settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
         let words = try #require(host.firstDescendant(DecodeWordsView.self))
-        let wide = words.bounds.width
+        let slot = words.line.frame
         #expect(words.shown == long && inked(words.line) > 0, "the first words are drawn")
-        host.rootView = badge(short, event: UUID())
+        host.rootView = badge(short)
         settle(host, for: 0.01)
-        #expect(words.isDecoding && words.line.frame.width >= wide, "the old words keep their width while they morph")
-        var drawn = 0, empty = 0
+        #expect(words.isDecoding)
+        var drawn = 0, empty = 0, resized = 0
         settle(host, describing: "the morph to settle") {
             if words.isDecoding { drawn += 1; if inked(words.line) == 0 { empty += 1 } }
+            if words.line.frame != slot { resized += 1 }
             return !words.isDecoding
         }
         #expect(drawn > 0 && empty == 0, "\(empty) of \(drawn) frames drew nothing")
+        #expect(resized == 0, "the line was resized in \(resized) frames")
+        // Test windows are never drawn by the window server, so the fade itself never runs here: what would run it is
+        // what is checked. Core Animation finds an action for each change, and a bitmap of another size is stretched.
+        for key in ["contents", "bounds", "position", "contentsScale"] {
+            #expect(words.line.action(forKey: key) == nil, "the line would animate its \(key)")
+        }
+        #expect(words.line.contentsGravity != .resize, "the line would stretch its last frame to a new size")
         #expect(words.shown == short && inked(words.line) > 0, "the settled words are drawn")
-        #expect(words.line.frame.size == words.bounds.size, "settled, the line fills the new words' slot")
+        #expect(words.line.frame == slot && words.line.frame.size == words.bounds.size, "the line fills its slot")
     }
 
     /// The decode keeps its timing and rules (sentence-case headings, 13 Nov 2026, changed only the case): 0.9 s
@@ -273,27 +298,25 @@ struct OperatorBadgeTests {
         #expect(stillHost.firstDescendant(DecodeWordsView.self) == nil, "standing still, the words are SwiftUI's text")
     }
 
-    /// A row moves repeatedly between the native decoding view and plain SwiftUI text. Returning to
-    /// acting after watching or waiting must give the new layer both its words and its layout.
-    @Test func secondaryWordsSurviveWorkingWatchingAndWaitingTransitions() throws {
+    /// The line once moved between the decode's view (acting) and SwiftUI's text (everything else), each setting the
+    /// face its own way. One view now draws every look: the same view, through working, watching and waiting,
+    /// always drawn and settling on each line's words.
+    @Test func oneViewDrawsEveryLook() throws {
         let host = testHost(OperatorBadge(line: OperatorLine("working", look: .acting)).surface(.washed),
                             size: CGSize(width: 240, height: Size.chip), appearance: NSAppearance(named: .darkAqua))
         let window = testWindow(hosting: host)
         defer { window.orderOut(nil) }
-        for line in [OperatorLine("working", look: .acting), OperatorLine("watching 3 tasks"),
-                     OperatorLine("in background"), OperatorLine("waiting on you", look: .needsYou),
-                     OperatorLine("consulting the Oracle", look: .acting)] {
+        settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
+        let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        for line in [OperatorLine("watching 3 tasks"), OperatorLine("in background"), OperatorLine("waiting on you", look: .needsYou),
+                     OperatorLine("done", look: .ended), OperatorLine("consulting the Oracle", look: .acting)] {
             host.rootView = OperatorBadge(line: line).surface(.washed)
             settle(host, for: 0.1)
-            if line.look == .acting {
-                let words = try #require(host.firstDescendant(DecodeWordsView.self))
-                #expect(!words.shown.isEmpty && !words.line.frame.isEmpty && inked(words.line) > 0)
-                settle(host) { !words.isDecoding }
-                #expect(words.shown == line.text)
-            } else {
-                #expect(host.firstDescendant(DecodeWordsView.self) == nil)
-                #expect(host.fittingSize.height >= Size.chip)
-            }
+            #expect(host.firstDescendant(DecodeWordsView.self) === words, "\(line.text) is drawn by the same view")
+            #expect(!words.shown.isEmpty && !words.line.frame.isEmpty && inked(words.line) > 0)
+            settle(host) { !words.isDecoding }
+            #expect(words.shown == line.text)
+            #expect(host.fittingSize.height >= Size.chip)
         }
     }
 }
