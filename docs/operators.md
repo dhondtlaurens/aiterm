@@ -58,7 +58,8 @@ you can still create or save the signal.
 Creating, saving an edit or switching a signal on starts every currently matching item that never
 started. An incomplete read starts nothing. An item that stops matching keeps running until its
 Done trigger. There is no concurrency cap. AiTerm reads each Start query every minute, and Jira
-sweeps all matching keys every ten minutes; source failures back off to five minutes.
+sweeps all matching keys every ten minutes; source failures back off to five minutes, or until
+the network comes back.
 
 AiTerm uses projects already in the sidebar; it never clones on pick-up. Link a project's Jira
 projects in **Add Project…** or **Edit Project…**. A ticket linked to several projects waits for

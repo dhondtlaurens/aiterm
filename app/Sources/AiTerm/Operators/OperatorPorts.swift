@@ -17,6 +17,8 @@ struct OperatorPorts {
     /// What New Signal's Write buttons run Claude through (`QueryWriterRunner`).
     var queryWriter: HeadlessRun = .unavailable
     var clock = OperatorClock()
+    /// When the Mac's network comes back, which makes a failed signal read due again.
+    var network: NetworkWatch = .none
     var now: @Sendable () -> Date { clock.now }
     /// What every owner starts its work through, so that a test waits for all of it at once (`OperatorWork.settled`).
     let work = OperatorWork()
@@ -43,6 +45,7 @@ struct OperatorPorts {
         var ports = OperatorPorts(home: home, claudeConfig: claudeConfig, git: git, notifications: LiveOperatorNotifications(),
                                   oracle: .live)
         ports.queryWriter = .live
+        ports.network = .live
         ports.installedVersions = { AgentVersions.shared.current($0) }
         ports.installedAgents = { [weak agents] in agents?.availableAgents ?? [] }
         let catalogue = agents.catalogue
