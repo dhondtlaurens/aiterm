@@ -102,6 +102,21 @@ import Testing
         #expect(await handler.respond(request(h, tool: "jira_search", ["jql": "project = PAY"])).value?["untrusted"] == [])
     }
 
+    @Test func resolveQuestionWithdrawsTheOperatorsOwnQuestionWithoutAnAnswer() async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let handler = make(h, world: world)
+        #expect(await handler.respond(request(h, tool: "ask_you", arguments(id, key: "q", extra: ["text": "Which scope?"]))).message == nil)
+        let both = await handler.respond(request(h, tool: "resolve_question", ["key": "both", "question": "q", "answer": "All.", "withdraw": "Not needed."]))
+        #expect(both.message != nil && h.workspace.state.operatorSession?.waitingOnYou == 1)
+        let withdrawn = await handler.respond(request(h, tool: "resolve_question", ["key": "drop", "question": "q", "withdraw": "The ticket says it."]))
+        #expect(withdrawn.value?["status"] == "withdrawn")
+        #expect(h.workspace.state.operatorSession?.waitingOnYou == 0)
+        #expect(h.workspace.state.operatorSession?.questions.first?.withdrawn == "The ticket says it.")
+        #expect(h.workspace.state.operatorSession?.questions.first?.answer == nil)
+        #expect(await handler.respond(request(h, tool: "resolve_question", ["key": "late", "question": "q", "answer": "All."])).message != nil)
+    }
+
     /// A second opinion saves nothing while the Oracle reads, so a crash cannot strand a record in run_status.
     @Test func aSecondOpinionLeavesNoRoundWhileItsCheckIsHeld() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)

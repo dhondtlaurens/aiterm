@@ -149,3 +149,16 @@ trigger; a pending stage whose signal no longer matches its item is dropped befo
   `OperatorLaunch.brief`. The capped live evaluation was not rerun in this step.
 - `state.json`, `tools.json` and `state-0.58.json` were not touched: the task record's new `merge` and
   `previousStage` fields are absent while nil.
+
+## The Operator withdraws its own question
+
+19 Nov 2026. A shell-gate question could stay open after the Operator dropped the command, so the
+person saw "waiting on you" for a question nobody needed answered. `resolve_question` now also takes
+`withdraw` (a reason) in place of `answer`; a withdrawn question is closed with that reason, is never
+consent, and the gate asks again for the same command. Still fourteen tools.
+
+- `tools.json`: `resolve_question`'s description, an `answer` description, the new `withdraw` property,
+  and `answer` no longer required. Edited by hand, equal to `daemon/aitermd/signal_tools.json`.
+- `brief.md`: two lines after "When the person answers here", edited by hand to equal `OperatorLaunch.brief`.
+  The capped live evaluation was not rerun in this step.
+- `state.json` and `state-0.58.json` were not touched: the question's new `withdrawn` field is absent while nil.

@@ -184,6 +184,7 @@ import AiTermCore
             throw ActionUnavailable("No recorded question has that key.")
         }
         if let old = workspace.state.operatorSession?.questions[index], old.resolvedAt != nil {
+            guard old.withdrawn == nil else { throw ActionUnavailable("This question was withdrawn. Ask again if it still matters.") }
             guard old.answer == answer else { throw ActionUnavailable("This question already has a different answer.") }; return
         }
         workspace.mutate { state in
@@ -192,6 +193,23 @@ import AiTermCore
             state.operatorSession?.prune(at: now())
         }
         guard workspace.flush() else { throw ActionUnavailable("The answer couldn’t be saved.") }
+        changed()
+    }
+    /// The Operator closes its own open question that nobody needs answered any more. It records no
+    /// answer, so it is never consent; a gated command asks again.
+    func withdrawQuestion(key: String, reason: String) throws {
+        guard workspace.canChangeWorkspace, let index = workspace.state.operatorSession?.questions.firstIndex(where: { $0.id == key }) else {
+            throw ActionUnavailable("No recorded question has that key.")
+        }
+        if let old = workspace.state.operatorSession?.questions[index], old.resolvedAt != nil {
+            guard old.withdrawn == reason else { throw ActionUnavailable("This question is already closed.") }; return
+        }
+        workspace.mutate { state in
+            state.operatorSession?.questions[index].resolvedAt = now()
+            state.operatorSession?.questions[index].withdrawn = reason
+            state.operatorSession?.prune(at: now())
+        }
+        guard workspace.flush() else { throw ActionUnavailable("The withdrawal couldn’t be saved.") }
         changed()
     }
     private func askPerson(_ question: Question, reason: String) -> JSONValue {

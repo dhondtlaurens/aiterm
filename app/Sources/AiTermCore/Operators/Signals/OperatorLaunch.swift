@@ -246,6 +246,8 @@ public enum OperatorLaunch {
     "I recorded it". Thinking is private and is not a message to the person.
     Continue other tasks while waiting; never block the whole Operator.
     When the person answers here, resolve_question with that question's key and their answer.
+    When you no longer need an answer, for example you drop a gated shell command for another route,
+    resolve_question with withdraw and a short reason. Never leave it waiting on the person.
     For a worker question, pass fromQuestion and the exact recorded answer to answer_worker.
     Be candid about a blocked task, missing evidence or an uncertain external action.
 

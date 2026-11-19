@@ -23,6 +23,28 @@ import Testing
         #expect(loaded.operatorSession?.waitingOnYou == 1)
         #expect(loaded.operatorSession?.oracleRounds.count == 1)
     }
+    /// A question saved before withdrawals existed loads open and waiting, and a withdrawn one is saved
+    /// with its reason and loads closed.
+    @Test func aQuestionSavedWithoutWithdrawnLoadsAndAWithdrawnOneRoundTrips() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/operator-signals/state.json")
+        let bytes = try Data(contentsOf: fixture)
+        #expect(!String(decoding: bytes, as: UTF8.self).contains("withdrawn"))
+        let folder = try ScratchFolder.make("aiterm-signal-withdrawn-")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = StateStore(url: folder.appendingPathComponent("state.json"))
+        try bytes.write(to: store.url)
+        var loaded = try store.load()
+        #expect(loaded.operatorSession?.waitingOnYou == 1 && loaded.operatorSession?.questions.allSatisfy { $0.withdrawn == nil } == true)
+        let gated = #"{"id":"gate-1","text":"May the Operator run this command?","openedAt":0,"gate":{"command":"./deploy","directory":"/synthetic"}}"#
+        let old = try JSONDecoder().decode(OperatorSession.Question.self, from: Data(gated.utf8))
+        #expect(old.gate?.command == "./deploy" && old.withdrawn == nil && old.resolvedAt == nil)
+        loaded.operatorSession?.questions.append(old)
+        #expect(loaded.operatorSession?.withdrawGateQuestions(at: Date(timeIntervalSince1970: 1_794_657_700), reason: "Dropped.") == true)
+        try store.save(loaded)
+        let again = try StateStore(url: store.url).load()
+        #expect(again == loaded && again.operatorSession?.waitingOnYou == 1)
+        #expect(again.operatorSession?.questions.last?.withdrawn == "Dropped.")
+    }
     /// A workspace saved before the Operator's section could be open,
     /// opens on the projects; the Operator open is kept, and the default is written as it always was.
     @Test func theProjectsAreTheDefaultSectionAndAnOpenOperatorIsKept() throws {

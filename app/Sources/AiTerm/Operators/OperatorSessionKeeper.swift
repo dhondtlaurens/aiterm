@@ -143,6 +143,7 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                     // The daemon refuses the revoked generation's token for good: the next chat, renewed
                     // or for a later workload, opens as the next generation.
                     guard let next = save({ record in
+                        record.withdrawGateQuestions(at: now(), reason: "The chat that tried this command ended.")
                         record.generation += 1
                         record.createdAt = now()
                         record.conversation = nil; record.session = nil
