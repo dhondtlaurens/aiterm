@@ -268,9 +268,10 @@ to write the log itself: only its recovery is written.
 because you are typing in its chat waits without counting; one pasted but not sent, or text left
 unsent in its chat, asks you to send or clear it there.
 
-Only the Operator row’s activity caption decodes. Each event retriggers it, even when the words
-repeat: the words standing morph into the new ones, settling from the left in half a second, so
-the caption is never empty. Unfolding the section shows the current words without a decode. Its title stays steady. Tasks keep their normal
+Only the Operator row’s activity caption decodes, and only when its words change: the words
+standing morph into the new ones, settling from the left in half a second, so the caption is never
+empty. A new event with the same words moves nothing. Every word is in one muted ink; only “needs
+you” stands out, in the attention chip. Unfolding the section shows the current words without a decode. Its title stays steady. Tasks keep their normal
 two-line layout and badges under projects and signals. Reduce Motion uses a plain swap.
 
 ## Session recovery and local records

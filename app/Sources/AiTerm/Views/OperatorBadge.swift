@@ -3,12 +3,11 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// The Operator row’s activity caption. New event identities decode even when their words repeat;
-/// ordinary view updates (selection, ink, layout) do not. Quiet/result/attention events keep their
-/// own ink and needs-you chrome. Reduce Motion and snapshots show the real words immediately.
+/// The Operator row’s activity caption. Its words morph only when they change, always drawn by one view of
+/// their own (`DecodeWords`); a repeated event, a new ink or a new layout moves nothing. Every word is in the
+/// surface’s secondary ink; only needs-you stands out, in its box. Reduce Motion and snapshots show the words still.
 struct OperatorBadge: View {
     let line: OperatorLine
-    var event: UUID? = nil
     @Environment(\.surface) private var surface
     @Environment(\.interfaceScale) private var scale
     @Environment(\.motionStill) private var motionStill
@@ -19,18 +18,14 @@ struct OperatorBadge: View {
     /// The box a look draws, when it draws one.
     struct Box: Equatable { var fill: Color; var stroke: Color? }
 
-    /// Acting words and explicit events decode, except under Reduce Motion or in a snapshot.
-    static func decodes(_ look: OperatorLine.Look, motionStill: MotionStill?, event: UUID? = nil) -> Bool {
-        (look == .acting || event != nil) && motionStill == nil
-    }
+    /// The words are drawn by the decode's view whatever they say, so the line never passes from one renderer to
+    /// another; under Reduce Motion or in a snapshot they are SwiftUI's text, still.
+    static func decodes(motionStill: MotionStill?) -> Bool { motionStill == nil }
 
-    /// The words' ink, decoding or standing still.
+    /// One ink for every word, the surface's secondary ink, so a change never switches it; needs-you, in its box,
+    /// alone stands out.
     static func ink(_ look: OperatorLine.Look, surface: Surface) -> Color {
-        switch look {
-        case .quiet, .ended: surface.secondaryInk
-        case .acting: surface.ink
-        case .needsYou: surface.isOnAccent ? surface.ink : Palette.text
-        }
+        look == .needsYou ? (surface.isOnAccent ? surface.ink : Palette.text) : surface.secondaryInk
     }
 
     /// Only needs-you has a box: the attention chip's fill and edge, or on the accent its wash alone.
@@ -41,38 +36,42 @@ struct OperatorBadge: View {
     }
 
     var body: some View {
-        let decoding = Self.decodes(line.look, motionStill: motionStill, event: event)
+        let decoding = Self.decodes(motionStill: motionStill)
         let box = Self.box(line.look, surface: surface)
-        words(decoding: decoding)
-            .padding(.horizontal, box == nil ? 0 : scale(Space.tight))
+        let inset = box == nil ? 0 : scale(Space.tight)
+        let ink = Self.ink(line.look, surface: surface)
+        let text = Text(line.text).font(Typography.chip).lineLimit(1).truncationMode(.tail)
+        // The box hugs the words; the line they are drawn in spans the row, so a change never resizes it and the old
+        // words are never cut by the new words' slot.
+        text.foregroundStyle(ink).opacity(decoding ? 0 : 1)
+            .padding(.horizontal, inset)
             .frame(height: scale(Size.chip))
             .background {
                 if let box {
                     Color.clear.chipChrome(fill: box.fill, stroke: box.stroke)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .leading) {
+                if decoding {
+                    // Drawn by the decode's own view: a frame is never a SwiftUI update.
+                    text.hidden().frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay {
+                            DecodeWords(text: line.text, font: Typography.chip.scaled(by: scale).nsFont, ink: ink,
+                                        duration: Self.decodeDuration)
+                        }
+                        .padding(.leading, inset)
+                }
+            }
             .help(line.tooltip)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(line.tooltip)
     }
-
-    @ViewBuilder
-    private func words(decoding: Bool) -> some View {
-        let text = Text(line.text).font(Typography.chip).lineLimit(1).truncationMode(.tail)
-        if decoding {
-            // Laid out by the final words, drawn by the decode's own view: a frame is never a SwiftUI update.
-            text.opacity(0).overlay {
-                DecodeWords(text: line.text, font: Typography.chip.scaled(by: scale).nsFont,
-                            ink: Self.ink(line.look, surface: surface), duration: Self.decodeDuration, event: event)
-            }
-        } else {
-            text.foregroundStyle(Self.ink(line.look, surface: surface))
-        }
-    }
 }
 
-/// Keep a quick action readable even when its start and result land within one display frame.
-/// Only this caption holds it; status marks and task rows always show the current workload.
+/// Keep a quick action readable for a second even when its start and result land within one display frame; its
+/// result, the same words, morphs nothing. Only this caption holds it; status marks and task rows always show the
+/// current workload.
 /// A caption that has just appeared (its section unfolded) takes its event as read: it shows the
 /// current words and never replays an action that ended before it was drawn.
 struct OperatorActivityCaption: View {
@@ -81,7 +80,7 @@ struct OperatorActivityCaption: View {
     var event: UUID?
     @Environment(\.motionStill) private var motionStill
     @State private var settledEvent: UUID?
-    /// One decode plus the same time reading its settled words, interrupted by any newer event.
+    /// One morph plus the same time reading its settled words, interrupted by any newer event.
     private static let hold = 2 * OperatorBadge.decodeDuration
 
     init(line: OperatorLine, completed: OperatorLine? = nil, event: UUID? = nil) {
@@ -91,7 +90,7 @@ struct OperatorActivityCaption: View {
 
     var body: some View {
         let recent = motionStill != .snapshot && event != settledEvent ? completed : nil
-        OperatorBadge(line: recent ?? line, event: event)
+        OperatorBadge(line: recent ?? line)
             .task(id: event) {
                 guard completed != nil, motionStill != .snapshot else { return }
                 try? await Task.sleep(for: .seconds(Self.hold))
@@ -109,7 +108,7 @@ extension OperatorBadge {
 }
 #endif
 
-/// The decoding words: drawn by `DecodeWordsView`, which runs its frames itself. `kerning` is the words' own
+/// The Operator's words: drawn by `DecodeWordsView`, which runs its frames itself. `kerning` is the words' own
 /// tracking, none in the app's faces today.
 struct DecodeWords: NSViewRepresentable {
     let text: String
@@ -117,7 +116,6 @@ struct DecodeWords: NSViewRepresentable {
     let ink: Color
     let duration: Double
     var kerning: CGFloat = 0
-    var event: UUID? = nil
 
     func makeNSView(context: Context) -> DecodeWordsView { DecodeWordsView() }
 
@@ -125,7 +123,7 @@ struct DecodeWords: NSViewRepresentable {
         #if DEBUG
         OperatorBadge.decodeUpdates += 1
         #endif
-        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning, event: event)
+        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration, kerning: kerning)
     }
 }
 
@@ -137,9 +135,9 @@ struct DecodeWords: NSViewRepresentable {
 ///
 /// One layer draws the line (`DecodeLine`), layer-hosting, so AppKit leaves its layer to it. It draws with AppKit's
 /// own tail truncation in the words' face, so a line a hair wider than its slot ends in an ellipsis rather than
-/// vanishing. While it morphs, the line keeps the width the old words were laid out in, so the old words are not
-/// cut by the new words' narrower slot. It passes every click through to its row. Its clock is `now`, Core
-/// Animation's media time unless a test drives it, each frame drawn by `tick`.
+/// vanishing, and it never animates on its own: each frame is drawn as it is, never faded or stretched from the last.
+/// It passes every click through to its row. Its clock is `now`, Core Animation's media time unless a test drives it,
+/// each frame drawn by `tick`.
 final class DecodeWordsView: NSView {
     /// What a character runs through while it decodes: a digit, digits; a capital, capitals and digits; any
     /// other letter, lowercase letters and digits.
@@ -165,9 +163,6 @@ final class DecodeWordsView: NSView {
     private var duration: CFTimeInterval = OperatorBadge.decodeDuration
     /// When the running morph began; nil once it settled.
     private var began: CFTimeInterval?
-    /// How wide the old words were laid out, which the line keeps while it morphs.
-    private var fromWidth: CGFloat = 0
-    private var event: UUID?
     private var timer: Timer?
 
     var isDecoding: Bool { began != nil }
@@ -184,13 +179,13 @@ final class DecodeWordsView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// A new event or new words morph from the words standing — except the first words, which stand as they are; the
-    /// same words in another ink or face are only redrawn.
-    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0, event: UUID? = nil) {
-        let changed = text != self.text || event != self.event, first = self.font == nil
+    /// New words morph from the words standing, except the first words, which stand as they are; the same words, in
+    /// another ink or face or for another event, are only redrawn.
+    func configure(text: String, font: NSFont, ink: NSColor, duration: Double, kerning: CGFloat = 0) {
+        let changed = text != self.text, first = self.font == nil
         guard changed || font != self.font || ink != inkColor || duration != self.duration || kerning != self.kerning else { return }
         let standing = shown
-        self.text = text; self.font = font; inkColor = ink; self.duration = duration; self.kerning = kerning; self.event = event
+        self.text = text; self.font = font; inkColor = ink; self.duration = duration; self.kerning = kerning
         if changed && !first { start(from: standing) } else { if !isDecoding { shown = text }; paint() }
     }
 
@@ -233,10 +228,8 @@ final class DecodeWordsView: NSView {
 
     private func start(from standing: String) {
         from = standing
-        fromWidth = line.frame.width
         began = now()
         shown = Self.frame(from: from, to: text, progress: 0, step: frames)
-        place()
         paint()
         guard timer == nil else { return }
         let timer = Timer(timeInterval: 1 / Self.frameRate, repeats: true) { [weak self] timer in
@@ -251,7 +244,6 @@ final class DecodeWordsView: NSView {
         began = nil
         timer?.invalidate()
         timer = nil
-        place()
     }
 
     override func removeFromSuperview() {
@@ -265,10 +257,9 @@ final class DecodeWordsView: NSView {
         place()
     }
 
-    /// The line fills the view, and while it morphs is at least as wide as the old words were.
+    /// The line fills the view.
     private func place() {
-        let width = isDecoding ? max(bounds.width, fromWidth) : bounds.width
-        unanimated { line.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height) }
+        unanimated { line.frame = bounds }
     }
 
     override func viewDidMoveToWindow() {
@@ -317,7 +308,9 @@ final class DecodeWordsView: NSView {
     }
 }
 
-/// The decoding line's own layer: its words drawn by AppKit, top-aligned and cut at the tail in their own face.
+/// The decoding line's own layer: its words drawn by AppKit, top-aligned and cut at the tail in their own face. It has
+/// no implicit animations: Core Animation would fade each redraw in over a quarter second from the last, stretched to
+/// the new size, so the words would blur, change weight and flash bigger. A bitmap of another size is never scaled.
 final class DecodeLine: CALayer {
     var words = NSAttributedString() {
         didSet { if words != oldValue { setNeedsDisplay() } }
@@ -326,6 +319,7 @@ final class DecodeLine: CALayer {
     override init() {
         super.init()
         needsDisplayOnBoundsChange = true
+        contentsGravity = .left
     }
 
     override init(layer: Any) {
@@ -335,6 +329,8 @@ final class DecodeLine: CALayer {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func action(forKey event: String) -> CAAction? { nil }
 
     override func draw(in context: CGContext) {
         NSGraphicsContext.saveGraphicsState()
