@@ -117,9 +117,9 @@ import AiTermCore
 
     private func open(_ session: OperatorSession, digest: OperatorDigest) async throws -> String {
         guard context.running(), let daemon = daemon() else { throw ActionUnavailable("The helper is unavailable.") }
-        let home = ports.home, config = ports.claudeConfig, profile = OperatorProfileStore.saved(ports.preferences) ?? context.profile(), projects = workspace.state.projects
+        let home = ports.home, config = ports.claudeConfig, profile = OperatorProfileStore.saved(ports.preferences) ?? context.profile()
         let prepared = try await BackgroundWork.run {
-            try OperatorLaunch.prepare(session: session, profile: profile, projects: projects, digest: digest,
+            try OperatorLaunch.prepare(session: session, profile: profile, digest: digest,
                 home: home, claudeConfig: config, resuming: session.conversation)
         }
         guard context.running(), workspace.state.operatorSession?.id == session.id, workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }

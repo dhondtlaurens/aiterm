@@ -12,8 +12,8 @@ import Testing
             var state = AppState.empty; state.operatorSession = session
             let digest = OperatorDigest(state: state, at: session.createdAt, oracleOn: true)
             let profile = OperatorProfile(model: "sonnet", reasoning: "high", instructions: "Use the repository's own checks.")
-            let first = try OperatorLaunch.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
-            let same = try OperatorLaunch.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
+            let first = try OperatorLaunch.prepare(session: session, profile: profile, digest: digest, home: home)
+            let same = try OperatorLaunch.prepare(session: session, profile: profile, digest: digest, home: home)
             #expect(first.folder == OperatorLaunch.folder(home: home))
             #expect(first.token == same.token)
             #expect(first.folder.lastPathComponent == "operator")
@@ -30,9 +30,37 @@ import Testing
                 #expect(mode == 0o600)
             }
             session.generation += 1
-            let fresh = try OperatorLaunch.prepare(session: session, profile: profile, projects: [], digest: digest, home: home)
+            let fresh = try OperatorLaunch.prepare(session: session, profile: profile, digest: digest, home: home)
             #expect(fresh.folder == first.folder && fresh.token != first.token)
             #expect(try OperatorLaunch.authority(in: first.folder)?.generation == 2)
+        }
+    }
+
+    /// Claude asks to trust each `--add-dir` folder it has no saved trust for, and never saves it
+    /// for the home folder: a project there would stop every launch on that question. The Operator
+    /// adds no folder and reads through allowed Read, Grep and Glob instead.
+    @Test(.blocking) func theLaunchAddsNoFolderAndAllowsTheReadTools() async throws {
+        let folder = URL(fileURLWithPath: "/run")
+        func allowed(_ words: [String]) -> [String] {
+            Array(words.drop { $0 != "--allowedTools" }.dropFirst().prefix { !$0.hasPrefix("--") })
+        }
+        for words in [OperatorLaunch.launchWords(model: "sonnet", effort: "high", folder: folder),
+                      OperatorLaunch.launchWords(model: "sonnet", effort: "high", folder: folder, resuming: "c0nv")] {
+            #expect(!words.contains("--add-dir"))
+            #expect(allowed(words) == ["mcp__aiterm__*", "Bash", "Read", "Grep", "Glob"])
+            #expect(words.last == "--strict-mcp-config")
+        }
+        try await BackgroundWork.run {
+            let home = try ScratchFolder.make("aiterm-signal-launch-")
+            defer { try? FileManager.default.removeItem(at: home) }
+            let session = OperatorSession(createdAt: Date(timeIntervalSince1970: 1_800_000_000))
+            var state = AppState.empty; state.operatorSession = session
+            let digest = OperatorDigest(state: state, at: session.createdAt, oracleOn: true)
+            let prepared = try OperatorLaunch.prepare(session: session, profile: OperatorProfile(model: "sonnet", reasoning: "high", instructions: ""),
+                                                      digest: digest, home: home)
+            let line = (try? String(contentsOf: prepared.folder.appendingPathComponent(OperatorLaunch.launchFile), encoding: .utf8)) ?? prepared.command
+            #expect(!line.contains("--add-dir"))
+            #expect(line.contains("--allowedTools 'mcp__aiterm__*' Bash Read Grep Glob --strict-mcp-config"))
         }
     }
 

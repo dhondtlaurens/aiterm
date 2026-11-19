@@ -43,8 +43,6 @@
       "/{run}/brief.md",
       "--tools",
       "Read,Grep,Glob,Bash",
-      "--add-dir",
-      "{project}",
       "--settings",
       "/{run}/gate.json",
       "--disallowedTools",
@@ -86,6 +84,9 @@
       "--allowedTools",
       "mcp__aiterm__*",
       "Bash",
+      "Read",
+      "Grep",
+      "Glob",
       "--strict-mcp-config"
     ],
     "operatorResume" : [
@@ -102,8 +103,6 @@
       "/{run}/brief.md",
       "--tools",
       "Read,Grep,Glob,Bash",
-      "--add-dir",
-      "{project}",
       "--settings",
       "/{run}/gate.json",
       "--disallowedTools",
@@ -145,6 +144,9 @@
       "--allowedTools",
       "mcp__aiterm__*",
       "Bash",
+      "Read",
+      "Grep",
+      "Glob",
       "--strict-mcp-config"
     ],
     "resume" : [

@@ -13,7 +13,10 @@ import Darwin
 /// `/operator/gate` (reads at once, the rest to the Oracle), `--disallowedTools` refuses what no
 /// answer unlocks, `--strict-mcp-config` leaves it no MCP server but AiTerm's, and `--allowedTools`
 /// lets those tools run without a prompt: `Bash` too, so a hook that fails never becomes a prompt in
-/// its window (a hard denial wins over it).
+/// its window (a hard denial wins over it). The launch adds no folder (`--add-dir`): Claude asks to
+/// trust each added folder it has no saved trust for, and never saves it for the home folder, so a
+/// project there would stop every launch on that question. Read, Grep and Glob are allowed instead,
+/// so the Operator reads any project's files without a prompt.
 public enum OperatorLaunch {
     public static let briefFile = "brief.md", mcpFile = "mcp.json", gateFile = "gate.json", tokenFile = "token",
         firstMessageFile = "first-message.md", launchFile = "launch.sh"
@@ -35,11 +38,10 @@ public enum OperatorLaunch {
 
     /// The command's words, unquoted. Model and effort go as the Claude harness passes them
     /// (`--model`, `--effort`); `resuming` is the conversation `claude --resume` continues.
-    /// Every option that takes several values (`--add-dir`, `--disallowedTools`, `--allowedTools`) is
+    /// Every option that takes several values (`--disallowedTools`, `--allowedTools`) is
     /// followed by another option, and `--strict-mcp-config`, which takes none, is last: a first message after it is never read
-    /// as one more directory, config or tool.
-    public static func launchWords(model: String, effort: String?, folder: URL, projectPaths: [String],
-                                   resuming conversation: String? = nil) -> [String] {
+    /// as one more config or tool.
+    public static func launchWords(model: String, effort: String?, folder: URL, resuming conversation: String? = nil) -> [String] {
         let claude = AgentKind.claude.harness
         let head = conversation.map { claude.resumeWords(conversation: $0, model: model, reasoning: effort) }
             ?? claude.launchWords(model: model, reasoning: effort)
@@ -47,10 +49,9 @@ public enum OperatorLaunch {
         return head
             + (conversation == nil ? [] : ["--system-prompt-snapshot", "off"])
             + ["--append-system-prompt-file", folder.appendingPathComponent(briefFile).path, "--tools", "Read,Grep,Glob,Bash"]
-            + projectPaths.flatMap { ["--add-dir", $0] }
             + ["--settings", folder.appendingPathComponent(gateFile).path, "--disallowedTools"] + shellDenials
             + ["--mcp-config", folder.appendingPathComponent(mcpFile).path, "--allowedTools", "mcp__aiterm__*", "Bash",
-               "--strict-mcp-config"]
+               "Read", "Grep", "Glob", "--strict-mcp-config"]
     }
 
     /// The line the operator's window runs, every word shell-safe; a first message is read from
@@ -164,8 +165,8 @@ public enum OperatorLaunch {
         try PrivateFile.write(bytes, to: file.target)
     }
 
-    /// What the Operator's window has typed: `line` itself, or, past `AgentCommand.inlineLimit` (many
-    /// projects, each its `--add-dir`), a line that reads it from `launch.sh` in the Operator's folder, as a
+    /// What the Operator's window has typed: `line` itself, or, past `AgentCommand.inlineLimit` (the
+    /// shell denials alone make it long), a line that reads it from `launch.sh` in the Operator's folder, as a
     /// task's long first prompt is read from `.aiterm/first-prompt.md`: a terminal still in canonical
     /// mode keeps only 1024 bytes of a line. The file is readable by you alone, as the token is: it runs in your
     /// shell. A launch short enough to type removes an earlier one's file.
@@ -288,7 +289,7 @@ public enum OperatorLaunch {
     }
     /// Writes the Operator's brief, MCP config, gate settings and authority to its private folder,
     /// then returns its launch command. The caller closes and revokes the previous generation first.
-    public static func prepare(session: OperatorSession, profile: OperatorProfile, projects: [Project], digest: OperatorDigest,
+    public static func prepare(session: OperatorSession, profile: OperatorProfile, digest: OperatorDigest,
                                hookPort: Int = AiTermPaths.hookPort, home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                claudeConfig: ClaudeConfig = ClaudeConfig(), resuming conversation: String? = nil) throws -> OperatorLaunch.Prepared {
         let folder = folder(home: home), manager = FileManager.default
@@ -309,8 +310,7 @@ public enum OperatorLaunch {
         if conversation == nil {
             try PrivateFile.write(Data(try firstMessage(digest).utf8), to: folder.appendingPathComponent(OperatorLaunch.firstMessageFile))
         }
-        let words = OperatorLaunch.launchWords(model: profile.model, effort: profile.reasoning, folder: folder,
-                                                projectPaths: projects.map(\.path), resuming: conversation)
+        let words = OperatorLaunch.launchWords(model: profile.model, effort: profile.reasoning, folder: folder, resuming: conversation)
         return OperatorLaunch.Prepared(folder: folder,
             command: try OperatorLaunch.typed(OperatorLaunch.command(words: words, firstMessage: conversation == nil), in: folder), token: token)
     }
