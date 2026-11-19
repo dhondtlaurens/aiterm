@@ -551,28 +551,27 @@ class ItermBridge:
 
     async def _set_up_window(self, win: iterm2.Window, session: iterm2.Session, tags: dict[str, str], frame: Frame,
                              background: bool, before: tuple[bool, str | None] = (False, None)) -> None:
+        # A window opened in the background -- a task an operator starts, the Operator's chat -- was asked for
+        # unselected, as an open_tab's tab is, and goes back behind your work before anything else is done to it.
+        if background:
+            await self._keep_behind(win, before)
         await self._tag(session, tags)
         await win.async_set_frame(_iterm_frame(frame))
-        # A window opened in the background -- a task an operator starts -- was asked for unselected, as an
-        # open_tab's tab is: placed, not brought forward, iTerm2 not raised. It stays behind your work.
         if not background:
             await win.async_activate()
-        else:
-            await self._give_focus_back(win, before)
 
-    async def _give_focus_back(self, win: iterm2.Window, before: tuple[bool, str | None]) -> None:
-        """iterm2's docs allow that a brand-new window is ordered front even unselected. If it took keyboard
-        focus from the window you were typing in -- iTerm2 active, another window key before, this one key now,
-        as the refresh that found it read them -- that window gets it back, before the agent command is typed.
-        With iTerm2 not the active app, nothing is activated: that would bring iTerm2 forward."""
+    async def _keep_behind(self, win: iterm2.Window, before: tuple[bool, str | None]) -> None:
+        """iterm2's docs say a brand-new window is always ordered front, even unselected: it lands on top of the
+        window you were working in, whether or not it also took keyboard focus. With iTerm2 the active app and
+        another window key before, as the tick before the create read them, that window is ordered front again,
+        with keyboard focus should the new one have taken it, before the agent command is typed. With iTerm2 not
+        the active app, nothing is activated: that would bring iTerm2 forward."""
         active, previous = before
         tree = self._tree
         if not active or previous is None or previous == win.window_id or tree is None:
             return
-        if getattr(tree, "current_terminal_window_id", None) != win.window_id:
-            return
         if (back := tree.get_window_by_id(previous)) is not None:
-            log.info("A background window took keyboard focus; giving it back to window %s", previous)
+            log.info("Window %s opened in the background; ordering window %s back in front of it", win.window_id, previous)
             await back.async_activate()
 
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,

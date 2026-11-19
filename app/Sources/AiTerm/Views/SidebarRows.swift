@@ -202,14 +202,15 @@ struct TaskRowView: View {
         #if DEBUG
         let _ = bodyCounter?.count(row.id)
         #endif
-        // Each read for this row alone, so another row's selection, removal, checkout or thread count
-        // redraws that row and not this one.
+        // Each read for this row alone, so another row's selection, removal, checkout, thread count or
+        // done ticket redraws that row and not this one.
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
         let removal = controller.teardown.state(of: row.id), removing = removal?.inProgress == true
         let caption = TaskRowCaption(removal: removal, missing: missing)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
-                                   threads: controller.reviewThreads.threads(of: row.id))
+                                   threads: controller.reviewThreads.threads(of: row.id),
+                                   ticketDone: controller.ticketsDone.isDone(row.id))
         let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing)
         let commands = commands(removing: removing)
         // Removing or archiving spins, whatever the row's own mark.
@@ -327,7 +328,7 @@ struct TaskRowView: View {
     private func badgeValue(_ link: TaskRowBadges.Link, ticket: Bool, markInk: Badge.MarkInk) -> QuietBadgeValue {
         QuietBadgeValue(label: link.label,
                         icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
-                        help: link.help, suffix: link.threads, accessibilityLabel: link.accessibilityLabel,
+                        help: link.help, suffix: link.threads, checked: link.checked, accessibilityLabel: link.accessibilityLabel,
                         markInk: markInk, action: link.url.map { url in { ExternalApps.open(link: url) } })
     }
 

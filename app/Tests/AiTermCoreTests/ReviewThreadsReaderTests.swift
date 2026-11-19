@@ -43,26 +43,39 @@ import Testing
         #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/-/merge_requests/4", gitLab: gitLab) == nil)
     }
 
+    /// Each host is asked with its own connection, for the threads and for the request itself, whose
+    /// state says whether it merged: GitHub's pull request merged, GitLab's merge request still open.
     @Test func eachHostIsAskedWithItsOwnConnection() async throws {
+        let pull = #"{"number":87,"title":"t","html_url":"https://github.com/octocat/hello/pull/87","state":"closed","merged":true,"head":{"ref":"f"},"base":{"ref":"main"}}"#
+        let mergeRequest = #"{"iid":4,"title":"t","source_branch":"f","target_branch":"main","web_url":"https://gitlab.example.net/web/acme/-/merge_requests/4","state":"opened"}"#
         let stub = StubSession { request in
-            request.url?.host == "api.github.com"
-                ? (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"id":"thread","isResolved":true}]}}}}}"#.utf8))
-                : (200, Data((request.url?.query?.contains("&page=1") == true
-                    ? #"[{"id":"thread","notes":[{"resolvable":true,"resolved":false}]}]"# : "[]").utf8))
+            let path = request.url?.path ?? ""
+            if request.url?.host == "api.github.com" {
+                return path == "/graphql"
+                    ? (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"id":"thread","isResolved":true}]}}}}}"#.utf8))
+                    : (200, Data(pull.utf8))
+            }
+            if !path.hasSuffix("/discussions") { return (200, Data(mergeRequest.utf8)) }
+            return (200, Data((request.url?.query?.contains("&page=1") == true
+                ? #"[{"id":"thread","notes":[{"resolvable":true,"resolved":false}]}]"# : "[]").utf8))
         }
         let reader = ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: GitHubConfig(token: "gh"),
                                          session: stub.session)
         #expect(try await reader.threads(of: MergeRequestRef(iid: 87, title: "t", url: "https://github.com/octocat/hello/pull/87"))
-                == ReviewThreads(resolved: 1, total: 1))
+                == ReviewThreads(resolved: 1, total: 1, merged: true))
         #expect(try await reader.threads(of: MergeRequestRef(iid: 4, title: "t", url: "https://gitlab.example.net/web/acme/-/merge_requests/4"))
-                == ReviewThreads(resolved: 0, total: 1))
-        #expect(stub.requests.map { $0.url?.absoluteString } == [
-            "https://api.github.com/graphql",
-            "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/discussions?per_page=100&page=1",
-            "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/discussions?per_page=100&page=2",
+                == ReviewThreads(resolved: 0, total: 1, merged: false))
+        // The threads and the request are asked side by side, so in either order.
+        let asked = stub.requests.map { request in
+            "\(request.url?.absoluteString ?? "") \(request.value(forHTTPHeaderField: "Authorization") ?? "-") \(request.value(forHTTPHeaderField: "PRIVATE-TOKEN") ?? "-")"
+        }
+        #expect(asked.sorted() == [
+            "https://api.github.com/graphql Bearer gh -",
+            "https://api.github.com/repos/octocat/hello/pulls/87 Bearer gh -",
+            "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4 - gl",
+            "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/discussions?per_page=100&page=1 - gl",
+            "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/discussions?per_page=100&page=2 - gl",
         ])
-        #expect(stub.requests.map { $0.value(forHTTPHeaderField: "Authorization") } == ["Bearer gh", nil, nil])
-        #expect(stub.requests.map { $0.value(forHTTPHeaderField: "PRIVATE-TOKEN") } == [nil, "gl", "gl"])
     }
 
     /// Review focus 2: no connection, or a merge request on another GitLab, is no count and no request.

@@ -124,7 +124,7 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 
 | Type | Responsibility |
 | --- | --- |
-| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink)/diff/suffix, action/menu and accessibility label (words for a count). |
+| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink; `checked`: a `Size.cornerBadge` green check on its corner, ringed in the surface's `occludingBackground`)/diff/suffix, action/menu and accessibility label (words for a count). |
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
 | `FormField` | Label/control stack with dropdown overhang above following content; an optional accessory (a small push button) at the trailing end of the label row. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |
