@@ -43,9 +43,8 @@ import Testing
                 uses["review"] = AgentCommand.workerWords(agent: agent, model: model, reasoning: reasoning, readOnly: true)
             }
             if agent == .claude {
-                uses["operator"] = OperatorLaunch.launchWords(model: model, effort: reasoning, folder: folder, projectPaths: ["{project}"])
-                uses["operatorResume"] = OperatorLaunch.launchWords(model: model, effort: reasoning, folder: folder,
-                                                                     projectPaths: ["{project}"], resuming: "{conversation}")
+                uses["operator"] = OperatorLaunch.launchWords(model: model, effort: reasoning, folder: folder)
+                uses["operatorResume"] = OperatorLaunch.launchWords(model: model, effort: reasoning, folder: folder, resuming: "{conversation}")
             }
             result[agent.rawValue] = uses
         }

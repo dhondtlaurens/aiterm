@@ -6,7 +6,9 @@ query, AiTerm starts a task in an existing project and gives its worker your pro
 uses no model tokens.
 
 The Operator keeps one Claude Code chat while it has unfinished tasks. Its row is first under
-**Operator**; click it to open the chat. Closing the chat's window asks nothing: choosing the row
+**Operator**; click it to open the chat. The chat reads your project folders without adding them to
+its session, so it opens without asking you to trust a folder, your home folder included. Closing
+the chat's window asks nothing: choosing the row
 opens it again, and a wake for the Operator reopens it. When the workload finishes, the chat closes
 and its row disappears. Configured signals keep polling without a chat; the next match starts a
 fresh one. Each signal is a heading like a project, with the same task rows underneath. Fold a

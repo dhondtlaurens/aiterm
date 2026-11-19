@@ -61,9 +61,9 @@ of a file outside the working folders is refused (interactively, a permission pr
   launch words for a fresh and a resumed Operator (`launchWords(model:effort:folder:resuming:)`), and
   the command `prepare` returns, hold no `--add-dir`. The `--allowedTools` values are
   `mcp__aiterm__*`, `Bash`, `Read`, `Grep` and `Glob`, and `--strict-mcp-config` is still the last
-  word. It fails on the current code, where every launch passes `--add-dir` per project and allows
-  only `mcp__aiterm__*` and `Bash`; write it first against the new signature, so it starts as a
-  compile failure.
+  word. It failed on the code before this change, where every launch passed `--add-dir` per project
+  and allowed only `mcp__aiterm__*` and `Bash`; written first against the new signature, it started
+  as a compile failure.
 - **Existing suites:** `CompatContractTests` passes on the recorded template, including its check
   that every flag the app passes is in the CLI's captured help.
 - **Live check in an iTerm2 tab**, from a scratch folder inside this worktree (trusted through the
@@ -79,10 +79,10 @@ of a file outside the working folders is refused (interactively, a permission pr
 
 ## To-dos
 
-- [ ] Write the new launch test and see it fail.
-- [ ] Remove `--add-dir` from the Operator's launch, allow Read, Grep and Glob, drop `projects` from
+- [x] Write the new launch test and see it fail.
+- [x] Remove `--add-dir` from the Operator's launch, allow Read, Grep and Glob, drop `projects` from
       `prepare` and its caller, and update the comments; the test passes.
-- [ ] Record `compat/launch.json` again; `CompatContractTests` passes.
-- [ ] Add the sentence to `docs/operators.md`.
-- [ ] Run the live iTerm2 check: the dialog with `--add-dir ~`, none without it.
-- [ ] Plain `scripts/test.sh` passes; commit.
+- [x] Record `compat/launch.json` again; `CompatContractTests` passes.
+- [x] Add the sentence to `docs/operators.md`.
+- [x] Run the live iTerm2 check: the dialog with `--add-dir ~`, none without it.
+- [ ] Plain `scripts/test.sh` passes (done); commit (the review step).
