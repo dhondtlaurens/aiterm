@@ -1295,8 +1295,9 @@ class _CreatingApp:
 
         async def async_activate(self):
             self.activated = True
-            # Activating a window gives it keyboard focus, as iTerm2 does.
+            # Activating a window gives it keyboard focus and orders it front, as iTerm2 does.
             self.app.current_terminal_window_id = self.window_id
+            self.app.order_front(self.window_id)
 
         async def async_create_tab(self, profile_customizations=None):
             # The library's own: the request, then the delegate's refresh to find the new tab.
@@ -1318,6 +1319,8 @@ class _CreatingApp:
         self.app_active: bool | None = None
         self.current_terminal_window_id: str | None = None
         self.raises_new_windows = False
+        # The windows' stacking order, front first. A brand-new window is always ordered front, as iterm2's docs say.
+        self.order: list[str] = []
         self._refreshing = False
         self._ids = iter(range(1, 100))
 
@@ -1357,7 +1360,15 @@ class _CreatingApp:
 
     def add_window(self, window_id):
         self.live[window_id] = _CreatingApp.Window(self, window_id)
+        self.order_front(window_id)
         return self.live[window_id]
+
+    def order_front(self, window_id):
+        self.order = [window_id] + [w for w in self.order if w != window_id]
+
+    @property
+    def frontmost(self):
+        return self.order[0] if self.order else None
 
     async def create_tab_rpc(self, _conn, profile=None, window=None, index=None, command=None, profile_customizations=None,
                              select=True):
@@ -1467,11 +1478,22 @@ def _person_typing_in_w0(app: _CreatingApp) -> _CreatingApp.Window:
 async def test_t3s_background_window_is_asked_for_without_selecting_it(creating_app):
     """A task's new window opens behind your work, as open_tab's tabs do: iTerm2 is asked not to select it."""
     bridge, app = creating_app()
-    w0 = _person_typing_in_w0(app)
+    _person_typing_in_w0(app)
     await bridge._app()  # the tick the daemon runs just before it creates a task window
     wid, _sid = await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
     assert app.selects == [False]
-    assert app.current_terminal_window_id == "w0" and not w0.activated and not app.live[wid].activated
+    assert app.current_terminal_window_id == "w0" and not app.live[wid].activated
+
+
+async def test_a_background_window_that_kept_off_the_keyboard_still_goes_behind_your_window(creating_app):
+    """iTerm2 orders a brand-new window front even unselected: without taking keyboard focus it still covers the
+    window you were typing in, which is ordered front again before the agent command is typed."""
+    bridge, app = creating_app()
+    w0 = _person_typing_in_w0(app)
+    await bridge._app()
+    wid, _sid = await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
+    assert app.order == ["w0", wid] and app.current_terminal_window_id == "w0"
+    assert w0.activated and not app.live[wid].activated
 
 
 async def test_t3s_background_window_that_took_focus_anyway_gives_it_back(creating_app):
@@ -1482,7 +1504,7 @@ async def test_t3s_background_window_that_took_focus_anyway_gives_it_back(creati
     app.raises_new_windows = True
     await bridge._app()
     wid, _sid = await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
-    assert w0.activated and app.current_terminal_window_id == "w0"
+    assert w0.activated and app.current_terminal_window_id == "w0" and app.frontmost == "w0"
     assert not app.live[wid].activated
 
 
@@ -1501,7 +1523,7 @@ async def test_a_foreground_window_is_selected_and_activated(creating_app):
     w0 = _person_typing_in_w0(app)
     await bridge._app()
     wid, _sid = await bridge.create_window("/wt", "mine", {"aiterm_task": "t1"}, iterm_bridge.Frame(0, 0, 10, 10))
-    assert app.selects == [True] and app.live[wid].activated and not w0.activated
+    assert app.selects == [True] and app.live[wid].activated and not w0.activated and app.frontmost == wid
 
 
 async def test_a_background_tab_is_tagged_but_not_selected(creating_app, monkeypatch):
