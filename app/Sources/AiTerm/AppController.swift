@@ -63,6 +63,8 @@ final class AppController {
     /// How many of each merge request's review threads are resolved, read every 60 s and when its
     /// row is selected; each row reads its own count (`threads(of:)`).
     let reviewThreads: ReviewThreadsWatcher
+    /// Puts a task branch's own request on its task, so its row wears the mark without a review.
+    let branchRequests: BranchRequestWatcher
     let ticketsDone: TicketDoneWatcher
     /// The agent CLIs on this machine and AiTerm's hooks into them; probed at `start()`.
     let agents: AgentIntegrations
@@ -200,6 +202,8 @@ final class AppController {
         // reads nothing from either host.
         reviewThreads = ReviewThreadsWatcher(workspace: workspace, focus: focus,
                                              connect: { ReviewThreadsReader(gitLab: gitLabSettings(), gitHub: gitHubSettings()) })
+        branchRequests = BranchRequestWatcher(workspace: workspace, focus: focus,
+                                              connect: { BranchRequestReader(gitLab: gitLabSettings(), gitHub: gitHubSettings()) })
         ticketsDone = TicketDoneWatcher(workspace: workspace, connect: { jiraSettings().map { JiraClient(config: $0) } })
         // Its settings sit with the Interface tab's, so a test's scratch preferences cover both; its
         // 5 s check stays on while any tab in the workspace is working.
@@ -256,7 +260,7 @@ final class AppController {
     /// Starts iTerm2 through the same launch port used at startup, without bringing it forward.
     func openIterm() { launchIterm() }
 
-    /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the done tickets, the checkout
+    /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the branches' requests, the done tickets, the checkout
     /// monitor, the agent CLI probes, the helper and the sweep of dead fixes' clones, each once.
     func start() {
         guard workspaceLoaded, agentProbe == nil else { return }
@@ -264,6 +268,7 @@ final class AppController {
         Task { await backpack.launch() }
         machine.start()
         reviewThreads.start()
+        branchRequests.start()
         ticketsDone.start()
         checkouts.startMonitoring()
         if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { notices.report(BundleLocation.translocationWarning) }
@@ -284,6 +289,7 @@ final class AppController {
         backpack.shutdown()
         machine.stop()
         reviewThreads.stop()
+        branchRequests.stop()
         ticketsDone.stop()
         agentProbe?.cancel()
         agentProbe = nil

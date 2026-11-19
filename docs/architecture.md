@@ -135,7 +135,7 @@ read (`RequestStatus`: one fetch of the request, its approvals, and the checks o
 fetch names), and merge readiness is a pure rule per host (`MergeReadiness.gitHub`,
 `MergeReadiness.gitLab`). Review threads are read by each host's own `threads(of:)`;
 `ReviewThreadsReader` picks the host from the request's address and asks only github.com or the
-configured GitLab host and port, reading the request beside them for whether it merged. Which of
+configured GitLab host and port, reading the request beside them for whether it merged. A task or review without a request has its branch's own looked up (`BranchRequestReader`, `BranchRequestWatcher`) with `request(forBranch:)` on the repository its project's remote names; an open or merged one is saved on the task, a closed one is not. Which of
 the rows' Jira tickets sit in a Done lane is one `statusCategory = Done` search per pass
 (`DoneTicketsReading`, `TicketDoneWatcher`); a GitLab issue is not asked. A token's user is kept per host and token until Settings saves
 (`HostUserMemo`). Commands use typed arguments and hermetic Git configuration in tests.
@@ -188,6 +188,7 @@ it started: one a crash left holding the socket is ended, and the app starts its
 | provider icon | the git remote URL, or the repo itself |
 | tickets | Jira Cloud REST, credentials in the Keychain |
 | review threads | GitLab REST (`/merge_requests/:iid/discussions`, a discussion with a resolvable note, resolved when all of them are) on the configured GitLab host and port only, and GitHub GraphQL (`reviewThreads { isResolved }`), with the tokens Settings saved; read-only, 100 a page until an empty page on GitLab or the last cursor on GitHub, at most 50 pages; a list that cannot be read whole leaves the last count in place |
+| a task's own request | its branch's open request, else its newest if that merged, asked each minute of the host its project's remote names, only while the task has none; saved on the task and kept |
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
 | conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process. Codex's proven thread and process ID are also kept on its iTerm tab (`CodexThreads`); a fresh helper recovers them only for that same Codex process, then reads the CLI version from its rollout before allowing delivery |
 | a worker stopped on an API error | Claude Code's `StopFailure` hook, in place of `Stop`: its `error` (`rate_limit`, `billing_error`, `authentication_failed`...), and for a limit when it resets, read only from the transcript's own record of it (`apiErrorParams.rate_limit_info.resetsAt`) within 30 s of the hook. Cleared on a new prompt, a clean Stop, or parent transcript activity newer than the failure and last hook. While children run, a busy session file alone proves no parent recovery; the stopped marker stays until its parent carries on. A stopped worker's transcript tail is parsed again only once the file changes. the worker status reports the stopped reason; its task blocks with the usage-limit reason |

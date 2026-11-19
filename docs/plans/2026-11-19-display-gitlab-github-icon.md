@@ -3,10 +3,10 @@
 ## Goal
 
 A task row shows the GitLab or GitHub merge request mark whenever its branch has a merge request,
-not only once a review was opened on it. Today `TaskItem.mr` is set in three places only: New
+not only once a review was opened on it. Before this change, `TaskItem.mr` was set in three places only: New
 Review (on the review task and on the owner task it opens in, `TaskLauncher`), and a Signal
 (`ItemRouter`, `RequestWatch`). A plain task whose agent pushed its branch and opened a merge
-request carries none, so its row has no mark, no thread count and no merged check.
+request carried none, so its row had no mark, no thread count and no merged check.
 
 ## Approach
 
@@ -36,14 +36,16 @@ Decided while grilling:
   host or names no repository, or whose read fails is skipped silently (logged at info, as the
   threads watcher does). Nothing is written to either host.
 - **Write guard.** The answer is saved only while the task still exists, still has the branch it was
-  asked for, and still has no `mr`: a review opened meanwhile wins.
+  asked for, still has no `mr`, and its project still has the remote it was asked on: a review opened
+  meanwhile wins, and a remote adopted anew (`AppState+Workspace`) never takes the old repository's
+  request.
 - **Signals unchanged.** `MatchDecision` already matches a Signal's merge request to a task by its
   branch, so a request now on `task.mr` changes no Signal decision.
 - **Load**: per eligible task per minute, only while it has no request: one call when the branch has
   an open request; otherwise two on GitLab (open, then history) and three on GitHub (open, history,
   then the candidate by number). A branch whose newest request was closed unmerged pays that every
   pass until a new one opens; accepted, as such branches are few and stop once their task is
-  archived. Projects are resolved to a repository once per pass.
+  archived. Binding a repository per ask costs no request.
 
 No visual change: the mark, its label setting and its fits are the existing ones, so the design
 system is untouched.
@@ -76,7 +78,8 @@ system is untouched.
     a checkout, one already carrying `mr`, or one on its base branch;
   - an accepted answer lands on `task.mr`, and the next pass no longer asks for that task;
   - a failed read or `nil` changes nothing and the task is asked again next pass;
-  - an answer for a task whose branch changed, or that got an `mr` meanwhile, is dropped;
+  - an answer for a task whose branch changed, that got an `mr` meanwhile, or whose project's remote
+    changed meanwhile, is dropped;
   - selecting an eligible row reads it at once while started, and not while stopped.
 - `TaskRowBadges` needs no new test: it already draws the mark from `row.mr`.
 - `scripts/test.sh` before the commit; `scripts/test.sh all` once before merging.
@@ -86,7 +89,7 @@ system is untouched.
 
 ## To-dos
 
-- [ ] `BranchRequestReader` and its tests: the accepted states and the unconnected host.
-- [ ] `BranchRequestWatcher` and its tests: eligibility, the guarded write, failure, selection.
-- [ ] Wire it into `AppController` (build, start, stop); `scripts/test.sh` green.
+- [x] `BranchRequestReader` and its tests: the accepted states and the unconnected host.
+- [x] `BranchRequestWatcher` and its tests: eligibility, the guarded write, failure, selection.
+- [x] Wire it into `AppController` (build, start, stop); `scripts/test.sh` green.
 - [ ] `docs/architecture.md` line; check by hand in the dev app.
