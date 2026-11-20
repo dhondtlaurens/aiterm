@@ -273,7 +273,7 @@ unsent in its chat, asks you to send or clear it there.
 Only the Operator row’s activity caption decodes, and only when its words change: the words
 standing morph into the new ones, settling from the left in half a second, so the caption is never
 empty. A new event with the same words moves nothing. Every word is in one muted ink; only “needs
-you” stands out, in the attention chip. Unfolding the section shows the current words without a decode. Its title stays steady. Tasks keep their normal
+you” stands out, in the attention chip. Unfolding the section shows the current words without a decode. Its title counts what the Operator holds, **3 tasks · 2 signals** or **No tasks**, and never decodes; at rest the caption says **watching**. Tasks keep their normal
 two-line layout and badges under projects and signals. Reduce Motion uses a plain swap.
 
 ## Session recovery and local records

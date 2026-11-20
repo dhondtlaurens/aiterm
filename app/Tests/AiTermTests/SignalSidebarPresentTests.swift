@@ -117,7 +117,7 @@ import Testing
         let worker = tab(id, .idle)
         let operatorRow = SignalOperatorRowValue.make(state: world.state, sessions: [worker])
         #expect(operatorRow.status == .idle)
-        #expect(operatorRow.line.text == "watching 1 task in 1 signal")
+        #expect(operatorRow.line.text == "watching")
         let entries = SidebarModel.entries(state: world.state, sessions: [worker], branchByCwd: [:], projectBranch: [:])
         let sidebar = SignalSidebar(state: world.state, entries: entries)
         #expect(sidebar.signals[0].tasks[0].status == .waiting)

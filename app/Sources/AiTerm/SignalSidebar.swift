@@ -61,6 +61,8 @@ struct SignalSidebar {
 /// Only drawn facts: repeated activity events redraw this row without changing task rows.
 struct SignalOperatorRowValue: Equatable, Identifiable {
     var id: UUID { OperatorSession.rowID }
+    /// What the Operator holds: "3 tasks · 2 signals", or "No tasks". Its heading already says "Operator".
+    var title = Self.title(tasks: 0, signals: 0)
     var line: OperatorLine
     var status: TaskStatus
     var paused: Bool
@@ -71,7 +73,12 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
     var mark: TaskRowMark { TaskRowMark(status: status, line: line, paused: paused) }
     /// It waits on you only while it needs input: a question for you, or its chat asking.
     var needsYou: Bool { status == .needsInput }
-    static let empty = Self(line: OperatorLine("watching 0 tasks in 0 signals"), status: .idle, paused: false, shown: false)
+    static let empty = Self(line: OperatorLine("watching"), status: .idle, paused: false, shown: false)
+    /// Every workload task has a signal task, so a task always counts at least one signal.
+    static func title(tasks: Int, signals: Int) -> String {
+        guard tasks > 0 else { return "No tasks" }
+        return "\(tasks) \(tasks == 1 ? "task" : "tasks") · \(signals) \(signals == 1 ? "signal" : "signals")"
+    }
     /// `latestAct` is the most recent act the Operator runs on a task (`OperatorActivityTracker.latestAct`).
     static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil, activity: OperatorActivity? = nil,
                      latestAct: OperatorAct? = nil) -> Self {
@@ -90,7 +97,7 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         else if let issue { line = OperatorLine("needs you", look: .needsYou, tooltip: issue) }
         else if session?.lifecycle.isRetiring == true { line = OperatorLine("finishing its session", look: .acting) }
         else if session?.lifecycle.isChanging == true {
-            line = OperatorLine("starting fresh · \(tasks) \(tasks == 1 ? "task" : "tasks") carried over", look: .acting)
+            line = OperatorLine("starting fresh", look: .acting)
         }
         else if !questions.isEmpty {
             line = OperatorLine("waiting on you · \(questions.count)", look: .needsYou)
@@ -102,11 +109,11 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
             line = OperatorLine(text, look: .acting)
         }
         else if own?.state == .working { line = .working }
-        else { line = OperatorLine("watching \(tasks) \(tasks == 1 ? "task" : "tasks") in \(signals) \(signals == 1 ? "signal" : "signals")") }
+        else { line = OperatorLine("watching") }
         let status: TaskStatus = line.look == .needsYou ? .needsInput : line.look == .acting ? .working : .idle
         let shown = tasks > 0 || !questions.isEmpty || own?.state == .needsInput || own?.state == .working || issue != nil
             || session?.lifecycle.isRetiring == true || (session?.window != nil && activity?.line != nil)
-        return Self(line: shown ? line : Self.empty.line, status: shown ? status : .idle, paused: session?.paused == true,
+        return Self(title: Self.title(tasks: tasks, signals: signals), line: shown ? line : Self.empty.line, status: shown ? status : .idle, paused: session?.paused == true,
                     shown: shown, event: shown ? activity?.id : nil,
                     completedActivity: shown && line.look != .needsYou && session?.paused != true
                         && session?.lifecycle.isChanging != true ? activity?.completed : nil)
