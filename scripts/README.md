@@ -152,6 +152,6 @@ Before running another full suite, use the [read-only proof check](../docs/testi
 It redraws the README picture and commits and pushes it to `main` when changed; that picture-only
 commit reuses the existing full pass at the second proof check.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
-publishes. The development bundle marker is refused. Signing setup, version numbering and
-interrupted-release recovery live in
+publishes. The development bundle marker is refused. Choosing the version and finishing an
+interrupted release are in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.
