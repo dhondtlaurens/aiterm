@@ -43,7 +43,7 @@ import Testing
         #expect(r.row.line.text == "needs you" && r.row.line.tooltip.hasPrefix("Waking the Operator:"))
         r.daemon.failing = [:]
         await r.pass()
-        #expect(r.row.line.text == "watching 1 task in 1 signal" && r.root.statusIssue == nil)
+        #expect(r.row.line.text == "watching" && r.root.statusIssue == nil)
         #expect(r.daemon.requests("window.activate").isEmpty)
         let logged = r.activity.filter { $0.tool == "app_issue" }
         #expect(logged.map(\.line) == ["Waking the Operator failed.", "Waking the Operator recovered."])

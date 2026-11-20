@@ -21,7 +21,7 @@ struct SignalOperatorRow: View {
                       activate: { controller.choose(.operatorChat) }) {
             SidebarRowContent(avatars: AvatarGroup(marks: [.claude], overflow: 0)) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
-                    RowTitle("Operator")
+                    RowTitle(value.title, tabular: true)
                     OperatorActivityCaption(line: line, completed: value.completedActivity, event: value.event)
                 }.layoutPriority(1)
             } mark: {
@@ -31,7 +31,7 @@ struct SignalOperatorRow: View {
         }
         .modifier(RowCommandContextMenu(groups: Self.commands))
         .help(line.tooltip)
-        .accessibilityLabel("Operator, Claude Code session")
+        .accessibilityLabel("Operator, " + value.title)
         .accessibilityValue(line.tooltip)
     }
 }

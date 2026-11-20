@@ -567,7 +567,22 @@ import AiTermUI
         let acting = SignalOperatorRowValue.make(state: world.state, sessions: [], latestAct: OperatorAct(task: id, words: "answering its worker"))
         #expect(acting.line.text.contains("answering") && acting.line.text.contains("PAY-1"))
         world.state.signals = []
-        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).line.text == "watching 1 task in 1 signal")
+        let resting = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(resting.title == "1 task · 1 signal" && resting.line.text == "watching")
+    }
+    /// The row's title is its workload, never a second "Operator" under the heading that already says it.
+    @Test func theOperatorTitleCountsItsTasksAndSignals() throws {
+        var world = SignalWorld()
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).title == "No tasks")
+        #expect(SignalOperatorRowValue.empty.title == "No tasks")
+        let first = world.signal(name: "Plan tickets"), second = world.signal(name: "Review requests")
+        world.workingTask(signal: first)
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).title == "1 task · 1 signal")
+        world.workingTask(signal: first); world.workingTask(signal: second)
+        let value = SignalOperatorRowValue.make(state: world.state, sessions: [])
+        #expect(value.title == "3 tasks · 2 signals" && value.line.text == "watching")
+        world.state.operatorSession?.lifecycle = .closing(then: .renew)
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).line.text == "starting fresh")
     }
 
 }

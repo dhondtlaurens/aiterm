@@ -178,12 +178,14 @@ struct DefaultAccessibilityAction: ViewModifier {
 struct RowTitle: View {
     let text: String
     var dimmed = false
+    /// Tabular figures for a title whose digits change, such as the Operator row's counts.
+    var tabular = false
     @Environment(\.surface) private var surface
 
-    init(_ text: String, dimmed: Bool = false) { self.text = text; self.dimmed = dimmed }
+    init(_ text: String, dimmed: Bool = false, tabular: Bool = false) { self.text = text; self.dimmed = dimmed; self.tabular = tabular }
 
     var body: some View {
-        Text(text).font(Typography.body).foregroundStyle(dimmed ? surface.secondaryInk : surface.ink).lineLimit(1)
+        Text(text).font(tabular ? Typography.body.tabular : Typography.body).foregroundStyle(dimmed ? surface.secondaryInk : surface.ink).lineLimit(1)
     }
 }
 

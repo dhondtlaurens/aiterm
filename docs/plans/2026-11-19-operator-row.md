@@ -18,8 +18,8 @@ from `state.operatorWorkTasks`. `SignalOperatorRow` draws `RowTitle(value.title)
 
 Decided while planning:
 
-- **Format:** `N task(s) · M signal(s)`, singular at one. The signal part is dropped when `signals` is 0 (a workload
-  task without a signal task, which `compactMap` allows).
+- **Format:** `N task(s) · M signal(s)`, singular at one. Every workload task has a signal task
+  (`operatorWorkTasks` filters on it), so a counted task always counts at least one signal; no special case.
 - **No tasks:** the row can show with an empty workload (a question for you, its chat working or needing input, an
   app issue, a retiring session, live activity). The title then reads **No tasks**. `SignalOperatorRowValue.empty`
   carries it too.
@@ -34,9 +34,12 @@ Decided while planning:
 
 - **modify** `app/Sources/AiTerm/SignalSidebar.swift`: `title` on `SignalOperatorRowValue`, computed in `make`;
   the resting and starting-fresh lines; `empty`'s line and title.
-- **modify** `app/Sources/AiTerm/Views/Operators/SignalRows.swift`: draw `value.title`; the accessibility label.
+- **modify** `app/Sources/AiTerm/Views/Operators/SignalRows.swift`: draw `value.title` in tabular figures; the
+  accessibility label.
+- **modify** `app/Sources/AiTerm/Views/SidebarRows.swift`: `RowTitle` takes `tabular`, since the README asks for
+  tabular figures where digits change (found in review).
 - **modify** `app/Tests/AiTermTests/SignalSidebarTests.swift`: title cases (0 tasks, 1 task in 1 signal, several in
-  several, tasks without a signal) and the new resting line.
+  several) and the new resting line.
 - **modify** `app/Tests/AiTermTests/SignalSidebarPresentTests.swift`,
   `app/Tests/AiTermTests/Operators/SignalOperatorIssueTests.swift`: the resting line's expectation becomes
   `watching`.
@@ -63,7 +66,7 @@ Decided while planning:
 
 ## To-dos
 
-- [ ] Title and shorter lines on `SignalOperatorRowValue`, tests first; filtered suites green.
-- [ ] `SignalOperatorRow` draws the title and the new VoiceOver label; snapshots before and after compared.
-- [ ] `docs/operators.md` and `docs/design/ui-patterns.md` updated; design page synced (proposal removed, Components prose and images updated) and
+- [x] Title and shorter lines on `SignalOperatorRowValue`, tests first; filtered suites green.
+- [x] `SignalOperatorRow` draws the title and the new VoiceOver label; snapshots before and after compared.
+- [x] `docs/operators.md` and `docs/design/ui-patterns.md` updated; design page synced (proposal removed, Components prose and images updated) and
       published; plain `scripts/test.sh` green.

@@ -48,7 +48,7 @@ watching; `OperatorActivityCaption` keeps a quick completed action readable for 
 result carries the same words, so nothing moves) before returning to the current status; a new event
 replaces it immediately, and a caption that has just appeared (its section unfolded) shows the
 current words without replaying an action that already ended.
-The status mark always reflects current work. The title stays “Operator”. Reduce Motion swaps; snapshots remain still.
+The status mark always reflects current work. The title counts the workload (“3 tasks · 2 signals”, or “No tasks”) rather than repeating the heading, and never decodes. Reduce Motion swaps; snapshots remain still.
 
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on
 someone: a turn's background work that wakes the agent again (`background`), or a driven task that waits
