@@ -1355,9 +1355,8 @@ import Testing
         #expect(written.last == "1", "the Dock badge")
         #expect(controller.rows.projectsNeedingAttention == [.task(own.id)])
 
-        #expect(controller.rows.operatorHeading.counts.first { $0.status == .waiting }?.count == 1,
-                "the folded Operator counts its worker-done task as its row draws it, waiting on the Operator")
-        #expect(!controller.rows.operatorHeading.counts.contains { $0.status == .needsInput || $0.status == .done })
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.waiting), tasks: 1),
+                "the folded Operator draws its worker-done task as its row does, waiting on the Operator, never needing you")
         controller.toggleOperatorOpen()
         #expect(controller.rows.projectsHeading == SectionFold(folds: true, folded: true, counts: [StatusCount(status: .done, count: 1)]),
                 "the folded projects")

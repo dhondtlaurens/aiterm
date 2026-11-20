@@ -73,6 +73,8 @@ struct PaletteDistinctionTests {
         ("statusChipAttentionStroke", Palette.statusChipAttentionStroke),
         ("statusChipDoneFill", Palette.statusChipDoneFill),
         ("statusChipDoneStroke", Palette.statusChipDoneStroke),
+        ("statusChipFinishedFill", Palette.statusChipFinishedFill),
+        ("statusChipFinishedStroke", Palette.statusChipFinishedStroke),
         ("idleRing", Palette.idleRing),
         ("spinnerTrack", Palette.spinnerTrack),
         ("spinner", Palette.spinner),

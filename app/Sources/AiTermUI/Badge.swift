@@ -284,38 +284,20 @@ public struct Badge: View {
     }
 }
 
-/// `Badge(checked:)`'s corner mark: a `Palette.green` disc, its white check stroked in
-/// `CheckGlyph`'s proportions, inside a ring of the ground it sits on so it reads apart from the
-/// icon it overlaps. The ring is a hairline and does not scale.
+/// `Badge(checked:)`'s corner mark: `SettledMark`'s finished disc, inside a ring of the ground it sits on so it
+/// reads apart from the icon it overlaps. The ring is a hairline and does not scale.
 private struct CornerCheck: View {
     let ground: Color
+    @Environment(\.interfaceScale) private var scale
 
     var body: some View {
-        ZStack {
-            Circle().fill(Palette.green)
-            CheckGlyph().stroke(Palette.onAccent, style: StrokeStyle(lineWidth: CheckGlyph.strokeWidth, lineCap: .round, lineJoin: .round))
-        }
-        .background { Circle().stroke(ground, lineWidth: Self.ring) }
+        SettledMark(.finished, size: scale(Size.cornerBadge))
+            .background { Circle().stroke(ground, lineWidth: Self.ring) }
     }
 
     /// The ring that cuts the disc from the icon beneath, stroked on the disc's edge under its fill,
     /// so a one-point hairline shows outside it. Unscaled, as every border is.
     private static let ring: CGFloat = 2
-}
-
-/// A check's two strokes, in proportions of its box, inset so the round caps stay inside the disc.
-private struct CheckGlyph: Shape {
-    /// The check's stroke at `Size.cornerBadge`: thin enough to leave the disc's green around it.
-    static let strokeWidth: CGFloat = 1
-
-    func path(in rect: CGRect) -> Path {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y) }
-        var path = Path()
-        path.move(to: point(0.27, 0.52))
-        path.addLine(to: point(0.44, 0.69))
-        path.addLine(to: point(0.74, 0.34))
-        return path
-    }
 }
 
 private extension View {

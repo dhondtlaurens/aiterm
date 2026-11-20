@@ -5,13 +5,43 @@ import AiTermCore
 enum SidebarSection { case `operator`, projects }
 
 /// What the OPERATOR or PROJECTS heading draws of the fold between them: whether there is one — only
-/// while the Operator has something to show, a signal or its row — whether its section is the folded
-/// one, and, folded, how many of its rows sit in each status, as a folded project's header counts its own.
+/// while the Operator has something to show, a signal or its row — and whether its section is the folded
+/// one. Folded, PROJECTS counts its rows by status, as a folded project's header counts its own; OPERATOR
+/// draws the Operator's own chip and how many of its tasks are finished.
 /// Its own value, so a status change elsewhere redraws neither heading.
 struct SectionFold: Equatable {
     var folds = false
     var folded = false
     var counts: [StatusCount] = []
+    var operatorChip: OperatorChip? = nil
+    var finished = 0
+}
+
+/// The folded OPERATOR heading's own chip: the Operator's most urgent state, as a row's trailing mark draws it, and
+/// how many unfinished tasks it holds (the workload its row's title counts), none for a question with no task.
+struct OperatorChip: Equatable {
+    var mark: TaskRowMark
+    var tasks: Int
+
+    /// What VoiceOver and the tooltip say: "3 tasks, working", or "needs you" alone.
+    var label: String {
+        let state: String
+        switch mark {
+        case .status(.needsInput): state = "needs you"
+        case .status(.working), .status(.background): state = "working"
+        case .status(.waiting): state = "waiting"
+        case .pauseSign: state = "paused"
+        case .ended, .status: state = "idle"
+        }
+        guard tasks > 0 else { return state }
+        return "\(tasks) \(tasks == 1 ? "task" : "tasks"), " + state
+    }
+}
+
+/// One chip on a folded heading, which its click opens the section at: a status's first row, the row the
+/// Operator chip's mark comes from, or the first finished task.
+enum ChipTarget: Hashable {
+    case status(TaskStatus), operatorState, finished
 }
 
 /// Shared row derivation; equal inputs and equal projected values produce no observation writes.
@@ -38,6 +68,8 @@ struct SectionFold: Equatable {
     @ObservationIgnored var leaving: () -> Set<UUID> = { [] }
     private let workspace: WorkspaceStore, live: LiveSessions, checkouts: CheckoutMonitor
     @ObservationIgnored private var foldedRemovedSignals: Set<UUID> = []
+    /// The tasks the Operator holds (`AppState.operatorWorkTasks`), which its folded heading's chip counts.
+    @ObservationIgnored private var operatorWorkload: Set<UUID> = []
     private struct Inputs: Equatable {
         var foldedRemovedSignals: Set<UUID>
         var skipped: [UUID: [String]]
@@ -67,6 +99,8 @@ struct SectionFold: Equatable {
             var removedSignal: Signal?
             /// The text of its first current question for you.
             var question: String?
+            /// Its work through (`SignalTask.isFinished`), which a phase alone does not say: done waits on its closeout.
+            var finished: Bool
         }
 
         init(_ task: TaskItem, state: AppState, questions: [UUID: String]) {
@@ -78,7 +112,7 @@ struct SectionFold: Equatable {
                        choosableRows: record.choosableRows?.count, candidateProjects: record.candidateProjects?.count,
                        windowClosedWithWorker: task.windowId == nil && task.firstWorkerConversation != nil,
                        removedSignal: state.signal(id: record.current.signal) == nil ? record.current.configuration : nil,
-                       question: questions[task.id])
+                       question: questions[task.id], finished: record.isFinished)
             }
         }
     }
@@ -128,6 +162,42 @@ struct SectionFold: Equatable {
     func firstRow(in section: SidebarSection, status: TaskStatus) -> RowID? {
         let status = SidebarModel.countedStatus(status)
         return rowStatuses(in: section).first { $0.status == status }?.row
+    }
+    /// Where a folded heading's chip opens its section.
+    func firstRow(in section: SidebarSection, chip: ChipTarget) -> RowID? {
+        switch chip {
+        case .status(let status): firstRow(in: section, status: status)
+        case .operatorState: section == .operator ? operatorChip()?.row : nil
+        case .finished: section == .operator ? finishedTasks.first.map { .task($0.id) } : nil
+        }
+    }
+    /// The tasks under OPERATOR whose work is through, in the order the list draws them; none on its way out.
+    private var finishedTasks: [TaskRow] {
+        let leaving = inputs?.leaving ?? []
+        return signalSections.flatMap(\.tasks).filter { $0.countsAsFinished && !leaving.contains($0.id) }
+    }
+    /// The folded OPERATOR heading's own chip and the row its click opens, the Operator's most urgent state: needs you
+    /// (its own row, then any task under it, a finished one you continue included), paused while it holds work, working
+    /// (its own row, then any task's worker, in the background too, a continued finished one included), waiting, idle.
+    /// Its count is the workload (`AppState.operatorWorkTasks`). No chip without workload unless a row needs you or
+    /// works, so a global question draws the amber mark alone.
+    func operatorChip() -> (chip: OperatorChip, row: RowID?)? {
+        let leaving = inputs?.leaving ?? []
+        let own = signalOperator.shown ? signalOperator : nil
+        let rows = signalSections.flatMap(\.tasks).filter { !leaving.contains($0.id) }
+        let tasks = rows.filter { operatorWorkload.contains($0.id) }
+        let count = operatorWorkload.count
+        func first(_ statuses: Set<TaskStatus>) -> RowID? { tasks.first { statuses.contains($0.status) }.map { .task($0.id) } }
+        let lead = own != nil ? RowID.operatorChat : tasks.first.map { .task($0.id) }
+        if own?.status == .needsInput { return (OperatorChip(mark: .status(.needsInput), tasks: count), .operatorChat) }
+        if let row = rows.first(where: \.needsYou) { return (OperatorChip(mark: .status(.needsInput), tasks: count), .task(row.id)) }
+        let busy = rows.first { [.working, .background].contains($0.status) }.map { RowID.task($0.id) }
+        guard count > 0 || own?.status == .working || busy != nil else { return nil }
+        if operatorPaused && count > 0 { return (OperatorChip(mark: .pauseSign, tasks: count), lead) }
+        if own?.status == .working { return (OperatorChip(mark: .status(.working), tasks: count), .operatorChat) }
+        if let busy { return (OperatorChip(mark: .status(.working), tasks: count), busy) }
+        if let row = first([.waiting]) { return (OperatorChip(mark: .status(.waiting), tasks: count), row) }
+        return (OperatorChip(mark: .status(.idle), tasks: count), lead)
     }
     /// The rows under OPERATOR in the order the arrow keys walk them: its row, then each signal's heading
     /// and, unfolded, its tasks. Worked out whether or not the section is open.
@@ -222,8 +292,9 @@ struct SectionFold: Equatable {
         if self.terminals != terminals { self.terminals = terminals }
         let folds = signalOperator.shown || !signalSections.isEmpty, open = folds && next.operatorOpen
         if operatorOpen != open { operatorOpen = open; changed = true }
-        let operatorFold = SectionFold(folds: folds, folded: folds && !open,
-                                       counts: folds && !open ? SidebarModel.statusCounts(rowStatuses(in: .operator).map(\.status)) : [])
+        operatorWorkload = Set(state.operatorWorkTasks.map(\.id))
+        let operatorFold = SectionFold(folds: folds, folded: folds && !open, operatorChip: folds && !open ? operatorChip()?.chip : nil,
+                                       finished: folds && !open ? finishedTasks.count : 0)
         let projectsFold = SectionFold(folds: folds, folded: open,
                                        counts: open ? SidebarModel.statusCounts(rowStatuses(in: .projects).map(\.status)) : [])
         if operatorHeading != operatorFold { operatorHeading = operatorFold }

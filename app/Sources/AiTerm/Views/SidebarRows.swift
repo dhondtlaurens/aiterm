@@ -436,24 +436,18 @@ extension EnvironmentValues {
 }
 #endif
 
-/// `TaskRowMark` drawn: the `StatusMark`; `checkmark` at the mark's size in `Palette.green`; or `pause.fill`
-/// at the mark's size in `Palette.idleRing`, the idle ring's ink, since nothing runs yet. On the accent either
-/// is `Palette.onAccent`, as the working arc turns there; a selected row is neutral, so both keep their
-/// colours. Decorative: the row's value reads the line.
+/// `TaskRowMark` drawn: a ring for a state that can still move (`StatusMark`), a disc for one that holds
+/// (`SettledMark`): the green check once the Operator's work on the task ended, the pause disc while paused. A
+/// selected row is neutral, so every mark keeps its colours. Decorative: the row's value reads the line.
 struct TaskRowMarkView: View {
     let mark: TaskRowMark
     let size: CGFloat
-    @Environment(\.surface) private var surface
 
     var body: some View {
         switch mark {
         case .status(let status): StatusMark(status: status, size: size)
-        case .ended:
-            Icon(.symbol("checkmark"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.green)
-                .frame(width: size, height: size).accessibilityHidden(true)
-        case .pauseSign:
-            Icon(.symbol("pause.fill"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.idleRing)
-                .frame(width: size, height: size).accessibilityHidden(true)
+        case .ended: SettledMark(.finished, size: size)
+        case .pauseSign: SettledMark(.paused, size: size)
         }
     }
 }

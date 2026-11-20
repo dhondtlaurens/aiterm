@@ -27,7 +27,7 @@ struct HeadingRow: View, Equatable {
                 ProviderIcon(value.mark)
                 titleArea
                 Spacer(minLength: scale(Space.tight))
-                if value.collapsed { StatusCountChips(counts: value.counts) }
+                if value.collapsed { StatusCountChips(counts: value.counts, finished: value.finished) }
             }
             .modifier(FoldOnTap(enabled: collapses, selected: selected, action: toggleCollapsed))
             .modifier(RowCommandActions(groups: commands))
@@ -207,9 +207,9 @@ struct SectionHeading: View {
 }
 
 /// The OPERATOR or PROJECTS heading's words, and, while the two fold into each other, one open at a time:
-/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, its rows'
-/// status counts as a folded project's header draws them, each chip opening the section at its first row in
-/// that status. Only the label folds; the heading's "+" keeps its own click.
+/// the click that switches, a macOS sidebar section's chevron (`SectionFoldChevron`), and, folded, its chips:
+/// PROJECTS its rows' status counts as a folded project's header draws them, OPERATOR the Operator's own chip and
+/// its finished tasks'; each chip opens the section at the row it stands for. Only the label folds; the heading's "+" keeps its own click.
 ///
 /// The words are VoiceOver's one element for the heading, with its fold and `commands`; the chips sit beside it, not
 /// in it, so each stays a button of its own rather than being combined into the heading.
@@ -220,7 +220,7 @@ struct SectionFoldLabel: View {
     var commands: [[RowCommand]] = []
     let enabled: Bool
     let toggle: () -> Void
-    let open: (TaskStatus) -> Void
+    let open: (ChipTarget) -> Void
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
@@ -235,7 +235,7 @@ struct SectionFoldLabel: View {
             .accessibilityValue(fold.folded ? "folded" : "")
             .modifier(RowCommandActions(groups: commands))
             if fold.folds {
-                if fold.folded { StatusCountChips(counts: fold.counts, open: open) }
+                if fold.folded { StatusCountChips(counts: fold.counts, lead: fold.operatorChip, finished: fold.finished, open: open) }
                 SectionFoldChevron(folded: fold.folded, hovering: hovering)
                     .contentShape(Rectangle())
                     .onTapGesture { if folds { toggle() } }

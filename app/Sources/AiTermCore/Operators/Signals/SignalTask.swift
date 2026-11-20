@@ -57,6 +57,14 @@ public struct SignalTask: Codable, Equatable, Sendable {
     public var needsWorkerReads: Bool { phase.isActive }
     /// Configured sources and retained completed tasks need no model session. Pending stages
     /// and Then's closeout still belong to the current workload, including while paused.
+    /// Really done: the stage's Done trigger fired and its closeout is through (done or archived, no pending stage,
+    /// its Then applied), so it no longer keeps the Operator's session. A pause no longer applies to it.
+    public var isFinished: Bool {
+        switch phase {
+        case .done, .archived: return !keepsOperatorSession
+        default: return false
+        }
+    }
     public var keepsOperatorSession: Bool {
         switch phase {
         case .launching, .choosing, .working, .watching, .blocked: return true

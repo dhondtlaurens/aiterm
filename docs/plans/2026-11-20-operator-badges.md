@@ -2,9 +2,10 @@
 
 ## Goal
 
-Folded, the OPERATOR heading draws `StatusCountChips` over every row under it, the Operator's own row and each signal
-task, one chip per status. `○ 1 ◌ 1` reads as bookkeeping; a finished task (its row's bare green check, status idle) is
-counted with the Operator's idle row; and when the last task finishes the Operator row closes and its chip goes with it.
+Before this change, the folded OPERATOR heading drew `StatusCountChips` over every row under it, the Operator's own row
+and each signal task, one chip per status. `○ 1 ◌ 1` read as bookkeeping; a finished task (its row's bare green check,
+status idle) was counted with the Operator's idle row; and when the last task finished the Operator row closed and its
+chip went with it.
 
 The folded heading should say how the Operator is doing, in one chip, and show the tasks that are really finished (the
 signal's done trigger fired) apart from everything else, in green. The two marks that are not rings, finished and
@@ -27,16 +28,23 @@ and the workload tasks' rows, in this order:
 
 Its number is the workload count, `state.operatorWorkTasks.count`, the same count as the row's title. With no
 workload but a global question (or an app issue) the chip draws the amber mark without a number. With no workload and
-nothing needing you there is no Operator chip. A click opens the section at the row the mark comes from: the Operator
+nothing needing you or working there is no Operator chip. A click opens the section at the row the mark comes from: the Operator
 row for its own state, else the first task row in that state.
 
 **What finished means.** A signal task is finished when its phase is `done` or `archived` and it no longer keeps the
-Operator's session (`keepsOperatorSession == false`: no pending stage, its Then step applied). Counted from that state,
-never from the row's mark. A done task whose closeout is still outstanding is workload: it counts in the Operator chip,
-not here. Found in review: today `presentLine` checks pause before phase, so a finished task under a paused Operator or
-a switched-off signal is drawn "paused" with the pause sign. A finished task is past pausing, so `presentLine` draws it
+Operator's session (`keepsOperatorSession == false`: no pending stage, its Then step applied): that state, not the
+row's mark, says a task is finished. A folded heading counts it in the green chip while its row draws the finished mark
+(below). A done task whose closeout is still outstanding is workload: it counts in the Operator chip,
+not here. Found in the plan's review: `presentLine` checked pause before phase, so a finished task under a paused
+Operator or a switched-off signal was drawn "paused" with the pause sign. A finished task is past pausing, so `presentLine` draws it
 "done" with the finished mark whatever the pause; a done task with closeout outstanding still shows paused, since its
 closeout is what the pause holds.
+
+**A finished task you continue.** Found in the change's review: Then Keep leaves a finished task's worker open, and
+you can continue it; while it asks or works its row draws that state. A folded heading counts a finished task in the
+green chip only while its row draws the finished mark (`TaskRow.countsAsFinished`); otherwise by its status, and a
+prompt in it turns the Operator chip amber (needs you is read over every row under OPERATOR, not only the workload), a
+running worker in it the spinner; without workload the chip then draws the mark alone (second round of that review).
 
 **The finished chip.** A second chip counts the finished signal tasks still listed under their signals,
 on a green wash with `Palette.green` ink: two new tokens, `statusChipFinishedFill = green.opacity(0.17)` and
@@ -74,8 +82,7 @@ alone without tasks), the finished chip "1 finished" / "2 finished"; each stays 
 - **modify** `app/Sources/AiTermUI/Palette.swift`: `statusChipFinishedFill`, `statusChipFinishedStroke`.
 - **modify** `app/Sources/AiTermUI/README.md`: `SettledMark` in the inventory; the chip tokens; ring vs disc rule.
 - **create** `app/Tests/AiTermUITests/SettledMarkTests.swift`: both kinds render, on a plain and an accent surface.
-- **modify** `app/Tests/AiTermUITests/PaletteTests.swift` (and `PaletteDistinctionTests.swift` if it lists chip
-  washes): the two new tokens.
+- **modify** `app/Tests/AiTermUITests/PaletteDistinctionTests.swift`: the two new tokens in its manifest.
 - **modify** `app/Sources/AiTerm/Views/SidebarRows.swift`: `TaskRowMarkView` draws `SettledMark` for `.ended` and
   `.pauseSign`.
 - **modify** `app/Sources/AiTerm/SidebarProjection.swift`: `SectionFold` carries the Operator heading's summary (the
@@ -112,6 +119,8 @@ alone without tasks), the finished chip "1 finished" / "2 finished"; each stays 
     Operator chip, not the finished one;
   - a finished task under a paused Operator and under a switched-off signal stays "done" with the finished mark and
     stays counted; a done task with closeout outstanding under a pause still shows paused;
+  - a finished task you continue, its worker asking, then working: the Operator chip turns amber, then the spinner,
+    and both headings count it by that status, not finished;
   - where each chip opens;
   - a folded signal heading's finished count beside its other chips;
   - `TaskRowMark` is unchanged; `TaskRowMarkView` and `SettledMark` draw the discs (UI test);
@@ -127,10 +136,29 @@ alone without tasks), the finished chip "1 finished" / "2 finished"; each stays 
 
 ## To-dos
 
-- [ ] `SettledMark` (finished and paused discs), `Badge`'s corner check through it, `TaskRowMarkView` drawing it;
+- [x] `SettledMark` (finished and paused discs), `Badge`'s corner check through it, `TaskRowMarkView` drawing it;
       UI test; filtered suites green.
-- [ ] A finished task is drawn done, not paused, under a pause; tests first.
-- [ ] The folded OPERATOR heading's Operator chip and green finished chip, with tokens, labels and clicks; tests first.
-- [ ] A folded signal heading's finished chip; tests first.
-- [ ] The three new snapshot poses; snapshots before and after compared; `docs/operators.md`, `docs/design/ui-patterns.md` and `AiTermUI/README.md`
+- [x] A finished task is drawn done, not paused, under a pause; tests first.
+- [x] The folded OPERATOR heading's Operator chip and green finished chip, with tokens, labels and clicks; tests first.
+- [x] A folded signal heading's finished chip; tests first.
+- [x] The three new snapshot poses; snapshots before and after compared; `docs/operators.md`, `docs/design/ui-patterns.md` and `AiTermUI/README.md`
       updated; design page synced (proposal removed) and published; plain `scripts/test.sh` green.
+
+## Completed proof
+
+- Plain `scripts/test.sh` green (20 Nov 2026, after the change's review fixes): AiTermCoreTests, AiTermTests and
+  AiTermUITests picked; 129, 1,197 and 1,450 tests passed, the known issues the suites already carry and nothing new; the Signal snapshot pass too.
+- New tests: `SettledMarkTests` (both discs, their grounds and the accent), `aFinishedTaskStaysDoneUnderAPauseAndOnlyItCountsAsFinished`,
+  `aFoldedOperatorDrawsItsMostUrgentStateAndItsChipOpensThatRow` (rewritten), `theOperatorChipIsPausedWaitingOrAQuestionAlone`,
+  `finishedTasksHaveTheirOwnChipOnBothFoldedHeadings`, `theOperatorChipAndTheFinishedChipAreButtonsOfTheirOwn`,
+  `aFinishedTaskYouContinueIsCountedByWhatItsRowDraws` (from the change's review).
+- The change's review, three rounds with Codex: round 1, a continued finished task's prompt hidden in the green chip
+  (Important, fixed) and stale plan wording (Minor, fixed); round 2, its running worker leaving the heading blank
+  (Important, fixed) and a contradictory counting rule in the plan (Minor, fixed); round 3, the plan's test inventory
+  (Minor, fixed). Nothing open.
+- Hosted snapshots in `build/operator-badges-after/`, read one by one. The before set is the design page's native
+  references from 16 and 19 Nov, not a second build of the base: `signals-finished-folded` shows the working chip and
+  the green finished chip, `-section-folded` the amber chip with one task, `-paused` the pause discs beside the finished
+  check, `-finished-signal-folded` a folded signal's waiting and finished chips, `-all-finished-folded` the green chip
+  alone with no Operator row; the PROJECTS heading's chips are unchanged.
+- Design page synced (proposal removed, two tokens, `SettledMark`, eight fresh captures) and published.

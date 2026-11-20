@@ -10,6 +10,7 @@ public extension TaskRow {
         row.presentLine(task: task, state: state, act: act, paused: &paused)
         row.mark = TaskRowMark(status: row.status, line: row.operatorLine, paused: paused)
         row.needsYou = row.status == .needsInput
+        row.finished = task.signalTask?.isFinished == true
         return row
     }
 
@@ -19,7 +20,8 @@ public extension TaskRow {
         let paused = state.operatorSession?.paused == true || state.signal(id: record.current.signal)?.enabled == false
         let questions = state.currentOperatorQuestions.filter { $0.task == task.id }
         if status == .needsInput { return }
-        if paused && !busy { operatorLine = .paused; pauseSign = true; status = .idle }
+        // A finished task is past pausing; one whose closeout is outstanding is what the pause holds.
+        if paused && !busy && !record.isFinished { operatorLine = .paused; pauseSign = true; status = .idle }
         else if let question = questions.first {
             operatorLine = OperatorLine("waiting on you", look: .needsYou, tooltip: question.text); status = .needsInput
         } else if let act {
