@@ -60,10 +60,14 @@ def collect(directory: Path) -> dict[str, object]:
     return {"suites": suites, "failing_tests": sorted(failures)}
 
 
+def source_environment() -> dict[str, str]:
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
 def source(root: str) -> dict[str, object]:
     def git(*args: str) -> str | None:
         result = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False,
-                                env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")})
+                                env=source_environment())
         return result.stdout.strip() if result.returncode == 0 else None
 
     common = git("rev-parse", "--git-common-dir")
@@ -139,16 +143,44 @@ def append(path: Path, entry: dict[str, object]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def same_inputs(root: str, before: object, current: dict[str, object]) -> bool:
+    if (not isinstance(before, dict) or before.get("clean") is not True
+            or before.get("common_dir") != current["common_dir"]):
+        return False
+    if not before.get("head"):
+        return False
+    if before["head"] == current["head"]:
+        return True
+    environment = source_environment()
+    changed = subprocess.run(
+        ["git", "-C", root, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "--no-renames", "-z",
+         str(before["head"]), str(current["head"]), "--"],
+        capture_output=True, text=True, check=False, env=environment)
+    if changed.returncode != 0:
+        return False
+    paths = changed.stdout.rstrip("\0").split("\0") if changed.stdout else []
+    if not paths:
+        return True
+    # Changed routing cannot justify its own reuse of an older pass.
+    if {"scripts/test-select.sh", "scripts/test-routes.tsv"}.intersection(paths):
+        return False
+    # The routing reader accepts one path per line. An unusual name must not become two paths.
+    if any("\n" in name or "\r" in name for name in paths):
+        return False
+    selected = subprocess.run(
+        ["zsh", str(Path(root) / "scripts/test-select.sh")], input="".join(name + "\n" for name in paths),
+        capture_output=True, text=True, check=False, env=environment)
+    return selected.returncode == 0 and not selected.stdout.strip()
+
+
 def green(path: Path, root: str) -> bool:
     current = source(root)
     if not current["clean"] or not current["head"] or not current["common_dir"]:
         return False
-    attempts = [entry for entry in read(path, time.time())
-                if entry.get("full_gate") is True and entry.get("before") == current]
-    if not attempts:
-        return False
-    latest = max(attempts, key=lambda entry: entry["finished_at"])
-    return latest.get("exit_code") == 0 and latest.get("after") == current
+    for entry in sorted(read(path, time.time()), key=lambda item: item["finished_at"], reverse=True):
+        if entry.get("full_gate") is True and same_inputs(root, entry.get("before"), current):
+            return entry.get("exit_code") == 0 and entry.get("after") == entry.get("before")
+    return False
 
 
 if __name__ == "__main__":

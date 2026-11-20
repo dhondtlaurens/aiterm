@@ -20,14 +20,14 @@ note in `docs/release-notes/`), minor for new behaviour, patch for fixes and sma
    `git push origin main`. The branch's worktree and branch stay: AiTerm locks its task worktrees
    (`git worktree list` shows `locked`), and removing one by hand strands its task. AiTerm's
    Remove task… removes them.
-2. **Release**, on a yes: `scripts/test.sh all && scripts/release.sh <version>` as one background
-   job from the main checkout. `release.sh` refuses unless `main` is clean and equal to
-   `origin/main`, a plain full gate passed for this exact `HEAD` in the last seven days, the
-   version is newer than the latest tag, `gh` is logged in, the certificate is in the keychain and
-   Python is 3.11 or newer.
-3. It redraws `docs/desktop.png`. When the picture changed, it commits
-   `Redraw the README picture for <version>`, pushes it and stops: that new `HEAD` needs its own
-   full gate. Run the same chained command again.
+2. **Release**, on a yes, from the main checkout: `scripts/release.sh <version>`, after the proof
+   check in `project.md`'s gate passes; when it does not, `scripts/test.sh all && scripts/release.sh
+   <version>` as one background job. `release.sh` refuses unless `main` is clean and equal to
+   `origin/main`, a plain full pass covers its test inputs, the version is newer than the latest
+   tag, `gh` is logged in, the certificate is in the keychain and Python is 3.11 or newer.
+3. It redraws `docs/desktop.png`, and when the picture changed it commits
+   `Redraw the README picture for <version>` and pushes it. That commit selects no tests, so the
+   earlier full pass still covers it.
 4. It builds, stamps the version and build number (counted from the tags), signs, checks the bundle,
    makes the DMG, pushes the tag, uploads the DMG to a draft release and publishes it.
 

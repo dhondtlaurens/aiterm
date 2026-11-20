@@ -142,11 +142,15 @@ version, signature and Applications link. Layout is in `dmg-settings.py`.
 
 `release.sh` publishes externally: it requires clean pushed `main`, the expected GitHub origin,
 logged-in `gh`, a newer version, the release certificate and Python 3.11+. It requires a recorded
-green `scripts/test.sh all` for the exact clean `HEAD` in the last seven days before contacting
+green `scripts/test.sh all` for the current clean test inputs in the last seven days before contacting
 external services. Only a plain `scripts/test.sh all` counts, with no `SWIFT`, `PYTEST`,
 `PYTEST_ADDOPTS` or `AITERM_TEST_PATHS` override; the tree must be clean and `HEAD` unchanged
-throughout, and a later failed full gate for the same `HEAD` revokes the pass. It redraws the README picture and commits and pushes it to `main` when it
-changed; that new commit needs its own full gate before retrying the release.
+throughout. Proof follows equivalent committed contents in the same repository: a new merge commit
+or changes selecting no tests reuse it. Unknown paths, changes to routing and selector errors
+invalidate reuse; the latest full attempt across equivalent contents decides, including failures.
+Before running another full suite, use the [read-only proof check](../docs/testing.md).
+It redraws the README picture and commits and pushes it to `main` when changed; that picture-only
+commit reuses the existing full pass at the second proof check.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
 publishes. The development bundle marker is refused. Choosing the version and finishing an
 interrupted release are in

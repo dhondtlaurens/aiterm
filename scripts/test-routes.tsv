@@ -74,6 +74,8 @@ scripts/test-app-bundle.sh	toolchain
 scripts/build-app.sh	toolchain
 scripts/make-app.sh	toolchain
 scripts/snapshots.sh	toolchain
+# The bundle-verifier fixture copies the license into its scratch app.
+LICENSE	toolchain
 # The history guard syntax-checks release.sh without running it.
 scripts/release.sh	toolchain
 # The reset guard edits scratch copies of the saved workspace fixture.
@@ -86,7 +88,6 @@ docs/*	none
 *.md	none
 *.png	none
 .github/*	none
-LICENSE	none
 .gitignore	none
 # The release and picture scripts, which only a person runs; the fixtures copy them but never run them.
 scripts/make-dmg.sh	none
