@@ -52,3 +52,11 @@ present and holds only what is not in the code yet.
   place the page runs ahead of the code is the Proposals tab, and only as a menu to pick from.
 - **Never remove the Proposals tab.** Only the proposals on it come and go.
 - The page is one file. There is no index, no board coordinates, no staging and no supporting files.
+- **Agree the route before a proposal.** Publishing from a session that did not publish the page
+  before is refused until every line of the live page is read: about 460 KB, roughly 200k tokens.
+  Say so first, and agree whether to pay for that read or to review the local file in a browser (it
+  is self-contained). Without the browser extension, Chrome `--headless=new --screenshot` on a copy
+  with the Proposals panel unhidden shows it.
+- **Scope new styles.** The page has unscoped `.sf`, `.card`, `.chip`, `.bar`, `.box` and `.op …`
+  rules that leak into new markup; check the page's whole CSS for a clash before adding a
+  proposal's classes.

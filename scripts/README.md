@@ -148,6 +148,6 @@ external services. Only a plain `scripts/test.sh all` counts, with no `SWIFT`, `
 throughout, and a later failed full gate for the same `HEAD` revokes the pass. It redraws the README picture and commits and pushes it to `main` when it
 changed; that new commit needs its own full gate before retrying the release.
 It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
-publishes. The development bundle marker is refused. Signing setup, version numbering and
-interrupted-release recovery live in
+publishes. The development bundle marker is refused. Choosing the version and finishing an
+interrupted release are in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.
