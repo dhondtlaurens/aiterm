@@ -14,6 +14,8 @@ struct HeadingValue: Equatable, Identifiable {
     var collapsed: Bool
     var empty: Bool
     var counts: [StatusCount]
+    /// A folded signal's finished tasks, counted apart from the statuses in the green chip; none on a project.
+    var finished = 0
     var help: String
     var kind: Kind
 
@@ -32,7 +34,8 @@ struct HeadingValue: Equatable, Identifiable {
         kind = .signal(source: source, removed: removed, paused: !removed && !signal.enabled,
                        canMoveUp: section.canMoveUp, canMoveDown: section.canMoveDown)
         collapsed = section.collapsed; empty = section.tasks.isEmpty
-        counts = collapsed ? SidebarModel.statusCounts(tasks: section.tasks) : []
+        counts = collapsed ? SidebarModel.statusCounts(tasks: section.tasks.filter { !$0.countsAsFinished }) : []
+        finished = collapsed ? section.tasks.filter(\.countsAsFinished).count : 0
         let triggers = ["Starts: " + signal.start.query, "Done: " + signal.done.query]
             + (signal.isValid ? [] : ["This version cannot run this signal."])
         help = (triggers + (removed ? ["This signal was removed. Its existing tasks carry on with their saved instructions."] : [])

@@ -86,6 +86,12 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// Whether the row waits on you: a task of your own done or needing input, a driven task only needing input.
     /// What the Dock badge, Focus View and a folded heading count.
     public var needsYou = false
+    /// Whether the Operator's work on it is through: a folded heading counts it in
+    /// its green finished chip, apart from the statuses. Only `TaskRow.presentingOperator` sets it, from `SignalTask.isFinished`.
+    public var finished = false
+    /// Whether a folded heading counts it in the finished chip: finished and drawing the finished mark. A finished task
+    /// you continue (its Then kept it) is counted by what its row draws while its worker asks or works.
+    public var countsAsFinished: Bool { finished && mark == .ended }
     /// "Task" or "Review", as its menu names it.
     public var kindName = "Task"
     public var worktreePath = ""

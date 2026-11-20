@@ -256,9 +256,9 @@ public enum Palette {
     }
 
     /// A collapsed project's status-count chips (`StatusCountChips`): a fill and a stroke per
-    /// status family, each a wash of that family's colour. The three pairs strengthen with urgency —
-    /// idle and working in `muted`, needs-input in `amber`, done in `accent` — a deliberate
-    /// progression, so each is written out rather than derived from one opacity.
+    /// status family, each a wash of that family's colour. The pairs strengthen with urgency —
+    /// idle and working in `muted`, needs-input in `amber`, done in `accent`, finished in `green` — a
+    /// deliberate progression, so each is written out rather than derived from one opacity.
     public static let statusChipQuietFill = muted.opacity(0.14)
     /// The quiet chip's edge.
     public static let statusChipQuietStroke = muted.opacity(0.30)
@@ -270,6 +270,11 @@ public enum Palette {
     public static let statusChipDoneFill = accent.opacity(0.17)
     /// A done chip's edge.
     public static let statusChipDoneStroke = accent.opacity(0.42)
+    /// A finished chip's fill: a task whose Done trigger fired and whose closeout is through, really done, apart
+    /// from done's blue (a chat ended its turn and wants reading). The done chip's proportions in `green`.
+    public static let statusChipFinishedFill = green.opacity(0.17)
+    /// A finished chip's edge.
+    public static let statusChipFinishedStroke = green.opacity(0.42)
     /// A faint ring drawn around an item that is idle or inactive: the third ink, declared as an
     /// alias.
     public static let idleRing = tertiary

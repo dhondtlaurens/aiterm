@@ -31,11 +31,11 @@ extension AppController {
         }
     }
 
-    /// A chip on the folded OPERATOR or PROJECTS heading: the section opens, folding the other, at its first row in
-    /// that status, whose signal or project unfolds, and the row is selected, its window shown as the arrows show one.
+    /// A chip on the folded OPERATOR or PROJECTS heading: the section opens, folding the other, at the row the chip
+    /// stands for (`SidebarProjection.firstRow(in:chip:)`), whose signal or project unfolds, and the row is selected, its window shown as the arrows show one.
     @discardableResult
-    func openSection(_ section: SidebarSection, at status: TaskStatus) -> Task<Void, Never>? {
-        guard let first = rows.firstRow(in: section, status: status) else { return nil }
+    func openSection(_ section: SidebarSection, at chip: ChipTarget) -> Task<Void, Never>? {
+        guard let first = rows.firstRow(in: section, chip: chip) else { return nil }
         reveal(RowSelection(first))
         return focus.peek(RowSelection(first), force: true)
     }

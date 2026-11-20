@@ -362,7 +362,7 @@ import AiTermUI
         #expect(list.numberOfRows == 3)
     }
 
-    /// Folded, a section counts its rows by status; the needs-input chip, or a row selected from elsewhere, opens it.
+    /// Folded, OPERATOR draws the Operator's own chip; needing you, its click, or a row selected from elsewhere, opens it.
     @Test func aRowNeedingYouInTheFoldedSectionIsCountedAndRevealed() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
@@ -371,21 +371,23 @@ import AiTermUI
         let asked = world.now
         world.state.operatorSession?.questions = [OperatorSession.Question(id: "q", task: id, text: "Which locale?", openedAt: asked)]
         controller.workspace.mutate { $0 = world.state }
-        #expect(controller.rows.operatorHeading.counts == [StatusCount(status: .needsInput, count: 2)],
-                "the Operator's row says it waits on you, and so does the task")
-        controller.openSection(.operator, at: .needsInput)
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.needsInput), tasks: 1),
+                "the Operator's row says it waits on you, counting its one task")
+        #expect(controller.rows.operatorHeading.counts.isEmpty, "no per-status chips under OPERATOR")
+        controller.openSection(.operator, at: .operatorState)
         #expect(controller.rows.operatorOpen)
-        #expect(controller.focus.selection == .operatorChat, "its first row that needs you")
-        #expect(controller.rows.operatorHeading.counts.isEmpty, "open, the rows say it themselves")
+        #expect(controller.focus.selection == .operatorChat, "the row its mark comes from")
+        #expect(controller.rows.operatorHeading.operatorChip == nil, "open, the rows say it themselves")
 
         controller.reveal(.project(world.project.id))
         #expect(!controller.rows.operatorOpen, "a project row opens the projects")
         controller.reveal(.operatorChat)
         #expect(controller.rows.operatorOpen, "the Operator's row opens its section")
     }
-    /// Folded, a section counts every row under it by status, whether its signal is folded or open, as a folded
-    /// project's header does; each chip opens the section at its first row in that status, unfolding its signal.
-    @Test func aFoldedOperatorCountsEveryStatusAndAChipOpensItsFirstRow() throws {
+    /// Folded, OPERATOR draws one chip: the most urgent state among the Operator and the tasks it runs, whether their
+    /// signal is folded or open, counting its tasks; its click opens the section at the row that state comes from,
+    /// unfolding its signal.
+    @Test func aFoldedOperatorDrawsItsMostUrgentStateAndItsChipOpensThatRow() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.focus.cancel(); controller.shutdown() }
@@ -400,17 +402,104 @@ import AiTermUI
         controller.live.sessions = [SessionInfo.make("a", window: "worker-0", task: asking, state: .needsInput),
                                     SessionInfo.make("w", window: "worker-1", task: working, state: .working),
                                     SessionInfo.make("d", window: "worker-2", task: ended, state: .done)]
-        #expect(controller.rows.operatorHeading.counts == [StatusCount(status: .idle, count: 1), StatusCount(status: .working, count: 1),
-                                                          StatusCount(status: .waiting, count: 1), StatusCount(status: .needsInput, count: 1)],
-                "the Operator's own idle row, then the tasks of both signals, the worker-done one waiting, in a project header's order")
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.needsInput), tasks: 3),
+                "a worker asking outranks working and waiting; every task counts")
+        #expect(controller.rows.operatorHeading.counts.isEmpty && controller.rows.operatorHeading.finished == 0)
         #expect(controller.rows.projectsHeading.counts.isEmpty, "the open section counts nothing")
+        #expect(controller.rows.firstRow(in: .operator, chip: .operatorState) == .task(asking))
 
-        controller.openSection(.operator, at: .working)
+        controller.live.sessions[0] = SessionInfo.make("a", window: "worker-0", task: asking, state: .idle)
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.working), tasks: 3),
+                "with nobody asking, a working worker outranks the waiting ones")
+        controller.openSection(.operator, at: .operatorState)
         #expect(controller.rows.operatorOpen)
         #expect(controller.focus.selection == .task(working), "the first working row")
         #expect(controller.state.signal(id: folded)?.collapsed == false, "its signal unfolds")
         #expect(controller.rows.isDrawn(.task(working)))
     }
+    /// The Operator chip's other states: paused while it holds work, every task waiting, a question with no task (the
+    /// amber mark alone), and nothing at all without work or a question.
+    @Test func theOperatorChipIsPausedWaitingOrAQuestionAlone() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .watching }
+        controller.workspace.mutate { $0 = world.state }
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.waiting), tasks: 1), "its merge request waits")
+        #expect(controller.rows.operatorHeading.operatorChip?.label == "1 task, waiting")
+
+        controller.workspace.mutate { $0.operatorSession?.paused = true }
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .pauseSign, tasks: 1))
+        #expect(controller.rows.firstRow(in: .operator, chip: .operatorState) == .operatorChat)
+
+        controller.workspace.mutate { state in
+            state.operatorSession?.paused = false
+            state.updateSignalTask(id) { $0.phase = .done; $0.thenApplied = true }
+        }
+        #expect(controller.rows.operatorHeading.operatorChip == nil, "no work, nothing asking: no Operator chip")
+        let asked = world.now
+        controller.workspace.mutate { $0.operatorSession?.questions = [.init(id: "q", task: nil, text: "Pause on Fridays?", openedAt: asked)] }
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.needsInput), tasks: 0))
+        #expect(controller.rows.operatorHeading.operatorChip?.label == "needs you")
+    }
+
+    /// A finished task (done, its closeout through) is counted in the green chip, apart from the Operator's, even once
+    /// the Operator row has gone; the chip opens at it. A folded signal counts it there too, beside its other statuses.
+    @Test func finishedTasksHaveTheirOwnChipOnBothFoldedHeadings() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal()
+        let waiting = world.workingTask(signal: signal), finished = world.workingTask(signal: signal)
+        world.state.updateSignalTask(waiting) { $0.phase = .watching }
+        world.state.updateSignalTask(finished) { $0.phase = .done; $0.thenApplied = true }
+        world.state.signals[0].collapsed = true
+        controller.workspace.mutate { $0 = world.state }
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.waiting), tasks: 1), "the finished one is not workload")
+        #expect(controller.rows.operatorHeading.finished == 1)
+        let heading = HeadingValue(try #require(controller.rows.signalSections.first))
+        #expect(heading.counts == [StatusCount(status: .waiting, count: 1)] && heading.finished == 1, "the folded signal")
+
+        controller.workspace.mutate { $0.updateSignalTask(waiting) { $0.phase = .done; $0.thenApplied = true } }
+        #expect(!controller.rows.signalOperator.shown, "no work left: the Operator's row has gone")
+        #expect(controller.rows.operatorHeading.operatorChip == nil && controller.rows.operatorHeading.finished == 2)
+        controller.openSection(.operator, at: .finished)
+        #expect(controller.rows.operatorOpen)
+        #expect(controller.focus.selection == .task(waiting) || controller.focus.selection == .task(finished), "its first finished row")
+        #expect(controller.rows.isDrawn(try #require(controller.focus.selection)))
+    }
+
+    /// A finished task kept by its Then can be continued: while its worker asks or works it is counted by what its row
+    /// draws, never hidden in the green chip, and a prompt in it turns the Operator chip amber (found in review, 20 Nov 2026).
+    @Test func aFinishedTaskYouContinueIsCountedByWhatItsRowDraws() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .done; $0.thenApplied = true }
+        if let at = world.state.tasks.firstIndex(where: { $0.id == id }) { world.state.tasks[at].windowId = "kept" }
+        world.state.signals[0].collapsed = true
+        controller.workspace.mutate { $0 = world.state }
+        controller.live.sessions = [SessionInfo.make("k", window: "kept", task: id, state: .needsInput)]
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.needsInput), tasks: 0), "its prompt needs you")
+        #expect(controller.rows.operatorHeading.finished == 0, "not hidden in the green chip")
+        #expect(controller.rows.firstRow(in: .operator, chip: .operatorState) == .task(id))
+        var heading = HeadingValue(try #require(controller.rows.signalSections.first))
+        #expect(heading.counts == [StatusCount(status: .needsInput, count: 1)] && heading.finished == 0, "the folded signal")
+
+        controller.live.sessions = [SessionInfo.make("k", window: "kept", task: id, state: .working)]
+        heading = HeadingValue(try #require(controller.rows.signalSections.first))
+        #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.working), tasks: 0), "its worker runs again")
+        #expect(controller.rows.operatorHeading.finished == 0 && heading.counts == [StatusCount(status: .working, count: 1)])
+        #expect(controller.rows.firstRow(in: .operator, chip: .operatorState) == .task(id))
+
+        controller.live.sessions = [SessionInfo.make("k", window: "kept", task: id, state: .idle)]
+        heading = HeadingValue(try #require(controller.rows.signalSections.first))
+        #expect(controller.rows.operatorHeading.operatorChip == nil && controller.rows.operatorHeading.finished == 1, "settled again")
+        #expect(heading.counts.isEmpty && heading.finished == 1)
+    }
+
     /// With PROJECTS folded, a terminal first in its status opens the projects and unfolds its collapsed project.
     @Test func aChipOnTheFoldedProjectsUnfoldsATerminalsProject() throws {
         let controller = AppController(preferences: .scratch())
@@ -426,7 +515,7 @@ import AiTermUI
         controller.live.sessions = [SessionInfo.make("shell", window: "shell-window", state: .needsInput)]
         #expect(controller.rows.projectsHeading.counts == [StatusCount(status: .needsInput, count: 1)])
 
-        controller.openSection(.projects, at: .needsInput)
+        controller.openSection(.projects, at: .status(.needsInput))
         #expect(!controller.rows.operatorOpen)
         #expect(controller.state.project(id: project.id)?.collapsed == false, "the terminal's project unfolds")
         #expect(controller.focus.selection == .terminal(shell.id))

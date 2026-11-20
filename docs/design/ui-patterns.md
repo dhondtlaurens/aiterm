@@ -31,7 +31,10 @@ row's previous manual position is not remembered.
 
 `SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause, offers New Signal… in its + menu and Pause Operator / Resume Operator in its context menu. `SignalOperatorRow` is the active workload’s chat row,
 waiting count, errors and window recovery. `HeadingRow` draws project and signal headings with their source marks;
-its `HeadingValue` contains only the heading's drawn facts, folded counts and tooltip.
+its `HeadingValue` contains only the heading's drawn facts, folded counts (a signal's finished tasks apart, in the
+green chip) and tooltip. Folded, OPERATOR draws the Operator's own chip (`OperatorChip`: its most urgent state as a
+`TaskRowMark`, needs you, paused, working, waiting, idle, and its workload's count) and the finished chip; PROJECTS
+its per-status counts. Each chip opens the section at the row it stands for (`ChipTarget`).
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.
 
 Signal tasks use the same two-line task row as ordinary tasks: title, badges and branch, with the
@@ -60,7 +63,11 @@ is only for a worker or the Operator at work now. A waiting task is never counte
 section gives it its own chip, and neither Focus View nor the Dock badge counts it. Reduce Motion holds the
 ring still.
 
-`TaskRowMarkView`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`, `BranchLabelView`
+A trailing mark is a ring for a state that can still move (`StatusMark`) and a filled disc for one that holds
+(`SettledMark`): finished, the green check disc, and paused, the pause disc. A finished task (`SignalTask.isFinished`)
+is past pausing; a done task with closeout outstanding is paused with the workload.
+
+`TaskRowMarkView`, `StatusMark`, `SettledMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`, `BranchLabelView`
 and `QuietBadgeLine` share the status/agent/branch vocabulary. `BackgroundCardView` reuses the work
 list under a background/working/input mark, only with verified work. Display evidence does not
 change persisted state or Operator readiness. Amber means the person needs to act.

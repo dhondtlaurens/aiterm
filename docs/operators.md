@@ -12,13 +12,22 @@ the chat's window asks nothing: choosing the row
 opens it again, and a wake for the Operator reopens it. When the workload finishes, the chat closes
 and its row disappears. Configured signals keep polling without a chat; the next match starts a
 fresh one. Each signal is a heading like a project, with the same task rows underneath. Fold a
-signal to see its status counts, or hover its heading for its Start and Done queries, skipped items
-and source failures.
+signal to see its status counts, its finished tasks in a green chip of their own, or hover its heading
+for its Start and Done queries, skipped items and source failures.
 
 The **Operator** and **Projects** sections fold into each other, one open at a time: click either
 heading to switch. Projects are open by default, so the Operator stays one folded line until you
-open it, and with no signal it is only its heading and **+**. A folded section shows its rows' status
-counts, as a folded project does; click a count to open the section at its first row in that status. Creating a signal opens the Operator's
+open it, and with no signal it is only its heading and **+**. Folded, **Projects** shows its rows' status
+counts, as a folded project does; click a count to open the section at its first row in that status.
+Folded, **Operator** shows one chip for the Operator: its most urgent state, as a row's mark draws it
+(needs you, paused, working, waiting, idle, in that order, over its own row and the tasks it runs; a
+worker in the background counts as working), and how many unfinished tasks it holds, the number its
+row's title counts. A task waiting on its merge request is unfinished, so it counts, and the Operator's
+row stays while one waits. A question with no task draws the amber mark alone, and so does a finished
+task you continue: amber while its worker asks, the spinner while it runs. With no work and nothing
+asking or running, there is no Operator chip. A green chip counts the finished tasks still listed under
+their signals, whose Done trigger fired and whose closeout is through, even once the Operator's row
+has gone. Click a chip to open the section at the row it stands for. Creating a signal opens the Operator's
 section, and a notification or Focus View opens whichever section holds the row it selects.
 
 ## Create a signal
@@ -275,6 +284,12 @@ standing morph into the new ones, settling from the left in half a second, so th
 empty. A new event with the same words moves nothing. Every word is in one muted ink; only “needs
 you” stands out, in the attention chip. Unfolding the section shows the current words without a decode. Its title counts what the Operator holds, **3 tasks · 2 signals** or **No tasks**, and never decodes; at rest the caption says **watching**. Tasks keep their normal
 two-line layout and badges under projects and signals. Reduce Motion uses a plain swap.
+
+A row's trailing mark is a ring while its state can still move and a filled disc once it holds: a
+finished task wears the green disc with a white check (the corner mark of a merged request's badge),
+and a paused one the grey pause disc. A finished task is past pausing: it stays done when you pause
+the Operator or switch its signal off. A done task whose closeout is still running is paused with
+the rest. The blue done ring stays what it is under projects: a chat ended its turn and wants reading.
 
 ## Session recovery and local records
 

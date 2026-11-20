@@ -99,6 +99,31 @@ import Testing
         #expect(try row(world).operatorLine == .paused && row(world).status == .idle && row(world).mark == .pauseSign)
     }
 
+    // MARK: - Finished is past pausing
+
+    /// A finished task (done, its Then applied, nothing pending) is past pausing: under a paused Operator or a switched-off
+    /// signal it still says "done" with the finished mark and counts as finished. A done task whose closeout is still
+    /// outstanding is workload, so the pause holds it: paused, not finished (found in the plan's review, 20 Nov 2026).
+    @Test func aFinishedTaskStaysDoneUnderAPauseAndOnlyItCountsAsFinished() throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        world.state.updateSignalTask(id) { $0.phase = .done; $0.thenApplied = true }
+        #expect(try row(world).finished && row(world).mark == .ended && row(world).operatorLine?.text == "done")
+        world.state.operatorSession?.paused = true
+        #expect(try row(world).finished && row(world).mark == .ended && row(world).operatorLine?.text == "done", "a paused Operator")
+        world.state.operatorSession?.paused = false
+        world.state.signals[0].enabled = false
+        #expect(try row(world).finished && row(world).mark == .ended, "a switched-off signal")
+
+        world.state.signals[0].enabled = true
+        world.state.updateSignalTask(id) { $0.thenApplied = nil }
+        #expect(try !row(world).finished && row(world).mark == .ended, "its closeout outstanding: workload, not finished")
+        world.state.operatorSession?.paused = true
+        #expect(try !row(world).finished && row(world).mark == .pauseSign && row(world).operatorLine == .paused,
+                "the pause holds its closeout")
+        world.state.updateSignalTask(id) { $0.phase = .watching }
+        #expect(try !row(world).finished)
+    }
+
     // MARK: - Counted as waiting, never as working
 
     @Test func aFoldedSectionCountsWaitingTasksAsWaiting() throws {

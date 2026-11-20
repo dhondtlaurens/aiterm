@@ -18,7 +18,7 @@ import AiTermCore
     }
 
     @Test func withAnActionEachChipIsAButtonNamedForItsCount() throws {
-        var opened: [TaskStatus] = []
+        var opened: [ChipTarget] = []
         try AccessibilityTree.with {
             let buttons = { (nodes: [NSObject]) in nodes.filter { AccessibilityTree.role(of: $0) == NSAccessibility.Role.button.rawValue } }
             let (window, host, nodes) = hosted(StatusCountChips(counts: counts, open: { opened.append($0) })) { buttons($0).count == 2 }
@@ -29,7 +29,7 @@ import AiTermCore
             let needs = try #require(found.last)
             AccessibilityTree.press(needs)
             settle(host, describing: "the chip's press") { !opened.isEmpty }
-            #expect(opened == [.needsInput], "pressing a chip opens at its status")
+            #expect(opened == [.status(.needsInput)], "pressing a chip opens at its status")
         }
     }
 
@@ -45,6 +45,17 @@ import AiTermCore
             defer { window.orderOut(nil) }
             #expect(chips(nodes) == ["2 working", "1 needs input"])
             #expect(nodes.contains { AccessibilityTree.label(of: $0) == "Projects" }, "the heading's words keep its name")
+        }
+    }
+
+    /// The Operator's own chip leads and the finished chip ends, each a button named for what it counts.
+    @Test func theOperatorChipAndTheFinishedChipAreButtonsOfTheirOwn() {
+        AccessibilityTree.with {
+            let chip = OperatorChip(mark: .status(.working), tasks: 3)
+            let buttons = { (nodes: [NSObject]) in nodes.filter { AccessibilityTree.role(of: $0) == NSAccessibility.Role.button.rawValue } }
+            let (window, _, nodes) = hosted(StatusCountChips(counts: [], lead: chip, finished: 1, open: { _ in })) { buttons($0).count == 2 }
+            defer { window.orderOut(nil) }
+            #expect(buttons(nodes).compactMap(AccessibilityTree.label(of:)) == ["3 tasks, working", "1 finished"])
         }
     }
 
