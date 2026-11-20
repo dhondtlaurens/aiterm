@@ -19,7 +19,7 @@ die() { print -u2 "release: $*"; exit 1; }
 require_full_gate() {
     "$PY" "$ROOT/scripts/test-history.py" require-full "$ROOT" \
         "${AITERM_TEST_LOCK:-/tmp/aiterm-test.lock}.history.jsonl" ||
-        die "no green full gate for clean HEAD; run scripts/test.sh all"
+        die "no recent green full gate for these clean test inputs; run scripts/test.sh all"
 }
 
 [[ "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || die "usage: scripts/release.sh <major.minor.patch>"
@@ -48,7 +48,7 @@ if [[ -n "$(git status --porcelain -- docs/desktop.png)" ]]; then
     git push --quiet origin main || die "committed the redrawn README picture but could not push it: git push origin main, then run again"
 fi
 
-# Redrawing the README can have committed a new HEAD. It needs its own full gate too.
+# Recheck after the README commit; unchanged test inputs reuse the earlier full pass.
 require_full_gate
 
 AITERM_RELEASE=1 SIGN_IDENTITY="$IDENTITY" "$ROOT/scripts/make-app.sh"
