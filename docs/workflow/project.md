@@ -2,9 +2,10 @@
 
 - **Base branch**: `main`
 - **Gate**: `scripts/test.sh`, from the worktree root, before each commit. It runs only the suites
-  the branch's changes can affect and says what it picked; a docs-only branch exits at once. Once
-  before merging to `main`: `scripts/test.sh all`. It fixes nothing; it must end green. Runs queue
-  one at a time machine-wide, so start it in the background. Details in `AGENTS.md` and
+  the branch's changes can affect and says what it picked; a docs-only branch exits at once. Before
+  merging to `main`, reuse a current full pass through the proof check in [testing](../testing.md),
+  or run `scripts/test.sh all` if none covers these test inputs. It fixes nothing; it must end green.
+  Runs queue one at a time machine-wide, so start it in the background. Details in `AGENTS.md` and
   [testing](../testing.md).
 - **Host**: GitHub, `dhondtlaurens/aiterm` (`gh`). Branches are merged locally; no pull requests.
 - **Tracker**: GitHub issues on `dhondtlaurens/aiterm`, bug reports only. No issue keys in branches

@@ -120,6 +120,7 @@ check "the reset command selects its guard" toolchain -- scripts/reset-operator-
 check "the reset guard selects itself" toolchain -- scripts/test-reset-operator-state.sh
 check "the saved workspace selects the reset guard and core tests" target:AiTermCoreTests toolchain -- app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals/state.json
 check "the bundle verifier runs the toolchain guard" toolchain -- scripts/test-app-bundle.sh
+check "the bundle fixture reads the license" toolchain -- LICENSE
 check "the build scripts the fixtures run select the toolchain guard" toolchain -- scripts/make-app.sh scripts/snapshots.sh
 check "an unknown path runs everything" everything -- Makefile
 check "a rename routes both sides" daemon target:AiTermTests -- app/Tests/AiTermTests/A.swift daemon/b.py

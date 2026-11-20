@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Isolated checks of runner history and the exact-HEAD release precondition. Never runs release.sh.
+# Isolated checks of runner history and reusable release proof. Never runs release.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 scratch="$(mktemp -d)"
@@ -13,6 +13,7 @@ import runpy
 import subprocess
 import sys
 import time
+import shutil
 
 history = runpy.run_path(sys.argv[1])
 root = Path(sys.argv[2]) / "repo"
@@ -25,7 +26,11 @@ def git(*arguments):
     return subprocess.run(["git", "-C", str(root), *arguments], env=environment, check=True, capture_output=True, text=True).stdout.strip()
 git("init", "-q", "-b", "main")
 (root / "tracked").write_text("first\n")
-git("add", "tracked")
+(root / "LICENSE").write_text("fixture license\n")
+(root / "scripts").mkdir()
+for name in ("test-select.sh", "test-routes.tsv"):
+    shutil.copy2(Path(sys.argv[1]).with_name(name), root / "scripts" / name)
+git("add", ".")
 git("commit", "-q", "-m", "first")
 state = history["source"](str(root))
 assert state["clean"] and state["head"]
@@ -63,12 +68,77 @@ save(after=state | {"clean": False}, finished_at=now + 6)
 assert not green(), "edits during a gate accepted"
 save(finished_at=now + 7)
 git("commit", "-q", "--allow-empty", "-m", "next")
-assert not green(), "another commit's proof accepted"
-# A successful full gate follows the commit across this scratch repository's worktrees.
+assert green() and cli() == 0, "identical content lost its proof after a new commit"
+# Exercise a real --no-ff merge, not only an empty commit.
+git("checkout", "-q", "-b", "branch")
+git("commit", "-q", "--allow-empty", "-m", "branch")
+branch_state = history["source"](str(root))
+save(before=branch_state, after=branch_state, finished_at=now + 8)
+git("checkout", "-q", "main")
+git("merge", "-q", "--no-ff", "branch", "-m", "merge branch")
+assert green(), "the merge commit lost its branch's full pass"
+merged = git("rev-parse", "HEAD")
+# Documentation and the release's README redraw do not change any selected test input.
+(root / "docs").mkdir()
+(root / "docs/desktop.png").write_bytes(b"picture")
+git("add", ".")
+git("commit", "-q", "-m", "redraw README picture")
+assert green(), "a README picture commit required another full gate"
+docs_head = git("rev-parse", "HEAD")
+for name in ("tracked", "app/Sources/AiTermCore/Example.swift", "app/Tests/AiTermCoreTests/README.md",
+             "scripts/test.sh", "scripts/test-select.sh", "scripts/test-routes.tsv", "LICENSE", "unknown-file"):
+    target = root / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a") as stream:
+        stream.write("changed\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "change a test input")
+    assert not green(), f"changed input {name} reused an unrelated pass"
+    git("reset", "--hard", docs_head)
+git("mv", "tracked", "docs/moved.png")
+git("commit", "-q", "-m", "move an input to documentation")
+assert not green(), "a rename into a docs-only route hid a removed input"
+git("reset", "--hard", docs_head)
+# A new routing table must not declare its own change harmless.
+(root / "scripts/test-routes.tsv").write_text("*\tnone\n")
+git("add", ".")
+git("commit", "-q", "-m", "ignore every test input")
+assert not green(), "new routing rules authorized their own reuse"
+git("reset", "--hard", docs_head)
+git("rm", "-q", "tracked")
+git("commit", "-q", "-m", "delete input")
+assert not green(), "deleting an input reused proof"
+git("reset", "--hard", docs_head)
+(root / "tracked").chmod(0o755)
+git("add", ".")
+git("commit", "-q", "-m", "change input mode")
+assert not green(), "changing an input's mode reused proof"
+git("reset", "--hard", docs_head)
+assert green()
+# A later full failure on equivalent inputs revokes proof across commit IDs.
+docs_state = history["source"](str(root))
+save(before=docs_state, after=docs_state, exit_code=1, finished_at=now + 9)
+git("reset", "--hard", merged)
+assert not green(), "a later full failure on equivalent content did not revoke proof"
+save(before=branch_state, after=branch_state, finished_at=now + 10)
+save(before=branch_state, after=docs_state, finished_at=now + 11)
+assert not green(), "a commit made during the full run was accepted"
+save(finished_at=now + 12)
 git("reset", "--hard", state["head"])
+# A successful full gate follows equivalent content across this repository's worktrees.
 sibling = Path(sys.argv[2]) / "sibling"
-git("worktree", "add", "-q", "--detach", str(sibling))
+git("worktree", "add", "-q", "--detach", str(sibling), branch_state["head"])
 assert history["green"](path, str(sibling))
+other = Path(sys.argv[2]) / "other"
+subprocess.run(["git", "clone", "-q", str(root), str(other)], env=environment, check=True)
+assert not history["green"](path, str(other)), "proof leaked into a separate repository"
+# Untracked files and stale proof never authorize release.
+(root / "untracked").touch()
+assert not green(), "an untracked file was ignored"
+(root / "untracked").unlink()
+expired_path = path.with_name("expired.jsonl")
+history["append"](expired_path, entry(finished_at=now - 8 * 86400))
+assert not history["green"](expired_path, str(root))
 save(finished_at=now - 8 * 86400, run_id="expired")
 save(finished_at=now - 6 * 86400, run_id="retained")
 save(finished_at=now + 8)
@@ -126,6 +196,6 @@ with contextlib.redirect_stderr(warnings):
     history["pytest_sessionfinish"](None, 0)
 assert "Warning: could not retain pytest history" in warnings.getvalue()
 assert history["collect"](reports / "not-selected") == {"suites": [], "failing_tests": []}
-print("Gate history: timings, failures, retention, clean exact HEAD, full-run eligibility and optional result-file collection passed.")
+print("Gate history: timings, failures, retention, reusable clean inputs, full-run eligibility and optional result-file collection passed.")
 PY
 zsh -n "$ROOT/scripts/release.sh"

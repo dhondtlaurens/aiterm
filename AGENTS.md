@@ -32,9 +32,11 @@ Swift is written.
     from `daemon/` with its venv (`daemon/.venv/bin/pytest`).
   - Before each commit: plain `scripts/test.sh`. It runs only what the branch's changes can affect
     and says what it picked; a docs-only branch exits at once.
-  - Once before merging to `main`: `scripts/test.sh all`, the full suite. Run it plain, with no
-    `SWIFT`, `PYTEST` or `AITERM_TEST_PATHS` override: only such a run counts as the release's proof
-    for that `HEAD`.
+  - Before merging to `main`, require a recent green full suite for the same test inputs. Check
+    with `python3 scripts/test-history.py require-full "$PWD" "${AITERM_TEST_LOCK:-/tmp/aiterm-test.lock}.history.jsonl"`;
+    exit 0 reuses proof across branch/merge commits and changes selecting no tests. Otherwise run
+    `scripts/test.sh all` plain, with no `SWIFT`, `PYTEST`, `PYTEST_ADDOPTS` or `AITERM_TEST_PATHS`
+    override. Proof lasts seven days; a later failed full run for equivalent inputs revokes it.
   - Test windows are hidden (transparent, click-through), so a visible one is a bug.
 - Never type `/model`, `/effort` or `/config` into a live Claude Code session: it saves the choice in
   `~/.claude/settings.json` as the person's default for every new session. Probe with launch flags

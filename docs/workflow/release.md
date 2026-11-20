@@ -20,14 +20,20 @@ build/test command never implies permission to release.
 
 ## Pipeline
 
-1. Complete `scripts/test.sh all` once before merging and `scripts/test-app-bundle.sh build/AiTerm.app`
-   on the release candidate.
+1. Require a recent green `scripts/test.sh all` before merging; reuse the branch's proof when test
+   inputs match (the [proof check](../testing.md)), otherwise run it. Check the release candidate
+   with `scripts/test-app-bundle.sh build/AiTerm.app`.
 2. From a clean, pushed `main`: `scripts/release.sh <version>`. It builds and signs the app,
    wraps it in `AiTerm-<version>.dmg`, pushes the tag `v<version>` and publishes the GitHub release.
 
 Before it builds anything, it redraws the README's picture and, when `docs/desktop.png` changed,
 commits and pushes it to `main`, so a release never ships a README showing an older sidebar. The
 picture is drawn by a real window, so the main display must be Retina.
+
+The release checks full-suite proof before external work and again after the picture commit.
+The branch's pass covers a merge with the same contents and the README picture update, so neither
+needs another full run. Proof expires after seven days; changed test inputs or a later failed full
+run for equivalent inputs require a fresh pass.
 
 The build number is one more than the number of `v*` tags, plus 19: the releases published before
 AiTerm moved to GitHub, whose tags this repository does not have. It keeps increasing for every

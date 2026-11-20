@@ -31,6 +31,22 @@ and retention; the daemon does not read the history. The supervisor inherits bot
 directly and collects history from result files after the command exits. Optional history I/O
 failures warn without changing the gate verdict or activity record.
 
+Before starting another full run for a merge or release, check the retained proof:
+
+```sh
+python3 scripts/test-history.py require-full "$PWD" "${AITERM_TEST_LOCK:-/tmp/aiterm-test.lock}.history.jsonl"
+```
+
+Exit 0 means a full pass already covers this clean checkout; otherwise run `scripts/test.sh all`.
+Proof follows committed test inputs across worktrees of the same repository, including a new merge
+commit with identical contents and changes that select no tests (such as `docs/desktop.png`).
+The comparison uses a rename-disabled Git diff and the existing routing selector, so removing or
+moving a test input and overlapping `none` routes cannot hide a change. Unknown paths, changed
+routing rules and selector errors require a fresh pass. The latest full attempt across equivalent
+commits decides: a later failure revokes an older pass. The tested checkout must be clean with
+its commit unchanged throughout the run; seven-day retention and plain `all` eligibility still
+apply. An explicit `scripts/test.sh all` always executes the suite.
+
 ## What belongs where
 
 | Tests | Requirement and distinct detection |
