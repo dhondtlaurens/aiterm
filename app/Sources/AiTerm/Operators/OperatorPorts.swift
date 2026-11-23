@@ -17,6 +17,8 @@ struct OperatorPorts {
     /// What New Signal's Write buttons run Claude through (`QueryWriterRunner`).
     var queryWriter: HeadlessRun = .unavailable
     var clock = OperatorClock()
+    /// Holds a window the Operator opens on its own until you pause (`PauseGate`); tests never wait.
+    var pause: PauseGate = .never
     /// When the Mac's network comes back, which makes a failed signal read due again.
     var network: NetworkWatch = .none
     var now: @Sendable () -> Date { clock.now }
@@ -46,6 +48,7 @@ struct OperatorPorts {
                                   oracle: .live)
         ports.queryWriter = .live
         ports.network = .live
+        ports.pause = .live
         ports.installedVersions = { AgentVersions.shared.current($0) }
         ports.installedAgents = { [weak agents] in agents?.availableAgents ?? [] }
         let catalogue = agents.catalogue

@@ -6,6 +6,8 @@ struct OperatorActivity: Equatable {
     var id = UUID()
     var line: OperatorLine?
     var completed: OperatorLine?
+    /// Whether the chat waits for your pause (`OperatorSessionKeeper.pauseWords`), whichever line is the latest.
+    var chatWaitsForPause = false
 }
 
 /// A task's act the Operator is running, as its row says it: "Operator " and the words.
@@ -51,7 +53,8 @@ struct OperatorAct: Equatable {
     }
 
     func pulse(completed: OperatorLine? = nil) {
-        event = OperatorActivity(line: running.last?.line, completed: running.isEmpty ? completed : nil)
+        event = OperatorActivity(line: running.last?.line, completed: running.isEmpty ? completed : nil,
+                                 chatWaitsForPause: running.contains { $0.line.text == OperatorSessionKeeper.pauseWords })
         changed()
     }
     func during<Result>(_ words: String, _ body: @MainActor () async throws -> Result) async rethrows -> Result {

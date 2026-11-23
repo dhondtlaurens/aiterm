@@ -45,6 +45,7 @@
     --focus-edge: var(--accent-pressed);        /* focusEdge = accentPressed, the 1 pt edge */
     --link: #419CFF;                 /* .linkColor */
     --green: #30D158;                /* .systemGreen */
+    --merged: #BF5AF2;               /* .systemPurple */
     --amber: #FF9230;                /* .systemOrange */
     --destructive: #FF4245;          /* .systemRed */
     --diff-added: var(--green);      /* diffAdded = green */
@@ -322,14 +323,16 @@
   .ai-badge .diff .added { color: var(--diff-added); }
   .ai-badge .diff .removed { color: var(--diff-removed); }
   .ai-badge .suffix { display: inline-flex; align-items: center; gap: var(--space-hairline); }
-  /* Badge(checked:): a Size.cornerBadge disc in green on the 10 pt icon's bottom-trailing corner, overhanging
-     it by Space.hairline, ringed 1 pt in the surface's occludingBackground, a white check stroked 1 pt inside. */
+  /* Badge(corner:): a Size.cornerBadge (8 pt) SettledMark on the 10 pt icon's bottom-trailing corner, overhanging
+     it by Space.hairline, ringed 1 pt in the surface's occludingBackground: the green disc with a white check, or
+     (.ck.merged) the Palette.merged disc with a white merge glyph, each stroked a sixth of the disc wide. */
   .ai-badge .checked-mark { position: relative; display: inline-flex; width: 10px; height: 10px; flex: none; }
   .ai-badge .checked-mark > svg { display: block; }
   .ai-badge .checked-mark .ck { position: absolute; right: calc(-1 * var(--space-hairline)); bottom: calc(-1 * var(--space-hairline));
-                                width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+                                width: 8px; height: 8px; border-radius: 50%; background: var(--green);
                                 box-shadow: 0 0 0 1px var(--surface); display: block; }
-  .ai-badge .checked-mark .ck svg { display: block; width: 6px; height: 6px; }
+  .ai-badge .checked-mark .ck.merged { background: var(--merged); }
+  .ai-badge .checked-mark .ck svg { display: block; width: 8px; height: 8px; }
   /* Badge(style: .quiet): no padding, no wash at rest, label in secondaryInk; the hovered wash is
      drawn Space.tight outside the content. */
   .ai-badge.quiet { background: transparent; padding-inline: 0; color: var(--muted); }
@@ -1274,6 +1277,13 @@
   .signal-states td:last-child { white-space: normal; }
   .native-reference { display:block; max-width:none; height:auto; }
 
+
+
+
+
+
+
+
 </style>
 </head>
 <body>
@@ -1527,6 +1537,12 @@
           <div><div class="name">green</div><div class="value">#30D158</div><div class="appkit">.systemGreen</div></div>
           <div class="use">The positive semantic: a passing check, a connected status, a completed
             state shown inline.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #BF5AF2"></div>
+          <div><div class="name">merged</div><div class="value">#BF5AF2</div><div class="appkit">.systemPurple</div></div>
+          <div class="use">A merged merge or pull request: the disc of <code>SettledMark.merged</code> on its
+            badge's corner, apart from the green check its approval wore. Nothing else draws it.</div>
         </div>
         <div class="token">
           <div class="chip" style="background: #FF9230"></div>
@@ -2028,8 +2044,8 @@
       <div class="sizes">
         <div class="step"><div class="label m">tabIndicator <span style="color: var(--muted)">2 pt</span></div>
           <div class="draw"><div class="box" style="width: 52px; height: 2px; border-radius: 0"></div><span class="purpose">The bar under a <code>TabBar</code>'s selected tab, drawn over the sheet header's rule: twice a hairline, so it reads as the selection rather than as a second rule. A stroke, so it does not scale.</span></div></div>
-        <div class="step"><div class="label m">cornerBadge <span style="color: var(--muted)">6 pt</span></div>
-          <div class="draw"><div class="dot" style="width: 6px; height: 6px"></div><span class="purpose">The green check a <code>Badge(checked:)</code> wears on its icon's corner — a Jira ticket done, a request merged — over the badge's 10 pt icon, overhanging it by <code>Space.hairline</code>.</span></div></div>
+        <div class="step"><div class="label m">cornerBadge <span style="color: var(--muted)">8 pt</span></div>
+          <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The <code>SettledMark</code> a <code>Badge(corner:)</code> wears on its icon's corner — the green check of a Jira ticket done or a request approved with every thread resolved, the purple disc of a request merged — over the badge's 10 pt icon, overhanging it by <code>Space.hairline</code>.</span></div></div>
         <div class="step"><div class="label m">statusMarkSmall <span style="color: var(--muted)">8 pt</span></div>
           <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The status mark inside a count chip, where the usual size would overflow it; and a <code>ToneRing</code>, leading a Settings card's status line.</span></div></div>
         <div class="step"><div class="label m">statusMark <span style="color: var(--muted)">10 pt</span></div>
@@ -2271,10 +2287,11 @@
             nothing extra. An optional <code>suffix</code> (<code>Badge.Suffix(icon:text:)</code>) closes the badge
             with an icon and a short text, <code>Space.hairline</code> apart and both in the label's ink — a
             merge request's resolved review threads, a bubble and <code>2/5</code>; a badge that is only an
-            icon and a suffix is drawn with both. <code>checked</code> marks the icon finished — a Jira
-            ticket in a Done lane, a request merged — with a <code>Size.cornerBadge</code> disc in
-            <code>Palette.green</code> on the icon's bottom-trailing corner, a white check stroked inside,
-            overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
+            icon and a suffix is drawn with both. <code>corner</code> puts a <code>SettledMark</code> on the
+            icon's bottom-trailing corner, <code>Size.cornerBadge</code> wide: <code>.finished</code>, the
+            <code>Palette.green</code> disc with a white check (a Jira ticket in a Done lane, a request approved
+            with every thread resolved), or <code>.merged</code>, the <code>Palette.merged</code> disc with a white
+            merge glyph (a request merged, whose thread count the sidebar then drops), overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
             the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. A badge is a chip at its own width, never squeezed or stretched by the
             row around it. <code>style: .quiet</code> drops the box at rest: no outer padding, the
             label in the surface's <code>secondaryInk</code>, and the hovered wash drawn
@@ -2326,10 +2343,10 @@
               </span>
             </div>
             <div class="demo">
-              <span class="cap">quiet · checked · a merged request, a done ticket</span>
+              <span class="cap">quiet · corner · a done ticket (finished), a merged request (merged, its count dropped)</span>
               <span style="display: inline-flex; gap: var(--space-gap); --brand-ink: currentColor">
                 <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>PAY-198</span></span>
-                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span><span class="suffix"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.8h6a1 1 0 0 1 1 1v3.4a1 1 0 0 1-1 1H4.6L2.6 8.8V7.2H2a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>4/4</span></span>
+                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.92 4.68V3.72L3 2.64M4.08 4.68V3.72L3 2.64V1.32M2.16 2.04 3 1.2 3.84 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span>
               </span>
             </div>
             <div class="demo">
@@ -2956,7 +2973,7 @@
 <tr><td><code>OperatorBadge</code></td><td>The Operator activity caption: every word in the secondary ink, needs-you alone in the attention chip; it decodes only when its words change, from the words standing to the new ones; Reduce Motion swaps.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>DecodeWordsView</code></td><td>Draws the caption whatever it says and morphs old words into new: the new settle from the left behind a four-character band of own-case glyphs, the old stand past it; one self-drawn line that spans the row, never resized by a change, never animated on its own, cut at the tail in its own face, never empty.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>StatusMark</code></td><td>Idle, working, input, done and background rings; Reduce Motion keeps shape.</td><td>StatusMark.swift</td></tr>
-<tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
+<tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check), merged (purple, white merge glyph) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
 <tr><td><code>StatusCountChips</code></td><td>Folded heading counts in shared status vocabulary; OPERATOR's own chip (its most urgent state, its workload) and the green finished chip.</td><td>StatusCountChips.swift</td></tr>
 <tr><td><code>AvatarGroupView</code></td><td>Agent marks and overflow count.</td><td>AvatarGroupView.swift</td></tr>
 <tr><td><code>VendorMark</code></td><td>Agent disc with the vendor artwork.</td><td>VendorMark.swift</td></tr>

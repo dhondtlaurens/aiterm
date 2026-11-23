@@ -209,6 +209,9 @@ import AiTermCore
         host.enabled = { [weak self] in self?.isStopped == false }
         native.onBlocked = { [weak self] id in self?.waker.wake(.taskBlocked, id: id) }
         native.onTurn = { [weak self] id in self?.waker.wake(.workerEnded, id: id) }
+        native.whilePausing = { [weak activity] words, wait in
+            if let activity { await activity.during(words, wait) } else { await wait() }
+        }
         activity.changed = { [weak self] in self?.reconcileIfIdle(); self?.changed() }
         log.enabled = { [weak self] in self?.isStopped == false }
         log.changed = { [weak self] in self?.changed() }
@@ -225,6 +228,7 @@ import AiTermCore
                             arguments: ["owner": .string(id.uuidString)], outcome: .ok, result: event, line: event)
             self.waker.wakeIfWaiting(id)
         }
+        stages.launchSoon = { [weak self] id in self?.schedule { [weak self] in await self?.stages.run(id) } }
         stages.changed = { [weak self] id, _ in
             guard let self else { return }
             self.waker.wakeIfWaiting(id)

@@ -112,7 +112,9 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         else if let issue { line = OperatorLine("needs you", look: .needsYou, tooltip: issue) }
         else if session?.lifecycle.isRetiring == true { line = OperatorLine("finishing its session", look: .acting) }
         else if session?.lifecycle.isChanging == true {
-            line = OperatorLine("starting fresh", look: .acting)
+            // A chat held for your pause stays opening for as long as you type: the row says why.
+            let waiting = session?.lifecycle == .opening && activity?.chatWaitsForPause == true
+            line = waiting ? OperatorLine(OperatorSessionKeeper.pauseWords, look: .acting) : OperatorLine("starting fresh", look: .acting)
         }
         else if !questions.isEmpty {
             line = OperatorLine("waiting on you · \(questions.count)", look: .needsYou)

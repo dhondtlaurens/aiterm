@@ -8,6 +8,10 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
     var errorDescription: String? { reason }
 }
 
+/// The chat could not open yet: you went back to typing or clicking while it was prepared. Not a failure; the
+/// keeper opens it after your next pause.
+struct OperatorOpenDeferred: Error {}
+
 /// One Operator chat, its life saved as `OperatorSession.Lifecycle`: a generation opens, and an old chat
 /// is closed, its token revoked, and then a fresh one opens (renew) or none does (retire). Retrying an
 /// opening uses the same session generation; its I/O port adopts the window and token already prepared for it.
@@ -22,12 +26,26 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
         var instructions: @MainActor () -> String? = { nil }
         var usage: @MainActor () -> UsageSnapshot = { .empty }
         var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
+        /// Holds a chat the Operator opens on its own until you pause (`PauseGate`).
+        var pause: PauseGate = .never
+        /// Whether the chat is still wanted, by the workload its owner keeps it for: a held chat whose workload
+        /// ended meanwhile stops waiting and does not open.
+        var wanted: @MainActor () -> Bool = { true }
+        /// Runs the retry that opens a held chat after your pause, owned apart from any pass.
+        var start: @MainActor (@escaping @MainActor () async -> Void) -> Task<Void, Never> = { body in Task { await body() } }
     }
     private let workspace: WorkspaceStore
     private let now: () -> Date
     private let oracleOn: () -> Bool
     private let ports: Ports
-    private var pass: UUID?
+    private var pass: UUID? {
+        didSet { if pass == nil { let ended = passEnded; passEnded = []; ended.forEach { $0.resume() } } }
+    }
+    /// Those waiting for the running pass to end: you, having chosen the chat while a pass opens it.
+    private var passEnded: [CheckedContinuation<Void, Never>] = []
+    /// Whether you chose the chat while a pass was opening it, as that pass waited for the Operator's window turn:
+    /// its open no longer waits for your pause (`OperatorChat`).
+    private(set) var chosenMeanwhile = false
     /// Each pass reports how it ended, as the Operator's `session` source.
     var failed: @MainActor (String) -> Void = { _ in }
     var succeeded: @MainActor () -> Void = {}
@@ -36,13 +54,24 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
     init(workspace: WorkspaceStore, now: @escaping () -> Date, oracleOn: @escaping () -> Bool, ports: Ports) {
         self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
     }
-    func stop() { pass = nil }
+    /// The retry that opens a chat held for your pause, while one waits.
+    private(set) var pausedRetry: Task<Void, Never>?
+    func stop() { pass = nil; pausedRetry?.cancel(); pausedRetry = nil }
     /// Keeps the chat as its workload needs it: a new generation opens, a renewal continues, and an open
     /// chat whose window was closed opens again only when `reopen` (the person chose its row, or the
-    /// Operator has something to type into it). Nothing while a retirement runs.
-    func ensure(allowPaused: Bool = false, reopen: Bool = false) async {
+    /// Operator has something to type into it). Nothing while a retirement runs. A chat the Operator opens on its own
+    /// waits for your pause (`PauseGate`) without holding the pass, so whoever awaits `ensure` is never held up;
+    /// one you `chose` opens at once.
+    func ensure(allowPaused: Bool = false, reopen: Bool = false, chose: Bool = false) async {
         guard workspace.state.operatorSession?.lifecycle.isRetiring != true else { return }
-        await transition(retire: false, allowPaused: allowPaused, reopen: reopen)
+        if chose, pass != nil {
+            // A pass under way may be opening the chat, held for the window turn: it opens it for you, and this one
+            // follows it, for a chat it did not open.
+            chosenMeanwhile = true
+            await withCheckedContinuation { passEnded.append($0) }
+            chosenMeanwhile = false
+        }
+        await transition(retire: false, allowPaused: allowPaused, reopen: reopen, chose: chose)
     }
     /// Keep source polling and its saved metadata, but retire the chat when its workload ended and the chat
     /// is `idle` (`OperatorSession.chatIsIdle`). A retirement already saved continues whatever the rule
@@ -52,11 +81,11 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
         if !session.lifecycle.isRetiring {
             guard !workspace.state.operatorHasWork, idle, session.lifecycle != .idle else { return }
         }
-        await transition(retire: true, allowPaused: true, reopen: false)
+        await transition(retire: true, allowPaused: true, reopen: false, chose: false)
     }
     /// One pass through the lifecycle, each step saved before the next effect: close before revoke, revoke
     /// before the generation increments. `retire` turns a renewal under way into a retirement.
-    private func transition(retire: Bool, allowPaused: Bool, reopen: Bool) async {
+    private func transition(retire: Bool, allowPaused: Bool, reopen: Bool, chose: Bool) async {
         guard pass == nil, workspace.canChangeWorkspace, ports.canOpen(), (allowPaused || workspace.state.operatorSession?.paused != true) else { return }
         let key = UUID(); pass = key
         defer { if pass == key { pass = nil } }
@@ -68,7 +97,8 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                 guard workspace.flush() else { return }
             }
             guard var session = workspace.state.operatorSession else { return }
-            if !retire, session.paused, session.lifecycle.isChanging { return }
+            // A chat you chose while it waited for your pause, still opening, opens though you paused the Operator.
+            if !retire, session.paused, session.lifecycle.isChanging, !(chose && session.lifecycle == .opening) { return }
             while true {
                 switch session.lifecycle {
                 case .unknown: return
@@ -89,12 +119,13 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                     guard let next = save({ $0.window = window; $0.lifecycle = .closing(then: .retire) }) else { return }
                     session = next
                 case .opening:
+                    guard chose || ports.pause.isQuiet else { return openAfterPause(allowPaused: allowPaused, reopen: reopen) }
                     let window = try await open(session)
                     guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                     workspace.mutate { state in
                         state.operatorSession?.window = window; state.operatorSession?.lifecycle = .open(since: now(), wake: nil)
                     }
-                    workspace.flush(); succeeded()
+                    workspace.flush(); endPausedRetry(); succeeded()
                     return
                 case .open(_, let wake):
                     if retire {
@@ -104,12 +135,13 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                     }
                     if session.window != nil { succeeded(); return }
                     guard reopen else { return }
+                    guard chose || ports.pause.isQuiet else { return openAfterPause(allowPaused: allowPaused, reopen: reopen) }
                     let window = try await open(session)
                     guard holds(session, pass: key, allowPaused: allowPaused) else { return }
                     workspace.mutate { state in
                         state.operatorSession?.window = window; state.operatorSession?.lifecycle = .open(since: now(), wake: wake)
                     }
-                    workspace.flush(); succeeded()
+                    workspace.flush(); endPausedRetry(); succeeded()
                     return
                 case .closing(let then):
                     if retire, then == .renew {
@@ -154,7 +186,27 @@ struct SignalOperatorCloseDeferred: Error, LocalizedError {
                     if then == .retire { succeeded(); finished(); return }
                 }
             }
+        } catch is OperatorOpenDeferred {
+            if pass == key { openAfterPause(allowPaused: allowPaused, reopen: reopen) }
         } catch { if pass == key { failed(OperationIssue.reason(of: error)) } }
+    }
+    /// The chat opened (you chose it, or a pass found you paused): a retry still waiting has nothing left to open, and
+    /// its line on the row ends with it.
+    private func endPausedRetry() { pausedRetry?.cancel(); pausedRetry = nil }
+    /// What the Operator's row says while a chat waits for your pause, also while it is still opening.
+    nonisolated static let pauseWords = "waiting for your pause to open its chat"
+    /// Opens the held chat once you have paused, as the Operator's row says meanwhile; one retry at a time. A chat no
+    /// longer wanted stops waiting, so the row's wait ends and the chat can retire.
+    private func openAfterPause(allowPaused: Bool, reopen: Bool) {
+        guard pausedRetry == nil else { return }
+        let pause = ports.pause, wanted = ports.wanted
+        pausedRetry = ports.start { [weak self] in
+            await self?.tracked(Self.pauseWords) { await pause.quiet(while: wanted) }
+            guard let self, !Task.isCancelled else { return }
+            self.pausedRetry = nil
+            guard wanted() else { return }
+            await self.ensure(allowPaused: allowPaused, reopen: reopen)
+        }
     }
     /// Starts a fresh conversation for an open, idle chat whose context is due for it.
     func freshIfDue(contextTokens: Int?, idle: Bool) async {

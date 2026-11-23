@@ -561,14 +561,16 @@ class ItermBridge:
             await win.async_activate()
 
     async def _keep_behind(self, win: iterm2.Window, before: tuple[bool, str | None]) -> None:
-        """iterm2's docs say a brand-new window is always ordered front, even unselected: it lands on top of the
-        window you were working in, whether or not it also took keyboard focus. With iTerm2 the active app and
-        another window key before, as the tick before the create read them, that window is ordered front again,
-        with keyboard focus should the new one have taken it, before the agent command is typed. With iTerm2 not
-        the active app, nothing is activated: that would bring iTerm2 forward."""
-        active, previous = before
+        """iTerm2 makes a brand-new window key and orders it front even unselected (`-[PseudoTerminal insertTab:]`
+        with one tab): it lands on top of the window you were working in and takes its keys. The window that had
+        keyboard focus, as the tick before the create read it, is activated again before the agent command is
+        typed. Also with iTerm2 not the active app: the new window would otherwise be the one your keys land in
+        when you switch back. Activating a window does not activate iTerm2: probed live, with another app in
+        front iTerm2 stays behind it and its windows keep their order, and switching back finds your window key.
+        Only that one window is ordered back: others the new window covers stay covered."""
+        _active, previous = before
         tree = self._tree
-        if not active or previous is None or previous == win.window_id or tree is None:
+        if previous is None or previous == win.window_id or tree is None:
             return
         if (back := tree.get_window_by_id(previous)) is not None:
             log.info("Window %s opened in the background; ordering window %s back in front of it", win.window_id, previous)
