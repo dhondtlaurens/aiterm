@@ -149,11 +149,14 @@ merge request still ends the stage, as it does today.
 - **Saved format**: focused tests that a signal and task saved before this change decode unchanged, that the new
   `Source` cases and `run` kind round-trip, and that an unknown kind stays unknown; `SignalSavedFormatTests` and
   `SignalOperatorContractTests` fixtures updated deliberately with provenance.
-- **App tests**: the scheduler with a fake clock driving a full journey on fakes: a firing starts a task in the
-  project, a second firing while it works is skipped, the Operator's `finish_stage(done)` with Oracle agreement
-  finishes it and Then runs; with Merge it when it's ready, an agreed done waits for AiTerm's merge and the
-  hand-back before it ends; a run whose merge request another signal continues still blocks that schedule's next firing; Oracle critique, three disagreements and Oracle off route as described; Write cron's
-  retry on a refused answer.
+- **App tests**: the scheduler with a fake clock driving a journey on fakes: a firing starts a task in the project,
+  a second firing while it works is skipped, and after two missed times only the latest runs (the run is marked
+  finished directly). The Operator Done's own tests (`SignalOperatorDoneTests`): the Oracle's agreement finishes the
+  stage (its Then is the existing path from done); a critique, three disagreements, the Oracle off or calling for the
+  person route as described, and only the person's yes to this stage's done finishes it; with Merge it when it's
+  ready, an agreed done waits for AiTerm's merge, read from the host, and the next agreed done ends it. A run another
+  signal continues still blocks its schedule's next firing (`ScheduleDecisionTests`); Write cron retries a refused
+  answer once.
 - **Snapshots** of every new sheet state, compared against the proposal's mocks.
 - **Gate**: `scripts/test.sh`, then before merge the full-suite proof from `docs/workflow/project.md`.
 - **Opt-in**: `SignalOperatorEvalRunner` (`AITERM_LIVE_OPERATOR=1`, spends quota) rerun once for the changed brief, on
@@ -162,19 +165,46 @@ merge request still ends the stage, as it does today.
 
 ## To-dos
 
-- [ ] Cron: parser, next/latest, plain reading, with `CronTests`.
-- [ ] Saved shape: `Source.schedule` / `.operator`, `project`, `scheduledFrom`, `ItemRef.run`, the schedule cursor, with
+- [x] Cron: parser, next/latest, plain reading, with `CronTests`.
+- [x] Saved shape: `Source.schedule` / `.operator`, `project`, `scheduledFrom`, `ItemRef.run`, the schedule cursor, with
       the decode-compatibility tests, and every exhaustive switch over them adapted in this same step
       (`ItemProjectMapper`, `SignalConnections`, `ProviderIcon.source(of:)`, the sheet's labels and marks), so the project
       still builds.
-- [ ] Scheduling rule: `ScheduleDecision`, `MatchDecision` for runs and `SignalTask.scheduledRun`, with their tests.
-- [ ] Scheduler wiring: `SignalScheduler`, `ItemRouter.makeTask` for runs, registration and `scheduledFrom`; journey
-      test with a fake clock (Done still a GitLab query).
-- [ ] Operator Done: `DoneCheck`, host reads, `finish_stage` rounds with the Oracle and the person, brief and tool
+- [x] Scheduling rule: `ScheduleDecision`, `MatchDecision` for runs and `SignalTask.scheduledRun`, with their tests.
+- [x] Scheduler wiring: `SignalScheduler`, `ItemRouter.makeTask` for runs, registration and `scheduledFrom`; journey
+      test with a fake clock.
+- [x] Operator Done: `DoneCheck`, host reads, `finish_stage` rounds with the Oracle and the person, brief and tool
       schema in `daemon/aitermd/signal_tools.json`, the completion `OracleLaunch.Question`, contract fixtures with
       provenance; tests for the question's rounds and verdicts, and journey tests including an agreed done with Merge
       it when it's ready on and an open merge request.
-- [ ] Write cron: writer prompt and runner check.
-- [ ] Sheets: Starts on, schedule fields and Next runs, Done when, Prompt, Name help, summaries; snapshots.
-- [ ] Sidebar tooltip (`SignalSidebar` data, `HeadingValue` text) and Operator digest.
-- [ ] Docs: `docs/operators.md`; design system synced once shipped (proposal removed, Components updated).
+- [x] Write cron: writer prompt and runner check.
+- [x] Sheets: Starts on, schedule fields and Next runs, Done when, Prompt, Name help, summaries; snapshots.
+- [x] Sidebar tooltip (`SignalSidebar` data, `HeadingValue` text) and Operator digest.
+- [ ] Docs: `docs/operators.md` (done); design system synced once shipped (proposal removed, Components updated).
+
+## Built
+
+Details settled while building, inside the approach above:
+
+- The overlap and project checks live in `ScheduleDecision`; `MatchDecision` only makes sure a run never
+  continues a task and has a project.
+- A run's cursor keeps it from starting twice, so `signalSeen` records no started run, and keeps only a
+  signal's latest skipped run, for the tooltip; nothing grows with a frequent schedule.
+- A run's branch keeps its suffix whole in the worktree directory too (`worktreeSlug` also cuts at 48), so
+  the name's slug is cut to fit both.
+- A scheduled signal with a Jira Done is invalid, not only refused by the sheet.
+- Cron reads its fields on the Gregorian calendar in the Mac's time zone, whatever the Mac's calendar preference.
+- With merge when ready on, a host AiTerm cannot read refuses an agreed Operator done rather than finishing it unmerged.
+- The person's yes counts only for the question finish_stage names (`questionKey`) when it sends this stage's done to
+  them; a no closes that question, so a later done is asked again under a new one.
+- Where a daylight-saving change skips midnight, a midnight run fires at the change.
+- The branch suffix's time is UTC, so a change of the Mac's time zone never repeats a branch; the title keeps the
+  local time.
+- With merge when ready, an agreed Operator done asks the host whether the branch has an open merge request, before
+  the Oracle is asked, rather than trusting what the watch has saved; only a merge the host confirmed counts as
+  AiTerm's.
+- The digest's Done line carries `doneLooksLike` for an Operator Done, and `nextRuns` per schedule.
+- The schedule journey test uses an Operator Done and marks its run finished directly to reach the catch-up; the
+  Operator Done's own finishing, with the Oracle, the person and merge when ready, is proven in `SignalOperatorDoneTests`.
+- The new sheet snapshots are drawn after the existing ones, so no earlier image moves.
+

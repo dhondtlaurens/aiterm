@@ -441,7 +441,7 @@
   },
   {
     "name": "finish_stage",
-    "description": "Record a stage result with evidence. Done hands the stage to its Done trigger, which AiTerm checks against the task's own ticket or merge request. Pending stages outrank Then.",
+    "description": "Record a stage result with evidence. Done hands the stage to its Done trigger, which AiTerm checks against the task's own ticket or merge request. Where the Operator decides the stage's Done (done.source operator), done goes to the Oracle with your evidence first, up to three rounds, and finishes the stage once it or the person agrees. Pending stages outrank Then.",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,
@@ -474,6 +474,14 @@
         "evidence": {
           "type": "string",
           "description": "evidence"
+        },
+        "challengeId": {
+          "type": "string",
+          "description": "The challengeId of the Oracle's last critique of this stage's done; only where the Operator decides its Done."
+        },
+        "fromQuestion": {
+          "type": "string",
+          "description": "The questionKey finish_stage gave when it sent this stage's done to the person, recorded with ask_you and answered yes; only where the Operator decides its Done."
         }
       },
       "required": [

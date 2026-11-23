@@ -26,6 +26,18 @@ struct SignalWorld {
         state.signals.append(signal)
         return signal.id
     }
+    /// A schedule on `cron` in the world's project, done when the Operator decides unless `done` says otherwise, with
+    /// `scheduledFrom` at `from` (the world's now unless given).
+    @discardableResult mutating func scheduled(name: String = "Weekly dependency update", cron: String = "0 9 * * 1",
+                                               done: SignalTrigger = SignalTrigger(source: .operator, query: ""),
+                                               from: Date? = nil, then: SignalFinish.Then = .keep, merges: Bool = false) -> UUID {
+        let signal = Signal(name: name, createdAt: from ?? now,
+                            start: SignalTrigger(source: .schedule, query: cron, project: project.id), done: done,
+                            work: SignalWork(prompt: "Update the dependencies", ticketDescription: false, requestDescription: false),
+                            agents: [Self.agent], finish: SignalFinish(then: then, mergesWhenReady: merges), scheduledFrom: from ?? now)
+        state.signals.append(signal)
+        return signal.id
+    }
     func ticket(_ key: String = "PAY-1") -> SignalItem {
         let ticket = JiraTicket(key: key, summary: "Make retries safe", description: "Use an idempotency key.",
                                 issueType: "Task", status: "To Do", url: "https://jira.example/browse/" + key)

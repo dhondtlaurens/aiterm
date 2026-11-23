@@ -1,9 +1,10 @@
 # Operator
 
 The Operator watches signals and drives their tasks in real iTerm2 windows. A signal has a Start
-and a Done trigger, each a query on Jira, GitLab or GitHub. When an item starts to match the Start
-query, AiTerm starts a task in an existing project and gives its worker your prompt. Polling itself
-uses no model tokens.
+and a Done trigger. It starts on an item a Jira, GitLab or GitHub query finds, or on a schedule; it
+is done when a query matches that item, or when the Operator decides. When an item starts to match
+the Start query, or a schedule's time comes, AiTerm starts a task in an existing project and gives
+its worker your prompt. Polling and schedules use no model tokens.
 
 The Operator keeps one Claude Code chat while it has unfinished tasks. Its row is first under
 **Operator**; click it to open the chat. The chat reads your project folders without adding them to
@@ -13,7 +14,8 @@ opens it again, and a wake for the Operator reopens it. When the workload finish
 and its row disappears. Configured signals keep polling without a chat; the next match starts a
 fresh one. Each signal is a heading like a project, with the same task rows underneath. Fold a
 signal to see its status counts, its finished tasks in a green chip of their own, or hover its heading
-for its Start and Done queries, skipped items and source failures.
+for its Start and Done triggers (a schedule in words, with its next run), skipped items and source
+failures.
 
 The **Operator** and **Projects** sections fold into each other, one open at a time: click either
 heading to switch. Projects are open by default, so the Operator stays one folded line until you
@@ -35,16 +37,20 @@ section, and a notification or Focus View opens whichever section holds the row 
 Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five steps are:
 
 1. **Signal:** name it. The name is its heading under **Operator**.
-2. **Starts when:** the Start trigger. **Reads** picks Jira, GitLab or GitHub; that source decides
+2. **Starts when:** the Start trigger. **Starts on** picks **An item** or **A schedule** (see
+   [Schedules](#schedules)). For an item, **Reads** picks Jira, GitLab or GitHub; that source decides
    whether a task is about a ticket or a merge request. **Describe it** takes what you want in your
    own words, and its **Write JQL** (**Write GitLab query**, **Write GitHub query**) button has
    Claude write the query from it (see [Write a query](#write-a-query)). The query field below it
    is what runs: edit what Claude wrote, or type your own. A query AiTerm refuses says why under
    the field. The preview lists up to four matching items with their projects, warns about an item
-   no project matches, and counts what starts when you create the signal.
+   no project matches, and counts what starts when you create the signal. For a schedule,
+   **Describe it** and **Write cron** write the **Cron** field, **Project** is where each run starts,
+   and **Next runs** lists the next four times in place of the preview.
 3. **Prompt:** say what each worker does, including its checks. For example, `/psg:plan, then
    /psg:implement and /psg:review`. Description checkboxes add only the ticket and/or merge request
-   description, quoted as data beneath your prompt. `/` offers installed skills.
+   description, quoted as data beneath your prompt; a scheduled signal has none, since a run has no
+   ticket or merge request. `/` offers installed skills.
 4. **Agents:** list the permitted Agent · Model · Reasoning rows. With one row every task uses it.
    With several, the Operator’s activity caption shows that it is choosing the task’s agent while it proposes
    a row with a one-line reason, weighing the item, your prompt, the project, weekly usage per
@@ -54,9 +60,13 @@ Choose **File › New Signal…** (⌘S), or the Operator heading's +. Its five 
    the first row in your list does, and only then may AiTerm still move to the other agent at 80%.
    The row and its reason go into the task's journal. The choice never comes to you. A later stage
    and another work tab are chosen the same way; an existing conversation keeps its agent.
-5. **Done when:** the Done trigger, with its own **Reads**, **Describe it**, Write button and query.
-   **Merge it when it's ready** is offered where the Start trigger reads Jira or names you as
-   author or assignee. **Then** keeps, archives or removes the task; with remove, **Delete its
+5. **Done when:** the Done trigger. **Done when** picks **A query matches**, with its own **Reads**,
+   **Describe it**, Write button and query, or **The Operator decides**, with an optional **What done
+   looks like** (see [The Operator decides](#the-operator-decides)). A new scheduled signal opens on
+   The Operator decides, an item signal on A query matches. On a scheduled signal a Done query reads
+   GitLab or GitHub against the merge request its run opens; Jira is off, since a run has no ticket.
+   **Merge it when it's ready** is offered where the Start trigger reads Jira, names you as author or
+   assignee, or is a schedule. **Then** keeps, archives or removes the task; with remove, **Delete its
    branch once merged** is offered. The closing box states what your choices do.
 
 Every step has **Cancel**; Escape closes an open list, otherwise it cancels. A disabled **Continue**
@@ -142,6 +152,31 @@ Some review conventions as queries:
 | Handed to you in review | Jira `assignee = currentUser() AND status = "In Review"` | Jira `assignee != currentUser()` |
 | Review requested on GitHub | GitHub `is:pr is:open user-review-requested:@me draft:false` | GitHub `-user-review-requested:@me` |
 
+## Schedules
+
+**A schedule** starts a signal at the times its cron names, with no item: each firing is a new task
+in the signal's project, titled with its scheduled time (`Weekly dependency update · 23 Nov 2026
+09:00`), on a branch of its own. The branch is the signal name's slug cut short, then the first six
+characters of the signal's id and the time in UTC (`feat/weekly-dependency-update-1a2b3c-20261123-0800`), so
+two runs, or two signals of one name, never share a branch or worktree. A run never continues another
+task, though a later signal may continue a run's task, its merge request matching, say.
+
+**One run at a time.** A time that comes while the signal's last run is unfinished is skipped, with
+its reason in the heading's tooltip and the activity log; the run stays the signal's, whichever
+signal's stage it runs now. **Missed times run once.** With AiTerm closed, the Mac asleep or the
+Operator paused at the time, the most recent missed time starts when it is back and older ones are
+dropped. Times before the signal was created, switched on or its cron changed never start, so
+nothing starts when you create it. Each signal keeps the last time it fired or skipped, saved with
+the task it starts, so a restart never starts one time twice.
+
+The cron has five fields: minute, hour, day of month, month and weekday, each `*`, a value, a range
+(`1-5`), a list (`1,15`) or a step (`*/15`), with month and weekday names (`JAN`, `MON`); Sunday is
+`0` or `7`. When both day fields are restricted, a day matching either one runs. There are no
+seconds, `@` names or `L`, `W` and `#`. Times are your Mac's time zone: a time a daylight-saving
+change skips runs at the change, and a time it repeats runs once. **Write cron** works as the other
+Write buttons do (see [Write a query](#write-a-query)), with the current date, time and time zone;
+AiTerm checks the answer with its own parser.
+
 ## One item keeps one task
 
 A ticket key, merge request or matching branch identifies existing work. A later signal continues
@@ -220,11 +255,24 @@ work: a review posted during its turn ends the stage at the first read after it.
 that is closed, or merged by anyone but AiTerm, is always done. An unreadable host is unknown and
 never counts as done.
 `finish_stage` records a stage's outcome for the Operator; only the Done trigger, or a merge or
-close, ends the stage. While a stage waits, its row's line is the Done trigger's description, or
+close, ends the stage, except where the Operator decides the Done. While a stage waits, its row's line is the Done trigger's description, or
 its query when it has none.
 
-Automatic merging requires **Merge it when it's ready**, offered where the Start trigger reads Jira
-or names you as author or assignee. Workers never merge, so this is the only way a signal merges,
+### The Operator decides
+
+A Done of **The Operator decides** has no query. When the worker ends its turn, the Operator judges
+whether the prompt's work is done, guided by **What done looks like** (empty means the prompt's work
+is complete), and its `finish_stage` done goes to the Oracle with its evidence and the worker's last
+turn, for up to three rounds per stage, as a worker answer does. The Oracle's yes finishes the stage
+and its Then runs; a critique goes back to the Operator. If they still disagree after three rounds,
+either calls it your decision, or the Oracle is off or unavailable, the Operator asks you in its chat,
+and your yes finishes it. A merge request that is closed, or merged by anyone but AiTerm, still ends
+the stage. With **Merge it when it's ready** and an open merge request AiTerm has not merged, an
+agreed done waits for the merge: AiTerm merges, hands the stage back to its worker, and the next
+agreed done ends it. With no merge request, an agreed done finishes.
+
+Automatic merging requires **Merge it when it's ready**, offered where the Start trigger reads Jira,
+names you as author or assignee, or is a schedule. Workers never merge, so this is the only way a signal merges,
 and it never applies to a review task. An opted-in stage merges once the host says the request can
 be merged, with approvals, green checks, resolved threads and the local head pushed, then the
 Oracle's explicit yes, an unchanged local/host head and the host's confirmation that it merged.

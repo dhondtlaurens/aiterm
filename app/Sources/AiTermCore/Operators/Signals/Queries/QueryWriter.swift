@@ -1,7 +1,7 @@
 import Foundation
 
-/// What Claude is asked when the person presses Write JQL (Write GitLab query, Write GitHub query): one query in the
-/// trigger source's syntax, from the person's own description, with the syntax, worked examples and what AiTerm knows
+/// What Claude is asked when the person presses Write JQL (Write GitLab query, Write GitHub query, Write cron): one query
+/// in the trigger source's syntax, from the person's own description, with the syntax, worked examples and what AiTerm knows
 /// of the accounts and projects. And the query read back from its answer.
 public enum QueryWriter {
     public enum Trigger: Equatable, Sendable { case start, done }
@@ -16,10 +16,12 @@ public enum QueryWriter {
         public var statuses: [String], labels: [String]
         /// The AiTerm projects' remotes, as host and path (`gitlab.example.com/shop/webshop`).
         public var remotes: [String]
+        /// For a cron: the time it is written and the Mac's time zone, so "tomorrow" or "in an hour" mean something.
+        public var now: Date?, timeZone: TimeZone?
         public init(jiraUser: String? = nil, gitLabUser: String? = nil, gitHubUser: String? = nil, jiraProjects: [JiraProjectRef] = [],
-                    statuses: [String] = [], labels: [String] = [], remotes: [String] = []) {
+                    statuses: [String] = [], labels: [String] = [], remotes: [String] = [], now: Date? = nil, timeZone: TimeZone? = nil) {
             self.jiraUser = jiraUser; self.gitLabUser = gitLabUser; self.gitHubUser = gitHubUser; self.jiraProjects = jiraProjects
-            self.statuses = statuses; self.labels = labels; self.remotes = remotes
+            self.statuses = statuses; self.labels = labels; self.remotes = remotes; self.now = now; self.timeZone = timeZone
         }
 
         /// The linked Jira projects and the remotes of `projects`, each once.
@@ -62,6 +64,11 @@ public enum QueryWriter {
         Example(description: "Pull requests where my review is requested, no drafts", source: .gitHub, trigger: .start,
                 query: "is:pr is:open user-review-requested:@me draft:false"),
         Example(description: "When I've reviewed it", source: .gitHub, trigger: .done, query: "-user-review-requested:@me"),
+        Example(description: "Every Monday at 9am", source: .schedule, trigger: .start, query: "0 9 * * 1"),
+        Example(description: "Weekdays at half past eight", source: .schedule, trigger: .start, query: "30 8 * * 1-5"),
+        Example(description: "Every 15 minutes during working hours on weekdays", source: .schedule, trigger: .start, query: "*/15 9-17 * * 1-5"),
+        Example(description: "The first of every month at midnight", source: .schedule, trigger: .start, query: "0 0 1 * *"),
+        Example(description: "Sunday evenings at ten", source: .schedule, trigger: .start, query: "0 22 * * 0"),
     ]
 
     /// How many statuses and labels the prompt names at most: enough to pick from, short of a long Jira's every one.
@@ -123,12 +130,18 @@ public enum QueryWriter {
         case .jira: "JQL query"
         case .gitLab: "GitLab merge request query"
         case .gitHub: "GitHub pull request query"
+        case .schedule: "cron expression"
+        case .operator: "description of done"
         case .unknown(let value): value + " query"
         }
     }
 
     private static func purpose(source: SignalTrigger.Source, trigger: Trigger) -> String {
-        let item = switch source { case .jira: "ticket"; case .gitHub: "pull request"; case .gitLab, .unknown: "merge request" }
+        if source == .schedule {
+            return "It is a schedule: at each time it names, AiTerm starts a new task for the signal, in the time zone of the "
+                + "person's Mac. A time the person leaves vague takes the usual working reading (\"in the morning\" is 9:00)."
+        }
+        let item = switch source { case .jira: "ticket"; case .gitHub: "pull request"; case .gitLab, .schedule, .operator, .unknown: "merge request" }
         switch trigger {
         case .start:
             return "It is a Start query: AiTerm runs it every minute, and each \(item) it lists starts a task, or continues one when it "
@@ -177,6 +190,16 @@ public enum QueryWriter {
             repo:owner/name. @me is the person. AiTerm adds two tokens it checks itself: threads:waiting-on-me (an unresolved \
             thread whose last comment is someone else's) and threads:resolved (no unresolved thread); both may be negated.
             """
+        case .schedule:
+            return """
+            Standard cron: five fields separated by spaces, minute (0-59), hour (0-23), day of month (1-31), month (1-12 or \
+            JAN-DEC) and weekday (0-6 or SUN-SAT, Sunday is 0 or 7). Each field is * (every value), a value, a range (1-5), a \
+            list (1,15) or a step (*/15, 9-17/2). When both day fields are restricted, a day matching either one runs, so \
+            "the first of the month or any Friday" is 0 9 1 * 5; restrict only one where both must hold. No seconds field, \
+            no @daily or other @ names, no L, W, # or ?.
+            """
+        case .operator:
+            return "No query: the Operator decides."
         case .unknown:
             return "This version of AiTerm cannot read this source."
         }
@@ -207,7 +230,14 @@ public enum QueryWriter {
                 lines.append("Repositories of the person's AiTerm projects, by \(gitHub ? "repo:" : "project:") path: "
                              + paths.joined(separator: ", ") + ".")
             }
-        case .unknown:
+        case .schedule:
+            if let now = context.now {
+                let zone = context.timeZone ?? .current
+                var format = Date.FormatStyle(date: .complete, time: .shortened, locale: Locale(identifier: "en_GB"), timeZone: zone)
+                format.calendar = Calendar(identifier: .gregorian)
+                lines.append("Now: \(now.formatted(format)), time zone \(zone.identifier).")
+            }
+        case .operator, .unknown:
             break
         }
         return lines.isEmpty ? "Nothing beyond the description." : lines.joined(separator: "\n")

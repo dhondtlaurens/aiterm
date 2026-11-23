@@ -23,6 +23,8 @@ import AiTermCore
         var wakeUnread: @MainActor () -> Bool = { false }
         /// A global `run_status` read every outstanding wake.
         var acknowledgeWake: @MainActor () -> Void = {}
+        /// Whether the task's branch has an open merge request on its host now (`SignalHostIO.hasOpenRequest`).
+        var openRequest: @MainActor (TaskItem) async throws -> Bool = { _ in false }
     }
     let workspace: WorkspaceStore
     let stages: StageRunner

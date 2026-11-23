@@ -261,3 +261,32 @@ import Testing
         #expect(gate.reply("I think it is fine") == .unclear("the Oracle gave no clear answer"))
     }
 }
+
+/// The Operator Done's own check: bound to finish_stage, three rounds, and its answers read as agree, critique or the
+/// person's decision; never `secondOpinion`, which allows one round and reads every answer as agreement.
+@Suite struct OracleCompletionQuestionTests {
+    static let check = OracleLaunch.CompletionCheck(item: "run of 23 Nov 2026 09:00", title: "Weekly dependency update · 23 Nov 2026 09:00",
+                                                    brief: "Update the dependencies", doneLooksLike: "", evidence: "MR !7 is open and green",
+                                                    workerTurn: "Opened !7.")
+
+    @Test func itIsBoundToFinishStageForThreeRounds() {
+        let question = OracleLaunch.Question.completion(Self.check)
+        #expect(question.tool == "finish_stage" && question.rounds == 3)
+    }
+
+    @Test func itReadsAgreementCritiqueAndThePersonsDecision() {
+        let question = OracleLaunch.Question.completion(Self.check)
+        #expect(question.reply("YES, the tests pass.") == .agreed("YES, the tests pass."))
+        #expect(question.reply("NO: the lockfile was not updated.") == .critique("NO: the lockfile was not updated."))
+        #expect(question.reply("PERSON: whether to skip the major bump is theirs.") == .person("PERSON: whether to skip the major bump is theirs."))
+        #expect(question.reply("Looks fine to me.") == .unclear("The Oracle gave no clear agreement."))
+    }
+
+    @Test func itsPromptQuotesTheBriefTheEvidenceAndTheDiscussion() throws {
+        let prompt = try OracleLaunch.Question.completion(Self.check).prompt(discussion: ["Operator: done", "Oracle: NO, lockfile"])
+        #expect(prompt.contains("judgement that a worker's stage is done"))
+        #expect(prompt.contains(#""brief":"Update the dependencies""#) && prompt.contains(#""evidence":"MR !7 is open and green""#))
+        #expect(prompt.contains(#""doneLooksLike":"The brief's work is complete.""#))
+        #expect(prompt.contains("Oracle: NO, lockfile") && prompt.contains(#""workerTurn":"Opened !7.""#))
+    }
+}
