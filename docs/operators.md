@@ -11,7 +11,18 @@ its session, so it opens without asking you to trust a folder, your home folder 
 the chat's window asks nothing: choosing the row
 opens it again, and a wake for the Operator reopens it. When the workload finishes, the chat closes
 and its row disappears. Configured signals keep polling without a chat; the next match starts a
-fresh one. Each signal is a heading like a project, with the same task rows underneath. Fold a
+fresh one.
+
+A window the Operator opens on its own, its chat or a stage's worker window, waits until you have
+paused: five seconds without a key or a click while iTerm2 or AiTerm is in front. iTerm2 makes a new
+window key and puts it in front even when asked not to, so one opened while you type would take your
+keys. The row says `waiting for your pause to open …` meanwhile; there is no limit. A worker checks
+again just before its window opens, after closing the worker it replaces, and the chat after it is
+prepared. Choosing the chat's row opens it at once, and a worker's tab in a window that is already
+open never waits: iTerm2 keeps that tab behind. Once the window is open, the window you were in is
+brought back in front; others it covered stay covered.
+
+Each signal is a heading like a project, with the same task rows underneath. Fold a
 signal to see its status counts, its finished tasks in a green chip of their own, or hover its heading
 for its Start and Done queries, skipped items and source failures.
 

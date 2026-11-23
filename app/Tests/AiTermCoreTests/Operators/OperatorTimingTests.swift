@@ -10,6 +10,7 @@ import Foundation
         #expect(OperatorTiming.gateTimeout == 200)
         #expect(OperatorTiming.operatorRequestTimeout == 30)
         #expect(OperatorTiming.openingGrace == 180)
+        #expect(OperatorTiming.pauseBeforeOpening == 5)
     }
 
     /// The daemon spells the same constants in `aitermd/delivery.py` (part A): each shared value
