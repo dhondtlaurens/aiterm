@@ -44,20 +44,23 @@ struct SignalSheet: View {
         switch step {
         case SignalModel.nameStep:
             HelpText(Text("A signal starts tasks for you. ").fontWeight(.semibold)
-                     + Text("It has two triggers: when a task starts, and when it is done. Each one reads Jira, GitLab or GitHub."))
+                     + Text("It starts on an item a query finds in Jira, GitLab or GitHub, or on a schedule. It is done when a query matches, or when the Operator decides."))
             FormField("Name") {
                 Input(placeholder: "Name the signal", text: $model.name)
                 HelpText("Its heading under Operator in the sidebar.")
             }
         case SignalModel.startStep:
             SignalTriggerStep(model: model, start: true)
-            if model.startRefusal == nil { SignalMatchPreview(model: model) }
+            if model.startRefusal == nil, !model.isScheduled { SignalMatchPreview(model: model) }
         case SignalModel.agentsStep: AgentsStep(model: model)
         case SignalModel.promptStep:
+            // A run has no ticket or merge request to describe.
             PromptStep(text: $model.prompt, agent: .claude, completions: model.completions, label: "Prompt",
-                       placeholder: "Describe what the worker does with each \(model.start.source == .jira ? "ticket" : "merge request").",
+                       placeholder: model.isScheduled ? "Describe what the worker does on each run."
+                           : "Describe what the worker does with each \(model.start.source == .jira ? "ticket" : "merge request").",
                        help: "Start to end, including how the work is checked. Type / for skills, @ for files.") {
-                if model.start.source == .jira { ticketToggle; requestToggle }
+                if model.isScheduled { EmptyView() }
+                else if model.start.source == .jira { ticketToggle; requestToggle }
                 else { requestToggle; ticketToggle }
             }
         default: SignalDoneStep(model: model)

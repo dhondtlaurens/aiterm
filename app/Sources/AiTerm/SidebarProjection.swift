@@ -58,6 +58,8 @@ enum ChipTarget: Hashable {
     private(set) var operatorOpen = false
     private(set) var operatorPaused = false
     private(set) var operatorHeading = SectionFold()
+    /// The clock a schedule's next run is read against.
+    @ObservationIgnored var now: () -> Date = Date.init
     private(set) var projectsHeading = SectionFold()
     @ObservationIgnored private(set) var derivations = 0
     @ObservationIgnored var operatorIssue: () -> String? = { nil }
@@ -73,6 +75,7 @@ enum ChipTarget: Hashable {
     private struct Inputs: Equatable {
         var foldedRemovedSignals: Set<UUID>
         var skipped: [UUID: [String]]
+        var nextRuns: [UUID: Date]
         var failures: [String: String]
         var operatorRow: SignalOperatorRowValue
         var acts: [UUID: String]
@@ -265,7 +268,8 @@ enum ChipTarget: Hashable {
         let drawn = state.tasks.map { DrawnTask($0, state: state, questions: questions) }
         let skipped = SignalSidebar.skipped(in: state)
         let acts = operatorActs()
-        let next = Inputs(foldedRemovedSignals: foldedRemovedSignals, skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
+        let next = Inputs(foldedRemovedSignals: foldedRemovedSignals, skipped: skipped,
+            nextRuns: SignalSidebar.nextRuns(in: state, now: now()), failures: state.operatorSession?.sourceFailures ?? [:],
             operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity(), latestAct: acts.latest),
             acts: acts.byTask, signals: state.signals,
             operatorOpen: state.operatorOpen,
@@ -277,7 +281,8 @@ enum ChipTarget: Hashable {
         inputs = next; derivations += 1
         let all = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branches,
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
-        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts, skipped: next.skipped, foldedRemovedSignals: next.foldedRemovedSignals)
+        let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts, skipped: next.skipped, nextRuns: next.nextRuns,
+                                    foldedRemovedSignals: next.foldedRemovedSignals)
         var changed = leavingMoved || signalOperator != next.operatorRow || signalSections != sidebar.signals
             || entries != sidebar.projects
         if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }

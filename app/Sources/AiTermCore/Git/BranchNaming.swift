@@ -33,6 +33,21 @@ public enum BranchNaming {
         return " :-–".contains(next) ? String(rest) : summary
     }
 
+    /// A scheduled run's branch: `feat/` and the signal name's slug, cut so that the suffix
+    /// `-<first 6 of the signal id>-yyyymmdd-HHmm` is never cut, here or in the worktree directory (`worktreeSlug`),
+    /// which both stop at 48 characters. The id keeps two signals of one name apart; the whole time keeps each run of one
+    /// signal on a branch of its own. The time is UTC, so a change of the Mac's time zone never repeats one.
+    public static func runBranch(signalName: String, signal: UUID, at: Date) -> String {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let parts = utc.dateComponents([.year, .month, .day, .hour, .minute], from: at)
+        let suffix = String(signal.uuidString.lowercased().prefix(6)) + "-"
+            + String(format: "%04d%02d%02d-%02d%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
+        var name = String(slug(signalName).prefix(48 - suffix.count - 1))
+        while name.hasSuffix("-") { name.removeLast() }
+        return BranchType.feat.rawValue + "/" + (name.isEmpty ? "run" : name) + "-" + suffix
+    }
+
     /// The worktree directory for `branch`, less its type: `feat/login` works in `.worktrees/login`.
     public static func worktreeSlug(branch: String) -> String {
         let withoutPrefix = branch.split(separator: "/").dropFirst().joined(separator: "-")

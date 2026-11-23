@@ -78,6 +78,10 @@ extension SignalConnections {
     /// Whether `query` runs as a Start (`start`) or Done query of `source`: AiTerm's own reading first, then Jira's strict
     /// parse for JQL and one page of GitHub's search for a GitHub query. GitLab's syntax is AiTerm's alone.
     func check(_ source: SignalTrigger.Source, start: Bool, query: String) async -> QueryWriterRunner.Check {
+        // A cron is AiTerm's alone; its project is chosen apart from it.
+        if source == .schedule {
+            do { _ = try Cron(query); return .passed } catch { return .refused(error.message) }
+        }
         if let refusal = SignalTrigger(source: source, query: query).refusal(start: start) { return .refused(refusal.message) }
         switch source {
         case .jira:
@@ -94,7 +98,7 @@ extension SignalConnections {
             } catch GitHubError.refused(let why) {
                 return .refused(why)
             } catch { return .unchecked("GitHub couldn’t check it. " + OperationIssue.reason(of: error)) }
-        case .gitLab, .unknown:
+        case .gitLab, .schedule, .operator, .unknown:
             return .passed
         }
     }
@@ -112,6 +116,7 @@ extension SignalConnections {
         var context = QueryWriter.Context(projects: projects)
         context.jiraUser = await jiraUser; context.statuses = await statuses ?? []; context.labels = await labels ?? []
         context.gitLabUser = await gitLabUser; context.gitHubUser = await gitHubUser
+        context.now = Date(); context.timeZone = .current
         return context
     }
 

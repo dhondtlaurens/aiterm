@@ -46,6 +46,16 @@ import AiTermCore
     }
     @ObservationIgnored var loadCompletions: @MainActor () async -> Void = {}
     @ObservationIgnored var checkReadiness: @MainActor () async -> Void = {}
+    /// The clock and calendar a schedule's next runs are read on: the Mac's own, fixed by a rendering fixture.
+    @ObservationIgnored var now: () -> Date = Date.init
+    @ObservationIgnored var calendar = Calendar.autoupdatingCurrent
+    /// Each kind's trigger as it was left when the person switched to the other, so switching back restores it.
+    @ObservationIgnored private var parkedItemStart = SignalTrigger(source: .jira, query: "")
+    @ObservationIgnored private var parkedSchedule = SignalTrigger(source: .schedule, query: "")
+    @ObservationIgnored private var parkedQueryDone = SignalTrigger(source: .jira, query: "")
+    @ObservationIgnored private var parkedOperatorDone = SignalTrigger(source: .operator, query: "")
+    /// Whether the person chose Done when themselves; until then a new signal's Done follows its Starts on.
+    @ObservationIgnored private var doneChosen = false
 
     init(signal: Signal? = nil, projects: [Project], context: SignalContext, seen: [SignalSeen] = [], at: Date = Date(),
          preview: @escaping @MainActor (SignalTrigger) async throws -> SignalRead = { _ in SignalRead(items: [], complete: true) },
@@ -68,6 +78,56 @@ import AiTermCore
     }
     /// Whether the sheet edits a saved signal rather than making a new one.
     var isEditing: Bool { original != nil }
+
+    /// Starts on: an item a query finds, or a schedule.
+    enum StartKind: Hashable { case item, schedule }
+    /// Done when: a query matches, or the Operator decides.
+    enum DoneKind: Hashable { case query, operatorDecides }
+    var startKind: StartKind {
+        get { start.source == .schedule ? .schedule : .item }
+        set { setStartKind(newValue) }
+    }
+    var doneKind: DoneKind {
+        get { done.source == .operator ? .operatorDecides : .query }
+        set { doneChosen = true; setDoneKind(newValue) }
+    }
+    var isScheduled: Bool { startKind == .schedule }
+    private func setStartKind(_ kind: StartKind) {
+        guard kind != startKind else { return }
+        switch kind {
+        case .schedule:
+            parkedItemStart = start
+            var schedule = parkedSchedule
+            if schedule.project == nil, projects.count == 1 { schedule.project = projects[0].id }
+            start = schedule
+        case .item:
+            parkedSchedule = start; start = parkedItemStart
+        }
+        // A new signal's Done follows: a schedule opens on The Operator decides, an item on A query matches.
+        if !isEditing && !doneChosen { setDoneKind(kind == .schedule ? .operatorDecides : .query) }
+        // A run has no ticket for a Jira Done query.
+        if kind == .schedule, done.source == .jira { done = SignalTrigger(source: .gitLab, description: done.description, query: "") }
+    }
+    private func setDoneKind(_ kind: DoneKind) {
+        guard kind != doneKind else { return }
+        switch kind {
+        case .operatorDecides: parkedQueryDone = done; done = parkedOperatorDone
+        case .query:
+            parkedOperatorDone = done
+            var query = parkedQueryDone
+            if isScheduled, query.source == .jira { query = SignalTrigger(source: .gitLab, description: query.description, query: "") }
+            done = query
+        }
+    }
+    /// A schedule's next four runs from now; none until its cron parses.
+    var nextRuns: [Date] {
+        guard let cron = start.cron else { return [] }
+        var runs: [Date] = [], from = now()
+        while runs.count < 4, let next = cron.next(after: from, in: calendar) { runs.append(next); from = next }
+        return runs
+    }
+    /// The project a schedule's runs start in, once chosen.
+    var scheduleProject: Project? { start.project.flatMap { id in projects.first { $0.id == id } } }
     var title: String { isEditing ? "Edit signal" : "New signal" }
     var createLabel: String { isEditing ? "Save" : "Create Signal" }
     /// What the match preview reads: the Start trigger's source and query.
@@ -76,7 +136,10 @@ import AiTermCore
     var startRefusal: QueryRefusal? { refusal(of: start, start: true) }
     var doneRefusal: QueryRefusal? { refusal(of: done, start: false) }
     private func refusal(of trigger: SignalTrigger, start: Bool) -> QueryRefusal? {
-        trigger.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : trigger.refusal(start: start)
+        guard !trigger.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        // A schedule's field says only what is wrong with its cron; Continue waits for its project as well.
+        if trigger.source == .schedule { do { _ = try Cron(trigger.query); return nil } catch { return error } }
+        return trigger.refusal(start: start)
     }
     /// Merge when ready is offered where the Start trigger's merge requests are the person's own.
     var offersMerge: Bool { start.offersMerge }
@@ -93,7 +156,8 @@ import AiTermCore
         return Signal(id: original?.id ?? id, name: name.trimmingCharacters(in: .whitespacesAndNewlines), createdAt: createdAt,
                       enabled: original?.enabled ?? true, collapsed: original?.collapsed ?? false, start: trimmed(start), done: trimmed(done),
                       work: SignalWork(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
-                                       ticketDescription: ticketDescription, requestDescription: requestDescription), agents: agents, finish: finish)
+                                       ticketDescription: ticketDescription && !isScheduled, requestDescription: requestDescription && !isScheduled),
+                      agents: agents, finish: finish, scheduledFrom: original?.scheduledFrom)
     }
     var offeredAgents: [AgentKind] { ModelChoice.pair.filter { context.defaults[$0] != nil } }
     func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
@@ -155,6 +219,8 @@ import AiTermCore
         let key = UUID(), expected = start; previewKey = key
         previewing = true; previewItems = []; startCount = nil; previewError = nil
         defer { if previewKey == key { previewing = false } }
+        // A schedule reads nothing: its next runs come from its cron.
+        guard expected.source.readsItems else { return }
         guard !expected.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             previewError = "Enter a query to check matches."; return
         }
@@ -177,6 +243,7 @@ import AiTermCore
     func canWrite(start: Bool) -> Bool {
         let trigger = start ? self.start : done
         if case .unknown = trigger.source { return false }
+        if trigger.source == .operator { return false }
         return !trigger.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     /// Asks Claude for the trigger's query from its description and puts the answer in the query field, keeping the

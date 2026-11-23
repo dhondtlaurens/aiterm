@@ -11,11 +11,18 @@ public struct Signal: Codable, Equatable, Identifiable, Sendable {
     public var work: SignalWork
     public var agents: [AgentChoice]
     public var finish: SignalFinish
+    /// A schedule's earliest time to fire: set when it is created, switched on or its schedule edited, so a time from
+    /// before then never starts a run. Nil for a signal that starts from items.
+    public var scheduledFrom: Date?
     public init(id: UUID = UUID(), name: String, createdAt: Date, enabled: Bool = true, collapsed: Bool = false,
-                start: SignalTrigger, done: SignalTrigger, work: SignalWork, agents: [AgentChoice], finish: SignalFinish) {
+                start: SignalTrigger, done: SignalTrigger, work: SignalWork, agents: [AgentChoice], finish: SignalFinish,
+                scheduledFrom: Date? = nil) {
         self.id = id; self.name = name; self.createdAt = createdAt; self.enabled = enabled; self.collapsed = collapsed
         self.start = start; self.done = done; self.work = work; self.agents = agents; self.finish = finish
+        self.scheduledFrom = scheduledFrom
     }
+    /// Whether it starts on a schedule rather than from items a query finds.
+    public var isScheduled: Bool { start.source == .schedule }
     public var isRunnable: Bool { enabled && isValid }
     /// Whether this version can run the signal as configured, switched on or not: both queries can run, Then is
     /// known, the branch is deleted only by a removal, and a merge only where the Start trigger offers one.
@@ -23,6 +30,8 @@ public struct Signal: Codable, Equatable, Identifiable, Sendable {
         guard start.isValid(start: true), done.isValid(start: false), SignalFinish.Then.allCases.contains(finish.then) else { return false }
         if finish.deletesMergedBranch && finish.then != .remove { return false }
         if finish.mergesWhenReady && !start.offersMerge { return false }
+        // A run has no ticket for a Jira query to match.
+        if isScheduled && done.source == .jira { return false }
         return true
     }
 }

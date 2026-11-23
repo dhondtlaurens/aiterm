@@ -162,3 +162,20 @@ consent, and the gate asks again for the same command. Still fourteen tools.
 - `brief.md`: two lines after "When the person answers here", edited by hand to equal `OperatorLaunch.brief`.
   The capped live evaluation was not rerun in this step.
 - `state.json` and `state-0.58.json` were not touched: the question's new `withdrawn` field is absent while nil.
+
+## Scheduled signals and the Operator Done
+
+23 Nov 2026, `docs/plans/2026-11-23-cron-signals.md`. A signal may start on a schedule (a cron, each
+firing a new task whose item is a `run`), and any signal's Done may be the Operator's: `finish_stage`
+done goes to the Oracle with the evidence, up to three rounds, and finishes once it or the person agrees.
+Still fourteen tools.
+
+- `tools.json`: `finish_stage`'s description, and its new optional `challengeId` and `fromQuestion`.
+  Edited by hand, equal to `daemon/aitermd/signal_tools.json`.
+- `brief.md`: one sentence on scheduled runs in the opening paragraph, and a paragraph on the Operator
+  Done after the finish_stage paragraph, edited by hand to equal `OperatorLaunch.brief`. The capped live
+  evaluation was not rerun in this step.
+- `state.json` and `state-0.58.json` were not touched: the new `project`, `scheduledFrom`, `scheduledRun`
+  and `scheduleCursors` fields are absent while nil or empty, and the new `schedule` and `operator`
+  sources and `run` item kind appear only in signals and tasks that use them
+  (`SignalScheduleFormatTests`).

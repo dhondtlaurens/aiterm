@@ -5,6 +5,8 @@ struct SignalSection: Equatable, Identifiable {
     var signal: Signal
     var tasks: [TaskRow]
     var skipped: [String] = []
+    /// A schedule's next run; nil for a signal that starts from items, or one that runs no more.
+    var nextRun: Date?
     var failure: String?
     var removed = false
     var id: UUID { signal.id }
@@ -21,7 +23,7 @@ struct SignalSidebar {
     var signals: [SignalSection]
     var projects: [SidebarEntry]
     init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:], skipped: [UUID: [String]] = [:],
-         foldedRemovedSignals: Set<UUID> = []) {
+         nextRuns: [UUID: Date] = [:], foldedRemovedSignals: Set<UUID> = []) {
         let held = state.tasks.filter { $0.isUnderOperator }
         let ids = Set(held.map(\.id))
         let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
@@ -38,6 +40,7 @@ struct SignalSidebar {
                 rows[task.id].map { $0.presentingOperator(task: task, state: state, act: acts[task.id]) }
             })
             section.skipped = skipped[signal.id] ?? []
+            section.nextRun = nextRuns[signal.id]
             section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
             section.removed = state.signal(id: signal.id) == nil
             section.removedFolded = foldedRemovedSignals.contains(signal.id)
@@ -52,9 +55,21 @@ struct SignalSidebar {
         }
     }
     /// Each signal's skipped items as its heading's tooltip lists them, sorted: "PAY-1: No project".
-    static func skipped(in state: AppState) -> [UUID: [String]] {
+    /// A schedule's last skipped run reads by its time: "Run of 30 Nov 2026 09:00: The last run is still unfinished."
+    static func skipped(in state: AppState, calendar: Calendar = .autoupdatingCurrent) -> [UUID: [String]] {
         Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
-            .mapValues { $0.map { ($0.item.identity ?? "Item") + ": " + ($0.reason ?? "No project") }.sorted() }
+            .mapValues { $0.map { seen in
+                let name: String
+                if case .run(let run) = seen.item { name = "Run of " + ScheduleDecision.runTime(run.at, calendar: calendar) }
+                else { name = seen.item.identity ?? "Item" }
+                return name + ": " + (seen.reason ?? "No project")
+            }.sorted() }
+    }
+    /// Each runnable schedule's next run after `now`.
+    static func nextRuns(in state: AppState, now: Date, calendar: Calendar = .autoupdatingCurrent) -> [UUID: Date] {
+        state.signals.filter { $0.isScheduled && $0.isRunnable }.reduce(into: [:]) { runs, signal in
+            runs[signal.id] = ScheduleDecision.nextRun(of: signal, cursor: state.scheduleCursors[signal.id], now: now, calendar: calendar)
+        }
     }
 }
 

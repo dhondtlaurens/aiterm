@@ -64,9 +64,23 @@ import Testing
     /// Every worked example passes the check AiTerm itself runs on its source, so the prompt never teaches a refused query.
     @Test func everyExampleIsAQueryAiTermAccepts() {
         for example in QueryWriter.examples {
-            let trigger = SignalTrigger(source: example.source, query: example.query)
+            // A schedule's project is chosen apart from its cron.
+            let trigger = SignalTrigger(source: example.source, query: example.query, project: example.source == .schedule ? UUID() : nil)
             #expect(trigger.refusal(start: example.trigger == .start) == nil, "\(example.query)")
         }
+    }
+
+    /// Write cron is told the syntax AiTerm parses, its examples, and the time and time zone it is written in.
+    @Test func theCronPromptNamesTheFieldsTheExamplesAndNow() {
+        var context = QueryWriter.Context()
+        context.now = Date(timeIntervalSince1970: 1_795_420_800)  // 23 Nov 2026 09:00 in Brussels
+        context.timeZone = TimeZone(identifier: "Europe/Brussels")
+        let prompt = QueryWriter.prompt(source: .schedule, trigger: .start, description: "Every Monday at 9am", context: context)
+        #expect(prompt.hasPrefix("You write one cron expression for a signal in AiTerm"))
+        #expect(prompt.contains("minute (0-59), hour (0-23), day of month (1-31)"))
+        #expect(prompt.contains("- Start: \"Every Monday at 9am\"\n  0 9 * * 1"))
+        #expect(prompt.contains("time zone Europe/Brussels") && prompt.contains("23 November 2026"))
+        #expect(!prompt.contains("JQL") && !prompt.contains("merge request"))
     }
 
     @Test(arguments: [

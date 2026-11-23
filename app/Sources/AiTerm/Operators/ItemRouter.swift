@@ -101,6 +101,62 @@ import AiTermCore
         for (id, event) in events { changed(id, event) }
         return Array(Set(launches)).sorted { $0.uuidString < $1.uuidString }
     }
+    /// A scheduler pass in one workspace mutation: each due run a new task in its signal's project, each skip recorded
+    /// with its reason, and every moved cursor, saved in the same flush. The ids of the tasks to launch.
+    @discardableResult func apply(schedule outcome: ScheduleDecision.Outcome, calendar: Calendar) -> [UUID] {
+        guard !(outcome.due.isEmpty && outcome.skipped.isEmpty && outcome.cursors.isEmpty), workspace.canChangeWorkspace else { return [] }
+        let at = now(), state = workspace.state
+        let matches = outcome.due.map { SignalMatch(signal: $0.signal, item: .run($0.run), project: $0.project, matchedAt: at) }
+        let decisions = MatchDecision.decide(matches: matches, signals: state.signals, tasks: state.tasks + state.archive.map(\.task),
+                                             projects: state.projects, seen: state.signalSeen, complete: true)
+        var launches: [UUID] = [], events: [(UUID, String)] = []
+        workspace.mutate { state in
+            for (signal, cursor) in outcome.cursors { state.scheduleCursors[signal] = cursor }
+            // A run's cursor, not `signalSeen`, keeps it from starting twice: only its signal's latest skip is kept, for the
+            // heading's tooltip, and a started run is not recorded at all.
+            func skipped(_ signal: UUID, _ run: SignalRunRef, _ reason: String) {
+                state.signalSeen.removeAll { seen in
+                    guard seen.signal == signal, case .run = seen.item else { return false }
+                    return true
+                }
+                state.signalSeen.append(SignalSeen(signal: signal, item: .run(run), disposition: .skipped, at: at, reason: reason))
+                events.append((signal, "Skipped the run of " + ScheduleDecision.runTime(run.at, calendar: calendar) + ": " + reason))
+            }
+            for skip in outcome.skipped { skipped(skip.signal, skip.run, skip.reason) }
+            for decision in decisions {
+                switch decision {
+                case .start(let match, _):
+                    guard case .run(let run) = match.item, let signal = state.signal(id: match.signal), let project = match.project else { continue }
+                    var task = Self.makeRunTask(run, signal: signal, project: project, at: at, calendar: calendar)
+                    task.prepareLaunch(candidates: [project], at: at)
+                    state.tasks.append(task); launches.append(task.id)
+                    events.append((task.id, "A schedule started a run due " + ScheduleDecision.runTime(run.at, calendar: calendar) + "."))
+                case .skip(let match, let reason):
+                    if case .run(let run) = match.item { skipped(match.signal, run, reason) }
+                case .continueTask: continue
+                }
+            }
+        }
+        guard workspace.flush() else { return [] }
+        for (id, event) in events { changed(id, event) }
+        return launches
+    }
+    /// A run's task: titled with its scheduled time, on a branch of its own, with the prompt alone (a run has no ticket
+    /// or merge request) and its origin kept for good.
+    nonisolated static func makeRunTask(_ run: SignalRunRef, signal: Signal, project: UUID, at: Date, calendar: Calendar) -> TaskItem {
+        let agent = signal.agents.first ?? AgentChoice(agent: .claude, model: "", reasoning: nil)
+        let title = ScheduleDecision.runTitle(signalName: signal.name, at: run.at, calendar: calendar)
+        var task = TaskItem(id: UUID(), projectId: project, title: title,
+                            branch: BranchNaming.runBranch(signalName: signal.name, signal: signal.id, at: run.at),
+                            worktreePath: "", baseBranch: "", jira: nil, kind: .task, mr: nil,
+                            agent: agent.agent, model: agent.model, reasoning: agent.reasoning, firstPrompt: nil,
+                            appendTicket: false, createdAt: at, windowId: nil)
+        let stage = SignalStage(signal: signal.id, item: .run(run), matchedAt: at, configuration: signal, prompt: signal.work.prompt)
+        var record = SignalTask(current: stage, startedAt: at)
+        record.scheduledRun = run
+        task.signalTask = record
+        return task
+    }
     nonisolated private static func prompt(signal: Signal, item: SignalItem) -> String {
         signal.work.workerPrompt(ticket: item.ticket?.description ?? (item.mergeRequest == nil ? item.description : nil),
                                  request: item.mergeRequest?.description ?? (item.ticket == nil ? item.description : nil))
@@ -125,7 +181,7 @@ import AiTermCore
     /// A ticket is always the account's own task, even once it has a merge request.
     nonisolated static func isReview(_ item: SignalItem, accountUser: String?) -> Bool {
         switch item.item {
-        case .ticket: return false
+        case .ticket, .run: return false
         case .mergeRequest:
             guard let user = accountUser else { return true }
             let yours = { (name: String?) in name?.caseInsensitiveCompare(user) == .orderedSame }

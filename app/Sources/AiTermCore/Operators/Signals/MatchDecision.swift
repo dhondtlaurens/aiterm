@@ -23,6 +23,12 @@ public enum MatchDecision: Equatable, Sendable {
             guard let identity = match.item.identity, let signal = enabled.first(where: { $0.id == match.signal }) else { continue }
             guard handled.insert(match.signal.uuidString + ":" + identity).inserted else { continue }
             let stage = SignalStage(signal: match.signal, item: match.item, matchedAt: match.matchedAt, configuration: signal)
+            // A scheduled run is always a new task in its signal's project; it never continues another.
+            if case .run = match.item {
+                if match.project != nil { decisions.append(.start(match, pending: [])) }
+                else { decisions.append(.skip(match, reason: ScheduleDecision.projectGone)) }
+                continue
+            }
             if let task = tasks.first(where: { candidate in
                 if matchesItem(match.item, task: candidate) { return true }
                 // A real Jira read can bind an existing request/manual branch before that task
@@ -61,7 +67,7 @@ public enum MatchDecision: Equatable, Sendable {
             var path = url.path
             if let split = path.range(of: "/-/merge_requests/") ?? path.range(of: "/pull/") { path = String(path[..<split.lowerBound]) }
             return ItemRef.repository("https://" + host + path) == ItemRef.repository(ref.remote)
-        case .unknown: return false
+        case .run, .unknown: return false
         }
     }
 }

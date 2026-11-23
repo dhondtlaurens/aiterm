@@ -76,13 +76,14 @@ public extension AppState {
             ([record.current.item] + record.pendingStages.map(\.item) + (record.watchedRequest.map { [ItemRef.mergeRequest($0)] } ?? [])).compactMap(\.identity)
         })
         signalSeen = SignalSeen.pruned(signalSeen, liveItems: liveItems, now: at)
+        scheduleCursors = scheduleCursors.filter { activeSignals.contains($0.key) }
         operatorSession?.questions.removeAll { question in
             guard question.resolvedAt != nil, question.workerQuestion != nil, let id = question.task else { return false }
             guard let record = records[id] else { return true }
             return question.stage != record.stage || question.ownership != record.ownership
         }
         operatorSession?.oracleRounds.removeAll { round in
-            guard [OperatorTool.answerWorker, .chooseAgent, .openTab].map(\.rawValue).contains(round.tool), let evidence = round.askedEvidence,
+            guard [OperatorTool.answerWorker, .chooseAgent, .openTab, .finishStage].map(\.rawValue).contains(round.tool), let evidence = round.askedEvidence,
                   let binding = try? JSONDecoder().decode(JSONValue.self, from: Data(evidence.utf8)),
                   let id = binding["task"]?.stringValue.flatMap(UUID.init(uuidString:)) else { return false }
             guard let record = records[id] else { return true }
