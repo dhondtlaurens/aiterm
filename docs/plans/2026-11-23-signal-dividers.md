@@ -77,7 +77,7 @@ Decided while planning: dividers go **between signals** (not a fixed rule betwee
 - **modify** `docs/design/design-system.html`, through the `design-system` skill: first a proposal on the
   Proposals tab drawing the Operator section with a divider between signal headings, before any Swift (the
   invariant in `AGENTS.md`; found in review); after implementation, the proposal removed and the Components prose
-  on `DividerRow` updated to name both sections, then published.
+  on `DividerRow` updated to name both sections. Published from a later session: reviewed locally here, as agreed.
 
 ## Proof
 
@@ -99,13 +99,14 @@ Decided while planning: dividers go **between signals** (not a fixed rule betwee
 
 ## To-dos
 
-- [ ] Proposal: the Operator section with a divider drawn on the design page's Proposals tab (`design-system`
+- [x] Proposal: the Operator section with a divider drawn on the design page's Proposals tab (`design-system`
       skill); the user picks before any Swift.
-- [ ] Model: `SignalDivider`, saved key, drawn-order compose/split, mutators, `removeSignal`; `ModelsTests` and
+- [x] Model: `SignalDivider`, saved key, drawn-order compose/split, mutators, `removeSignal`; `ModelsTests` and
       `StateStoreTests` green.
-- [ ] Projection and drawing: Operator entries with dividers, `DividerRow` wiring with Rename / Move / Remove;
+- [x] Projection and drawing: Operator entries with dividers, `DividerRow` wiring with Rename / Move / Remove;
       projection tests green.
-- [ ] Adding: Operator "+" Add Divider…, sheet section, rename target, ⌘D to the open section; controller and
+- [x] Adding: Operator "+" Add Divider…, sheet section, rename target, ⌘D to the open section; controller and
       File-menu tests green.
-- [ ] Snapshot pose, before/after compared; docs updated; design page proposal removed, Components prose updated
-      and published; plain `scripts/test.sh` green.
+- [x] Snapshot pose, before/after compared; docs updated; design page proposal removed, Components prose updated
+      (reviewed locally and left unpublished, agreed 23 Nov: the live page is too large to read back from this
+      session); plain `scripts/test.sh` green.

@@ -122,6 +122,32 @@ import Testing
         { _ = rows.entries; _ = rows.signalSections; _ = rows.terminals }
     }
 
+    /// A divider changed alone (added, renamed, moved) derives the Operator's rows again, stays off the arrow path, and
+    /// keeps the section openable once the last signal is gone, so it can still be renamed or removed.
+    @Test func aSignalDividerAloneRedrawsTheOperatorSection() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        var world = SignalWorld()
+        let a = world.signal(name: "A"), b = world.signal(name: "B")
+        controller.workspace.mutate { $0.signals = world.state.signals; $0.operatorOpen = true }
+        let rows = controller.rows
+        #expect(rows.operatorEntries.map(\.id) == [a, b])
+        let path = rows.operatorPath
+
+        let divider = UUID()
+        controller.workspace.mutate { $0.append(signalDivider: SignalDivider(id: divider, name: "Reviews")) }
+        #expect(rows.operatorEntries.map(\.id) == [a, b, divider])
+        controller.workspace.mutate { $0.move(signalDividerId: divider, .up) }
+        #expect(rows.operatorEntries.map(\.id) == [a, divider, b])
+        controller.workspace.mutate { $0.renameSignalDivider(id: divider, to: "Later") }
+        guard case .divider(let entry) = rows.operatorEntries[1] else { Issue.record("no divider"); return }
+        #expect(entry.divider.name == "Later")
+        #expect(rows.operatorPath == path)
+
+        controller.workspace.mutate { $0.removeSignal(id: a); $0.removeSignal(id: b) }
+        #expect(rows.operatorHeading.folds && rows.operatorOpen)
+        #expect(rows.operatorEntries.map(\.id) == [divider])
+    }
+
     /// A host read that found only what a merge lacks changes the waiting task's line, and nothing else.
     @Test func mergeBlockersAloneRedrawTheWaitingLine() throws {
         let controller = try controller(); defer { controller.shutdown() }

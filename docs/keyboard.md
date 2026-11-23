@@ -10,7 +10,7 @@ then cancels.
 | --- | --- | --- |
 | ⌘, | Settings… | Also View › Show Settings. Opens Integrations when setup needs attention, Agents otherwise. Disabled while another sheet is up. |
 | ⌘P | Add Project… | Asks for the folder, then opens one sheet for its Jira links and worktree import, which shows the folder as a line with Choose… to pick another. |
-| ⌘D | Add Divider… | One name field. |
+| ⌘D | Add Divider… | One name field. Adds to the open section: between projects, or, with OPERATOR open, between signals. |
 | ⌘N | New Task… | Uses the selected project or the selected row's project. |
 | ⌘R | New Review… | The same target project. |
 | ⌘T | New Terminal… | Opens a shell in the target project, including a plain folder. |
@@ -27,7 +27,7 @@ then cancels.
 Creation keys are disabled while a sheet is open or the workspace cannot change. A task/review
 needs a compatible project; a terminal also accepts a plain folder. Row menus keep Rename, Open in…,
 Pull, Archive and Remove. The Operator heading's context menu has Pause Operator, or Resume Operator
-while paused; its + has only New Signal…. Signal menus have Edit, Switch Off/On, Move Up/Move Down and Remove. Take Over
+while paused; its + has New Signal… and Add Divider…. Signal menus have Edit, Switch Off/On, Move Up/Move Down and Remove; a divider's, under either heading, Rename…, Move Up/Move Down and Remove Divider. Take Over
 is on the menu of a task still under the Operator; there is no Hand Back.
 
 `KeyBindings.all` feeds Settings › Interface; `KeyboardSettingsTests` compares it to the actual

@@ -160,6 +160,11 @@ The order of the signal headings is their priority. When several signals match t
 pass, the higher heading starts its task and the others wait as pending stages. Move a heading with
 **Move Up** and **Move Down** in its context menu; a new signal is added at the bottom.
 
+To group signals, add a divider with **Add Divider…** in the Operator heading's **+** menu, once there is a
+signal. It works like a divider between projects: a name or a plain rule, with Rename…, Move Up / Move Down and
+Remove Divider in its context menu. A divider is a label only. Moving a signal past one leaves the priority as it
+was; only moving it past another signal changes it.
+
 Only one stage launches or works at once. Matches arriving during that stage wait, one per signal,
 in arrival order. They start after the current work ends and never during a worker's turn.
 Pending work takes precedence over archive/remove: only the last stage applies its final action.

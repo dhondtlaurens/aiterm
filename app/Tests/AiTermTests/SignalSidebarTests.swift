@@ -211,6 +211,29 @@ import AiTermUI
         #expect(!alone.canMoveUp && !alone.canMoveDown)
     }
 
+    /// Dividers are drawn between the live signals where they were put, removed signals' headings after them all, and
+    /// each divider moves only while it has a drawn neighbour that way. The headings' own list is unchanged.
+    @Test func dividersSitBetweenLiveSignalsAndRemovedHeadingsComeLast() throws {
+        var world = SignalWorld()
+        let first = world.signal(name: "First"), last = world.signal(name: "Last"), gone = world.signal(name: "Gone")
+        world.workingTask(signal: gone)
+        world.state.removeSignal(id: gone)
+        let middle = UUID(), trailing = UUID()
+        world.state.append(signalDivider: SignalDivider(id: middle, name: "Reviews"))
+        world.state.move(signalDividerId: middle, .up)
+        world.state.append(signalDivider: SignalDivider(id: trailing, name: ""))
+        let sidebar = SignalSidebar(state: world.state, entries: [])
+        #expect(sidebar.signals.map(\.id) == [first, last, gone])
+        #expect(sidebar.entries.map(\.id) == [first, middle, last, trailing, gone])
+        let dividers = sidebar.entries.compactMap { entry -> DividerEntry? in
+            if case .divider(let divider) = entry { return divider }; return nil
+        }
+        #expect(dividers.map(\.divider.name) == ["Reviews", ""])
+        #expect(dividers.map { [$0.canMoveUp, $0.canMoveDown] } == [[true, true], [true, false]])
+        // The signal under a divider moves past it, so it can go up although it was the first signal's neighbour.
+        #expect(sidebar.signals.map { [$0.canMoveUp, $0.canMoveDown] } == [[false, true], [true, true], [false, false]])
+    }
+
     @Test func aRemovedSignalsFoldIsRuntimeOnlyAndStartsOpen() throws {
         var world = SignalWorld(); let id = world.signal()
         _ = world.workingTask(signal: id); _ = world.workingTask(signal: id)

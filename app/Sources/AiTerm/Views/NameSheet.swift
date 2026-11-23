@@ -76,11 +76,12 @@ struct NameSheet: View {
 }
 
 extension NameSheet {
-    /// Add divider, as the sidebar and the snapshots both build it.
-    static func newDivider(canSubmit: Bool, submit: @escaping (String) -> Void) -> NameSheet {
-        NameSheet(title: "Add divider",
-                  fieldLabel: "Name (optional)", placeholder: "Heading for the projects under it", help: "Empty: a plain line.",
-                  closing: { $0.isEmpty ? "Adds a plain line between projects." : "Adds a heading over the projects under it." },
+    /// Add divider, between projects or between signals, as the sidebar and the snapshots both build it.
+    static func newDivider(in section: SidebarSection = .projects, canSubmit: Bool, submit: @escaping (String) -> Void) -> NameSheet {
+        let rows = section == .operator ? "signals" : "projects"
+        return NameSheet(title: "Add divider",
+                  fieldLabel: "Name (optional)", placeholder: "Heading for the \(rows) under it", help: "Empty: a plain line.",
+                  closing: { $0.isEmpty ? "Adds a plain line between \(rows)." : "Adds a heading over the \(rows) under it." },
                   confirmLabel: "Add Divider", initialName: "", canSubmit: canSubmit, submit: submit)
     }
 

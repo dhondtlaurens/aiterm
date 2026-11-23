@@ -6,7 +6,7 @@ import AiTermUI
 @MainActor enum SignalSidebarSnapshots {
     static var all: [Snapshot] {
         ["sidebar", "acting", "watching", "questions", "paused", "idle-paused", "folded", "taken-over", "fresh", "choosing", "blocked", "issue", "idle", "done", "window-closed", "off", "removed", "section-folded",
-         "worker-done", "described", "merging", "waiting-folded", "finished-folded", "all-finished-folded", "finished-signal-folded"].map { state in
+         "worker-done", "described", "merging", "waiting-folded", "finished-folded", "all-finished-folded", "finished-signal-folded", "divider"].map { state in
             Snapshot("signals-" + state + ".png", hostedOnly: true) { make(state) }
         } + [Snapshot("signals-waiting-marks.png", hostedOnly: true) { waitingMarks() }]
     }
@@ -55,6 +55,17 @@ import AiTermUI
                 state.tasks[index].signalTask = finished
             }
             if pose == "removed" { state.signals = [] }
+            // Two more signals, which a named divider heads: the project divider's row, between signal headings.
+            if pose == "divider" {
+                for name in ["Review requests", "Stale merge requests"] {
+                    state.signals.append(Signal(name: name, createdAt: Snapshots.clock.now, start: SignalTrigger(source: .gitLab, query: "reviewer:me"),
+                        done: SignalTrigger(source: .gitLab, query: "state:merged"), work: SignalWork(prompt: "/psg:peer-review"),
+                        agents: signal.agents, finish: SignalFinish(then: .keep)))
+                }
+                let divider = SignalDivider(id: UUID(), name: "Reviews")
+                state.append(signalDivider: divider)
+                state.move(signalDividerId: divider.id, .up); state.move(signalDividerId: divider.id, .up)
+            }
             state.operatorSession = OperatorSession(createdAt: Snapshots.clock.now)
             if ["paused", "idle-paused"].contains(pose) { state.operatorSession?.paused = true }
             if pose == "fresh" { state.operatorSession?.lifecycle = .closing(then: .renew) }

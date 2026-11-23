@@ -102,14 +102,19 @@ final class SheetCoordinator {
         }
     }
 
-    func presentNewDivider() {
+    func presentNewDivider(in section: SidebarSection = .projects) {
         guard canChangeWorkspace else { return }
-        present(.newDivider)
+        present(.newDivider(section))
     }
 
     func presentRename(divider: SidebarDivider) {
         guard canChangeWorkspace else { return }
         present(.rename(.divider(divider)))
+    }
+
+    func presentRename(signalDivider: SidebarDivider) {
+        guard canChangeWorkspace else { return }
+        present(.rename(.signalDivider(signalDivider)))
     }
 
     func presentRename(task: TaskItem) {

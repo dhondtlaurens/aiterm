@@ -48,6 +48,9 @@ enum ChipTarget: Hashable {
 @Observable @MainActor final class SidebarProjection {
     private(set) var signalOperator = SignalOperatorRowValue.empty
     private(set) var signalSections: [SignalSection] = []
+    /// What the Operator's section draws under its row: `signalSections` with the dividers between them. Off the arrow
+    /// path, which `signalSections` makes alone, as a project divider is.
+    private(set) var operatorEntries: [OperatorEntry] = []
     private(set) var entries: [SidebarEntry] = []
     private(set) var sections: [ProjectSection] = []
     /// Each task's saved agent, which the footer names while its window is closed (`usageRow(for:)`).
@@ -77,6 +80,7 @@ enum ChipTarget: Hashable {
         var operatorRow: SignalOperatorRowValue
         var acts: [UUID: String]
         var signals: [Signal]
+        var signalDividers: [SignalDivider]
         var operatorOpen: Bool
         var items: [SidebarItem], tasks: [DrawnTask], terminals: [TerminalItem], sessions: [SessionInfo]
         var branches: [String: String], projectBranches: [UUID: String], diffs: [UUID: DiffStat]
@@ -267,7 +271,7 @@ enum ChipTarget: Hashable {
         let acts = operatorActs()
         let next = Inputs(foldedRemovedSignals: foldedRemovedSignals, skipped: skipped, failures: state.operatorSession?.sourceFailures ?? [:],
             operatorRow: .make(state: state, sessions: live.rowSessions, issue: operatorIssue(), activity: operatorActivity(), latestAct: acts.latest),
-            acts: acts.byTask, signals: state.signals,
+            acts: acts.byTask, signals: state.signals, signalDividers: state.signalDividers,
             operatorOpen: state.operatorOpen,
             items: state.items, tasks: drawn, terminals: state.terminals, sessions: live.rowSessions,
             branches: checkouts.branchByCwd, projectBranches: checkouts.projectBranch, diffs: checkouts.diffByTask,
@@ -279,10 +283,11 @@ enum ChipTarget: Hashable {
                                        projectBranch: next.projectBranches, diffByTask: next.diffs)
         let sidebar = SignalSidebar(state: state, entries: all, acts: next.acts, skipped: next.skipped, foldedRemovedSignals: next.foldedRemovedSignals)
         var changed = leavingMoved || signalOperator != next.operatorRow || signalSections != sidebar.signals
-            || entries != sidebar.projects
+            || entries != sidebar.projects || operatorEntries != sidebar.entries
         if operatorPaused != next.operatorRow.paused { operatorPaused = next.operatorRow.paused; changed = true }
         if signalOperator != next.operatorRow { signalOperator = next.operatorRow }
         if signalSections != sidebar.signals { signalSections = sidebar.signals }
+        if operatorEntries != sidebar.entries { operatorEntries = sidebar.entries }
         if entries != sidebar.projects { entries = sidebar.projects }
         let sections = entries.compactMap { if case .project(let section) = $0 { return section }; return nil }
         if self.sections != sections { self.sections = sections }
@@ -290,7 +295,8 @@ enum ChipTarget: Hashable {
         if taskAgents != agents { taskAgents = agents }
         let terminals = Dictionary(next.terminals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if self.terminals != terminals { self.terminals = terminals }
-        let folds = signalOperator.shown || !signalSections.isEmpty, open = folds && next.operatorOpen
+        // Dividers alone count too: with the last signal gone, its section still opens so they can be renamed or removed.
+        let folds = signalOperator.shown || !operatorEntries.isEmpty, open = folds && next.operatorOpen
         if operatorOpen != open { operatorOpen = open; changed = true }
         operatorWorkload = Set(state.operatorWorkTasks.map(\.id))
         let operatorFold = SectionFold(folds: folds, folded: folds && !open, operatorChip: folds && !open ? operatorChip()?.chip : nil,

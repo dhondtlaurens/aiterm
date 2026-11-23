@@ -61,6 +61,22 @@ extension DividerRow {
     }
 }
 
+extension DividerRow {
+    /// A divider among the signal headings, wired to the Operator's section of the workspace.
+    init(signalEntry entry: DividerEntry, controller: AppController) {
+        let id = entry.divider.id
+        self.init(entry: entry,
+                  enabled: controller.canChangeWorkspace,
+                  rename: {
+                      if let current = controller.state.signalDividers.first(where: { $0.id == id }) {
+                          controller.sheets.presentRename(signalDivider: SidebarDivider(id: current.id, name: current.name))
+                      }
+                  },
+                  move: { controller.moveSignalDivider(id, $0) },
+                  delete: { controller.removeSignalDivider(id) })
+    }
+}
+
 /// The pill a selectable row — a task, a terminal or the Operator's — is drawn in: its hover wash, its
 /// selection fill, and the click that activates it. The hover lives here, in the row, so moving the
 /// pointer redraws that row rather than the whole sidebar. `washed` is the Operator's row: its wash at

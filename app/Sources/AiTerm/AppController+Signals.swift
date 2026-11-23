@@ -83,7 +83,43 @@ extension AppController {
             guard await prompter.ask(AlertPrompt(message: "Remove “\(signal.name)”?",
                 detail: "It stops watching for new matches. Its existing tasks carry on with their saved instructions.",
                 buttons: ["Remove Signal", "Cancel"], defaultDeletes: true)).confirmed else { return }
-            workspace.mutate { $0.signals.removeAll { $0.id == signal.id } }
+            workspace.mutate { $0.removeSignal(id: signal.id) }
         }
     }
+
+    // -- dividers among the signals ---------------------------------------------------------
+    /// A label only, as a project divider is: workspace state, no daemon call, and no change to priority.
+    func addSignalDivider(name: String) {
+        guard canChangeWorkspace, !state.signals.isEmpty else { return }
+        let divider = SignalDivider(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        workspace.mutate { $0.append(signalDivider: divider) }
+    }
+
+    /// An empty name is a real choice: the row draws a plain rule.
+    func renameSignalDivider(_ id: UUID, to name: String) {
+        guard canChangeWorkspace else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        workspace.mutate { $0.renameSignalDivider(id: id, to: trimmed) }
+    }
+
+    /// The neighbour is the current one, so a stale menu at a new edge does nothing.
+    @discardableResult
+    func moveSignalDivider(_ id: UUID, _ step: MoveStep) -> Bool {
+        guard canChangeWorkspace else { return false }
+        return workspace.mutate { $0.move(signalDividerId: id, step) }
+    }
+
+    func removeSignalDivider(_ id: UUID) {
+        guard canChangeWorkspace else { return }
+        workspace.mutate { $0.removeSignalDivider(id: id) }
+    }
+
+    /// File ▸ Add Divider… (⌘D): into the open section. With the Operator's open and no signal to stand between, nothing.
+    func presentNewDividerInOpenSection() {
+        guard rows.operatorOpen else { return sheets.presentNewDivider(in: .projects) }
+        if canAddSignalDivider { sheets.presentNewDivider(in: .operator) }
+    }
+
+    /// Whether Add Divider… can add one among the signals: a divider with no signal to stand between draws nothing.
+    var canAddSignalDivider: Bool { canChangeWorkspace && !state.signals.isEmpty }
 }
