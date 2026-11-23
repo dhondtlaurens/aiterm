@@ -54,19 +54,25 @@ public struct MergeRequest: Equatable, Sendable, Identifiable {
 /// How many of a merge or pull request's review threads are resolved, of all of them: GitLab's
 /// resolvable discussions, GitHub's review threads. A plain comment or a system note cannot be
 /// resolved and is not one. A count, not a sentence: the app words it. Read with it, whether the
-/// request has merged, which is where its review ends.
+/// request has merged, which is where its review ends, and whether anyone approves it.
 public struct ReviewThreads: Equatable, Sendable {
     public var resolved: Int, total: Int
     /// The host reports the request merged: GitLab's `merged` state, GitHub's `merged` flag.
     public var merged: Bool
-    public init(resolved: Int, total: Int, merged: Bool = false) {
-        self.resolved = resolved; self.total = total; self.merged = merged
+    /// Someone approves it now: GitLab lists an approver, or a GitHub reviewer's latest deciding review approves.
+    /// Any one approval, whatever the project requires.
+    public var approved: Bool
+    public init(resolved: Int, total: Int, merged: Bool = false, approved: Bool = false) {
+        self.resolved = resolved; self.total = total; self.merged = merged; self.approved = approved
     }
 
     /// One flag per thread, true when it is resolved.
-    public init(resolutions: [Bool], merged: Bool = false) {
-        self.init(resolved: resolutions.filter { $0 }.count, total: resolutions.count, merged: merged)
+    public init(resolutions: [Bool], merged: Bool = false, approved: Bool = false) {
+        self.init(resolved: resolutions.filter { $0 }.count, total: resolutions.count, merged: merged, approved: approved)
     }
+
+    /// Approved with no thread left open: nothing in the review stands in its way.
+    public var approvedAndResolved: Bool { approved && resolved == total }
 }
 
 /// One review thread on a request: GitLab's resolvable discussion or GitHub's review thread,

@@ -96,8 +96,9 @@ struct TaskRowCaption: Equatable {
 /// The badges a task row wears, after the Interface tab's switches. A badge whose detail is off
 /// keeps its mark and its link; the text it no longer prints leads its tooltip instead. A merge
 /// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
-/// all resolved included — whether or not its number is switched off; one with none, or whose
-/// threads have not been read, wears none.
+/// all resolved included — whether or not its number is switched off, until it merges; one with
+/// none, or whose threads have not been read, wears none. Its mark wears the green check once it is
+/// approved with no thread open, and the merged disc once it merges.
 struct TaskRowBadges: Equatable {
     struct Link: Equatable {
         var label: String?
@@ -108,12 +109,12 @@ struct TaskRowBadges: Equatable {
         var threads: Badge.Suffix? = nil
         /// What VoiceOver reads when the badge says more than its label: the count, in words.
         var accessibilityLabel: String? = nil
-        /// Finished: a Jira ticket in a Done lane, a merge request merged. The mark wears the corner check.
-        var checked = false
+        /// What the mark wears on its corner: the green check of a Jira ticket in a Done lane or of a merge
+        /// request approved with every thread resolved, the merged disc of one merged; nil for none.
+        var corner: SettledMark.Kind? = nil
 
-        /// Marks it finished, `word` ("done", "merged") after the rest in the tooltip and for VoiceOver.
-        mutating func finish(_ word: String) {
-            checked = true
+        /// Puts `word` ("done", "approved", "merged") after the rest in the tooltip and for VoiceOver.
+        mutating func say(_ word: String) {
             accessibilityLabel = "\(accessibilityLabel ?? label ?? help), \(word)"
             help += " · \(word)"
         }
@@ -135,8 +136,8 @@ struct TaskRowBadges: Equatable {
     /// The line's marks: in the ink of their words, or the vendor's colours once Settings asks.
     var markInk: Badge.MarkInk
 
-    /// `threads` is the row's merge request's, as last read, with whether it merged; `nil` while there
-    /// is no answer. `ticketDone` is whether its Jira ticket was last read in a Done lane; a GitLab
+    /// `threads` is the row's merge request's, as last read, with whether it merged and is approved; `nil`
+    /// while there is no answer. `ticketDone` is whether its Jira ticket was last read in a Done lane; a GitLab
     /// issue is never asked.
     init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil, ticketDone: Bool = false) {
         let ticketHost: CodeHost? = row.ticketIsGitLabIssue ? .gitLab : nil
@@ -144,21 +145,28 @@ struct TaskRowBadges: Equatable {
             var link = details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
                 : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
-            if ticketDone && ticketHost == nil { link.finish("done") }
+            if ticketDone && ticketHost == nil { link.corner = .finished; link.say("done") }
             return link
         }
         mergeRequest = row.mr.map { mr in
             var link = details.mergeRequest
                 ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
                 : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
+            guard let threads else { return link }
+            // Merged: the review is over, so the count goes and the merged disc says it all.
+            if threads.merged {
+                link.corner = .merged
+                link.say("merged")
+                return link
+            }
             // Nothing until there is a thread to count; then it stays, all resolved included.
-            if let threads, threads.total > 0 {
-                let words = Self.words(threads)
-                link.accessibilityLabel = "\(link.label ?? link.help), \(words)"
-                link.help += " · \(words)"
+            if threads.total > 0 {
+                link.say(Self.words(threads))
                 link.threads = Badge.Suffix(icon: .symbol(Self.threadsSymbol), text: "\(threads.resolved)/\(threads.total)")
             }
-            if threads?.merged == true { link.finish("merged") }
+            // Approved is said as soon as it is; the check waits until no thread is open.
+            if threads.approved { link.say("approved") }
+            if threads.approvedAndResolved { link.corner = .finished }
             return link
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil

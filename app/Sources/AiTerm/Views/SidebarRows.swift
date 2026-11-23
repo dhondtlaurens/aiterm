@@ -312,8 +312,8 @@ struct TaskRowView: View {
     /// and the last of them from the branch.
     private func badgeLine(_ fit: TaskRowBadges.Fit, of badges: TaskRowBadges, beforeBranch: Bool) -> some View {
         HStack(spacing: scale(Space.gap)) {
-            QuietBadgeLine(ticket: fit.ticket ? badges.ticket.map { badgeValue($0, ticket: true, markInk: badges.markInk) } : nil,
-                           request: fit.mergeRequest ? badges.mergeRequest.map { badgeValue($0, ticket: false, markInk: badges.markInk) } : nil,
+            QuietBadgeLine(ticket: fit.ticket ? badges.ticket.map { QuietBadgeValue($0, ticket: true, markInk: badges.markInk) } : nil,
+                           request: fit.mergeRequest ? badges.mergeRequest.map { QuietBadgeValue($0, ticket: false, markInk: badges.markInk) } : nil,
                            sharesMark: badges.sharesGitLabMark)
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
             // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
@@ -327,13 +327,17 @@ struct TaskRowView: View {
         .padding(.trailing, beforeBranch && !fit.wearsNone ? scale(Space.gap) : 0)
     }
 
-    private func badgeValue(_ link: TaskRowBadges.Link, ticket: Bool, markInk: Badge.MarkInk) -> QuietBadgeValue {
-        QuietBadgeValue(label: link.label,
-                        icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
-                        help: link.help, suffix: link.threads, checked: link.checked, accessibilityLabel: link.accessibilityLabel,
-                        markInk: markInk, action: link.url.map { url in { ExternalApps.open(link: url) } })
-    }
+}
 
+extension QuietBadgeValue {
+    /// A task row's ticket or merge-request link as its quiet badge: the vendor's mark, the link's words and corner,
+    /// and a click that opens it.
+    init(_ link: TaskRowBadges.Link, ticket: Bool, markInk: Badge.MarkInk) {
+        self.init(label: link.label,
+                  icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
+                  help: link.help, suffix: link.threads, corner: link.corner, accessibilityLabel: link.accessibilityLabel,
+                  markInk: markInk, action: link.url.map { url in { ExternalApps.open(link: url) } })
+    }
 }
 
 /// A terminal is selectable exactly like a task and drawn like one: two lines, the branch on its own
