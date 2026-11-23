@@ -271,9 +271,9 @@ enum SidebarSnapshots {
         }
     }
 
-    /// Four reviews under the fixture's project — one whose merge request never had a thread, one
-    /// with 2 of 5 resolved, one with all 6 and merged, its mark checked, and a GitHub pull request
-    /// with 1 of 4, merged and selected — each
+    /// Five reviews under the fixture's project — one whose merge request never had a thread, one
+    /// approved with 2 of 5 resolved (no check yet), one approved with all 6 (its mark checked), one
+    /// merged (the merged disc, its count gone), and a GitHub pull request merged and selected — each
     /// window open, so no caption stands under them. The badge without its number is
     /// `ReviewThreadsBadgeTests`'.
     private static func reviewThreads(_ file: String) -> Snapshot {
@@ -291,18 +291,20 @@ enum SidebarSnapshots {
             let reviews = [review("Apple Pay on checkout", 87, url: gitLab + "87"),
                            review("Preview tokens for drafts", 91, url: gitLab + "91"),
                            review("Gift cards at the till", 95, url: gitLab + "95"),
+                           review("Loyalty points on receipts", 98, url: gitLab + "98"),
                            review("Faster product images", 12, url: "https://github.com/acme/storefront/pull/12")]
-            let counts: [ReviewThreads] = [.init(resolved: 0, total: 0), .init(resolved: 2, total: 5),
-                                           .init(resolved: 6, total: 6, merged: true), .init(resolved: 1, total: 4, merged: true)]
+            let counts: [ReviewThreads] = [.init(resolved: 0, total: 0), .init(resolved: 2, total: 5, approved: true),
+                                           .init(resolved: 6, total: 6, approved: true), .init(resolved: 3, total: 3, merged: true, approved: true),
+                                           .init(resolved: 1, total: 4, merged: true)]
             controller.workspace.mutate { $0.tasks = reviews }
             for (review, threads) in zip(reviews, counts) { controller.reviewThreads.seedSnapshotThreads(threads, of: review.id) }
-            controller.focus.browse(.task(reviews[3].id))
+            controller.focus.browse(.task(reviews[4].id))
             return taskRows(controller)
         }
     }
 
     /// A task from GitLab issue #55, a review of issue #53's merge request — one mark, `#53 !29`,
-    /// then its threads, merged, so the shared mark wears the check — and a Jira ticket's review,
+    /// merged, so the shared mark wears the merged disc and its count is gone — and a Jira ticket's review,
     /// which keeps two badges, its ticket done.
     private static func gitLabIssues(_ file: String) -> Snapshot {
         Snapshot(file) {

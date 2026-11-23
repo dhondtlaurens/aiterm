@@ -124,8 +124,8 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 
 | Type | Responsibility |
 | --- | --- |
-| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink; `checked`: `SettledMark`'s finished disc at `Size.cornerBadge` on its corner, ringed in the surface's `occludingBackground`)/diff/suffix, action/menu and accessibility label (words for a count). |
-| `SettledMark` | A filled disc for a state that holds until something outside changes it, where a ring is a state that can still move: `.finished` (the `green` disc, a white check a sixth of it wide) or `.paused` (the `idleRing` disc, its two bars in the surface's `occludingBackground`); on the accent the disc is `onAccent` and its glyph the ground's. Drawn shapes at the caller's size: a badge corner, a row's trailing mark, a count chip. Decorative. |
+| `Badge` | Shared chip, boxed/quiet styles, icon (optional tint; brand or label mark ink; `corner`: a `SettledMark` (`.finished` or `.merged`) at `Size.cornerBadge` on its corner, ringed in the surface's `occludingBackground`)/diff/suffix, action/menu and accessibility label (words for a count). |
+| `SettledMark` | A filled disc for a state that holds until something outside changes it, where a ring is a state that can still move: `.finished` (the `green` disc, a white check a sixth of it wide), `.merged` (the `merged` purple disc, a white merge glyph stroked as the check) or `.paused` (the `idleRing` disc, its two bars in the surface's `occludingBackground`); on the accent the disc is `onAccent` and its glyph the ground's. Drawn shapes at the caller's size: a badge corner, a row's trailing mark, a count chip. Decorative. |
 | `Icon` / `IconSource` | SF Symbol, branded glyph or full-colour artwork with a fallback; caller supplies size. |
 | `FormField` | Label/control stack with dropdown overhang above following content; an optional accessory (a small push button) at the trailing end of the label row. |
 | `FrontToBackStack` | Earlier children draw above later ones, including nested overhangs. |

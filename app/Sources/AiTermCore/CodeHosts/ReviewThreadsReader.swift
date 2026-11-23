@@ -1,7 +1,7 @@
 import Foundation
 
-/// How many of a merge or pull request's review threads are resolved, and whether it merged, read
-/// from the host it is on.
+/// How many of a merge or pull request's review threads are resolved, whether it merged and whether
+/// anyone approves it, read from the host it is on.
 public protocol ReviewThreadsReading: Sendable {
     /// `nil` when the request's host is not connected, or its address names no project there to
     /// ask; a request that was asked and failed throws.
@@ -41,10 +41,12 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
             return nil
         }
         let repository = connection.repository(session: session)
-        // Side by side: the threads, and the request itself for its state. Both or neither.
+        // Side by side: the threads, the request itself for its state, and who approves it. All three or none.
         async let threads = repository.threads(of: mr.iid)
         async let request = repository.request(number: mr.iid)
-        return ReviewThreads(resolutions: try await threads.map(\.resolved), merged: try await request?.state == "merged")
+        async let approvers = repository.approvals(of: mr.iid)
+        return ReviewThreads(resolutions: try await threads.map(\.resolved), merged: try await request?.state == "merged",
+                             approved: !(try await approvers).isEmpty)
     }
 
     /// `https://github.com/<owner>/<repo>/pull/<n>`, or `<GitLab host>/<project>/-/merge_requests/<n>`

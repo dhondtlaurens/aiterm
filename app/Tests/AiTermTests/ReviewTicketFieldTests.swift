@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Synchronization
+import AiTermUI
 @testable import AiTerm
 @testable import AiTermCore
 @testable import AiTermTestSupport
@@ -168,5 +169,33 @@ import Synchronization
         #expect(!TaskRowBadges(row: row(ticket: "#53", gitLabIssue: true, mr: nil), details: details).sharesGitLabMark)
         let issue = TaskRowBadges(row: row(ticket: "#53", gitLabIssue: true, mr: nil), details: details)
         #expect(issue.ticket?.host == .gitLab)
+    }
+
+    /// The shared mark wears the request's corner. With the issue's number shown and the request's off, a request
+    /// with nothing left of its own to draw (merged, so no bubble; approved without a thread) is one badge, the
+    /// issue's, whose tooltip and VoiceOver still name the request and say what became of it.
+    @Test func theSharedMarkWearsTheRequestsCornerAndKeepsItsWords() {
+        func line(_ threads: ReviewThreads) -> QuietBadgeLine.Parts {
+            let badges = TaskRowBadges(row: row(ticket: "#53", gitLabIssue: true, mr: 29), details: BadgeDetails(mergeRequest: false),
+                                       threads: threads)
+            return QuietBadgeLine.parts(ticket: badges.ticket.map { QuietBadgeValue($0, ticket: true, markInk: .label) },
+                                        request: badges.mergeRequest.map { QuietBadgeValue($0, ticket: false, markInk: .label) },
+                                        sharesMark: badges.sharesGitLabMark)
+        }
+        let merged = line(ReviewThreads(resolved: 2, total: 2, merged: true))
+        #expect(merged.badges.count == 1)
+        #expect(merged.badges.first?.label == "#53")
+        #expect(merged.badges.first?.corner == .merged)
+        #expect(merged.badges.first?.help == "https://x/#53 · !29 · MR · merged")
+        #expect(merged.badges.first?.accessibilityLabel == "#53, !29 · MR, merged")
+        let approved = line(ReviewThreads(resolved: 0, total: 0, approved: true))
+        #expect(approved.badges.count == 1)
+        #expect(approved.badges.first?.corner == .finished)
+        #expect(approved.badges.first?.accessibilityLabel == "#53, !29 · MR, approved")
+        // With a thread to count the request keeps its own badge beside the mark, which wears its corner.
+        let open = line(ReviewThreads(resolved: 3, total: 3, approved: true))
+        #expect(open.pair)
+        #expect(open.badges.map(\.corner) == [.finished, nil])
+        #expect(open.badges.last?.suffix?.text == "3/3")
     }
 }

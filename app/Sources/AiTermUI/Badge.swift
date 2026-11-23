@@ -14,10 +14,11 @@ import SwiftUI
 /// resolved review threads of all of them — both in the label's ink, so on a quiet badge they sit
 /// back with it and on the accent they turn white with it.
 ///
-/// `checked` marks the icon as finished — a ticket in Jira's Done, a request merged: a
-/// `Size.cornerBadge` green disc with a white check on the icon's bottom-trailing corner,
-/// overhanging it by `Space.hairline` and cut from the ground by an unscaled one-point ring of the
-/// surface's `occludingBackground`. A shape as well as a colour, so it does not rest on green alone.
+/// `corner` puts a `SettledMark` on the icon's bottom-trailing corner: `.finished`, the green disc
+/// with a white check (a ticket in Jira's Done, a request approved with every thread resolved), or
+/// `.merged`, the purple disc with a merge glyph (a request merged). `Size.cornerBadge` wide,
+/// overhanging the icon by `Space.hairline` and cut from the ground by an unscaled one-point ring of
+/// the surface's `occludingBackground`. A glyph as well as a colour, so neither rests on colour alone.
 ///
 /// A `.quiet` badge drops the box at rest: its text sits on the row in secondary ink, and the wash
 /// only appears under the pointer, outset by `Space.tight` so the text does not move. The sidebar's
@@ -48,8 +49,8 @@ public struct Badge: View {
     /// yields to white like everything else there.
     private let iconTint: Color?
     private let diff: Diff?
-    /// Whether the icon wears the corner check. Without an icon there is nothing to wear it.
-    private let checked: Bool
+    /// The mark the icon wears on its corner, if any. Without an icon there is nothing to wear it.
+    private let corner: SettledMark.Kind?
     private let suffix: Suffix?
     private let style: Style
     private let markInk: MarkInk
@@ -108,12 +109,12 @@ public struct Badge: View {
                 iconTint: Color? = nil,
                 diff: Diff? = nil,
                 suffix: Suffix? = nil,
-                checked: Bool = false,
+                corner: SettledMark.Kind? = nil,
                 style: Style = .boxed,
                 markInk: MarkInk = .own,
                 accessibilityLabel: String? = nil,
                 action: (() -> Void)? = nil) {
-        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, checked: checked, style: style,
+        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, corner: corner, style: style,
                   markInk: markInk, accessibilityLabel: accessibilityLabel, action: action, menu: nil)
     }
 
@@ -125,19 +126,19 @@ public struct Badge: View {
                              markInk: MarkInk = .own,
                              accessibilityLabel: String? = nil,
                              @ViewBuilder menu items: () -> Items) {
-        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, checked: false, style: style,
+        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, corner: nil, style: style,
                   markInk: markInk, accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
     }
 
     private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, suffix: Suffix?,
-                 checked: Bool, style: Style, markInk: MarkInk, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
+                 corner: SettledMark.Kind?, style: Style, markInk: MarkInk, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
         self.label = label
         self.icon = icon
         self.help = help
         self.iconTint = iconTint
         self.diff = diff.flatMap { $0.isEmpty ? nil : $0 }
         self.suffix = suffix
-        self.checked = checked
+        self.corner = corner
         self.style = style
         self.markInk = markInk
         self.accessibilityText = accessibilityLabel
@@ -245,8 +246,8 @@ public struct Badge: View {
         Icon(source, size: scale(Self.iconSize),
              tint: Self.iconTint(surface: surface, override: iconTint, markInk: markInk, style: style))
             .overlay(alignment: .bottomTrailing) {
-                if checked {
-                    CornerCheck(ground: surface.occludingBackground)
+                if let corner {
+                    CornerMark(kind: corner, ground: surface.occludingBackground)
                         .frame(width: scale(Size.cornerBadge), height: scale(Size.cornerBadge))
                         .offset(x: scale(Space.hairline), y: scale(Space.hairline))
                 }
@@ -284,14 +285,15 @@ public struct Badge: View {
     }
 }
 
-/// `Badge(checked:)`'s corner mark: `SettledMark`'s finished disc, inside a ring of the ground it sits on so it
-/// reads apart from the icon it overlaps. The ring is a hairline and does not scale.
-private struct CornerCheck: View {
+/// `Badge(corner:)`'s corner mark: a `SettledMark` disc, inside a ring of the ground it sits on so it reads apart
+/// from the icon it overlaps. The ring is a hairline and does not scale.
+private struct CornerMark: View {
+    let kind: SettledMark.Kind
     let ground: Color
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
-        SettledMark(.finished, size: scale(Size.cornerBadge))
+        SettledMark(kind, size: scale(Size.cornerBadge))
             .background { Circle().stroke(ground, lineWidth: Self.ring) }
     }
 
