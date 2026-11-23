@@ -27,6 +27,23 @@ struct HeadingValue: Equatable, Identifiable {
         kind = .project(project, canMoveUp: section.canMoveUp, canMoveDown: section.canMoveDown)
     }
 
+    /// A signal heading's first tooltip lines: when it starts (a schedule in words, its cron and next run) and when
+    /// it is done (a query, or the Operator with its guidance).
+    static func triggers(_ signal: Signal, nextRun: Date?, calendar: Calendar = .autoupdatingCurrent) -> [String] {
+        var lines: [String]
+        if signal.isScheduled {
+            let reading = signal.start.cron.map { $0.reading + " (" + $0.expression + ")" } ?? signal.start.query
+            lines = ["Starts: " + reading]
+            if let nextRun { lines.append("Next run: " + ScheduleDecision.runTime(nextRun, calendar: calendar)) }
+        } else {
+            lines = ["Starts: " + signal.start.query]
+        }
+        let guidance = signal.done.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        lines.append(signal.done.source == .operator ? "Done: The Operator decides" + (guidance.isEmpty ? "" : " (" + guidance + ")")
+                                                       : "Done: " + signal.done.query)
+        return lines
+    }
+
     init(_ section: SignalSection) {
         let signal = section.signal
         let source = signal.start.source, removed = section.removed
@@ -36,8 +53,7 @@ struct HeadingValue: Equatable, Identifiable {
         collapsed = section.collapsed; empty = section.tasks.isEmpty
         counts = collapsed ? SidebarModel.statusCounts(tasks: section.tasks.filter { !$0.countsAsFinished }) : []
         finished = collapsed ? section.tasks.filter(\.countsAsFinished).count : 0
-        let triggers = ["Starts: " + signal.start.query, "Done: " + signal.done.query]
-            + (signal.isValid ? [] : ["This version cannot run this signal."])
+        let triggers = Self.triggers(signal, nextRun: section.nextRun) + (signal.isValid ? [] : ["This version cannot run this signal."])
         help = (triggers + (removed ? ["This signal was removed. Its existing tasks carry on with their saved instructions."] : [])
                 + section.skipped + [section.failure].compactMap { $0 }).joined(separator: "\n")
     }

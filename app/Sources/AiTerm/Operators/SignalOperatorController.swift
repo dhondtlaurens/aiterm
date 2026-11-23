@@ -69,6 +69,13 @@ import AiTermCore
         enabled: { [weak self] in self?.isStopped == false }, now: ports.now)
     @ObservationIgnored lazy var router = ItemRouter(workspace: workspace, now: ports.now,
         workerIsWorking: { [native, effects] id in native.busy(id) || effects.holds(id) })
+    @ObservationIgnored lazy var scheduler: SignalScheduler = {
+        let scheduler = SignalScheduler(workspace: workspace, router: router, now: ports.now)
+        scheduler.canSchedule = { [weak self] in
+            self.map { !$0.isStopped && $0.workspace.state.operatorSession?.paused != true } ?? false
+        }
+        return scheduler
+    }()
     @ObservationIgnored lazy var stages = StageRunner(workspace: workspace, journal: journal, now: ports.now,
         ports: .init(workerIsWorking: native.busy, prepare: { [weak self] task, signal in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
@@ -171,7 +178,8 @@ import AiTermCore
             sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.currentInstructions }, usage: { [weak self] in self?.live.usage ?? .empty },
             installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] },
             issues: { [weak self] in self?.log.issues.current ?? [] },
-            wakeUnread: { [weak self] in self?.waker.unread == true }, acknowledgeWake: { [weak self] in self?.waker.acknowledge() }), effects: effects)
+            wakeUnread: { [weak self] in self?.waker.unread == true }, acknowledgeWake: { [weak self] in self?.waker.acknowledge() },
+            openRequest: { [weak self] task in try await self?.host.hasOpenRequest(task) ?? false }), effects: effects)
     }
     @ObservationIgnored lazy var gate = SignalShellGate(workspace: workspace, folder: OperatorLaunch.folder(home: ports.home),
         now: ports.now, validate: { [weak self] request in
@@ -201,6 +209,9 @@ import AiTermCore
         host.enabled = { [weak self] in self?.isStopped == false }
         native.onBlocked = { [weak self] id in self?.waker.wake(.taskBlocked, id: id) }
         native.onTurn = { [weak self] id in self?.waker.wake(.workerEnded, id: id) }
+        native.whilePausing = { [weak activity] words, wait in
+            if let activity { await activity.during(words, wait) } else { await wait() }
+        }
         activity.changed = { [weak self] in self?.reconcileIfIdle(); self?.changed() }
         log.enabled = { [weak self] in self?.isStopped == false }
         log.changed = { [weak self] in self?.changed() }
@@ -217,6 +228,7 @@ import AiTermCore
                             arguments: ["owner": .string(id.uuidString)], outcome: .ok, result: event, line: event)
             self.waker.wakeIfWaiting(id)
         }
+        stages.launchSoon = { [weak self] id in self?.schedule { [weak self] in await self?.stages.run(id) } }
         stages.changed = { [weak self] id, _ in
             guard let self else { return }
             self.waker.wakeIfWaiting(id)
@@ -333,6 +345,8 @@ import AiTermCore
     }
     func save(_ signal: Signal) async throws {
         guard workspace.canChangeWorkspace, signal.isValid else { throw ActionUnavailable("This signal cannot be saved.") }
+        var signal = signal
+        signal.scheduledFrom = Self.scheduledFrom(signal, saved: workspace.state.signal(id: signal.id), now: ports.now())
         workspace.mutate { state in
             if let index = state.signals.firstIndex(where: { $0.id == signal.id }) { state.signals[index] = signal }
             else { state.signals.append(signal) }
@@ -340,6 +354,14 @@ import AiTermCore
         guard workspace.flush() else { throw ActionUnavailable("The signal could not be saved.") }
         // The edited signal reads now, even while a tick runs and would drop this call's reconcile.
         await pause.reconcile(); await configure(refresh: [signal.id]); poller.tick(); await reconcile()
+    }
+    /// A schedule's earliest time to fire as it is saved: now when it is created, switched on, or its cron changes, so
+    /// no time from before then starts a run; otherwise what it had. Nil for a signal that starts from items.
+    static func scheduledFrom(_ signal: Signal, saved: Signal?, now: Date) -> Date? {
+        guard signal.isScheduled else { return nil }
+        guard let saved, saved.isScheduled, saved.start.query == signal.start.query, saved.enabled || !signal.enabled,
+              let from = saved.scheduledFrom else { return now }
+        return from
     }
     func daemonAttached() { tabsKnown = false; settingsDue = .distantPast }
     func handle(_ event: DaemonEvent) {
@@ -398,8 +420,10 @@ import AiTermCore
             workspace.mutate { $0.pruneOperator(at: ports.now()) }
             await loadProfile(); await configure()
         }
-        // Polling needs no iTerm2. The poller skips it while paused or stopped.
+        // Polling and schedules need no iTerm2. Both skip while paused or stopped.
         poller.tick()
+        let runs = scheduler.tick()
+        for id in runs { schedule { await self.stages.run(id) } }
         guard !isStopped, tabsKnown else { return }
         if workspace.mutate({ $0.withdrawObsoleteQuestions(at: ports.now()) }) { workspace.flush() }
         // A durable retirement must complete before a new generation can serve a later match, and a

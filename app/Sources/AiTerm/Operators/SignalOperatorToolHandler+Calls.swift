@@ -81,7 +81,13 @@ extension SignalOperatorToolHandler {
             return ["status": "resumed"]
         case .finishStage:
             let task = try requireTask(task), outcome = try call.string("outcome"), evidence = try call.string("evidence")
-            guard task.signalTask != nil else { throw ToolRefusal("The task is no longer the Operator’s.") }
+            guard let record = task.signalTask else { throw ToolRefusal("The task is no longer the Operator’s.") }
+            if outcome == "done", record.current.configuration.done.source == .operator {
+                return try await finishByOperator(task, evidence: evidence, call: call, allowed: allowed)
+            }
+            guard call.optionalString("challengeId") == nil, call.optionalString("fromQuestion") == nil else {
+                throw ToolRefusal("challengeId and fromQuestion belong to a done stage whose Done the Operator decides.")
+            }
             let action: SignalAction
             switch outcome {
             // Its Done trigger, not the Operator, decides when the stage is done.
@@ -105,6 +111,40 @@ extension SignalOperatorToolHandler {
             return try await consult(call, task: task, allowed: allowed)
         case .chooseAgent:
             return try await chooseAgent(call, task: try requireTask(task), allowed: allowed)
+        }
+    }
+    /// `finish_stage(done)` on a stage whose Done the Operator decides: the Oracle (or the person) has to agree first. An
+    /// agreed done finishes the stage, unless merge when ready still has to merge an open merge request: then it
+    /// watches, AiTerm merges and hands back, and the next agreed done ends it. Whether one is open is read from the
+    /// host, not from what the watch has saved so far, and only a merge the host confirmed counts as AiTerm's.
+    private func finishByOperator(_ task: TaskItem, evidence: String, call: ToolCall, allowed: @escaping @MainActor () -> Bool) async throws -> JSONValue {
+        // Read before the Oracle is asked, so a host that cannot be read spends no Oracle round.
+        let merges = task.signalTask?.current.configuration.finish.mergesWhenReady == true && task.kind != .review
+        var mergeOwed = false
+        if merges, task.signalTask?.merge?.accepted != true {
+            do { mergeOwed = try await ports.openRequest(task) }
+            catch { throw ToolRefusal("AiTerm couldn’t read its merge request to merge it first: " + OperationIssue.reason(of: error) + " Try again.") }
+            guard allowed() else { throw ToolRefusal("The task changed while its merge request was read.") }
+        }
+        let turn = try? await ports.read(task)
+        let workerTurn = turn?["workers"]?["workers"]?.arrayValue?.first { $0["tab"]?.stringValue == "main" }?["lastMessage"]?.stringValue
+        guard allowed() else { throw ToolRefusal("The task changed while its worker was read.") }
+        switch try await questions.complete(task: task.id, evidence: evidence, workerTurn: workerTurn,
+                                            challenge: call.optionalString("challengeId"), fromQuestion: call.optionalString("fromQuestion")) {
+        case .reply(let reply):
+            return reply
+        case .finish(let decided):
+            guard let current = workspace.state.task(id: task.id), let record = current.signalTask else {
+                throw ToolRefusal("The task is no longer the Operator’s.")
+            }
+            try await journal.append(.ours("Stage result (done): " + evidence + " " + decided), task: task.id)
+            guard allowed() else { throw ToolRefusal("The task changed before the result was recorded.") }
+            // Already watching for that merge: nothing changes until AiTerm merges it.
+            if !(mergeOwed && record.phase == .watching) { try await stages.finish(task.id, action: mergeOwed ? .watch : .finish) }
+            return mergeOwed
+                ? ["status": "watching", "decided": .string(decided),
+                   "next": "AiTerm merges its merge request once it is ready and hands it back to the worker; finish it again after that."]
+                : ["status": "finished", "decided": .string(decided)]
         }
     }
     func digest(task: UUID?) -> OperatorDigest {

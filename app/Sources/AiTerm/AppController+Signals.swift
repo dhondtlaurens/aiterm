@@ -27,7 +27,10 @@ extension AppController {
             let projects = self.state.projects, readProfile = ports.profile, headless = ports.queryWriter
             let writerContext = Task { await controller.connections().writerContext(projects: projects) }
             model.writeQuery = { trigger, start in
-                let links = await controller.connections(), context = await writerContext.value
+                let links = await controller.connections()
+                // Write cron's "now" is the moment Write is pressed, not when the sheet opened.
+                var context = await writerContext.value
+                context.now = ports.now(); context.timeZone = .current
                 let profile = await BackgroundWork.run(readProfile)
                 let runner = QueryWriterRunner(headless: headless, check: { await links.check($0, start: $1, query: $2) },
                                                model: profile.model, reasoning: profile.reasoning)

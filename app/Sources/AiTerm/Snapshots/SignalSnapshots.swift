@@ -32,6 +32,55 @@ import AiTermUI
         ]
         return values
     }
+    /// A schedule's and the Operator Done's sheets, as the 1B/2B proposal draws them; drawn last so no earlier image
+    /// moves.
+    static var scheduled: [Snapshot] {
+        var values: [Snapshot] = []
+        for step in SignalModel.stepNames.indices.map({ $0 + 1 }) {
+            values.append(Snapshot("signal-schedule-\(step).png") { SignalSheet(model: scheduleModel()).seeded(step: step) })
+        }
+        values += [
+            // Claude writing the cron: until one is written, its help names the five fields.
+            Snapshot("signal-schedule-writing.png") {
+                let model = scheduleModel(); model.start.description = "Weekdays at half past eight, not on Fridays"
+                model.start.query = "30 8 * * 1-4"; model.seed(writing: QueryWriting(busy: true), start: true)
+                return SignalSheet(model: model).seeded(step: SignalModel.startStep)
+            },
+            // A cron AiTerm refuses says why; Continue waits for a valid cron and a project.
+            Snapshot("signal-schedule-refused.png") {
+                let model = scheduleModel(); model.start.query = "0 9 * * Mo"; model.start.project = nil
+                return SignalSheet(model: model).seeded(step: SignalModel.startStep)
+            },
+            // A query Done on a scheduled signal: checked against its run's merge request, Jira off, merge offered.
+            Snapshot("signal-schedule-query-done.png") {
+                let model = scheduleModel(); model.doneKind = .query
+                model.done = SignalTrigger(source: .gitLab, description: "When it’s merged", query: "state:merged")
+                model.seed(writing: QueryWriting(written: true), start: false)
+                model.mergeWhenReady = true; model.then = .remove; model.deleteMergedBranch = true
+                return SignalSheet(model: model).seeded(step: SignalModel.doneStep)
+            },
+            // The Operator decides on a Jira signal, its description left empty.
+            Snapshot("signal-jira-operator-done.png") {
+                let model = model(.jira); model.doneKind = .operatorDecides; model.done.description = ""; model.then = .keep
+                return SignalSheet(model: model).seeded(step: SignalModel.doneStep)
+            },
+        ]
+        return values
+    }
+    /// A weekly schedule in the one project, done when the Operator decides, its cron written by Claude.
+    static func scheduleModel() -> SignalModel {
+        let model = model(.jira, matched: false)
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
+        model.calendar = calendar; model.now = { Snapshots.clock.now }
+        model.name = "Weekly dependency update"
+        model.startKind = .schedule
+        model.start.description = "Every Monday at 9am"; model.start.query = "0 9 * * 1"
+        model.done.description = "A merge request is open and its pipeline is green, or nothing needed updating"
+        model.prompt = "Update the dependencies that have a minor or patch release, run the tests, then /psg:review."
+        model.mergeWhenReady = true; model.then = .archive
+        model.seed(writing: QueryWriting(written: true), start: true)
+        return model
+    }
     /// The Start trigger described, its query not yet written, while Claude writes it.
     private static func writing(_ source: SignalTrigger.Source) -> SignalSheet {
         let model = model(source, matched: false); model.start.query = ""

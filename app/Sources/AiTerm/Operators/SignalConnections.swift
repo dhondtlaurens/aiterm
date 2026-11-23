@@ -22,17 +22,19 @@ struct SignalConnections: Sendable {
         case .gitHub:
             guard let gitHub else { throw ActionUnavailable("Connect GitHub in Settings to watch this signal.") }
             return GitHubQueryReader(query: try GitHubQuery.start(trigger.query), account: GitHubAccount(config: gitHub, session: session))
+        case .schedule, .operator: throw ActionUnavailable("A schedule or the Operator reads no host.")
         case .unknown: throw ActionUnavailable("This signal's source is not supported by this version.")
         }
     }
+    /// The poller's reads: every runnable signal that starts from items. A schedule is the scheduler's (`SignalScheduler`).
     @MainActor func registrations(for signals: [Signal]) -> [SignalPoller.Registration] {
-        signals.filter(\.isRunnable).map { signal in
+        signals.filter { $0.isRunnable && $0.start.source.readsItems }.map { signal in
             let host: String, token: String
             switch signal.start.source {
             case .jira: host = "jira:" + (jira?.siteURL.absoluteString ?? "disconnected"); token = jira?.token ?? ""
             case .gitLab: host = "gitlab:" + (gitLab?.hostURL.absoluteString ?? "disconnected"); token = gitLab?.token ?? ""
             case .gitHub: host = "github:github.com"; token = gitHub?.token ?? ""
-            case .unknown: host = "unsupported"; token = ""
+            case .schedule, .operator, .unknown: host = "unsupported"; token = ""
             }
             let reader: any SignalSourceReader
             do { reader = try self.reader(for: signal.start) }

@@ -34,11 +34,16 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         /// Why the Operator chose this tab's row.
         public var reason: String?
     }
-    /// A trigger as the stage runs it: its source and query.
+    /// A trigger as the stage runs it: its source and query, and for an Operator Done the person's description of done,
+    /// which is guidance for the Operator and the Oracle.
     public struct TriggerLine: Encodable, Equatable, Sendable {
         public var source: SignalTrigger.Source
         public var query: String
-        init(_ trigger: SignalTrigger) { source = trigger.source; query = trigger.query }
+        public var doneLooksLike: String?
+        init(_ trigger: SignalTrigger) {
+            source = trigger.source; query = trigger.query
+            if trigger.source == .operator { doneLooksLike = trigger.description.isEmpty ? "The prompt's work is complete." : trigger.description }
+        }
     }
     public struct TaskLine: Encodable, Equatable, Sendable {
         public var id: UUID
@@ -89,6 +94,8 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     public var oracleOn: Bool
     public var projects: [ProjectLine]
     public var signals: [Signal]
+    /// Each runnable scheduled signal's next run, by signal id; absent when there is none.
+    public var nextRuns: [String: Date]?
     public var tasks: [TaskLine]
     public var questions: [OperatorSession.Question]
     public var waitingOnYou: Int
@@ -111,6 +118,11 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
                               backgroundJobs: session.work.filter(\.holdsTurn).count)
         }
         generatedAt = at; self.oracleOn = oracleOn; signals = state.signals
+        let runs = state.signals.filter { $0.isScheduled && $0.isRunnable }.reduce(into: [String: Date]()) { runs, signal in
+            runs[signal.id.uuidString] = ScheduleDecision.nextRun(of: signal, cursor: state.scheduleCursors[signal.id], now: at,
+                                                                  calendar: .autoupdatingCurrent)
+        }
+        nextRuns = runs.isEmpty ? nil : runs
         projects = state.projects.map { ProjectLine(id: $0.id, name: $0.name, path: $0.path) }
         tasks = state.allSignalTasks.compactMap { value in
             guard task == nil || task == value.id, let record = value.signalTask else { return nil }
@@ -140,5 +152,15 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         }
         questions = (state.operatorSession?.questions ?? []).filter { $0.isPending && (task == nil || task == $0.task) }
         waitingOnYou = questions.filter { $0.resolvedAt == nil }.count
+    }
+
+    /// An item as the Oracle's checks name it: a ticket's key, a merge request's number, a run's scheduled time.
+    public static func itemName(_ item: ItemRef) -> String {
+        switch item {
+        case .ticket(let ticket): ticket.key
+        case .mergeRequest(let request): "!" + String(request.number)
+        case .run(let run): "the scheduled run due " + run.at.formatted(.iso8601)
+        case .unknown: "an item"
+        }
     }
 }

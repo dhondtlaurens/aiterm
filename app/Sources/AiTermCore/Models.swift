@@ -414,6 +414,9 @@ public struct AppState: Codable, Equatable, Sendable {
     /// below, which keep each one's place as signals come, go and move.
     public private(set) var signalDividers: [SignalDivider] = []
     public var signalSeen: [SignalSeen] = []
+    /// Per scheduled signal, the last scheduled time it fired or skipped: a time at or before it never fires again.
+    /// Saved in the same flush as the task a firing starts, and never pruned with `signalSeen`.
+    public var scheduleCursors: [UUID: Date] = [:]
     public var operatorSession: OperatorSession?
     /// Whether the sidebar shows the Operator's section, the projects folded under their heading. The
     /// two fold into each other, one open at a time; the projects are the default, so a workspace
@@ -591,7 +594,7 @@ public struct AppState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case items, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
-        case signals, signalDividers, signalSeen, operatorSession, operatorOpen
+        case signals, signalDividers, signalSeen, scheduleCursors, operatorSession, operatorOpen
     }
 
     /// Reads known workspace fields and preserves unrecognized keys for the next save.
@@ -620,6 +623,7 @@ public struct AppState: Codable, Equatable, Sendable {
             .sorted { ($0.1.position, $0.0) < ($1.1.position, $1.0) }
             .map(\.1)
         signalSeen = try c.decodeIfPresent([SignalSeen].self, forKey: .signalSeen) ?? []
+        scheduleCursors = try c.decodeIfPresent([UUID: Date].self, forKey: .scheduleCursors) ?? [:]
         operatorSession = try c.decodeIfPresent(OperatorSession.self, forKey: .operatorSession)
         operatorOpen = try c.decodeIfPresent(Bool.self, forKey: .operatorOpen) ?? false
     }
@@ -647,6 +651,7 @@ public struct AppState: Codable, Equatable, Sendable {
         if !signals.isEmpty { try c.encode(signals, forKey: .signals) }
         if !signalDividers.isEmpty { try c.encode(signalDividers, forKey: .signalDividers) }
         if !signalSeen.isEmpty { try c.encode(signalSeen, forKey: .signalSeen) }
+        if !scheduleCursors.isEmpty { try c.encode(scheduleCursors, forKey: .scheduleCursors) }
         try c.encodeIfPresent(operatorSession, forKey: .operatorSession)
         // Left out while the projects are open, the default, so such a workspace is written as it always was.
         if operatorOpen { try c.encode(true, forKey: .operatorOpen) }

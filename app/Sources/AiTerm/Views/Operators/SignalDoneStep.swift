@@ -49,9 +49,16 @@ struct SignalDoneSummary: View {
         case (_, .author?), (_, .assignee?): "Each merge request that matches starts a task"
         case (_, nil): "Each merge request that matches starts a task, a review task unless it’s yours"
         }
+        let opening = model.isScheduled
+            ? Text("On schedule ") + Text(start.query.trimmingCharacters(in: .whitespacesAndNewlines)).fontWeight(.semibold)
+                + Text(" a task starts in ") + Text(model.scheduleProject?.name ?? "its project").fontWeight(.semibold)
+                + Text("; a run is skipped while the last one is unfinished. ")
+            : Text(what + ", and a later match continues it. ")
         // The query, never the description: free words do not read inside this sentence.
         let query = model.done.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let condition = query.isEmpty ? Text("its Done query matches")
+        let byOperator = model.doneKind == .operatorDecides
+        let condition = byOperator ? Text("the Operator and the Oracle agree it is").fontWeight(.semibold)
+            : query.isEmpty ? Text("its Done query matches")
             : Text("it matches ") + Text(query).fontWeight(.semibold)
         let ending = switch model.then {
         case .unknown: "this version cannot finish it"
@@ -60,10 +67,23 @@ struct SignalDoneSummary: View {
         case .remove: model.deleteMergedBranch ? "its task is removed, and its branch deleted only if it’s merged and unchanged" : "its task is removed"
         }
         let finish = model.finish.mergesWhenReady
-            ? Text("AiTerm merges it once it’s ready, and it’s done when merged or closed. ")
+            ? (byOperator ? Text("AiTerm merges it once it’s ready, and it’s done when ") + condition + Text(", or its merge request is closed. ")
+               : Text("AiTerm merges it once it’s ready, and it’s done when merged or closed. "))
             : Text("It’s done when ") + condition + Text(", or its merge request is merged or closed. ")
-        let count = model.startCount.map { "\($0) \($0 == 1 ? "item matches" : "items match") now and \($0 == 1 ? "starts" : "start") at once." }
-            ?? "AiTerm checks for matches when you save."
-        return Text(what + ", and a later match continues it. ") + finish + Text("Then ") + Text(ending).fontWeight(.semibold) + Text(". " + count)
+        let count: String
+        if model.isScheduled {
+            count = model.nextRuns.first.map { "The first run is " + Self.firstRun($0, calendar: model.calendar) + "." } ?? "It has no run to come."
+        } else {
+            count = model.startCount.map { "\($0) \($0 == 1 ? "item matches" : "items match") now and \($0 == 1 ? "starts" : "start") at once." }
+                ?? "AiTerm checks for matches when you save."
+        }
+        return opening + finish + Text("Then ") + Text(ending).fontWeight(.semibold) + Text(". " + count)
+    }
+    /// `Mon 30 Nov at 09:00`.
+    static func firstRun(_ date: Date, calendar: Calendar) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB"); formatter.calendar = Cron.gregorian(calendar); formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "EEE d MMM 'at' HH:mm"
+        return formatter.string(from: date)
     }
 }

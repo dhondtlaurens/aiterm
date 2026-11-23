@@ -286,6 +286,26 @@ import AiTermUI
         let sidebar = SignalSidebar(state: world.state, entries: [])
         #expect(HeadingValue(sidebar.signals[0]).help.contains("cannot run"))
     }
+    /// A schedule's heading reads its cron in words and its next run, its last skipped run by time, and an Operator Done
+    /// its guidance, never an empty Done line.
+    @Test func aScheduledSignalsHeadingNamesItsScheduleNextRunAndLastSkip() {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
+        var world = SignalWorld()
+        let monday = calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 8))!
+        let id = world.scheduled(from: monday)
+        world.state.signals[0].done.description = "A merge request is open"
+        let run = SignalRunRef(signal: id, at: calendar.date(from: DateComponents(year: 2026, month: 11, day: 16, hour: 9))!)
+        world.state.signalSeen.append(SignalSeen(signal: id, item: .run(run), disposition: .skipped, at: monday,
+                                                 reason: "The last run is still unfinished."))
+        let runs = SignalSidebar.nextRuns(in: world.state, now: monday, calendar: calendar)
+        let sidebar = SignalSidebar(state: world.state, entries: [], skipped: SignalSidebar.skipped(in: world.state, calendar: calendar), nextRuns: runs)
+        let section = sidebar.signals[0]
+        #expect(HeadingValue.triggers(section.signal, nextRun: section.nextRun, calendar: calendar)
+                == ["Starts: At 09:00 on Monday (0 9 * * 1)", "Next run: 23 Nov 2026 09:00", "Done: The Operator decides (A merge request is open)"])
+        #expect(section.skipped == ["Run of 16 Nov 2026 09:00: The last run is still unfinished."])
+        world.state.signals[0].done.description = ""
+        #expect(HeadingValue.triggers(world.state.signals[0], nextRun: nil).last == "Done: The Operator decides")
+    }
     @Test func backpackModeWaitsForOrphanedStagesButNotUnsupportedSources() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
         defer { controller.shutdown() }

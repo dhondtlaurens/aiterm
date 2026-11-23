@@ -49,6 +49,9 @@ public struct SignalTask: Codable, Equatable, Sendable {
     /// its launch gives the task back to it, still watching its Done trigger or done with its Then.
     public var previousStage: EarlierStage?
     public var thenApplied: Bool?
+    /// The scheduled run this task started from, kept for good: across its stages, and when another signal continues
+    /// it, so the schedule still knows its previous run is unfinished. Nil for a task that started from an item.
+    public var scheduledRun: SignalRunRef?
     public var ownership = 0
     public var blockedReason: String?
     public var journal: [TaskJournal.Entry] = []

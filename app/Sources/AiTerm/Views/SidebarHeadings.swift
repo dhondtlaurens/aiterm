@@ -330,6 +330,8 @@ struct ProviderIcon: View {
         case .jira: .brand(Palette.jira)
         case .gitLab: .gitlabTanuki
         case .gitHub: .brand(Palette.github)
+        case .schedule: .symbol("clock")
+        case .operator: .symbol("checkmark.seal")
         case .unknown: .symbol("questionmark.circle")
         }
     }

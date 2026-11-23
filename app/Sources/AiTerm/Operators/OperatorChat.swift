@@ -24,6 +24,8 @@ import AiTermCore
     /// Called when the keeper retired the chat, after its window record was dropped.
     var finished: @MainActor () -> Void = {}
     lazy var keeper: OperatorSessionKeeper = makeKeeper()
+    /// Whether you chose the chat's row, for the open it asks for: that one opens without waiting for your pause.
+    private var chosen = false
 
     init(workspace: WorkspaceStore, live: LiveSessions, ports: OperatorPorts, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
          frame: @escaping @MainActor () -> Frame, activity: OperatorActivityTracker, log: ActivityWriter, context: Ports) {
@@ -48,7 +50,9 @@ import AiTermCore
                       self.workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
                 return sessions.first { $0.taskUUID == session.id && $0.agent == .claude }?.windowId
             }, sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.context.instructions() }, usage: { [weak self] in self?.live.usage ?? .empty },
-            installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }))
+            installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }, pause: ports.pause,
+            wanted: { [weak self] in self?.workspace.state.operatorHasWork == true },
+            start: { [work = ports.work] body in work.start(body) }))
         keeper.activity = activity
         keeper.failed = { [weak self] reason in self?.log.fail(.session, reason) }
         keeper.succeeded = { [weak self] in self?.log.succeed(.session) }
@@ -110,7 +114,8 @@ import AiTermCore
     /// the reason when there is one.
     func open() async throws {
         guard workspace.state.operatorHasWork else { return }
-        await keeper.ensure(allowPaused: true, reopen: true)
+        chosen = true; defer { chosen = false }
+        await keeper.ensure(allowPaused: true, reopen: true, chose: true)
         guard workspace.state.operatorSession?.window == nil else { return }
         throw ActionUnavailable(log.issues.current.first { $0.source == .session }?.text ?? "The Operator’s chat couldn’t open.")
     }
@@ -127,9 +132,17 @@ import AiTermCore
         let actual = try await daemon.sessions()
         guard context.running(), workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
         if let existing = actual.first(where: { $0.taskUUID == session.id && $0.agent == .claude }) { return existing.windowId }
-        let opening = try await daemon.createTaskWindow(taskId: session.id.uuidString, cwd: prepared.folder.path, title: "Operator", agentCommand: prepared.command, frame: frame(), background: true)
-        guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
-        return opening.id
+        // The keeper found you paused before it prepared the chat; typing resumed since then, or while a worker's window
+        // had the Operator's one window turn, holds the window too. Waiting for the turn is short: no window waits for
+        // your pause while it holds it.
+        let pause = ports.pause
+        return try await pause.turn.take {
+            // Read in the turn: you may have chosen the chat while this open waited for it (`chosenMeanwhile`).
+            guard self.chosen || self.keeper.chosenMeanwhile || pause.isQuiet else { throw OperatorOpenDeferred() }
+            let opening = try await daemon.createTaskWindow(taskId: session.id.uuidString, cwd: prepared.folder.path, title: "Operator", agentCommand: prepared.command, frame: frame(), background: true)
+            guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
+            return opening.id
+        }
     }
     private func closeOperator(_ window: String) async throws {
         guard let session = workspace.state.operatorSession, let daemon = daemon(), context.running() else { throw ActionUnavailable("The helper is unavailable.") }

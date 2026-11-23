@@ -77,6 +77,17 @@ import Synchronization
         #expect(runs.prompts.count == 1)
     }
 
+    /// Write cron: AiTerm's own parser checks the answer, without a project, and a refused cron goes back once with why.
+    @Test func aRefusedCronIsSentBackOnceWithTheParsersReason() async {
+        let runs = Runs(), links = SignalConnections()
+        let outcome = await runner([Self.answer("0 9 * * Mo"), Self.answer("0 9 * * 1")], runs: runs) { source, start, query in
+            await links.check(source, start: start, query: query)
+        }.write(source: .schedule, start: true, description: "Every Monday at 9am", context: .init())
+        #expect(outcome == .written("0 9 * * 1"))
+        #expect(runs.prompts.count == 2)
+        #expect(runs.prompts.last?.contains("```\n“Mo” isn’t a weekday: use 0–6 or MON–SUN.\n```") == true)
+    }
+
     @Test func aMissingCLIOrATimeoutSaysSoAndWritesNothing() async {
         let missing = QueryWriterRunner(headless: HeadlessRun(locate: { _ in nil }, run: { _, _, _, _, _ in
             Issue.record("nothing runs"); throw CancellationError()

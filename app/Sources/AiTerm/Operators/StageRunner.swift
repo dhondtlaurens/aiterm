@@ -30,6 +30,10 @@ import AiTermCore
     func start() { isStopped = false }
     func stop() { isStopped = true; generation = UUID() }
     var changed: (UUID, String) -> Void = { _, _ in }
+    /// Starts a stage that `resume`, `choose` or `finish` left launching as a job of its own, so an Operator tool call
+    /// that resumed it answers at once: its launch may wait for your pause (`PauseGate`) far longer than the
+    /// Operator's request. Nil runs the launch inline.
+    var launchSoon: (@MainActor (UUID) -> Void)?
     init(workspace: WorkspaceStore, journal: SignalJournal, now: @escaping () -> Date, ports: Ports,
          effects: OperatorInFlight = OperatorInFlight(), activity: OperatorActivityTracker = OperatorActivityTracker()) {
         self.workspace = workspace; self.journal = journal; self.now = now; self.ports = ports; self.effects = effects; self.activity = activity
@@ -182,7 +186,7 @@ import AiTermCore
         let next = try SignalTransitions.apply(.resume, to: record, at: now())
         workspace.mutate { $0.updateSignalItem(id) { task in task.signalTask = next; task.signalTask?.candidateProjects = nil } }
         guard workspace.flush() else { throw ActionUnavailable("The resume intent couldn’t be saved.") }
-        await run(id)
+        await launch(id)
     }
     /// Applies a decided row (or its weekly-usage switch) and project to a choosing stage, or to a
     /// blocked stage that resumes on a new row, journals the choice and starts the stage. The caller
@@ -207,7 +211,7 @@ import AiTermCore
         try await journal.append(.ours(choice.journalLine), task: id)
         if let row = choice.launchSwitch { try await journal.append(.ours(AgentChoiceRecord.switchLine(row)), task: id) }
         changed(id, "The Operator chose its agent.")
-        await run(id)
+        await launch(id)
     }
     /// Records a stage result. Any result, a block included, is refused while another Operator effect holds the task.
     func finish(_ id: UUID, action: SignalAction) async throws {
@@ -224,9 +228,12 @@ import AiTermCore
         }
         guard workspace.flush() else { throw ActionUnavailable("The stage couldn’t be saved.") }
         try await journal.append(.ours("Stage \(record.stage) left working."), task: id)
-        if workspace.state.signalItem(id: id)?.signalTask?.phase == .launching { await run(id) }
+        if workspace.state.signalItem(id: id)?.signalTask?.phase == .launching { await launch(id) }
         else if workspace.state.signalItem(id: id)?.signalTask?.phase == .choosing { changed(id, "The Operator chooses this stage's agent.") }
         else if workspace.state.signalItem(id: id)?.signalTask?.phase == .blocked { changed(id, "This stage cannot start.") }
+    }
+    private func launch(_ id: UUID) async {
+        if let launchSoon { launchSoon(id) } else { await run(id) }
     }
     private func holds(_ claim: SignalClaim, generation expected: UUID) -> Bool {
         !isStopped && generation == expected && claim.allows(in: workspace)

@@ -148,6 +148,110 @@ import AiTermCore
             }
         }
     }
+    /// What `finish_stage(done)` on a stage whose Done the Operator decides comes to: finish it, decided by the Oracle's
+    /// agreement or the person's recorded yes, or a reply for the Operator (a critique to answer, or ask the person).
+    enum Completion: Equatable { case finish(String), reply(JSONValue) }
+    static let finishTool = OperatorTool.finishStage.rawValue
+
+    /// One Operator-Done `finish_stage(done)`: the Oracle checks the Operator's evidence, up to three rounds per stage, as
+    /// `answer_worker` does. Its yes finishes; a critique comes back with a `challengeId` to answer; three disagreeing
+    /// rounds, its call for the person, or an Oracle that is off or cannot answer send the Operator to the person, whose
+    /// recorded yes (`fromQuestion`) then finishes it.
+    func complete(task id: UUID, evidence: String, workerTurn: String?, challenge: String? = nil,
+                  fromQuestion: String? = nil) async throws -> Completion {
+        guard workspace.canChangeWorkspace, !evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ActionUnavailable("A finished stage needs its evidence.")
+        }
+        guard let task = workspace.state.task(id: id), let claim = SignalClaim(task), claim.allows(in: workspace),
+              let record = task.signalTask, record.phase == .working || record.phase == .watching,
+              record.current.configuration.done.source == .operator else {
+            throw ActionUnavailable("Only a working stage whose Done the Operator decides finishes this way.")
+        }
+        let binding = try Self.json(["task": .string(id.uuidString), "stage": .int(claim.stage), "ownership": .int(claim.ownership),
+                                      "done": "operator"])
+        // Each time this stage's done goes to the person it is asked under a key of its own, named for that escalation:
+        // only the person's answer to it is consent, and a "no" closes it so a later done can be asked again.
+        func key(of marker: OracleRound) -> String { "done-" + marker.id }
+        func ask(_ reason: String) -> Completion {
+            let questionKey = oracle.saved(tool: Self.finishTool, key: binding).map(key) ?? ""
+            return .reply(["status": "ask_you", "reason": .string(reason), "questionKey": .string(questionKey),
+                    "next": .string("Ask the person in your chat whether the stage is done, record that question with ask_you under key "
+                        + questionKey + " and this task, and once they say yes, call finish_stage again with fromQuestion "
+                        + questionKey + " and the same evidence.")])
+        }
+        func markPerson(_ reason: String, replacing: OracleRound? = nil) {
+            oracle.markPerson(tool: Self.finishTool, key: binding, reason: reason, replacing: replacing)
+        }
+        if let fromQuestion {
+            // Only a question asked once this stage's done went to the person: an earlier or unrelated yes is no consent.
+            guard let sent = oracle.saved(tool: Self.finishTool, key: binding), sent.stage == .unanswered, fromQuestion == key(of: sent),
+                  let asked = workspace.state.operatorSession?.questions.first(where: { $0.id == fromQuestion }),
+                  asked.openedAt >= sent.askedAt,
+                  asked.resolvedAt != nil, asked.withdrawn == nil, asked.task == id, asked.stage == claim.stage,
+                  asked.ownership == claim.ownership, asked.deliveredAt == nil else {
+                throw ActionUnavailable("That recorded answer is not the person's answer to whether this stage is done.")
+            }
+            guard let answer = asked.answer, OracleLaunch.verdict(answer)?.approved == true else {
+                workspace.mutate { state in
+                    if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
+                        state.operatorSession?.questions[index].deliveredAt = now()
+                    }
+                    state.operatorSession?.oracleRounds.removeAll { $0.id == sent.id }
+                }
+                workspace.flush()
+                return .reply(["status": "not_done", "next": "The person did not say yes. Carry on with the stage; a later finish_stage done is checked again."])
+            }
+            workspace.mutate { state in
+                if let index = state.operatorSession?.questions.firstIndex(where: { $0.id == fromQuestion }) {
+                    state.operatorSession?.questions[index].deliveredAt = now()
+                }
+                state.operatorSession?.oracleRounds.removeAll { $0.tool == Self.finishTool && $0.askedEvidence == binding }
+            }
+            return .finish("The person said it is done.")
+        }
+        var previous: OracleRound?
+        if let open = oracle.saved(tool: Self.finishTool, key: binding) {
+            if open.stage == .unanswered {
+                return ask(open.unansweredReason ?? "The Operator and Oracle still disagree after three rounds.")
+            }
+            guard challenge == open.id else {
+                return .reply(["status": "challenged", "challengeId": .string(open.id), "round": .int(open.round ?? 1),
+                               "critique": .string(open.critique ?? "Reply to this Oracle round before starting another.")])
+            }
+            previous = open
+        } else if challenge != nil { throw ActionUnavailable("That Oracle round does not belong to this stage.") }
+        if !oracle.isOn {
+            markPerson("The Oracle is off.", replacing: previous)
+            return ask("The Oracle is off.")
+        }
+        let check = OracleLaunch.CompletionCheck(item: OperatorDigest.itemName(record.current.item), title: task.title,
+                                                 brief: record.current.prompt ?? record.current.configuration.work.prompt,
+                                                 doneLooksLike: record.current.configuration.done.description,
+                                                 evidence: evidence, workerTurn: workerTurn)
+        let outcome = await activity.acting(task: id, act: "consulting the Oracle") {
+            await oracle.consult(.completion(check), binding: .init(claim: claim, round: .init(key: binding, proposal: evidence)),
+                                 continuing: previous)
+        }
+        guard claim.allows(in: workspace) else {
+            if case .critique(_, _, let saved?) = outcome { oracle.clear(saved) }
+            throw ActionUnavailable("The task changed while the Oracle read it.")
+        }
+        switch outcome {
+        case .agreed(let text, _): return .finish("The Oracle agreed: " + text)
+        case .critique(let text, let number, let challengeID?):
+            return .reply(["status": "challenged", "challengeId": .string(challengeID), "round": .int(number), "critique": .string(text),
+                           "next": "Have the worker finish what is missing, or answer the critique, then call finish_stage with challengeId."])
+        case .critique(let text, _, nil):
+            let reason = "The Operator and Oracle still disagree after three rounds. " + text
+            markPerson(reason); return ask(reason)
+        case .person(let reason), .unavailable(.failed(let reason)), .unavailable(.unclear(let reason)):
+            markPerson(reason); return ask(reason)
+        case .unavailable(.off):
+            markPerson("The Oracle is off."); return ask("The Oracle is off.")
+        case .retry:
+            return .reply(["status": "retry", "next": "The Oracle's settings or the standing instructions changed during its check. Call run_status and finish again without challengeId, with a new key."])
+        }
+    }
     func askYou(key: String, task: UUID? = nil, text: String, tab: String = "main") throws {
         guard workspace.canChangeWorkspace, workspace.state.operatorSession != nil, !key.isEmpty,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ActionUnavailable("A question needs a key and text.") }
