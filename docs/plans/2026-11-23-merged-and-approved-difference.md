@@ -8,7 +8,8 @@ mark wears a green corner check once the request merges, and nothing shows an ap
 - **Approved and every thread resolved**: the mark wears the green check disc (today's merged mark). A request
   with no review threads needs only the approval.
 - **Approved with threads open**: no corner; the tooltip and VoiceOver still say "approved".
-- **Merged**: a purple disc with a merge glyph replaces it, and the thread bubble with its `n/n` is dropped.
+- **Merged**: a purple disc with a merge glyph replaces it, and the thread bubble with its `n/n` is dropped, from
+  the tooltip and VoiceOver too, which say "merged".
 - Both discs grow from 6 to 8 pt. Resolved threads get no mark of their own: `n/n` says it.
 
 The same on GitLab and GitHub. Drawn and picked on the design page's Proposals tab (23 Nov, option G2 at 8 pt).
@@ -81,11 +82,11 @@ design page updated locally only (publishing it needs a full read of the 2.2 MB 
 
 ## To-dos
 
-- [ ] The approval reaches the row: `ReviewThreads.approved`, the reader reads approvals, and the check shows once
+- [x] The approval reaches the row: `ReviewThreads.approved`, the reader reads approvals, and the check shows once
       approved and every thread is resolved, with "approved" in the tooltip either way (tests first).
-- [ ] The merged mark: `Palette.merged`, `SettledMark.merged`, the badge's corner kind; a merged request wears it and
+- [x] The merged mark: `Palette.merged`, `SettledMark.merged`, the badge's corner kind; a merged request wears it and
       drops the thread suffix; the shared GitLab mark wears the request's kind, and a request with nothing left to draw
       keeps its words on the issue's badge (tests first).
-- [ ] `Size.cornerBadge` 6 → 8 and the glyph docs; the corner overlay tests stay green.
-- [ ] The snapshot shows the new states; read before and after.
-- [ ] README inventory and the design page synced, the proposal removed.
+- [x] `Size.cornerBadge` 6 → 8 and the glyph docs; the corner overlay tests stay green.
+- [x] The snapshot shows the new states; read before and after.
+- [x] README inventory and the design page synced, the proposal removed.

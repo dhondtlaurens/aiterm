@@ -43,18 +43,24 @@ import Testing
         #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/-/merge_requests/4", gitLab: gitLab) == nil)
     }
 
-    /// Each host is asked with its own connection, for the threads and for the request itself, whose
-    /// state says whether it merged: GitHub's pull request merged, GitLab's merge request still open.
+    /// Each host is asked with its own connection, for the threads, for the request itself, whose
+    /// state says whether it merged, and for who approves it: GitHub's pull request merged and approved,
+    /// GitLab's merge request still open and approved by nobody.
     @Test func eachHostIsAskedWithItsOwnConnection() async throws {
         let pull = #"{"number":87,"title":"t","html_url":"https://github.com/octocat/hello/pull/87","state":"closed","merged":true,"head":{"ref":"f"},"base":{"ref":"main"}}"#
         let mergeRequest = #"{"iid":4,"title":"t","source_branch":"f","target_branch":"main","web_url":"https://gitlab.example.net/web/acme/-/merge_requests/4","state":"opened"}"#
         let stub = StubSession { request in
             let path = request.url?.path ?? ""
             if request.url?.host == "api.github.com" {
+                if path.hasSuffix("/reviews") {
+                    return (200, Data((request.url?.query?.contains("&page=1") == true
+                        ? #"[{"user":{"login":"ana"},"state":"APPROVED"}]"# : "[]").utf8))
+                }
                 return path == "/graphql"
                     ? (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"id":"thread","isResolved":true}]}}}}}"#.utf8))
                     : (200, Data(pull.utf8))
             }
+            if path.hasSuffix("/approvals") { return (200, Data(#"{"approved_by":[]}"#.utf8)) }
             if !path.hasSuffix("/discussions") { return (200, Data(mergeRequest.utf8)) }
             return (200, Data((request.url?.query?.contains("&page=1") == true
                 ? #"[{"id":"thread","notes":[{"resolvable":true,"resolved":false}]}]"# : "[]").utf8))
@@ -62,9 +68,9 @@ import Testing
         let reader = ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: GitHubConfig(token: "gh"),
                                          session: stub.session)
         #expect(try await reader.threads(of: MergeRequestRef(iid: 87, title: "t", url: "https://github.com/octocat/hello/pull/87"))
-                == ReviewThreads(resolved: 1, total: 1, merged: true))
+                == ReviewThreads(resolved: 1, total: 1, merged: true, approved: true))
         #expect(try await reader.threads(of: MergeRequestRef(iid: 4, title: "t", url: "https://gitlab.example.net/web/acme/-/merge_requests/4"))
-                == ReviewThreads(resolved: 0, total: 1, merged: false))
+                == ReviewThreads(resolved: 0, total: 1, merged: false, approved: false))
         // The threads and the request are asked side by side, so in either order.
         let asked = stub.requests.map { request in
             "\(request.url?.absoluteString ?? "") \(request.value(forHTTPHeaderField: "Authorization") ?? "-") \(request.value(forHTTPHeaderField: "PRIVATE-TOKEN") ?? "-")"
@@ -72,7 +78,10 @@ import Testing
         #expect(asked.sorted() == [
             "https://api.github.com/graphql Bearer gh -",
             "https://api.github.com/repos/octocat/hello/pulls/87 Bearer gh -",
+            "https://api.github.com/repos/octocat/hello/pulls/87/reviews?per_page=100&page=1 Bearer gh -",
+            "https://api.github.com/repos/octocat/hello/pulls/87/reviews?per_page=100&page=2 Bearer gh -",
             "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4 - gl",
+            "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/approvals - gl",
             "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/discussions?per_page=100&page=1 - gl",
             "https://gitlab.example.net/api/v4/projects/web%2Facme/merge_requests/4/discussions?per_page=100&page=2 - gl",
         ])
@@ -97,5 +106,27 @@ import Testing
         let gitLabOnly = ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: nil, session: stub.session)
         #expect(try await gitLabOnly.threads(of: MergeRequestRef(iid: 87, title: "t", url: "https://github.com/octocat/hello/pull/87")) == nil)
         #expect(stub.requests.isEmpty)
+    }
+
+    /// A GitLab merge request someone approves reads as approved; an approvals read that fails fails the whole read,
+    /// so the watcher keeps the row's last good answer rather than one without its approval.
+    @Test func anApprovalIsReadAndAFailedApprovalsReadThrows() async throws {
+        let mergeRequest = #"{"iid":4,"title":"t","source_branch":"f","target_branch":"main","web_url":"https://gitlab.example.net/web/acme/-/merge_requests/4","state":"opened"}"#
+        func reader(approvals: (Int, String)) -> ReviewThreadsReader {
+            let stub = StubSession { request in
+                let path = request.url?.path ?? ""
+                if path.hasSuffix("/approvals") { return (approvals.0, Data(approvals.1.utf8)) }
+                if path.hasSuffix("/discussions") {
+                    return (200, Data((request.url?.query?.contains("&page=1") == true
+                        ? #"[{"id":"thread","notes":[{"resolvable":true,"resolved":true}]}]"# : "[]").utf8))
+                }
+                return (200, Data(mergeRequest.utf8))
+            }
+            return ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: nil, session: stub.session)
+        }
+        let ref = MergeRequestRef(iid: 4, title: "t", url: "https://gitlab.example.net/web/acme/-/merge_requests/4")
+        #expect(try await reader(approvals: (200, #"{"approved_by":[{"user":{"username":"ana"}}]}"#)).threads(of: ref)
+                == ReviewThreads(resolved: 1, total: 1, merged: false, approved: true))
+        await #expect(throws: (any Error).self) { try await reader(approvals: (500, "{}")).threads(of: ref) }
     }
 }
