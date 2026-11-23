@@ -221,9 +221,11 @@ import Testing
         }
     }
 
-    @Test func operatorHeadingOwnsPauseEvenWithoutSignalsOrChatAndAddsOnlySignals() throws {
+    /// The Operator heading's + adds a signal or a divider; a divider needs a signal to stand beside.
+    @Test func operatorHeadingOwnsPauseEvenWithoutSignalsOrChatAndAddsSignalsAndDividers() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
+        let add = [["New Signal…", "Add Divider…"]]
         for unlocked in [false, true] {
             if unlocked { try controller.workspace.load() }
             for paused in [false, true] {
@@ -232,9 +234,12 @@ import Testing
                     titles: [[title]], disabled: unlocked ? [] : [title])
             }
             expectCommands(SectionHeading(controller: controller, kind: .operator).addCommands(),
-                titles: [["New Signal…"]], disabled: unlocked ? [] : ["New Signal…"])
+                titles: add, disabled: unlocked ? ["Add Divider…"] : ["New Signal…", "Add Divider…"])
             expectCommands(SectionHeading.commands(kind: .projects, paused: false, controller: controller), titles: [])
         }
+        var world = SignalWorld(); world.signal()
+        controller.workspace.mutate { $0.signals = world.state.signals }
+        expectCommands(SectionHeading(controller: controller, kind: .operator).addCommands(), titles: add)
         expectCommands(SignalOperatorRow.commands, titles: [])
     }
 }

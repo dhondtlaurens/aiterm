@@ -474,7 +474,7 @@ import Testing
         }
         let preparing = try #require(controller.sheets.preparingSheet)
 
-        controller.sheet = .newDivider
+        controller.sheet = .newDivider(.projects)
         await preparing.value
 
         #expect(controller.sheet?.id == "divider-new")

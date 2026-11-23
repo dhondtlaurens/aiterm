@@ -198,7 +198,8 @@ struct SectionHeading: View {
     func addCommands() -> [[RowCommand]] {
         switch kind {
         case .operator:
-            [[RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal() }]]
+            [[RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal() },
+              RowCommand(title: "Add Divider…", enabled: controller.canAddSignalDivider) { controller.sheets.presentNewDivider(in: .operator) }]]
         case .projects:
             [[RowCommand(title: "Add Project…", enabled: controller.canChangeWorkspace) { Task { await controller.projects.addProject() } },
               RowCommand(title: "Add Divider…", enabled: controller.canChangeWorkspace) { controller.sheets.presentNewDivider() }]]

@@ -3043,8 +3043,9 @@
       <h2>Signals and the Operator</h2>
       <p class="why"><code>SignalOperatorRow</code> opens the active workload’s chat; a signal's heading is a
       <code>HeadingRow</code>, drawn from its <code>HeadingValue</code> on the project heading's grid: source mark,
-      fold and counts. The Operator's heading is a <code>SectionHeading</code>: its + menu holds New Signal… alone,
-      and Pause Operator / Resume Operator sit in its context menu. <code>TaskRowView</code> uses the same two-line
+      fold and counts. The Operator's heading is a <code>SectionHeading</code>: its + menu holds New Signal… and Add Divider…,
+      and Pause Operator / Resume Operator sit in its context menu. A <code>DividerRow</code> sits between signal headings as it does
+      between projects, under the Operator's row and above removed signals' headings; it never changes priority. <code>TaskRowView</code> uses the same two-line
       title and badge grid under a project or signal, with no extra Operator line. When work finishes the chat
       closes and its row disappears, while signals keep polling. The next matching workload starts a fresh chat.
       Folded, the Operator's heading draws one chip for the Operator, its most urgent state (needs you, paused, working, waiting,

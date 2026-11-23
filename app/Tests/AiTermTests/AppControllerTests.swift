@@ -545,6 +545,42 @@ import Testing
         #expect(try controller.savedWorkspace().items.count == 2)
     }
 
+    /// Add Divider… among the signals needs a signal to stand beside, trims its name, saves, and leaves the signals'
+    /// priority alone; ⌘D asks for one in whichever section is open.
+    @Test func aSignalDividerNeedsASignalAndLeavesPriorityAlone() throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        controller.addSignalDivider(name: "Alone")
+        #expect(controller.state.signalDividers.isEmpty && !controller.canAddSignalDivider)
+
+        var world = SignalWorld()
+        let a = world.signal(name: "A"), b = world.signal(name: "B")
+        controller.workspace.mutate { $0.signals = world.state.signals }
+        controller.addSignalDivider(name: "  Reviews  ")
+        let divider = try #require(controller.state.signalDividers.first)
+        #expect(divider.name == "Reviews")
+        #expect(controller.moveSignalDivider(divider.id, .up))
+        #expect(controller.state.operatorSlots.map(\.id) == [a, divider.id, b])
+        #expect(controller.state.signals.map(\.id) == [a, b])
+        controller.renameSignalDivider(divider.id, to: " ")
+        #expect(controller.state.signalDividers.first?.name == "")
+        #expect(try controller.savedWorkspace().signalDividers.map(\.id) == [divider.id])
+
+        controller.presentNewDividerInOpenSection()
+        #expect(controller.sheet?.id == AppController.SheetKind.newDivider(.projects).id)
+        controller.sheet = nil
+        controller.workspace.mutate { $0.operatorOpen = true }
+        controller.presentNewDividerInOpenSection()
+        #expect(controller.sheet?.id == AppController.SheetKind.newDivider(.operator).id)
+        controller.sheet = nil
+
+        controller.removeSignalDivider(divider.id)
+        #expect(controller.state.signalDividers.isEmpty)
+        try controller.breakSaving()
+        controller.addSignalDivider(name: "Locked")
+        #expect(controller.state.signalDividers.isEmpty)
+    }
+
     @Test func renamingADividerTrimsAndRenamingATaskChangesOnlyTheTitle() throws {
         let (controller, dir) = try loadedController()
         defer { try? FileManager.default.removeItem(at: dir) }

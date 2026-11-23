@@ -16,11 +16,24 @@ struct SignalSection: Equatable, Identifiable {
     var collapsed: Bool { (removed ? removedFolded : signal.collapsed) || tasks.isEmpty }
 }
 
+/// One row of the Operator section's level, in drawn order: a signal's heading with its tasks, or a divider.
+enum OperatorEntry: Equatable, Identifiable {
+    case signal(SignalSection), divider(DividerEntry)
+    var id: UUID {
+        switch self {
+        case .signal(let section): return section.id
+        case .divider(let divider): return divider.id
+        }
+    }
+}
+
 /// Reuses the project's exact task rows. Moving ownership changes only which heading holds them.
 /// `acts` are the acts the Operator runs on tasks now (`OperatorActivityTracker.actsByTask`); `skipped` each
 /// signal's skipped-item sentences (`skipped(in:)`).
 struct SignalSidebar {
     var signals: [SignalSection]
+    /// `signals` with the dividers between the live ones (`AppState.operatorSlots`), the removed signals' headings last.
+    var entries: [OperatorEntry]
     var projects: [SidebarEntry]
     init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:], skipped: [UUID: [String]] = [:],
          nextRuns: [UUID: Date] = [:], foldedRemovedSignals: Set<UUID> = []) {
@@ -48,6 +61,17 @@ struct SignalSidebar {
             section.canMoveDown = state.canMove(signalId: signal.id, .down)
             return section
         }
+        let sections = Dictionary(signals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let live = state.operatorSlots.compactMap { slot -> OperatorEntry? in
+            switch slot {
+            case .signal(let signal): return sections[signal.id].map(OperatorEntry.signal)
+            case .divider(let divider):
+                return .divider(DividerEntry(divider: SidebarDivider(id: divider.id, name: divider.name),
+                                             canMoveUp: state.canMove(signalDividerId: divider.id, .up),
+                                             canMoveDown: state.canMove(signalDividerId: divider.id, .down)))
+            }
+        }
+        self.entries = live + signals.filter(\.removed).map(OperatorEntry.signal)
         projects = entries.map { entry in
             guard case .project(var section) = entry else { return entry }
             section.tasks.removeAll { ids.contains($0.id) }

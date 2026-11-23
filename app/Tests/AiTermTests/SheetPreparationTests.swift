@@ -96,7 +96,7 @@ import Testing
 
         controller.sheets.presentSettings()
 
-        #expect(controller.sheet?.id == AppController.SheetKind.newDivider.id)
+        #expect(controller.sheet?.id == AppController.SheetKind.newDivider(.projects).id)
     }
 
     /// The launch probe records the hook port in the supplied harness home.

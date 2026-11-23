@@ -21,9 +21,12 @@ is locked, or while the target row is being removed or archived. Signal-owned ro
 commands; Take Over returns them to their project's usual task or review group.
 
 Signal headings have Move Up and Move Down in the same place as a project heading's, before Remove.
-Each moves the signal one place among the live signals; that order is saved and is the signals'
-priority for an item several of them match. A removed signal's heading has no commands, is drawn
-after the live ones and is never a neighbour, so the first and last live signals disable one each.
+Each moves the signal one place past its drawn neighbour. Past another signal the two swap: that order is
+saved and is the signals' priority for an item several of them match. Dividers sit between signal headings as
+they do between projects (`DividerRow`, off the arrow path), and a signal moves past one on one press without
+changing priority. So only the first and last drawn rows disable a direction: a signal between two dividers
+moves both ways. The Operator's row stays above every divider. A removed signal's heading has no commands, is
+drawn after the live ones and every divider, and is never a neighbour.
 
 Restoring an archived row keeps the existing date-based insertion rule, so it may return at the
 top of a manually reordered group. Existing rows keep their chosen relative order; the archived

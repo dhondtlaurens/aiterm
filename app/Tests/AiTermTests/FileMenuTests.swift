@@ -37,6 +37,22 @@ import Testing
                                             "Add Project…": true, "Add Divider…": true, "New Signal…": true])
     }
 
+    /// ⌘D adds to the open section, so with the Operator's open it follows whether a divider can go among the signals:
+    /// off once its last signal is gone and only a divider is left.
+    @Test func addDividerFollowsTheOpenSection() throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = try controller()
+        var world = SignalWorld(); let signal = world.signal()
+        controller.workspace.mutate { $0.signals = world.state.signals; $0.operatorOpen = true }
+        #expect(try enabled(controller)["Add Divider…"] == true)
+        controller.addSignalDivider(name: "Reviews")
+        controller.workspace.mutate { $0.removeSignal(id: signal) }
+        #expect(controller.rows.operatorOpen)
+        #expect(try enabled(controller)["Add Divider…"] == false)
+        controller.workspace.mutate { $0.operatorOpen = false }
+        #expect(try enabled(controller)["Add Divider…"] == true)
+    }
+
     @Test func commandSOpensNewSignalWithoutASelectedProject() async throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
@@ -107,7 +123,7 @@ import Testing
         let work = TaskItem.make(project: git.id, worktreePath: "/wt", model: "sonnet", createdAt: Date())
         controller.workspace.mutate { $0.tasks = [work] }
         controller.focus.browse(.task(work.id))
-        controller.sheet = .newDivider
+        controller.sheet = .newDivider(.projects)
         #expect(try enabled(controller).values.allSatisfy { !$0 })
     }
 
