@@ -1,17 +1,17 @@
 {
   "claude": {
     "verified": "2.1",
-    "version": "2.1.327",
-    "checkedAt": "2026-11-18"
+    "version": "2.1.330",
+    "checkedAt": "2026-11-23"
   },
   "codex": {
-    "verified": "0.170",
-    "version": "0.170.0",
-    "checkedAt": "2026-11-18"
+    "verified": "0.171",
+    "version": "0.171.0",
+    "checkedAt": "2026-11-23"
   },
   "pi": {
-    "verified": "1.5",
-    "version": "1.5.2",
-    "checkedAt": "2026-11-18"
+    "verified": "1.6",
+    "version": "1.6.0",
+    "checkedAt": "2026-11-23"
   }
 }

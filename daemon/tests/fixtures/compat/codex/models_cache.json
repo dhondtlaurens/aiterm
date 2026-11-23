@@ -1,6 +1,6 @@
 {
-  "fetched_at": "2026-11-20T14:52:55.295996Z",
-  "etag": "W/\"1d1f786991e5e7063e695bca59cb6cb6\"",
+  "fetched_at": "2026-11-23T20:09:46.206374Z",
+  "etag": "W/\"28b8a5588c46b1f86a345cba03baafc3\"",
   "client_version": "0.171.0",
   "identity": "12ca6529e715b01f41a96b95df3cca1cca2166fa076a92bfc2b6ab5a3f857388",
   "models": [
@@ -107,7 +107,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -126,8 +125,7 @@
       ],
       "input_modalities": [
         "text",
-        "image",
-        "audio"
+        "image"
       ],
       "supports_search_tool": true,
       "supports_experimental_context": false,
@@ -235,7 +233,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -371,7 +368,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -473,7 +469,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -603,7 +598,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -735,7 +729,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -867,7 +860,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -994,7 +986,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -1098,7 +1089,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -1199,7 +1189,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -1296,7 +1285,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
@@ -1400,7 +1388,6 @@
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "web_search_provider": "standalone",
       "truncation_policy": {
         "mode": "tokens",
         "limit": 10000
