@@ -1,6 +1,6 @@
 {
   "agent": "claude",
-  "capturedAt": "2026-11-18",
+  "capturedAt": "2026-11-20",
   "launch": [
     "claude",
     "--model",
@@ -9,7 +9,7 @@
     "low"
   ],
   "model": "haiku",
-  "modelCatalogue": "the person's, fetched 2026-11-18",
+  "modelCatalogue": "the person's, fetched 2026-11-20",
   "reasoning": "low",
   "turns": [
     "plain",
@@ -18,5 +18,5 @@
     "backgroundShell",
     "approval"
   ],
-  "version": "2.1.327"
+  "version": "2.1.329"
 }

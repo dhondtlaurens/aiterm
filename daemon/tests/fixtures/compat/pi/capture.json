@@ -1,6 +1,6 @@
 {
   "agent": "pi",
-  "capturedAt": "2026-11-18",
+  "capturedAt": "2026-11-20",
   "launch": [
     "pi",
     "--model",
@@ -14,5 +14,5 @@
     "plain",
     "shellCommand"
   ],
-  "version": "1.5.2"
+  "version": "1.6.0"
 }

@@ -171,6 +171,12 @@ Options:
       --disable <FEATURE>
           Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
 
+      --remote <ADDR>
+          Connect to an existing app server
+
+      --remote-auth-token-env <ENV_VAR>
+          Environment variable containing the remote WebSocket bearer token
+
       --strict-config
           Error out when config.toml contains fields that are not recognized by this version of
           Codex

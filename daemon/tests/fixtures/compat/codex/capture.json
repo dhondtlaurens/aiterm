@@ -11,7 +11,7 @@
     "-c",
     "model_reasoning_effort=low"
   ],
-  "capturedAt": "2026-11-18",
+  "capturedAt": "2026-11-20",
   "launch": [
     "codex",
     "--dangerously-bypass-approvals-and-sandbox",
@@ -28,5 +28,5 @@
     "subagent",
     "approval"
   ],
-  "version": "0.170.0"
+  "version": "0.171.0"
 }

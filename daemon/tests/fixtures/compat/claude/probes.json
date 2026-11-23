@@ -1,6 +1,6 @@
 {
   "--append-system-prompt-file": {
-    "answer": "OK ZULU",
+    "answer": "OK\n\nZULU",
     "marker": "ZULU",
     "status": 0
   }
