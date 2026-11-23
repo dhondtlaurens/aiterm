@@ -1508,14 +1508,17 @@ async def test_t3s_background_window_that_took_focus_anyway_gives_it_back(creati
     assert not app.live[wid].activated
 
 
-async def test_a_background_window_moves_no_focus_when_iterm2_was_not_the_active_app(creating_app):
-    """You were in another app: iTerm2's windows are left as they are -- activating one would bring iTerm2 forward."""
+async def test_a_background_window_gives_focus_back_when_iterm2_was_not_the_active_app(creating_app):
+    """You were in another app: iTerm2 still made the new window its key one, so switching back would land your keys
+    there. The window that had focus gets it back; activating a window does not activate iTerm2 (probed live: it
+    stays behind the app you are in) and the new window is never activated."""
     bridge, app = creating_app()
     w0 = _person_typing_in_w0(app)
     app.app_active, app.raises_new_windows = False, True
     await bridge._app()
-    await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
-    assert not w0.activated
+    wid, _sid = await bridge.create_window("/wt", "T3", {"aiterm_task": "t3"}, iterm_bridge.Frame(0, 0, 10, 10), background=True)
+    assert w0.activated and app.current_terminal_window_id == "w0" and not app.app_active
+    assert not app.live[wid].activated
 
 
 async def test_a_foreground_window_is_selected_and_activated(creating_app):

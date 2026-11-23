@@ -19,6 +19,9 @@ public enum OperatorTiming {
     /// reply before it treats the launch or delivery as failed. Until then a first worker that has named no conversation
     /// yet still counts as opening (`TaskItem.workerTabs(in:now:)`): Codex reads idle until its first hook, half a minute in.
     public static let openingGrace: TimeInterval = 180
+    /// App only: seconds without a key or a click, while iTerm2 or AiTerm is in front, before the Operator opens a
+    /// window on its own (`PauseGate`): one opened while you type takes your keys.
+    public static let pauseBeforeOpening: TimeInterval = 5
     /// How long `read_task` keeps a task's source descriptions.
     public static let hostReadCache: TimeInterval = 30
 }

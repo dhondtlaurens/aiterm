@@ -17,6 +17,8 @@ import AiTermCore
     var additionalContext: @MainActor (TaskItem) async throws -> String = { _ in "" }
     var onBlocked: @MainActor (UUID) -> Void = { _ in }
     var onTurn: (UUID) -> Void = { _ in }
+    /// Runs a launch's wait for your pause (`PauseGate`) under `words`, so the Operator's row says it is waiting.
+    var whilePausing: @MainActor (_ words: String, _ wait: @MainActor () async -> Void) async -> Void = { _, wait in await wait() }
     init(workspace: WorkspaceStore, live: LiveSessions, work: WorkInFlight, ports: OperatorPorts,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?, frame: @escaping @MainActor () -> Frame,
          effects: OperatorInFlight = OperatorInFlight()) {
@@ -182,6 +184,9 @@ import AiTermCore
         let fullPrompt = prompt + (try await additionalContext(task))
         _ = try require(task)
         let previous = task.firstWorker(in: live.sessions)
+        // A new window waits for your pause before the worker it replaces closes, so the task is not left without
+        // one for as long as you type.
+        var waited = opensWindow(task, replacing: previous) ? try await waitForPause(task) : false
         var conversation = task.firstWorkerConversation?.id
         if let previous {
             guard previous.state.turnEnded, let old = previous.conversationId else { throw ActionUnavailable("Wait for this worker to end its turn before continuing it.") }
@@ -194,17 +199,65 @@ import AiTermCore
         }
         let command = try await command(for: task, prompt: fullPrompt, slot: "main", conversation: conversation)
         _ = try require(task)
-        try await markPending(task, tab: "main", conversation: conversation, saving: saving)
+        let window = opensWindow(task, replacing: previous) ? nil : task.windowId
+        let baseline = await replyBaseline(task, conversation: conversation)
         _ = try require(task)
-        let opening: Opening
-        if let window = task.windowId, live.sessions.contains(where: { $0.windowId == window && $0.sessionId != previous?.sessionId }) {
-            opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: nil, background: true)
+        if let window {
+            try savePending(task, tab: "main", baseline: baseline, saving: saving)
+            _ = try require(task)
+            let opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: nil, background: true)
             guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
             return window
         }
-        opening = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title, agentCommand: command, frame: frame(), background: true)
-        guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
-        return opening.id
+        // Again after the daemon's calls, the command and the transcript read, and once more inside the Operator's one
+        // window turn (`WindowTurn`), with no await between that look and the window: typing resumed meanwhile, or while
+        // another window had the turn, holds this one until your next pause. The pending reply is saved there, after the
+        // waits, because one older than the opening grace blocks the task, which then counts from the open.
+        let pause = ports.pause
+        if try await waitForPause(task) { waited = true }
+        while true {
+            let restamp = waited
+            let opened: String? = try await pause.turn.take {
+                guard pause.isQuiet else { return nil }
+                // Its turn may come after a pause of the Operator or a Take Over: nothing is saved for a launch it lost.
+                _ = try require(task)
+                let at = ports.now()
+                try savePending(task, tab: "main", baseline: baseline, saving: { record in
+                    if restamp { record.launch?.requestedAt = at; record.launch?.workerPending = true }
+                    saving(&record)
+                })
+                let opening = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title,
+                                                                agentCommand: command, frame: frame(), background: true)
+                guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
+                return opening.id
+            }
+            if let opened { return opened }
+            if try await waitForPause(task) { waited = true }
+        }
+    }
+    /// Whether launching `task`'s worker opens a window: no live session besides the worker it replaces holds its window
+    /// open for a tab. iTerm2 keeps a background tab in an open window unselected and behind; a new window it makes key.
+    private func opensWindow(_ task: TaskItem, replacing previous: SessionInfo?) -> Bool {
+        guard let window = task.windowId else { return true }
+        return !live.sessions.contains { $0.windowId == window && $0.sessionId != previous?.sessionId }
+    }
+    /// Waits until you have paused (`PauseGate`), then requires the task again; whether it had to wait.
+    ///
+    /// The stage saved its worker as pending before the launch, for recovery to adopt a worker whose reply was lost.
+    /// While it waits no worker is opening, and the one it replaces may still be open: recovery after a quit, a pause
+    /// or a Take Over meanwhile would take that one for the new stage's and never send its prompt. So the wait is saved
+    /// as not pending first, and the save just before the window opens marks it pending again.
+    private func waitForPause(_ task: TaskItem) async throws -> Bool {
+        guard !ports.pause.isQuiet else { return false }
+        workspace.mutate { $0.updateSignalTask(task.id) { if $0.launch?.openedAt == nil { $0.launch?.workerPending = false } } }
+        guard workspace.flush() else { throw ActionUnavailable("The launch couldn’t be saved as waiting for your pause.") }
+        let pause = ports.pause
+        // A task taken over, or an Operator paused, stops waiting at once: the launch holds the task until it ends.
+        await whilePausing("waiting for your pause to open " + OperatorActivityTracker.name(task) + "’s worker") {
+            await pause.quiet(while: { [weak self] in self?.allows(task) == true })
+        }
+        _ = try require(task)
+        return true
     }
     private func command(for task: TaskItem, prompt: String, slot: String, conversation: String? = nil) async throws -> String {
         guard task.signalTask?.current.configuration.agents.contains(AgentChoice(agent: task.agent, model: task.model, reasoning: task.reasoning)) == true else {
@@ -228,9 +281,18 @@ import AiTermCore
     }
     private func markPending(_ task: TaskItem, tab: String, conversation: String?, workRequested: Bool = false,
                              saving: (inout SignalTask) -> Void = { _ in }) async throws {
-        let locator = transcripts, agent = task.agent
-        let baseline = await BackgroundWork.run { conversation.flatMap { locator.lastReply(agent: agent, conversation: $0)?.fingerprint } }
+        let baseline = await replyBaseline(task, conversation: conversation)
         _ = try require(task)
+        try savePending(task, tab: tab, baseline: baseline, workRequested: workRequested, saving: saving)
+    }
+    /// The fingerprint of the conversation's last reply, which the pending reply waits to see change.
+    private func replyBaseline(_ task: TaskItem, conversation: String?) async -> String? {
+        let locator = transcripts, agent = task.agent
+        return await BackgroundWork.run { conversation.flatMap { locator.lastReply(agent: agent, conversation: $0)?.fingerprint } }
+    }
+    /// Saves the reply as pending, with no await: a launch saves it straight after its last wait for your pause.
+    private func savePending(_ task: TaskItem, tab: String, baseline: String?, workRequested: Bool = false,
+                             saving: (inout SignalTask) -> Void = { _ in }) throws {
         guard let current = workspace.state.task(id: task.id)?.signalTask else { throw ActionUnavailable("This task has no open worker.") }
         let next = workRequested ? try SignalTransitions.apply(.workRequested, to: current, at: ports.now()) : current
         workspace.mutate { $0.updateSignalTask(task.id) { record in
