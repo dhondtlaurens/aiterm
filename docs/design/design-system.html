@@ -325,7 +325,7 @@
   .ai-badge .suffix { display: inline-flex; align-items: center; gap: var(--space-hairline); }
   /* Badge(corner:): a Size.cornerBadge (8 pt) SettledMark on the 10 pt icon's bottom-trailing corner, overhanging
      it by Space.hairline, ringed 1 pt in the surface's occludingBackground: the green disc with a white check, or
-     (.ck.merged) the Palette.merged disc with a white merge glyph, each stroked a sixth of the disc wide. */
+     (.ck.merged) the Palette.merged disc with the same check, stroked a sixth of the disc wide. */
   .ai-badge .checked-mark { position: relative; display: inline-flex; width: 10px; height: 10px; flex: none; }
   .ai-badge .checked-mark > svg { display: block; }
   .ai-badge .checked-mark .ck { position: absolute; right: calc(-1 * var(--space-hairline)); bottom: calc(-1 * var(--space-hairline));
@@ -1542,7 +1542,7 @@
           <div class="chip" style="background: #BF5AF2"></div>
           <div><div class="name">merged</div><div class="value">#BF5AF2</div><div class="appkit">.systemPurple</div></div>
           <div class="use">A merged merge or pull request: the disc of <code>SettledMark.merged</code> on its
-            badge's corner, apart from the green check its approval wore. Nothing else draws it.</div>
+            badge's corner, the same check as the green its approval wore, told apart by this colour. Nothing else draws it.</div>
         </div>
         <div class="token">
           <div class="chip" style="background: #FF9230"></div>
@@ -2290,9 +2290,9 @@
             icon and a suffix is drawn with both. <code>corner</code> puts a <code>SettledMark</code> on the
             icon's bottom-trailing corner, <code>Size.cornerBadge</code> wide: <code>.finished</code>, the
             <code>Palette.green</code> disc with a white check (a Jira ticket in a Done lane, a request approved
-            with every thread resolved), or <code>.merged</code>, the <code>Palette.merged</code> disc with a white
-            merge glyph (a request merged, whose thread count the sidebar then drops), overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
-            the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. A badge is a chip at its own width, never squeezed or stretched by the
+            with every thread resolved), or <code>.merged</code>, the <code>Palette.merged</code> disc with the same
+            white check (a request merged, whose thread count the sidebar then drops), overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
+            the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. The badge's tooltip leads with the state the check stands for (<code>Done</code>, <code>Approved</code>, <code>Merged</code>), so it never rests on colour alone. A badge is a chip at its own width, never squeezed or stretched by the
             row around it. <code>style: .quiet</code> drops the box at rest: no outer padding, the
             label in the surface's <code>secondaryInk</code>, and the hovered wash drawn
             <code>Space.tight</code> outside the content so nothing moves; its content shape keeps the
@@ -2346,7 +2346,7 @@
               <span class="cap">quiet · corner · a done ticket (finished), a merged request (merged, its count dropped)</span>
               <span style="display: inline-flex; gap: var(--space-gap); --brand-ink: currentColor">
                 <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>PAY-198</span></span>
-                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.92 4.68V3.72L3 2.64M4.08 4.68V3.72L3 2.64V1.32M2.16 2.04 3 1.2 3.84 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span>
+                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span>
               </span>
             </div>
             <div class="demo">
@@ -2973,7 +2973,7 @@
 <tr><td><code>OperatorBadge</code></td><td>The Operator activity caption: every word in the secondary ink, needs-you alone in the attention chip; it decodes only when its words change, from the words standing to the new ones; Reduce Motion swaps.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>DecodeWordsView</code></td><td>Draws the caption whatever it says and morphs old words into new: the new settle from the left behind a four-character band of own-case glyphs, the old stand past it; one self-drawn line that spans the row, never resized by a change, never animated on its own, cut at the tail in its own face, never empty.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>StatusMark</code></td><td>Idle, working, input, done and background rings; Reduce Motion keeps shape.</td><td>StatusMark.swift</td></tr>
-<tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check), merged (purple, white merge glyph) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
+<tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check), merged (purple, white check) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
 <tr><td><code>StatusCountChips</code></td><td>Folded heading counts in shared status vocabulary; OPERATOR's own chip (its most urgent state, its workload) and the green finished chip.</td><td>StatusCountChips.swift</td></tr>
 <tr><td><code>AvatarGroupView</code></td><td>Agent marks and overflow count.</td><td>AvatarGroupView.swift</td></tr>
 <tr><td><code>VendorMark</code></td><td>Agent disc with the vendor artwork.</td><td>VendorMark.swift</td></tr>

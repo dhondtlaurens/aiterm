@@ -97,8 +97,8 @@ public enum Palette {
     /// The positive/success semantic: a passing check, a connected status, a completed state shown
     /// inline.
     public static let green = Color(nsColor: .systemGreen)
-    /// A merged merge or pull request: the disc of `SettledMark.merged` on its badge's corner, apart from the green
-    /// check its approval wore. The purple GitHub marks merged with; nothing else draws it.
+    /// A merged merge or pull request: the disc of `SettledMark.merged` on its badge's corner, the same check as the
+    /// green its approval wore, told apart by this colour. The purple GitHub marks merged with; nothing else draws it.
     public static let merged = Color(nsColor: .systemPurple)
     /// The warning semantic: a status needing attention without being an outright error.
     public static let amber = Color(nsColor: .systemOrange)

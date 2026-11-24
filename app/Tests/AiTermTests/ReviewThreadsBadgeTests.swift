@@ -64,13 +64,13 @@ import AiTermUI
         #expect(TaskRowBadges(row: row(mr: nil), details: BadgeDetails(), threads: ReviewThreads(resolved: 2, total: 5)).mergeRequest == nil)
     }
 
-    /// Merged: the mark wears the merged disc, the bubble goes, since the review is over, and the tooltip and
-    /// VoiceOver say merged in place of the count.
+    /// Merged: the mark wears the purple check, the bubble goes, since the review is over, and the tooltip leads
+    /// with merged, which VoiceOver says in place of the count.
     @Test func aMergedRequestWearsTheMergedMarkWithoutItsBubble() {
         let link = badge(ReviewThreads(resolved: 4, total: 4, merged: true))
         #expect(link?.corner == .merged)
         #expect(link?.threads == nil)
-        #expect(link?.help == "Add diff setting · merged")
+        #expect(link?.help == "Merged · Add diff setting")
         #expect(link?.accessibilityLabel == "!87, merged")
     }
 
@@ -79,7 +79,7 @@ import AiTermUI
         let bare = badge(ReviewThreads(resolved: 0, total: 0, merged: true))
         #expect(bare?.corner == .merged)
         #expect(bare?.threads == nil)
-        #expect(bare?.help == "Add diff setting · merged")
+        #expect(bare?.help == "Merged · Add diff setting")
         #expect(bare?.accessibilityLabel == "!87, merged")
         let markOnly = badge(ReviewThreads(resolved: 0, total: 0, merged: true), details: BadgeDetails(mergeRequest: false))
         #expect(markOnly?.corner == .merged)
@@ -90,7 +90,7 @@ import AiTermUI
     @Test func aMergedRequestThatWasApprovedIsMerged() {
         let link = badge(ReviewThreads(resolved: 3, total: 3, merged: true, approved: true))
         #expect(link?.corner == .merged)
-        #expect(link?.help == "Add diff setting · merged")
+        #expect(link?.help == "Merged · Add diff setting")
     }
 
     /// Approved with threads still open: no corner yet, though the tooltip and VoiceOver say it is approved.
@@ -98,7 +98,7 @@ import AiTermUI
         let link = badge(ReviewThreads(resolved: 2, total: 5, approved: true))
         #expect(link?.corner == nil)
         #expect(link?.threads?.text == "2/5")
-        #expect(link?.help == "Add diff setting · 2 of 5 threads resolved · approved")
+        #expect(link?.help == "Approved · Add diff setting · 2 of 5 threads resolved")
         #expect(link?.accessibilityLabel == "!87, 2 of 5 threads resolved, approved")
     }
 
@@ -107,7 +107,7 @@ import AiTermUI
         let link = badge(ReviewThreads(resolved: 5, total: 5, approved: true))
         #expect(link?.corner == .finished)
         #expect(link?.threads?.text == "5/5")
-        #expect(link?.help == "Add diff setting · 5 of 5 threads resolved · approved")
+        #expect(link?.help == "Approved · Add diff setting · 5 of 5 threads resolved")
     }
 
     /// A request without threads has none open: its approval alone gives the check.
@@ -134,7 +134,7 @@ import AiTermUI
         }
         let done = ticket(false, done: true)
         #expect(done?.corner == .finished)
-        #expect(done?.help == "https://example/t · done")
+        #expect(done?.help == "Done · https://example/t")
         #expect(done?.accessibilityLabel == "SHOP-12, done")
         #expect(ticket(false, done: false)?.corner == nil)
         #expect(ticket(true, done: true)?.corner == nil)

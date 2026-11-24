@@ -98,7 +98,7 @@ struct TaskRowCaption: Equatable {
 /// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
 /// all resolved included — whether or not its number is switched off, until it merges; one with
 /// none, or whose threads have not been read, wears none. Its mark wears the green check once it is
-/// approved with no thread open, and the merged disc once it merges.
+/// approved with no thread open, and the purple check once it merges; the tooltip leads with which.
 struct TaskRowBadges: Equatable {
     struct Link: Equatable {
         var label: String?
@@ -110,13 +110,20 @@ struct TaskRowBadges: Equatable {
         /// What VoiceOver reads when the badge says more than its label: the count, in words.
         var accessibilityLabel: String? = nil
         /// What the mark wears on its corner: the green check of a Jira ticket in a Done lane or of a merge
-        /// request approved with every thread resolved, the merged disc of one merged; nil for none.
+        /// request approved with every thread resolved, the purple check of one merged; nil for none.
         var corner: SettledMark.Kind? = nil
 
-        /// Puts `word` ("done", "approved", "merged") after the rest in the tooltip and for VoiceOver.
-        mutating func say(_ word: String) {
+        /// Puts `words` (a thread count) after the rest in the tooltip and for VoiceOver.
+        mutating func say(_ words: String) {
+            accessibilityLabel = "\(accessibilityLabel ?? label ?? help), \(words)"
+            help += " · \(words)"
+        }
+
+        /// Says the state the corner stands for ("done", "approved", "merged"): first in the tooltip, where a
+        /// hover reads it before the title, since the check alone does not say which; last for VoiceOver.
+        mutating func state(_ word: String) {
             accessibilityLabel = "\(accessibilityLabel ?? label ?? help), \(word)"
-            help += " · \(word)"
+            help = "\(word.prefix(1).uppercased())\(word.dropFirst()) · \(help)"
         }
     }
 
@@ -145,7 +152,7 @@ struct TaskRowBadges: Equatable {
             var link = details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
                 : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
-            if ticketDone && ticketHost == nil { link.corner = .finished; link.say("done") }
+            if ticketDone && ticketHost == nil { link.corner = .finished; link.state("done") }
             return link
         }
         mergeRequest = row.mr.map { mr in
@@ -153,10 +160,10 @@ struct TaskRowBadges: Equatable {
                 ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
                 : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
             guard let threads else { return link }
-            // Merged: the review is over, so the count goes and the merged disc says it all.
+            // Merged: the review is over, so the count goes and the purple check says it all.
             if threads.merged {
                 link.corner = .merged
-                link.say("merged")
+                link.state("merged")
                 return link
             }
             // Nothing until there is a thread to count; then it stays, all resolved included.
@@ -165,7 +172,7 @@ struct TaskRowBadges: Equatable {
                 link.threads = Badge.Suffix(icon: .symbol(Self.threadsSymbol), text: "\(threads.resolved)/\(threads.total)")
             }
             // Approved is said as soon as it is; the check waits until no thread is open.
-            if threads.approved { link.say("approved") }
+            if threads.approved { link.state("approved") }
             if threads.approvedAndResolved { link.corner = .finished }
             return link
         }

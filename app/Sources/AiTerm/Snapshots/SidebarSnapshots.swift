@@ -304,7 +304,7 @@ enum SidebarSnapshots {
     }
 
     /// A task from GitLab issue #55, a review of issue #53's merge request — one mark, `#53 !29`,
-    /// merged, so the shared mark wears the merged disc and its count is gone — and a Jira ticket's review,
+    /// merged, so the shared mark wears the purple check and its count is gone — and a Jira ticket's review,
     /// which keeps two badges, its ticket done.
     private static func gitLabIssues(_ file: String) -> Snapshot {
         Snapshot(file) {

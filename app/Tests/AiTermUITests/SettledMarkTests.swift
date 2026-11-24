@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermUI
 
 /// The settled marks: a filled disc for a state that holds until something outside changes it. Finished is the green
-/// disc with a white check, merged the purple disc with a white merge glyph, paused the idle ring's disc with its bars
+/// disc with a white check, merged the purple disc with the same check, paused the idle ring's disc with its bars
 /// cut out in the ground; on the accent, the disc turns white and its glyph is cut out of it.
 @MainActor
 struct SettledMarkTests {
@@ -47,11 +47,11 @@ struct SettledMarkTests {
         #expect(try matches(pixel(bitmap, 0.59, 0.515), Palette.onAccent), "the check's long stroke")
     }
 
-    /// Merged: the merged purple disc, and the merge glyph's white stem up its middle.
-    @Test func mergedIsAPurpleDiscWithAWhiteMergeGlyph() throws {
+    /// Merged: the merged purple disc, and the same white check as finished.
+    @Test func mergedIsAPurpleDiscWithAWhiteCheck() throws {
         let bitmap = try drawn(.merged)
-        #expect(try matches(pixel(bitmap, 0.12, 0.5), Palette.merged), "the disc, left of the glyph")
-        #expect(try matches(pixel(bitmap, 0.5, 0.36), Palette.onAccent), "the glyph's stem")
+        #expect(try matches(pixel(bitmap, 0.5, 0.2), Palette.merged), "the disc, above the check")
+        #expect(try matches(pixel(bitmap, 0.59, 0.515), Palette.onAccent), "the check's long stroke")
     }
 
     @Test func pausedIsTheIdleRingsDiscWithItsBarsCutOutInTheGround() throws {
@@ -64,8 +64,8 @@ struct SettledMarkTests {
 
     @Test func onTheAccentTheDiscTurnsWhiteAndItsGlyphIsCutOut() throws {
         let finished = try drawn(.finished, on: .accent), paused = try drawn(.paused, on: .accent), merged = try drawn(.merged, on: .accent)
-        #expect(try matches(pixel(merged, 0.12, 0.5), Palette.onAccent))
-        #expect(try matches(pixel(merged, 0.5, 0.36), Palette.accent))
+        #expect(try matches(pixel(merged, 0.5, 0.2), Palette.onAccent))
+        #expect(try matches(pixel(merged, 0.59, 0.515), Palette.accent))
         #expect(try matches(pixel(finished, 0.5, 0.2), Palette.onAccent))
         #expect(try matches(pixel(finished, 0.59, 0.515), Palette.accent))
         #expect(try matches(pixel(paused, 0.5, 0.5), Palette.onAccent))
