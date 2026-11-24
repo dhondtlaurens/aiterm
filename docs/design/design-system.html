@@ -524,6 +524,34 @@
      1 CSS px = 1 pt at InterfaceScale ×1, from the tokens above. */
   .tabs button.proposal-tab, .tabs button.proposal-tab[aria-selected="true"] { color: var(--amber); }
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
+
+  #merged-badge-options .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+  #merged-badge-options .option { padding: var(--space-block); }
+  #merged-badge-options .sample { margin-top: var(--space-gap); padding: var(--space-base) var(--space-gap);
+    background: var(--selected-solid); border-radius: var(--radius-control); }
+  #merged-badge-options .sample-title { font: 500 13px/var(--size-chip) var(--font); color: var(--on-accent); }
+  #merged-badge-options .sample-line { display: flex; align-items: center; gap: var(--space-gap);
+    margin-top: var(--space-tight); font: 500 10px/var(--size-chip) var(--font); color: var(--muted); }
+  #merged-badge-options .target { position: relative; display: inline-flex; gap: var(--space-tight);
+    align-items: center; height: var(--size-chip); white-space: nowrap; }
+  #merged-badge-options .target > .ai-hover-chip { position: absolute; bottom: calc(100% + var(--space-hairline));
+    left: 50%; transform: translateX(-50%); pointer-events: none; visibility: hidden; }
+  #merged-badge-options .target:is(:hover, :focus-visible) > .ai-hover-chip,
+  #merged-badge-options:has(input:checked) .target > .ai-hover-chip { visibility: visible; }
+  #merged-badge-options .request:is(:hover, :focus-visible)::before,
+  #merged-badge-options:has(input:checked) .request::before { content: ""; position: absolute;
+    inset: 0 calc(-1 * var(--space-tight)); background: var(--badge-selected-hovered); border-radius: var(--radius-chip); z-index: -1; }
+  #merged-badge-options .request { isolation: isolate; }
+  #merged-badge-options .host { position: relative; display: inline-flex; }
+  #merged-badge-options .corner { position: absolute; right: calc(-1 * var(--space-hairline)); bottom: calc(-1 * var(--space-hairline));
+    width: 8px; height: 8px; background: var(--muted); color: var(--sidebar); border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--selected-solid); }
+  #merged-badge-options label { display: inline-flex; align-items: center; gap: var(--space-tight); margin-top: var(--space-gap); }
+  #merged-badge-options .usage { padding: var(--space-margin) var(--space-margin) var(--space-base);
+    margin-top: var(--space-gap); background: var(--sidebar-footer); border-radius: var(--radius-control);
+    display: flex; align-items: center; gap: var(--space-section); font: 11px/1 var(--font); font-variant-numeric: tabular-nums; }
+  #merged-badge-options .usage-label { color: var(--muted); }
+
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
 
@@ -3174,6 +3202,48 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
+    </div>
+
+    <div class="section" id="merged-badge-options">
+      <p class="eyebrow proposal-flag">Proposal · Sidebar badges · 24 Nov 2026</p>
+      <h2>How should a merged request look?</h2>
+      <p class="why"><strong>Selected 24 Nov 2026 · A, inline merge glyph.</strong> The joined branches distinguish a merge from an approval and leave the host icon visible. Each sample shows the same request at standard sidebar size.</p>
+      <label><input type="checkbox" checked> Show hover labels on all samples</label>
+      <div class="options">
+        <article class="option pick">
+          <header><span class="letter">A</span><h3>Inline merge glyph</h3></header>
+          <div class="sample">
+            <div class="sample-title">Update keyboard shortcuts</div>
+            <div class="sample-line"><span>DEMO-8</span>
+              <span class="target request" tabindex="0" aria-label="Request 42, merged"><span class="host"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg></span><span>!42</span><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4v8M4 9c4 0 7-2 7-5"/><circle cx="4" cy="2.5" r="1.5"/><circle cx="11" cy="2.5" r="1.5"/><circle cx="4" cy="13.5" r="1.5"/></svg><span class="ai-hover-chip" aria-hidden="true">Merged</span></span>
+              <code>main</code></div>
+          </div>
+          <p>The joined branches give merged its own shape. The host stays visible and the green check still means approved.</p>
+        </article>
+        <article class="option">
+          <header><span class="letter">B</span><h3>Graphite corner check</h3></header>
+          <div class="sample">
+            <div class="sample-title">Update keyboard shortcuts</div>
+            <div class="sample-line"><span>DEMO-8</span>
+              <span class="target request" tabindex="0" aria-label="Request 42, merged"><span class="host"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg><svg class="corner" viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>!42</span><span class="ai-hover-chip" aria-hidden="true">Merged</span></span>
+              <code>main</code></div>
+          </div>
+          <p>A grey disc keeps the badge at its current width. Colour still carries the difference between approved and merged.</p>
+        </article>
+        <article class="option">
+          <header><span class="letter">C</span><h3>Write “Merged”</h3></header>
+          <div class="sample">
+            <div class="sample-title">Update keyboard shortcuts</div>
+            <div class="sample-line"><span>DEMO-8</span>
+              <span class="target request" tabindex="0" aria-label="Request 42, merged"><span class="host"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg></span><span>!42</span><span>Merged</span><span class="ai-hover-chip" aria-hidden="true">Merged</span></span>
+              <code>main</code></div>
+          </div>
+          <p>The state is legible at a glance, even with brand colours off. The word uses the most room on the badge line.</p>
+        </article>
+      </div>
+      <h3 style="margin-top:var(--space-section)">Center the hover label on its target</h3>
+      <p class="why">Each label sits 2 pt above the midpoint of the whole request badge or Usage reading. Turn off the checkbox to try each target individually.</p>
+      <div class="usage"><span class="usage-label">Usage</span><span class="target" tabindex="0" aria-label="Weekly usage 42%, resets Saturday at 12:00"><span class="usage-label">wk</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke-width="1.5" aria-hidden="true"><circle cx="5" cy="5" r="4.25" stroke="var(--spinner-track)"/><circle cx="5" cy="5" r="4.25" pathLength="100" stroke="currentColor" stroke-dasharray="42 58" transform="rotate(-90 5 5)"/></svg>42%<span class="ai-hover-chip" aria-hidden="true"><span class="usage-label">resets&nbsp;</span> Sat 12:00</span></span></div>
     </div>
 
     <!-- proposal:cron-start -->
