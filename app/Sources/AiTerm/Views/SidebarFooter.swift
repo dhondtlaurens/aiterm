@@ -216,8 +216,8 @@ struct SidebarFooter: View {
 
 /// One reading — label, ring and number — read as its words: the glyphs alone say "wk" and a ring.
 /// A zero-spacing stack keeps colour changes from adding invisible gaps; the space lives inside a
-/// `Text`. Under the pointer, a window that clears raises its ``ResetBadge`` above it; a reading
-/// with no clock raises nothing.
+/// `Text`. Under the pointer, a window that clears raises its ``ResetBadge`` above it at once; a
+/// reading with no clock raises nothing.
 private struct Reading: View {
     let line: UsageLine
     @Environment(\.interfaceScale) private var scale
@@ -240,36 +240,22 @@ private struct Reading: View {
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .overlay(alignment: .topLeading) {
-            if hovered, let reset = line.reset {
-                ResetBadge(reset: reset)
-                    // The chip's foot on the reading's head, `Space.hairline` clear of it.
-                    .offset(y: -(scale(Size.chip) + scale(Space.hairline)))
-                    .allowsHitTesting(false)
-            }
-        }
+        .raisingHoverChip(line.reset.map(ResetBadge.chip), shown: hovered)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(line.help)
     }
 }
 
-/// When a window clears, `resets Sat 12:00`, on a chip drawn on the popover's ground inside its
-/// firm edge, so the footer row it rises over does not show through. The time is the news, in
-/// `text`; the word before it recedes. It sits at its own width, whatever column raised it.
+/// When a window clears, `resets Sat 12:00`, on a `HoverChip`. The time is the news, in `text`; the
+/// word before it recedes.
 struct ResetBadge: View {
     let reset: String
-    @Environment(\.interfaceScale) private var scale
 
-    var body: some View {
-        Text("resets \(Text(reset).foregroundStyle(Palette.text))")
-            .foregroundStyle(Palette.muted)
-            .font(Typography.help.tabular)
-            .lineLimit(1)
-            .padding(.horizontal, scale(Space.tight))
-            .frame(height: scale(Size.chip))
-            .chipChrome(fill: Palette.menu, stroke: Palette.borderStrong)
-            .fixedSize()
+    static func chip(_ reset: String) -> HoverChip {
+        HoverChip(Text("\(Text("resets ").foregroundStyle(Palette.muted))\(reset)"))
     }
+
+    var body: some View { Self.chip(reset) }
 }
 
 /// The fill beside a telemetry number: a ring that closes clockwise as the window fills.

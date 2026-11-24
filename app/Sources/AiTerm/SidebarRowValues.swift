@@ -94,11 +94,13 @@ struct TaskRowCaption: Equatable {
 }
 
 /// The badges a task row wears, after the Interface tab's switches. A badge whose detail is off
-/// keeps its mark and its link; the text it no longer prints leads its tooltip instead. A merge
+/// keeps its mark and its link; the text it no longer prints leads what VoiceOver reads instead. A merge
 /// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
 /// all resolved included — whether or not its number is switched off, until it merges; one with
 /// none, or whose threads have not been read, wears none. Its mark wears the green check once it is
-/// approved with no thread open, and the purple check once it merges; the tooltip leads with which.
+/// approved with no thread open, and the purple check once it merges. A badge in a task row has no
+/// tooltip: only one wearing a check answers the pointer, raising its one word, `Done`, `Approved` or
+/// `Merged`, on a `HoverChip`.
 struct TaskRowBadges: Equatable {
     struct Link: Equatable {
         var label: String?
@@ -112,6 +114,9 @@ struct TaskRowBadges: Equatable {
         /// What the mark wears on its corner: the green check of a Jira ticket in a Done lane or of a merge
         /// request approved with every thread resolved, the purple check of one merged; nil for none.
         var corner: SettledMark.Kind? = nil
+        /// The word the corner stands for, raised above the badge under the pointer: `Done`, `Approved` or
+        /// `Merged`; nil without a corner.
+        var hoverChip: String? = nil
 
         /// Puts `words` (a thread count) after the rest in the tooltip and for VoiceOver.
         mutating func say(_ words: String) {
@@ -119,11 +124,17 @@ struct TaskRowBadges: Equatable {
             help += " · \(words)"
         }
 
-        /// Says the state the corner stands for ("done", "approved", "merged"): first in the tooltip, where a
-        /// hover reads it before the title, since the check alone does not say which; last for VoiceOver.
+        /// Says the state ("done", "approved", "merged"): first in the description, before the title, and last
+        /// for VoiceOver.
         mutating func state(_ word: String) {
             accessibilityLabel = "\(accessibilityLabel ?? label ?? help), \(word)"
             help = "\(word.prefix(1).uppercased())\(word.dropFirst()) · \(help)"
+        }
+
+        /// Wears `corner` and raises `word`, capitalised, above the badge under the pointer.
+        mutating func wear(_ corner: SettledMark.Kind, saying word: String) {
+            self.corner = corner
+            hoverChip = word.prefix(1).uppercased() + word.dropFirst()
         }
     }
 
@@ -152,7 +163,7 @@ struct TaskRowBadges: Equatable {
             var link = details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl, host: ticketHost)
                 : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl, host: ticketHost)
-            if ticketDone && ticketHost == nil { link.corner = .finished; link.state("done") }
+            if ticketDone && ticketHost == nil { link.wear(.finished, saying: "done"); link.state("done") }
             return link
         }
         mergeRequest = row.mr.map { mr in
@@ -162,7 +173,7 @@ struct TaskRowBadges: Equatable {
             guard let threads else { return link }
             // Merged: the review is over, so the count goes and the purple check says it all.
             if threads.merged {
-                link.corner = .merged
+                link.wear(.merged, saying: "merged")
                 link.state("merged")
                 return link
             }
@@ -173,7 +184,7 @@ struct TaskRowBadges: Equatable {
             }
             // Approved is said as soon as it is; the check waits until no thread is open.
             if threads.approved { link.state("approved") }
-            if threads.approvedAndResolved { link.corner = .finished }
+            if threads.approvedAndResolved { link.wear(.finished, saying: "approved") }
             return link
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil

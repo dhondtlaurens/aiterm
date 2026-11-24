@@ -69,6 +69,7 @@ import AiTermUI
     @Test func aMergedRequestWearsTheMergedMarkWithoutItsBubble() {
         let link = badge(ReviewThreads(resolved: 4, total: 4, merged: true))
         #expect(link?.corner == .merged)
+        #expect(link?.hoverChip == "Merged")
         #expect(link?.threads == nil)
         #expect(link?.help == "Merged · Add diff setting")
         #expect(link?.accessibilityLabel == "!87, merged")
@@ -90,13 +91,16 @@ import AiTermUI
     @Test func aMergedRequestThatWasApprovedIsMerged() {
         let link = badge(ReviewThreads(resolved: 3, total: 3, merged: true, approved: true))
         #expect(link?.corner == .merged)
+        #expect(link?.hoverChip == "Merged")
         #expect(link?.help == "Merged · Add diff setting")
     }
 
-    /// Approved with threads still open: no corner yet, though the tooltip and VoiceOver say it is approved.
+    /// Approved with threads still open: no corner yet, so nothing raised on hover, though VoiceOver says it is
+    /// approved.
     @Test func anApprovedRequestWithThreadsOpenSaysSoWithoutTheCheck() {
         let link = badge(ReviewThreads(resolved: 2, total: 5, approved: true))
         #expect(link?.corner == nil)
+        #expect(link?.hoverChip == nil)
         #expect(link?.threads?.text == "2/5")
         #expect(link?.help == "Approved · Add diff setting · 2 of 5 threads resolved")
         #expect(link?.accessibilityLabel == "!87, 2 of 5 threads resolved, approved")
@@ -106,6 +110,7 @@ import AiTermUI
     @Test func anApprovedRequestWithEveryThreadResolvedWearsTheCheck() {
         let link = badge(ReviewThreads(resolved: 5, total: 5, approved: true))
         #expect(link?.corner == .finished)
+        #expect(link?.hoverChip == "Approved")
         #expect(link?.threads?.text == "5/5")
         #expect(link?.help == "Approved · Add diff setting · 5 of 5 threads resolved")
     }
@@ -121,6 +126,8 @@ import AiTermUI
     @Test func anOpenUnapprovedRequestHasNoCorner() {
         #expect(badge(ReviewThreads(resolved: 5, total: 5))?.corner == nil)
         #expect(badge(nil)?.corner == nil)
+        #expect(badge(ReviewThreads(resolved: 5, total: 5))?.hoverChip == nil)
+        #expect(badge(nil)?.hoverChip == nil)
     }
 
     /// A Jira ticket in a Done lane wears the check on its own mark; a GitLab issue is never asked,
@@ -134,10 +141,13 @@ import AiTermUI
         }
         let done = ticket(false, done: true)
         #expect(done?.corner == .finished)
+        #expect(done?.hoverChip == "Done")
         #expect(done?.help == "Done · https://example/t")
         #expect(done?.accessibilityLabel == "SHOP-12, done")
         #expect(ticket(false, done: false)?.corner == nil)
+        #expect(ticket(false, done: false)?.hoverChip == nil)
         #expect(ticket(true, done: true)?.corner == nil)
+        #expect(ticket(true, done: true)?.hoverChip == nil)
         #expect(ticket(true, done: true)?.help == "https://example/t")
     }
 
