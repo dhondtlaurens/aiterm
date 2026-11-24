@@ -35,7 +35,7 @@ struct HeadingRow: View, Equatable {
         }
         .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
         .modifier(RowPill(selected: selected))
-        .modifier(HeadingHelp(text: value.help))
+        .modifier(RowHelp(text: value.help))
         .modifier(RowCommandContextMenu(groups: commands))
         .task(id: value.id) {
             if case .project(let project, _, _) = value.kind {
@@ -138,13 +138,6 @@ struct HeadingRow: View, Equatable {
                 }]
             ]
         }
-    }
-}
-
-private struct HeadingHelp: ViewModifier {
-    let text: String
-    func body(content: Content) -> some View {
-        if text.isEmpty { content } else { content.help(text) }
     }
 }
 

@@ -132,6 +132,16 @@ struct SelectableRow<Content: View>: View {
     }
 }
 
+/// A whole row's tooltip, put on only when there is one. A `.help` around the row wins over every `.help` inside it,
+/// an empty one included, which then shows nothing: the badges' own tooltips (a ticket's link, "Merged · …") would
+/// never appear.
+struct RowHelp: ViewModifier {
+    let text: String
+    func body(content: Content) -> some View {
+        if text.isEmpty { content } else { content.help(text) }
+    }
+}
+
 /// The pill a selectable sidebar row is drawn in — a task's, a terminal's, the Operator's, a project's
 /// header, and the Archive sheet's rows, which read as the sidebar's: the neutral selection
 /// (`Palette.selected`, edged inside in `Palette.selectedEdge`), else the hover wash, behind the row's own
@@ -280,7 +290,7 @@ struct TaskRowView: View {
                             detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip))
         .modifier(RowCommandActions(groups: commands))
         .accessibilityHint(Text(voiceOver.hint))
-        .help(voiceOver.help)
+        .modifier(RowHelp(text: voiceOver.help))
         // The arrows step over it, as over a header: its window is closing, or gone.
         .selectionDisabled(removing)
         .modifier(RowCommandContextMenu(groups: commands))
