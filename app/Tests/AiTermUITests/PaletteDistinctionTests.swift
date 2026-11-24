@@ -34,7 +34,6 @@ struct PaletteDistinctionTests {
         ("focusEdge", Palette.focusEdge),
         ("link", Palette.link),
         ("green", Palette.green),
-        ("merged", Palette.merged),
         ("amber", Palette.amber),
         ("destructive", Palette.destructive),
         ("badgeAmber", Palette.badgeAmber),

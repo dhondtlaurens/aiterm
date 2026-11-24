@@ -9,9 +9,12 @@ struct QuietBadgeValue {
     var icon: IconSource?
     var help: String?
     var suffix: Badge.Suffix? = nil
-    /// What the mark wears on its corner: the ticket done, the request approved and resolved, or merged.
+    /// A merged glyph follows the request number, or folds into the shared mark when the number is hidden.
+    var isMerged = false
+    var drawnSuffix: Badge.Suffix? { isMerged ? .init(icon: .joinedBranches) : suffix }
+    /// What the mark wears on its corner: the ticket done or the request approved and resolved.
     var corner: SettledMark.Kind? = nil
-    /// The word that corner raises under the pointer, when the line raises one.
+    /// The word the status mark raises under the pointer, when the line raises one.
     var hoverChip: String? = nil
     var accessibilityLabel: String? = nil
     var markInk: Badge.MarkInk = .own
@@ -43,6 +46,10 @@ struct QuietBadgeLine: View {
         var mark = ticket
         mark.corner = request.corner ?? ticket.corner
         mark.hoverChip = request.corner != nil ? request.hoverChip : ticket.hoverChip
+        if request.label == nil, request.isMerged {
+            mark.isMerged = true
+            mark.hoverChip = request.hoverChip
+        }
         if ticket.label == nil, request.label == nil {
             mark.help = "\(ticket.help ?? "") · \(request.help ?? "")"
             mark.suffix = request.suffix
@@ -60,7 +67,7 @@ struct QuietBadgeLine: View {
         var words = request
         words.icon = nil
         words.corner = nil
-        words.hoverChip = nil
+        if !request.isMerged { words.hoverChip = nil }
         return Parts(badges: [mark, words], pair: true)
     }
 
@@ -76,7 +83,7 @@ struct QuietBadgeLine: View {
     }
 
     @ViewBuilder private func badge(_ value: QuietBadgeValue) -> some View {
-        let badge = Badge(value.label, icon: value.icon, help: showsHelp ? value.help : nil, suffix: value.suffix,
+        let badge = Badge(value.label, icon: value.icon, help: showsHelp ? value.help : nil, suffix: value.drawnSuffix,
                           corner: value.corner, hoverChip: value.hoverChip, style: .quiet, markInk: value.markInk,
                           accessibilityLabel: value.accessibilityLabel ?? value.label ?? value.help, action: value.action)
         if fixed { badge.fixedSize() } else { badge }

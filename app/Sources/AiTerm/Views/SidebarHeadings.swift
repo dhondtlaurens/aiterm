@@ -338,7 +338,7 @@ struct ProviderIcon: View {
     var body: some View {
         ZStack {
             switch source {
-            case .symbol: Icon(source, size: scale(Self.glyphSize), tint: surface.secondaryInk)
+            case .symbol, .joinedBranches: Icon(source, size: scale(Self.glyphSize), tint: surface.secondaryInk)
             case .brand, .artwork: Icon(source, size: scale(Self.logoSize))
             }
         }.frame(width: scale(Size.avatar), height: scale(Size.avatar))

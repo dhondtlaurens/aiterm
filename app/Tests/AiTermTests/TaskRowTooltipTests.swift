@@ -6,7 +6,7 @@ import AiTermCore
 @testable import AiTermTestSupport
 
 /// A task row's badges have no tooltip of their own: not the ticket's URL, the request's title, VS Code's diff nor the
-/// branch. A checked badge says its state on a `HoverChip` instead, at once; the row's own tooltip, when it has one,
+/// branch. A checked or merged badge says its state on a `HoverChip` instead, at once; the row's own tooltip, when it has one,
 /// is all a hover over the badge line can bring up.
 @MainActor @Suite(.serialized) struct TaskRowTooltipTests {
     @Test func noBadgeInATaskRowHasATooltip() throws {

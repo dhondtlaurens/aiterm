@@ -229,20 +229,28 @@ private struct Reading: View {
     }
 
     var body: some View {
+        ZStack(alignment: .leading) {
+            // Reserve the full hit area. Only the visible reading anchors the raised chip.
+            reading(SidebarFooter.widestNumber).hidden()
+            reading("\(line.percent)%")
+                .raisingHoverChip(line.reset.map(ResetBadge.chip), shown: hovered)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(line.help)
+    }
+
+    private func reading(_ number: String) -> some View {
         HStack(spacing: 0) {
             SidebarFooter.widest(line.window.shortLabel, among: UsageLine.Window.allCases.map(\.shortLabel))
                 .foregroundStyle(Palette.muted)
                 .padding(.trailing, scale(Space.tight))
             UsageRing(percent: line.percent, warning: line.warning, size: scale(Size.statusMark))
             Text(" ")
-            SidebarFooter.widest("\(line.percent)%", among: [SidebarFooter.widestNumber])
+            Text(number)
                 .foregroundStyle(line.warning ? Palette.amber : Palette.text)
         }
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 }
-        .raisingHoverChip(line.reset.map(ResetBadge.chip), shown: hovered)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(line.help)
     }
 }
 

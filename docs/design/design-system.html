@@ -45,7 +45,6 @@
     --focus-edge: var(--accent-pressed);        /* focusEdge = accentPressed, the 1 pt edge */
     --link: #419CFF;                 /* .linkColor */
     --green: #30D158;                /* .systemGreen */
-    --merged: #BF5AF2;               /* .systemPurple */
     --amber: #FF9230;                /* .systemOrange */
     --destructive: #FF4245;          /* .systemRed */
     --diff-added: var(--green);      /* diffAdded = green */
@@ -324,24 +323,22 @@
   .ai-badge .diff .removed { color: var(--diff-removed); }
   .ai-badge .suffix { display: inline-flex; align-items: center; gap: var(--space-hairline); }
   /* Badge(corner:): a Size.cornerBadge (8 pt) SettledMark on the 10 pt icon's bottom-trailing corner, overhanging
-     it by Space.hairline, ringed 1 pt in the surface's occludingBackground: the green disc with a white check, or
-     (.ck.merged) the Palette.merged disc with the same check, stroked a sixth of the disc wide. */
+     it by Space.hairline, ringed 1 pt in the surface's occludingBackground. Its white check is stroked a sixth of the green disc wide. */
   .ai-badge .checked-mark { position: relative; display: inline-flex; width: 10px; height: 10px; flex: none; }
   .ai-badge .checked-mark > svg { display: block; }
   .ai-badge .checked-mark .ck { position: absolute; right: calc(-1 * var(--space-hairline)); bottom: calc(-1 * var(--space-hairline));
                                 width: 8px; height: 8px; border-radius: 50%; background: var(--green);
                                 box-shadow: 0 0 0 1px var(--surface); display: block; }
-  .ai-badge .checked-mark .ck.merged { background: var(--merged); }
   .ai-badge .checked-mark .ck svg { display: block; width: 8px; height: 8px; }
   /* HoverChip: Size.chip tall, Space.tight across, Typography.help (11, tabular) in Palette.text, on Palette.menu
-     inside Palette.borderStrong at Radius.chip. raisingHoverChip: its leading edge on what raised it, its foot
+     inside Palette.borderStrong at Radius.chip. raisingHoverChip: centered over what raised it, its foot
      Space.hairline above that view's head. */
   .ai-hover-raise { position: relative; display: inline-flex; flex: none; }
   .ai-hover-chip { display: inline-flex; align-items: center; height: var(--size-chip); box-sizing: border-box;
                    padding-inline: var(--space-tight); white-space: nowrap; font: 11px/1 var(--font);
                    font-variant-numeric: tabular-nums; color: var(--text); background: var(--menu);
                    border: 1px solid var(--border-strong); border-radius: var(--radius-chip); }
-  .ai-hover-raise > .ai-hover-chip { position: absolute; left: 0; bottom: calc(100% + var(--space-hairline)); }
+  .ai-hover-raise > .ai-hover-chip { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + var(--space-hairline)); }
   /* Badge(style: .quiet): no padding, no wash at rest, label in secondaryInk; the hovered wash is
      drawn Space.tight outside the content. */
   .ai-badge.quiet { background: transparent; padding-inline: 0; color: var(--muted); }
@@ -524,34 +521,6 @@
      1 CSS px = 1 pt at InterfaceScale ×1, from the tokens above. */
   .tabs button.proposal-tab, .tabs button.proposal-tab[aria-selected="true"] { color: var(--amber); }
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
-
-  #merged-badge-options .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
-  #merged-badge-options .option { padding: var(--space-block); }
-  #merged-badge-options .sample { margin-top: var(--space-gap); padding: var(--space-base) var(--space-gap);
-    background: var(--selected-solid); border-radius: var(--radius-control); }
-  #merged-badge-options .sample-title { font: 500 13px/var(--size-chip) var(--font); color: var(--on-accent); }
-  #merged-badge-options .sample-line { display: flex; align-items: center; gap: var(--space-gap);
-    margin-top: var(--space-tight); font: 500 10px/var(--size-chip) var(--font); color: var(--muted); }
-  #merged-badge-options .target { position: relative; display: inline-flex; gap: var(--space-tight);
-    align-items: center; height: var(--size-chip); white-space: nowrap; }
-  #merged-badge-options .target > .ai-hover-chip { position: absolute; bottom: calc(100% + var(--space-hairline));
-    left: 50%; transform: translateX(-50%); pointer-events: none; visibility: hidden; }
-  #merged-badge-options .target:is(:hover, :focus-visible) > .ai-hover-chip,
-  #merged-badge-options:has(input:checked) .target > .ai-hover-chip { visibility: visible; }
-  #merged-badge-options .request:is(:hover, :focus-visible)::before,
-  #merged-badge-options:has(input:checked) .request::before { content: ""; position: absolute;
-    inset: 0 calc(-1 * var(--space-tight)); background: var(--badge-selected-hovered); border-radius: var(--radius-chip); z-index: -1; }
-  #merged-badge-options .request { isolation: isolate; }
-  #merged-badge-options .host { position: relative; display: inline-flex; }
-  #merged-badge-options .corner { position: absolute; right: calc(-1 * var(--space-hairline)); bottom: calc(-1 * var(--space-hairline));
-    width: 8px; height: 8px; background: var(--muted); color: var(--sidebar); border-radius: 50%;
-    box-shadow: 0 0 0 1px var(--selected-solid); }
-  #merged-badge-options label { display: inline-flex; align-items: center; gap: var(--space-tight); margin-top: var(--space-gap); }
-  #merged-badge-options .usage { padding: var(--space-margin) var(--space-margin) var(--space-base);
-    margin-top: var(--space-gap); background: var(--sidebar-footer); border-radius: var(--radius-control);
-    display: flex; align-items: center; gap: var(--space-section); font: 11px/1 var(--font); font-variant-numeric: tabular-nums; }
-  #merged-badge-options .usage-label { color: var(--muted); }
-
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
 
@@ -1576,12 +1545,6 @@
             state shown inline.</div>
         </div>
         <div class="token">
-          <div class="chip" style="background: #BF5AF2"></div>
-          <div><div class="name">merged</div><div class="value">#BF5AF2</div><div class="appkit">.systemPurple</div></div>
-          <div class="use">A merged merge or pull request: the disc of <code>SettledMark.merged</code> on its
-            badge's corner, the same check as the green its approval wore, told apart by this colour. Nothing else draws it.</div>
-        </div>
-        <div class="token">
           <div class="chip" style="background: #FF9230"></div>
           <div><div class="name">amber</div><div class="value">#FF9230</div><div class="appkit">.systemOrange</div></div>
           <div class="use">The warning semantic: a status needing attention without being an
@@ -2082,7 +2045,7 @@
         <div class="step"><div class="label m">tabIndicator <span style="color: var(--muted)">2 pt</span></div>
           <div class="draw"><div class="box" style="width: 52px; height: 2px; border-radius: 0"></div><span class="purpose">The bar under a <code>TabBar</code>'s selected tab, drawn over the sheet header's rule: twice a hairline, so it reads as the selection rather than as a second rule. A stroke, so it does not scale.</span></div></div>
         <div class="step"><div class="label m">cornerBadge <span style="color: var(--muted)">8 pt</span></div>
-          <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The <code>SettledMark</code> a <code>Badge(corner:)</code> wears on its icon's corner — the green check of a Jira ticket done or a request approved with every thread resolved, the purple disc of a request merged — over the badge's 10 pt icon, overhanging it by <code>Space.hairline</code>.</span></div></div>
+          <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The <code>SettledMark</code> a <code>Badge(corner:)</code> wears on its icon's corner — the green check of a Jira ticket done or a request approved with every thread resolved — over the badge's 10 pt icon, overhanging it by <code>Space.hairline</code>.</span></div></div>
         <div class="step"><div class="label m">statusMarkSmall <span style="color: var(--muted)">8 pt</span></div>
           <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The status mark inside a count chip, where the usual size would overflow it; and a <code>ToneRing</code>, leading a Settings card's status line.</span></div></div>
         <div class="step"><div class="label m">statusMark <span style="color: var(--muted)">10 pt</span></div>
@@ -2327,9 +2290,9 @@
             icon and a suffix is drawn with both. <code>corner</code> puts a <code>SettledMark</code> on the
             icon's bottom-trailing corner, <code>Size.cornerBadge</code> wide: <code>.finished</code>, the
             <code>Palette.green</code> disc with a white check (a Jira ticket in a Done lane, a request approved
-            with every thread resolved), or <code>.merged</code>, the <code>Palette.merged</code> disc with the same
-            white check (a request merged, whose thread count the sidebar then drops), overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
-            the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. <code>hoverChip</code> names the state the check stands for (<code>Done</code>, <code>Approved</code>, <code>Merged</code>), so it never rests on colour alone: the moment the pointer is on the badge, a <code>HoverChip</code> of that one word rises above it, its leading edge on the badge's and its foot <code>Space.hairline</code> clear, as the footer's reset does. A task row's badges have no tooltip besides; only the row's own, when it has one. A badge is a chip at its own width, never squeezed or stretched by the
+            with every thread resolved). The corner overhangs the icon by <code>Space.hairline</code> and has an unscaled one-point ring in the surface's <code>occludingBackground</code>.
+            A merged request draws a joined-branches suffix in the label ink and drops its thread count. On hover,
+            <code>Done</code>, <code>Approved</code> or <code>Merged</code> appears centered over the whole badge with its foot <code>Space.hairline</code> clear, as the footer's reset does. A task row's badges have no tooltip besides; only the row's own, when it has one. A badge is a chip at its own width, never squeezed or stretched by the
             row around it. <code>style: .quiet</code> drops the box at rest: no outer padding, the
             label in the surface's <code>secondaryInk</code>, and the hovered wash drawn
             <code>Space.tight</code> outside the content so nothing moves; its content shape keeps the
@@ -2380,16 +2343,16 @@
               </span>
             </div>
             <div class="demo">
-              <span class="cap">quiet · corner · a done ticket (finished), a merged request (merged, its count dropped)</span>
+              <span class="cap">quiet · a done ticket and a merged request with joined branches</span>
               <span style="display: inline-flex; gap: var(--space-gap); --brand-ink: currentColor">
                 <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>PAY-198</span></span>
-                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span>
+                <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg></span><span>!81</span><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4v8M4 9c4 0 7-2 7-5"/><circle cx="4" cy="2.5" r="1.5"/><circle cx="11" cy="2.5" r="1.5"/><circle cx="4" cy="13.5" r="1.5"/></svg></span>
               </span>
             </div>
             <div class="demo">
-              <span class="cap">quiet · corner · hoverChip, under the pointer · a merged request</span>
+              <span class="cap">quiet · inline merge glyph · centered hover chip</span>
               <span style="display: inline-flex; padding-top: 22px; --brand-ink: currentColor">
-                <span class="ai-hover-raise"><span class="ai-badge quiet hovered"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span><span class="ai-hover-chip">Merged</span></span>
+                <span class="ai-hover-raise"><span class="ai-badge quiet hovered"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg></span><span>!81</span><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4v8M4 9c4 0 7-2 7-5"/><circle cx="4" cy="2.5" r="1.5"/><circle cx="11" cy="2.5" r="1.5"/><circle cx="4" cy="13.5" r="1.5"/></svg></span><span class="ai-hover-chip">Merged</span></span>
               </span>
             </div>
             <div class="demo">
@@ -3016,8 +2979,8 @@
 <tr><td><code>OperatorBadge</code></td><td>The Operator activity caption: every word in the secondary ink, needs-you alone in the attention chip; it decodes only when its words change, from the words standing to the new ones; Reduce Motion swaps.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>DecodeWordsView</code></td><td>Draws the caption whatever it says and morphs old words into new: the new settle from the left behind a four-character band of own-case glyphs, the old stand past it; one self-drawn line that spans the row, never resized by a change, never animated on its own, cut at the tail in its own face, never empty.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>StatusMark</code></td><td>Idle, working, input, done and background rings; Reduce Motion keeps shape.</td><td>StatusMark.swift</td></tr>
-<tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check), merged (purple, white check) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
-<tr><td><code>HoverChip</code></td><td>A one-line chip raised above what the pointer is over, at once: the footer's reset, a checked badge's Done, Approved or Merged. Size.chip on Palette.menu inside Palette.borderStrong; raisingHoverChip places it.</td><td>AiTermUI/HoverChip.swift</td></tr>
+<tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
+<tr><td><code>HoverChip</code></td><td>A one-line chip raised above what the pointer is over, at once: the footer's reset, a sidebar badge's Done, Approved or Merged. Size.chip on Palette.menu inside Palette.borderStrong; raisingHoverChip places it.</td><td>AiTermUI/HoverChip.swift</td></tr>
 <tr><td><code>StatusCountChips</code></td><td>Folded heading counts in shared status vocabulary; OPERATOR's own chip (its most urgent state, its workload) and the green finished chip.</td><td>StatusCountChips.swift</td></tr>
 <tr><td><code>AvatarGroupView</code></td><td>Agent marks and overflow count.</td><td>AvatarGroupView.swift</td></tr>
 <tr><td><code>VendorMark</code></td><td>Agent disc with the vendor artwork.</td><td>VendorMark.swift</td></tr>
@@ -3056,7 +3019,7 @@
         read, not clicked: ⌘B is Backpack Mode's switch, and a right-click offers Mac Settings…. It costs no row, so the footer keeps one height in every mode. A vendor's note spans the row. When a window clears is
         shown under the pointer only, at once: a <code>ResetBadge</code>, <code>resets Sat 12:00</code>, on a
         <code>HoverChip</code> (<code>Size.chip</code>, <code>Palette.menu</code> inside <code>Palette.borderStrong</code>), just
-        above the reading. At rest the row is the numbers alone, and a reading with no clock, <code>ctx</code> or the
+        above the center of the visible label, ring and percentage. At rest the row is the numbers alone, and a reading with no clock, <code>ctx</code> or the
         Mac's, raises nothing under the pointer.</p>
       <div class="figs">
         <figure class="fig"><div class="scroll"><div class="mk-foot uf-cols">
@@ -3202,48 +3165,6 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-    </div>
-
-    <div class="section" id="merged-badge-options">
-      <p class="eyebrow proposal-flag">Proposal · Sidebar badges · 24 Nov 2026</p>
-      <h2>How should a merged request look?</h2>
-      <p class="why"><strong>Selected 24 Nov 2026 · A, inline merge glyph.</strong> The joined branches distinguish a merge from an approval and leave the host icon visible. Each sample shows the same request at standard sidebar size.</p>
-      <label><input type="checkbox" checked> Show hover labels on all samples</label>
-      <div class="options">
-        <article class="option pick">
-          <header><span class="letter">A</span><h3>Inline merge glyph</h3></header>
-          <div class="sample">
-            <div class="sample-title">Update keyboard shortcuts</div>
-            <div class="sample-line"><span>DEMO-8</span>
-              <span class="target request" tabindex="0" aria-label="Request 42, merged"><span class="host"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg></span><span>!42</span><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4v8M4 9c4 0 7-2 7-5"/><circle cx="4" cy="2.5" r="1.5"/><circle cx="11" cy="2.5" r="1.5"/><circle cx="4" cy="13.5" r="1.5"/></svg><span class="ai-hover-chip" aria-hidden="true">Merged</span></span>
-              <code>main</code></div>
-          </div>
-          <p>The joined branches give merged its own shape. The host stays visible and the green check still means approved.</p>
-        </article>
-        <article class="option">
-          <header><span class="letter">B</span><h3>Graphite corner check</h3></header>
-          <div class="sample">
-            <div class="sample-title">Update keyboard shortcuts</div>
-            <div class="sample-line"><span>DEMO-8</span>
-              <span class="target request" tabindex="0" aria-label="Request 42, merged"><span class="host"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg><svg class="corner" viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>!42</span><span class="ai-hover-chip" aria-hidden="true">Merged</span></span>
-              <code>main</code></div>
-          </div>
-          <p>A grey disc keeps the badge at its current width. Colour still carries the difference between approved and merged.</p>
-        </article>
-        <article class="option">
-          <header><span class="letter">C</span><h3>Write “Merged”</h3></header>
-          <div class="sample">
-            <div class="sample-title">Update keyboard shortcuts</div>
-            <div class="sample-line"><span>DEMO-8</span>
-              <span class="target request" tabindex="0" aria-label="Request 42, merged"><span class="host"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg></span><span>!42</span><span>Merged</span><span class="ai-hover-chip" aria-hidden="true">Merged</span></span>
-              <code>main</code></div>
-          </div>
-          <p>The state is legible at a glance, even with brand colours off. The word uses the most room on the badge line.</p>
-        </article>
-      </div>
-      <h3 style="margin-top:var(--space-section)">Center the hover label on its target</h3>
-      <p class="why">Each label sits 2 pt above the midpoint of the whole request badge or Usage reading. Turn off the checkbox to try each target individually.</p>
-      <div class="usage"><span class="usage-label">Usage</span><span class="target" tabindex="0" aria-label="Weekly usage 42%, resets Saturday at 12:00"><span class="usage-label">wk</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke-width="1.5" aria-hidden="true"><circle cx="5" cy="5" r="4.25" stroke="var(--spinner-track)"/><circle cx="5" cy="5" r="4.25" pathLength="100" stroke="currentColor" stroke-dasharray="42 58" transform="rotate(-90 5 5)"/></svg>42%<span class="ai-hover-chip" aria-hidden="true"><span class="usage-label">resets&nbsp;</span> Sat 12:00</span></span></div>
     </div>
 
     <!-- proposal:cron-start -->

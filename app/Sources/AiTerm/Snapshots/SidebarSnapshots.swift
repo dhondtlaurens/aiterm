@@ -273,7 +273,7 @@ enum SidebarSnapshots {
 
     /// Five reviews under the fixture's project — one whose merge request never had a thread, one
     /// approved with 2 of 5 resolved (no check yet), one approved with all 6 (its mark checked), one
-    /// merged (the merged disc, its count gone), and a GitHub pull request merged and selected — each
+    /// merged (the inline merge glyph, its count gone), and a GitHub pull request merged and selected — each
     /// window open, so no caption stands under them. The badge without its number is
     /// `ReviewThreadsBadgeTests`'.
     private static func reviewThreads(_ file: String) -> Snapshot {
@@ -304,7 +304,7 @@ enum SidebarSnapshots {
     }
 
     /// A task from GitLab issue #55, a review of issue #53's merge request — one mark, `#53 !29`,
-    /// merged, so the shared mark wears the purple check and its count is gone — and a Jira ticket's review,
+    /// merged, so joined branches follow the request number and its count is gone — and a Jira ticket's review,
     /// which keeps two badges, its ticket done.
     private static func gitLabIssues(_ file: String) -> Snapshot {
         Snapshot(file) {

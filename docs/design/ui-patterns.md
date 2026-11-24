@@ -10,9 +10,11 @@ Swift defines geometry and projections. This inventory explains reuse; the [Oper
 only the label; `SidebarHeadingInset` owns its gutter. Project headers use `HeaderChevron`,
 `HeaderTitle`, `ProviderIcon` and `AddMenu`. `RowPill` declares the surface. `TaskRowView` is used
 under both projects and signals. Its actions resolve the current task at invocation; its body reads
-cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates; a merged request and a Jira ticket
-in a Done lane wear `Badge(checked:)`'s corner check on their mark, and say "merged" or "done" in the
-tooltip and to VoiceOver.
+cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates. Merged requests
+show joined branches after their number. When that number is hidden, the glyph follows the host mark
+or, on a shared GitLab badge showing an issue number, the issue number. An approved request with all threads resolved
+and a Jira ticket in Done wear green corner checks. The status word appears centered above its badge
+on hover and is included in the VoiceOver label.
 
 Project task rows offer Move Up and Move Down in their context menu and VoiceOver actions. Each
 moves one place within that project's task or review group; tasks stay above reviews, and terminals

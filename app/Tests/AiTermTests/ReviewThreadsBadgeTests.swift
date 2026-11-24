@@ -5,7 +5,7 @@ import AiTermUI
 @testable import AiTerm
 
 /// What a merge request's badge says about its review: `2/5` behind a bubble once it has a thread, the
-/// same bubble when all are resolved, the green check once approved with none open, the merged disc and no
+/// same bubble when all are resolved, the green check once approved with none open, the joined branches and no
 /// bubble once merged, and nothing it does not know.
 @Suite struct ReviewThreadsBadgeTests {
     private let mr = MergeRequestRef(iid: 87, title: "Add diff setting", url: "https://gitlab.example.com/web/shop/-/merge_requests/87")
@@ -64,11 +64,12 @@ import AiTermUI
         #expect(TaskRowBadges(row: row(mr: nil), details: BadgeDetails(), threads: ReviewThreads(resolved: 2, total: 5)).mergeRequest == nil)
     }
 
-    /// Merged: the mark wears the purple check, the bubble goes, since the review is over, and the tooltip leads
+    /// Merged: the request carries joined branches, the bubble goes, since the review is over, and the tooltip leads
     /// with merged, which VoiceOver says in place of the count.
     @Test func aMergedRequestWearsTheMergedMarkWithoutItsBubble() {
         let link = badge(ReviewThreads(resolved: 4, total: 4, merged: true))
-        #expect(link?.corner == .merged)
+        #expect(link?.isMerged == true)
+        #expect(link?.corner == nil)
         #expect(link?.hoverChip == "Merged")
         #expect(link?.threads == nil)
         #expect(link?.help == "Merged · Add diff setting")
@@ -78,19 +79,22 @@ import AiTermUI
     /// Merged without a thread, and with the number off: still marked, still said.
     @Test func aMergedRequestWithoutThreadsOrNumberIsStillMarked() {
         let bare = badge(ReviewThreads(resolved: 0, total: 0, merged: true))
-        #expect(bare?.corner == .merged)
+        #expect(bare?.isMerged == true)
+        #expect(bare?.corner == nil)
         #expect(bare?.threads == nil)
         #expect(bare?.help == "Merged · Add diff setting")
         #expect(bare?.accessibilityLabel == "!87, merged")
         let markOnly = badge(ReviewThreads(resolved: 0, total: 0, merged: true), details: BadgeDetails(mergeRequest: false))
-        #expect(markOnly?.corner == .merged)
+        #expect(markOnly?.isMerged == true)
+        #expect(markOnly?.corner == nil)
         #expect(markOnly?.accessibilityLabel == "!87 · Add diff setting, merged")
     }
 
     /// Merged wins over approved: the approval is history once it merged.
     @Test func aMergedRequestThatWasApprovedIsMerged() {
         let link = badge(ReviewThreads(resolved: 3, total: 3, merged: true, approved: true))
-        #expect(link?.corner == .merged)
+        #expect(link?.isMerged == true)
+        #expect(link?.corner == nil)
         #expect(link?.hoverChip == "Merged")
         #expect(link?.help == "Merged · Add diff setting")
     }
@@ -157,5 +161,11 @@ import AiTermUI
         #expect(link?.host == .gitHub)
         #expect(link?.threads?.text == "1/4")
         #expect(link?.accessibilityLabel == "#12, 1 of 4 threads resolved")
+        let merged = TaskRowBadges(row: row(mr: pull), details: BadgeDetails(),
+                                   threads: ReviewThreads(resolved: 1, total: 4, merged: true)).mergeRequest
+        #expect(merged?.isMerged == true)
+        #expect(merged?.threads == nil)
+        #expect(merged?.hoverChip == "Merged")
+        #expect(merged?.accessibilityLabel == "#12, merged")
     }
 }

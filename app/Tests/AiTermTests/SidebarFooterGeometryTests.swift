@@ -70,9 +70,10 @@ struct SidebarFooterGeometryTests {
     }
 
     private func host(_ rows: [UsageVendorRow], task: UsageTaskRow? = nil, machine: [UsageLine] = [], mode: MacMode = .desk,
-                      width: CGFloat = Size.sidebarMinWidth, scale: InterfaceScale = .standard) -> NSHostingView<AnyView> {
+                      width: CGFloat = Size.sidebarMinWidth, scale: InterfaceScale = .standard,
+                      hovering: UsageLine.Window? = nil) -> NSHostingView<AnyView> {
         let mac = MacModePresentation.line(mode: mode, hotspot: "Laurens’s iPhone", wifi: "Office-WiFi")
-        let view = AnyView(SidebarFooter(task: task, rows: rows, machine: machine, mac: mac)
+        let view = AnyView(SidebarFooter(task: task, rows: rows, machine: machine, mac: mac, hovering: hovering)
             .interfaceScale(scale)
             .frame(width: width, alignment: .leading)
             .background(Color.black))
@@ -162,6 +163,32 @@ struct SidebarFooterGeometryTests {
         #expect(abs(host.fittingSize.height - scale(Size.chip)) < 0.5)
         let words = (("resets Wed 16:28" as NSString).size(withAttributes: [.font: Self.telemetryFont]).width) * scale.factor
         #expect(host.fittingSize.width > words, "the chip is \(host.fittingSize.width) pt; its words alone are \(words) pt")
+    }
+
+    @Test(arguments: InterfaceScale.all, [5, 42, 100])
+    func resetCentersOverTheDisplayedReading(scale: InterfaceScale, percent: Int) throws {
+        let reading = UsageLine(window: .weekly, percent: percent, reset: "Sat 12:00", warning: false)
+        let rows = [UsageVendorRow(vendor: .claude, lines: [reading], note: nil)]
+        let width = scale(Size.sidebarMinWidth)
+        let right = try paintedWidth(rows, width: width, scale: scale)
+        let center = (Self.firstColumn(scale: scale) + right) / 2
+        let resting = host(rows, width: width, scale: scale)
+        let hovered = host(rows, width: width, scale: scale, hovering: .weekly)
+        func capture(_ view: NSView) throws -> NSBitmapImageRep {
+            let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return bitmap
+        }
+        let before = try capture(resting), after = try capture(hovered)
+        let factor = CGFloat(after.pixelsWide) / width
+        // The middle of the raised chip lies in the heading just above the only vendor row.
+        let rowCenter = hovered.bounds.height - scale(Space.base) - scale(Size.menuRow) / 2
+        let readingHeight = Typography.help.tabular.scaled(by: scale).nsFont
+        let lineHeight = ceil(readingHeight.ascender - readingHeight.descender)
+        let y = Int((rowCenter - lineHeight / 2 - scale(Space.hairline) - scale(Size.chip) / 2) * factor)
+        let span = (0..<after.pixelsWide).filter { before.colorAt(x: $0, y: y) != after.colorAt(x: $0, y: y) }
+        let left = try #require(span.first), last = try #require(span.last)
+        #expect(abs(CGFloat(left + last + 1) / (2 * factor) - center) <= 1.5)
     }
 
     /// The sidebar minimum has to fit a column's widest reading: a window at 100 %. A row's first

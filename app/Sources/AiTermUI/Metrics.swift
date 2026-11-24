@@ -119,7 +119,7 @@ public enum Size {
     /// change there must not move this glyph.
     public static let chevron: CGFloat = 10
     /// The `SettledMark` a `Badge(corner:)` wears on its icon's corner: the green check of a ticket done or a
-    /// request approved with every thread resolved, the purple check of a request merged. Over the badge's 10 pt
+    /// request approved with every thread resolved. Over the badge's 10 pt
     /// icon, overhanging it by `Space.hairline`; large enough for the check to read.
     public static let cornerBadge: CGFloat = 8
     /// A vendor mark beside a picked item in a picker's field: the ticket, the merge request, the

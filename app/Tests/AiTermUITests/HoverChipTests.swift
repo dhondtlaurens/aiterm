@@ -25,39 +25,35 @@ struct HoverChipTests {
         #expect(size(shown: false) == CGSize(width: 30, height: 16))
     }
 
-    /// Shown, the chip's ground is drawn above the view, its foot `Space.hairline` clear of the view's head and its
-    /// leading edge on the view's; hidden, nothing is.
-    @Test func theChipSitsAboveItsViewOnlyWhileShown() throws {
-        func drawn(shown: Bool) throws -> NSBitmapImageRep {
-            let host = NSHostingView(rootView: Color.clear.frame(width: 60, height: 16)
+    /// Both edges of the chip can overhang its target. Measure its painted bounds with room on each side.
+    @Test(arguments: InterfaceScale.all, [CGFloat(16), CGFloat(80)])
+    func theChipCentersOverItsTarget(scale: InterfaceScale, width: CGFloat) throws {
+        let top: CGFloat = 40, leading: CGFloat = 36
+        let bounds = CGRect(x: 0, y: 0, width: 160, height: 60)
+        func capture(shown: Bool) throws -> NSBitmapImageRep {
+            let host = NSHostingView(rootView: Color.clear.frame(width: width, height: 16)
                 .raisingHoverChip(HoverChip("Merged"), shown: shown)
-                .padding(.top, 30).frame(width: 100, height: 46, alignment: .topLeading)
-                .background(Palette.sidebar))
+                .padding(.leading, leading).padding(.top, top)
+                .frame(width: bounds.width, height: bounds.height, alignment: .topLeading)
+                .background(Palette.sidebar).interfaceScale(scale))
             host.appearance = NSAppearance(named: .darkAqua)
-            host.frame = NSRect(x: 0, y: 0, width: 100, height: 46)
+            host.frame = bounds
             host.layoutSubtreeIfNeeded()
-            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: bounds))
+            host.cacheDisplay(in: bounds, to: bitmap)
             return bitmap
         }
-        func ground(_ bitmap: NSBitmapImageRep) throws -> NSColor {
-            // Inside the chip, between its leading edge and its words: 30 − hairline − chip/2 from the top.
-            let factor = CGFloat(bitmap.pixelsWide) / 100
-            let y = (30 - Space.hairline - Size.chip / 2) * factor
-            return try #require(bitmap.colorAt(x: Int(2 * factor), y: Int(y))?.usingColorSpace(.sRGB))
-        }
-        func resolved(_ color: Color) throws -> NSColor {
-            var out: NSColor?
-            try #require(NSAppearance(named: .darkAqua)).performAsCurrentDrawingAppearance {
-                out = NSColor(color).usingColorSpace(.sRGB)
-            }
-            return try #require(out)
-        }
-        func near(_ a: NSColor, _ b: NSColor) -> Bool {
-            abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
-                + abs(a.blueComponent - b.blueComponent) < 0.04
-        }
-        #expect(near(try ground(drawn(shown: true)), try resolved(Palette.menu)))
-        #expect(near(try ground(drawn(shown: false)), try resolved(Palette.sidebar)))
+        let bitmap = try capture(shown: true)
+        let hidden = try capture(shown: false)
+        let factor = CGFloat(bitmap.pixelsWide) / bounds.width
+        let y = Int((top - scale(Space.hairline) - scale(Size.chip) / 2) * factor)
+        let background = try #require(bitmap.colorAt(x: 0, y: y))
+        #expect((0..<hidden.pixelsWide).allSatisfy { hidden.colorAt(x: $0, y: y) == background })
+        let span = (0..<bitmap.pixelsWide).filter { bitmap.colorAt(x: $0, y: y) != background }
+        let left = try #require(span.first), right = try #require(span.last)
+        #expect(abs(CGFloat(left + right + 1) / (2 * factor) - (leading + width / 2)) <= 1)
+        let middle = (left + right) / 2
+        let bottom = try #require((0..<bitmap.pixelsHigh).last { bitmap.colorAt(x: middle, y: $0) != background })
+        #expect(abs(top - CGFloat(bottom + 1) / factor - scale(Space.hairline)) <= 1)
     }
 }

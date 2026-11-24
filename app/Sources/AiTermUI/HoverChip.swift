@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A one-line chip raised above what the pointer is over, at once, with no tooltip delay: the footer's
-/// `resets Sat 12:00` over a usage reading, a checked badge's `Done`, `Approved` or `Merged`.
+/// `resets Sat 12:00` over a usage reading, a sidebar badge's `Done`, `Approved` or `Merged`.
 ///
 /// `Size.chip` tall, `Space.tight` across, in `Typography.help` (tabular), on the popover's ground
 /// (`Palette.menu`) inside its firm edge (`Palette.borderStrong`), so the row it rises over does not show
@@ -27,7 +27,7 @@ public struct HoverChip: View {
 }
 
 extension View {
-    /// Raises `chip` above this view while `shown`: its leading edge on this view's, its foot `Space.hairline`
+    /// Raises `chip` above this view while `shown`: centered on this view, its foot `Space.hairline`
     /// clear of this view's head. It takes no clicks, so the pointer stays on what raised it.
     public func raisingHoverChip(_ chip: HoverChip?, shown: Bool) -> some View {
         modifier(RaisesHoverChip(chip: chip, shown: shown))
@@ -40,7 +40,7 @@ private struct RaisesHoverChip: ViewModifier {
     @Environment(\.interfaceScale) private var scale
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .topLeading) {
+        content.overlay(alignment: .top) {
             if shown, let chip {
                 chip
                     .offset(y: -(scale(Size.chip) + scale(Space.hairline)))

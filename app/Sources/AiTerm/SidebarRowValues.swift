@@ -98,8 +98,8 @@ struct TaskRowCaption: Equatable {
 /// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
 /// all resolved included — whether or not its number is switched off, until it merges; one with
 /// none, or whose threads have not been read, wears none. Its mark wears the green check once it is
-/// approved with no thread open, and the purple check once it merges. A badge in a task row has no
-/// tooltip: only one wearing a check answers the pointer, raising its one word, `Done`, `Approved` or
+/// approved with no thread open, and a merged request ends in joined branches. A badge in a task row has no
+/// tooltip: a checked or merged badge answers the pointer, raising its one word, `Done`, `Approved` or
 /// `Merged`, on a `HoverChip`.
 struct TaskRowBadges: Equatable {
     struct Link: Equatable {
@@ -111,11 +111,13 @@ struct TaskRowBadges: Equatable {
         var threads: Badge.Suffix? = nil
         /// What VoiceOver reads when the badge says more than its label: the count, in words.
         var accessibilityLabel: String? = nil
+        /// A merged request closes with joined branches in the label ink.
+        var isMerged = false
         /// What the mark wears on its corner: the green check of a Jira ticket in a Done lane or of a merge
-        /// request approved with every thread resolved, the purple check of one merged; nil for none.
+        /// request approved with every thread resolved.
         var corner: SettledMark.Kind? = nil
-        /// The word the corner stands for, raised above the badge under the pointer: `Done`, `Approved` or
-        /// `Merged`; nil without a corner.
+        /// The word the corner or trailing glyph stands for, raised above the badge under the pointer: `Done`, `Approved` or
+        /// `Merged`.
         var hoverChip: String? = nil
 
         /// Puts `words` (a thread count) after the rest in the tooltip and for VoiceOver.
@@ -171,9 +173,10 @@ struct TaskRowBadges: Equatable {
                 ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
                 : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
             guard let threads else { return link }
-            // Merged: the review is over, so the count goes and the purple check says it all.
+            // Merged: the review is over, so the count goes and the joined branches take its place.
             if threads.merged {
-                link.wear(.merged, saying: "merged")
+                link.isMerged = true
+                link.hoverChip = "Merged"
                 link.state("merged")
                 return link
             }

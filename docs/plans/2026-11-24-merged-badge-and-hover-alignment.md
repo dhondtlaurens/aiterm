@@ -15,10 +15,11 @@ Use the shared hover-chip modifier to align the horizontal midpoints of the chip
 ## Files
 
 - Modify `app/Sources/AiTerm/SidebarRowValues.swift`, `Views/SidebarRows.swift` and `Views/QuietBadgeLine.swift` under the same target to project the merged state and place its glyph, hover label and spoken words on the correct badge.
+- Extend `IconSource.swift` with the joined-branches glyph. Include it in the glyph sizing case in `Views/SidebarHeadings.swift`.
 - Modify `app/Sources/AiTermUI/Badge.swift` to support a decorative trailing glyph in the label ink. Reuse its existing size, spacing and suffix layout. Draw the chosen shape at the sidebar scale.
 - Modify `app/Sources/AiTermUI/SettledMark.swift`, `Palette.swift` and the corner-size comment in `Metrics.swift` to retire the purple merged disc and its dedicated colour.
 - Modify `app/Sources/AiTermUI/HoverChip.swift` to center the overlay. Modify the reading in `app/Sources/AiTerm/Views/SidebarFooter.swift` so the invisible trailing space reserved for shorter percentages is outside the alignment measurement.
-- Update the merged fixture descriptions in `app/Sources/AiTerm/Snapshots/SidebarSnapshots.swift` and the sidebar badge description in `docs/design/ui-patterns.md` to match the selected design.
+- Update the merged fixture descriptions in `app/Sources/AiTerm/Snapshots/SidebarSnapshots.swift` and the sidebar badge descriptions in `docs/design/ui-patterns.md` and `docs/operators.md` to match the selected design.
 - Update the badge projection, composition and tooltip tests in AiTermTests and the badge, settled-mark, palette and hover-chip tests in AiTermUITests.
 - Update `app/Sources/AiTermUI/README.md` and the local `docs/design/design-system.html` reference after implementation. Remove this proposal once its shipped examples are in Components.
 
@@ -31,7 +32,9 @@ Use the shared hover-chip modifier to align the horizontal midpoints of the chip
 
 ## To-dos
 
-- [ ] Add and test the trailing glyph in Badge at all interface sizes. Update its entry in the AiTermUI spec.
-- [ ] Wire the glyph through the sidebar, cover shared GitLab actions and hover ownership, and retire the purple mark. Update the SettledMark spec, fixture descriptions and sidebar pattern.
-- [ ] Center the shared hover chip, verify badge and visible footer reading geometry, and update the HoverChip spec.
-- [ ] Compare snapshots, sync the local reference and run the gate.
+- [x] Add and test the trailing glyph in Badge at all interface sizes. Update its entry in the AiTermUI spec.
+- [x] Wire the glyph through the sidebar, cover shared GitLab actions and hover ownership, and retire the purple mark. Update the SettledMark spec, fixture descriptions and sidebar pattern.
+- [x] Center the shared hover chip, verify badge and visible footer reading geometry, and update the HoverChip spec.
+- [x] Compare snapshots, sync the local reference and run the gate.
+
+The focused tests and project gate passed. The rendered tests checked all three interface sizes. The sidebar captures show the inline glyph on both hosts, the shared GitLab pair, and the centered Usage reset.
