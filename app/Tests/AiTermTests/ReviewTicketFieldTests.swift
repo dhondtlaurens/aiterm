@@ -186,7 +186,7 @@ import AiTermUI
         #expect(merged.badges.count == 1)
         #expect(merged.badges.first?.label == "#53")
         #expect(merged.badges.first?.corner == .merged)
-        #expect(merged.badges.first?.help == "https://x/#53 · !29 · MR · merged")
+        #expect(merged.badges.first?.help == "https://x/#53 · Merged · !29 · MR")
         #expect(merged.badges.first?.accessibilityLabel == "#53, !29 · MR, merged")
         let approved = line(ReviewThreads(resolved: 0, total: 0, approved: true))
         #expect(approved.badges.count == 1)

@@ -16,9 +16,10 @@ import SwiftUI
 ///
 /// `corner` puts a `SettledMark` on the icon's bottom-trailing corner: `.finished`, the green disc
 /// with a white check (a ticket in Jira's Done, a request approved with every thread resolved), or
-/// `.merged`, the purple disc with a merge glyph (a request merged). `Size.cornerBadge` wide,
+/// `.merged`, the purple disc with the same check (a request merged). `Size.cornerBadge` wide,
 /// overhanging the icon by `Space.hairline` and cut from the ground by an unscaled one-point ring of
-/// the surface's `occludingBackground`. A glyph as well as a colour, so neither rests on colour alone.
+/// the surface's `occludingBackground`. The check says the state settled; which state, done, approved
+/// or merged, the colour shows and the badge's tooltip leads with, so it never rests on colour alone.
 ///
 /// A `.quiet` badge drops the box at rest: its text sits on the row in secondary ink, and the wash
 /// only appears under the pointer, outset by `Space.tight` so the text does not move. The sidebar's

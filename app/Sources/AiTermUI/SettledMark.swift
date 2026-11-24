@@ -3,7 +3,7 @@ import SwiftUI
 /// A settled mark: a filled disc for a state that holds until something outside changes it, where a ring
 /// (`StatusMark` in the app) is a state that can still move. `finished` is the `Palette.green` disc with a white
 /// check, the mark a done ticket's badge, or an approved request's with every thread resolved, wears in its corner
-/// (`Badge(corner:)`); `merged` is the `Palette.merged` disc with a white merge glyph, a merged request's corner;
+/// (`Badge(corner:)`); `merged` is the `Palette.merged` disc with the same white check, a merged request's corner;
 /// `paused` is the `Palette.idleRing` disc with its two bars cut out in the ground beneath
 /// (`Surface.occludingBackground`).
 /// On the accent, as everything there, the disc turns `onAccent` and its glyph is cut out of it.
@@ -26,11 +26,8 @@ public struct SettledMark: View {
         ZStack {
             Circle().fill(Self.disc(kind, surface: surface))
             switch kind {
-            case .finished:
+            case .finished, .merged:
                 CheckGlyph().stroke(Self.glyph(kind, surface: surface),
-                                    style: StrokeStyle(lineWidth: CheckGlyph.strokeWidth(size), lineCap: .round, lineJoin: .round))
-            case .merged:
-                MergeGlyph().stroke(Self.glyph(kind, surface: surface),
                                     style: StrokeStyle(lineWidth: CheckGlyph.strokeWidth(size), lineCap: .round, lineJoin: .round))
             case .paused:
                 PauseGlyph().fill(Self.glyph(kind, surface: surface))
@@ -50,7 +47,7 @@ public struct SettledMark: View {
         }
     }
 
-    /// The glyph's: the check and the merge glyph are white on their discs, the pause bars the ground's; on the
+    /// The glyph's: the check is white on its green or purple disc, the pause bars the ground's; on the
     /// accent every glyph is the ground's, cut out of the white disc.
     static func glyph(_ kind: Kind, surface: Surface) -> Color {
         kind != .paused && !surface.isOnAccent ? Palette.onAccent : surface.occludingBackground
@@ -59,8 +56,7 @@ public struct SettledMark: View {
 
 /// A check's two strokes, in proportions of its box, inset so the round caps stay inside the disc.
 struct CheckGlyph: Shape {
-    /// A sixth of the disc: thin enough to leave the disc's colour around it at `Size.cornerBadge`. The merge glyph
-    /// is stroked at the same width.
+    /// A sixth of the disc: thin enough to leave the disc's colour around it at `Size.cornerBadge`.
     static func strokeWidth(_ diameter: CGFloat) -> CGFloat { diameter / 6 }
 
     func path(in rect: CGRect) -> Path {
@@ -69,25 +65,6 @@ struct CheckGlyph: Shape {
         path.move(to: point(0.27, 0.52))
         path.addLine(to: point(0.44, 0.69))
         path.addLine(to: point(0.74, 0.34))
-        return path
-    }
-}
-
-/// A merge (`arrow.triangle.merge`, drawn): two branches that join below the centre and go on up as one stem to an
-/// arrowhead, in proportions of the disc, inset so the round caps stay inside it.
-struct MergeGlyph: Shape {
-    func path(in rect: CGRect) -> Path {
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y) }
-        var path = Path()
-        for x in [0.32, 0.68] {
-            path.move(to: point(x, 0.78))
-            path.addLine(to: point(x, 0.62))
-            path.addLine(to: point(0.5, 0.44))
-        }
-        path.addLine(to: point(0.5, 0.22))
-        path.move(to: point(0.36, 0.34))
-        path.addLine(to: point(0.5, 0.2))
-        path.addLine(to: point(0.64, 0.34))
         return path
     }
 }
