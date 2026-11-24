@@ -269,7 +269,7 @@ struct TaskRowView: View {
                                 }
                             }
                             .layoutPriority(1)
-                            BranchLabelView(label: row.branch)
+                            BranchLabelView(label: row.branch, showsHelp: false)
                         }
                     }
                     // Error captions follow the same rules under projects and signals.
@@ -340,12 +340,12 @@ struct TaskRowView: View {
         HStack(spacing: scale(Space.gap)) {
             QuietBadgeLine(ticket: fit.ticket ? badges.ticket.map { QuietBadgeValue($0, ticket: true, markInk: badges.markInk) } : nil,
                            request: fit.mergeRequest ? badges.mergeRequest.map { QuietBadgeValue($0, ticket: false, markInk: badges.markInk) } : nil,
-                           sharesMark: badges.sharesGitLabMark)
+                           sharesMark: badges.sharesGitLabMark, showsHelp: false)
             // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
-            // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
+            // narrow. No tooltip: the base and the counts are VoiceOver's; a click opens the worktree.
             if fit.editor != .none {
-                Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: fit.editor == .diff ? badges.diff : nil,
-                      style: .quiet, markInk: badges.markInk) {
+                Badge(icon: .brand(Palette.vscode), diff: fit.editor == .diff ? badges.diff : nil,
+                      style: .quiet, markInk: badges.markInk, accessibilityLabel: badges.editorHelp) {
                     ExternalApps.openInVSCode(path: row.worktreePath)
                 }
             }
@@ -361,7 +361,8 @@ extension QuietBadgeValue {
     init(_ link: TaskRowBadges.Link, ticket: Bool, markInk: Badge.MarkInk) {
         self.init(label: link.label,
                   icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
-                  help: link.help, suffix: link.threads, corner: link.corner, accessibilityLabel: link.accessibilityLabel,
+                  help: link.help, suffix: link.threads, corner: link.corner, hoverChip: link.hoverChip,
+                  accessibilityLabel: link.accessibilityLabel,
                   markInk: markInk, action: link.url.map { url in { ExternalApps.open(link: url) } })
     }
 }

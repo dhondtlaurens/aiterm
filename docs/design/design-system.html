@@ -333,6 +333,15 @@
                                 box-shadow: 0 0 0 1px var(--surface); display: block; }
   .ai-badge .checked-mark .ck.merged { background: var(--merged); }
   .ai-badge .checked-mark .ck svg { display: block; width: 8px; height: 8px; }
+  /* HoverChip: Size.chip tall, Space.tight across, Typography.help (11, tabular) in Palette.text, on Palette.menu
+     inside Palette.borderStrong at Radius.chip. raisingHoverChip: its leading edge on what raised it, its foot
+     Space.hairline above that view's head. */
+  .ai-hover-raise { position: relative; display: inline-flex; flex: none; }
+  .ai-hover-chip { display: inline-flex; align-items: center; height: var(--size-chip); box-sizing: border-box;
+                   padding-inline: var(--space-tight); white-space: nowrap; font: 11px/1 var(--font);
+                   font-variant-numeric: tabular-nums; color: var(--text); background: var(--menu);
+                   border: 1px solid var(--border-strong); border-radius: var(--radius-chip); }
+  .ai-hover-raise > .ai-hover-chip { position: absolute; left: 0; bottom: calc(100% + var(--space-hairline)); }
   /* Badge(style: .quiet): no padding, no wash at rest, label in secondaryInk; the hovered wash is
      drawn Space.tight outside the content. */
   .ai-badge.quiet { background: transparent; padding-inline: 0; color: var(--muted); }
@@ -2292,7 +2301,7 @@
             <code>Palette.green</code> disc with a white check (a Jira ticket in a Done lane, a request approved
             with every thread resolved), or <code>.merged</code>, the <code>Palette.merged</code> disc with the same
             white check (a request merged, whose thread count the sidebar then drops), overhanging the icon by <code>Space.hairline</code> and cut from it by an unscaled one-point ring of
-            the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. The badge's tooltip leads with the state the check stands for (<code>Done</code>, <code>Approved</code>, <code>Merged</code>), so it never rests on colour alone. A badge is a chip at its own width, never squeezed or stretched by the
+            the surface's <code>occludingBackground</code>; drawn over the icon, so the badge keeps its size. <code>hoverChip</code> names the state the check stands for (<code>Done</code>, <code>Approved</code>, <code>Merged</code>), so it never rests on colour alone: the moment the pointer is on the badge, a <code>HoverChip</code> of that one word rises above it, its leading edge on the badge's and its foot <code>Space.hairline</code> clear, as the footer's reset does. A task row's badges have no tooltip besides; only the row's own, when it has one. A badge is a chip at its own width, never squeezed or stretched by the
             row around it. <code>style: .quiet</code> drops the box at rest: no outer padding, the
             label in the surface's <code>secondaryInk</code>, and the hovered wash drawn
             <code>Space.tight</code> outside the content so nothing moves; its content shape keeps the
@@ -2347,6 +2356,12 @@
               <span style="display: inline-flex; gap: var(--space-gap); --brand-ink: currentColor">
                 <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg><span class="ck"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>PAY-198</span></span>
                 <span class="ai-badge quiet"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">quiet · corner · hoverChip, under the pointer · a merged request</span>
+              <span style="display: inline-flex; padding-top: 22px; --brand-ink: currentColor">
+                <span class="ai-hover-raise"><span class="ai-badge quiet hovered"><span class="checked-mark"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg><span class="ck merged"><svg viewBox="0 0 6 6" aria-hidden="true"><path d="M1.62 3.12 2.64 4.14 4.44 2.04" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span><span>!81</span></span><span class="ai-hover-chip">Merged</span></span>
               </span>
             </div>
             <div class="demo">
@@ -2974,6 +2989,7 @@
 <tr><td><code>DecodeWordsView</code></td><td>Draws the caption whatever it says and morphs old words into new: the new settle from the left behind a four-character band of own-case glyphs, the old stand past it; one self-drawn line that spans the row, never resized by a change, never animated on its own, cut at the tail in its own face, never empty.</td><td>OperatorBadge.swift</td></tr>
 <tr><td><code>StatusMark</code></td><td>Idle, working, input, done and background rings; Reduce Motion keeps shape.</td><td>StatusMark.swift</td></tr>
 <tr><td><code>SettledMark</code></td><td>A filled disc for a state that holds: finished (green, white check), merged (purple, white check) and paused (idle ring's grey, bars cut out); rings are states that move.</td><td>AiTermUI/SettledMark.swift</td></tr>
+<tr><td><code>HoverChip</code></td><td>A one-line chip raised above what the pointer is over, at once: the footer's reset, a checked badge's Done, Approved or Merged. Size.chip on Palette.menu inside Palette.borderStrong; raisingHoverChip places it.</td><td>AiTermUI/HoverChip.swift</td></tr>
 <tr><td><code>StatusCountChips</code></td><td>Folded heading counts in shared status vocabulary; OPERATOR's own chip (its most urgent state, its workload) and the green finished chip.</td><td>StatusCountChips.swift</td></tr>
 <tr><td><code>AvatarGroupView</code></td><td>Agent marks and overflow count.</td><td>AvatarGroupView.swift</td></tr>
 <tr><td><code>VendorMark</code></td><td>Agent disc with the vendor artwork.</td><td>VendorMark.swift</td></tr>
@@ -3010,8 +3026,8 @@
         is out of the ordinary: while Backpack Mode is on or switching, System's reads <code>System · backpack mode</code>,
         the added words in the heading's face and the mode's <code>SettingsTone</code>. The Mac's row and status are
         read, not clicked: ⌘B is Backpack Mode's switch, and a right-click offers Mac Settings…. It costs no row, so the footer keeps one height in every mode. A vendor's note spans the row. When a window clears is
-        shown under the pointer only: a <code>ResetBadge</code>, <code>resets Sat 12:00</code>, on a
-        <code>Size.chip</code> chip of <code>Palette.menu</code> inside <code>Palette.borderStrong</code>, just
+        shown under the pointer only, at once: a <code>ResetBadge</code>, <code>resets Sat 12:00</code>, on a
+        <code>HoverChip</code> (<code>Size.chip</code>, <code>Palette.menu</code> inside <code>Palette.borderStrong</code>), just
         above the reading. At rest the row is the numbers alone, and a reading with no clock, <code>ctx</code> or the
         Mac's, raises nothing under the pointer.</p>
       <div class="figs">

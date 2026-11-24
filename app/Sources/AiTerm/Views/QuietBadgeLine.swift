@@ -11,6 +11,8 @@ struct QuietBadgeValue {
     var suffix: Badge.Suffix? = nil
     /// What the mark wears on its corner: the ticket done, the request approved and resolved, or merged.
     var corner: SettledMark.Kind? = nil
+    /// The word that corner raises under the pointer, when the line raises one.
+    var hoverChip: String? = nil
     var accessibilityLabel: String? = nil
     var markInk: Badge.MarkInk = .own
     var action: (() -> Void)? = nil
@@ -18,11 +20,13 @@ struct QuietBadgeValue {
 
 /// Ticket, then request, including the GitLab pair's one shared mark, which wears the request's corner over the
 /// ticket's. The surrounding row owns its gap and editor badge. Passive surfaces fix each badge's size as before.
+/// A task row turns `showsHelp` off: its badges have no tooltip, and VoiceOver still reads their words.
 struct QuietBadgeLine: View {
     var ticket: QuietBadgeValue?
     var request: QuietBadgeValue? = nil
     var sharesMark = false
     var fixed = false
+    var showsHelp = true
     @Environment(\.interfaceScale) private var scale
 
     /// The badges the line draws, in order, and whether they are the shared mark's pair, set `Space.snug` apart
@@ -38,6 +42,7 @@ struct QuietBadgeLine: View {
         guard sharesMark, let ticket, let request else { return Parts(badges: [ticket, request].compactMap { $0 }) }
         var mark = ticket
         mark.corner = request.corner ?? ticket.corner
+        mark.hoverChip = request.corner != nil ? request.hoverChip : ticket.hoverChip
         if ticket.label == nil, request.label == nil {
             mark.help = "\(ticket.help ?? "") · \(request.help ?? "")"
             mark.suffix = request.suffix
@@ -55,6 +60,7 @@ struct QuietBadgeLine: View {
         var words = request
         words.icon = nil
         words.corner = nil
+        words.hoverChip = nil
         return Parts(badges: [mark, words], pair: true)
     }
 
@@ -70,9 +76,9 @@ struct QuietBadgeLine: View {
     }
 
     @ViewBuilder private func badge(_ value: QuietBadgeValue) -> some View {
-        let badge = Badge(value.label, icon: value.icon, help: value.help, suffix: value.suffix, corner: value.corner,
-                          style: .quiet, markInk: value.markInk, accessibilityLabel: value.accessibilityLabel,
-                          action: value.action)
+        let badge = Badge(value.label, icon: value.icon, help: showsHelp ? value.help : nil, suffix: value.suffix,
+                          corner: value.corner, hoverChip: value.hoverChip, style: .quiet, markInk: value.markInk,
+                          accessibilityLabel: value.accessibilityLabel ?? value.label ?? value.help, action: value.action)
         if fixed { badge.fixedSize() } else { badge }
     }
 }

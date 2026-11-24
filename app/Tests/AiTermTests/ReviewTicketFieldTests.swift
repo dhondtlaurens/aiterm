@@ -186,16 +186,19 @@ import AiTermUI
         #expect(merged.badges.count == 1)
         #expect(merged.badges.first?.label == "#53")
         #expect(merged.badges.first?.corner == .merged)
+        #expect(merged.badges.first?.hoverChip == "Merged")
         #expect(merged.badges.first?.help == "https://x/#53 · Merged · !29 · MR")
         #expect(merged.badges.first?.accessibilityLabel == "#53, !29 · MR, merged")
         let approved = line(ReviewThreads(resolved: 0, total: 0, approved: true))
         #expect(approved.badges.count == 1)
         #expect(approved.badges.first?.corner == .finished)
+        #expect(approved.badges.first?.hoverChip == "Approved")
         #expect(approved.badges.first?.accessibilityLabel == "#53, !29 · MR, approved")
         // With a thread to count the request keeps its own badge beside the mark, which wears its corner.
         let open = line(ReviewThreads(resolved: 3, total: 3, approved: true))
         #expect(open.pair)
         #expect(open.badges.map(\.corner) == [.finished, nil])
+        #expect(open.badges.map(\.hoverChip) == ["Approved", nil])
         #expect(open.badges.last?.suffix?.text == "3/3")
     }
 }

@@ -19,7 +19,10 @@ import SwiftUI
 /// `.merged`, the purple disc with the same check (a request merged). `Size.cornerBadge` wide,
 /// overhanging the icon by `Space.hairline` and cut from the ground by an unscaled one-point ring of
 /// the surface's `occludingBackground`. The check says the state settled; which state, done, approved
-/// or merged, the colour shows and the badge's tooltip leads with, so it never rests on colour alone.
+/// or merged, the colour shows and `hoverChip` names, so it never rests on colour alone.
+///
+/// `hoverChip` raises a `HoverChip` of those words above the badge the moment the pointer is on it,
+/// as the footer's usage reading raises when it resets: no tooltip delay, and nothing else in it.
 ///
 /// A `.quiet` badge drops the box at rest: its text sits on the row in secondary ink, and the wash
 /// only appears under the pointer, outset by `Space.tight` so the text does not move. The sidebar's
@@ -53,6 +56,8 @@ public struct Badge: View {
     /// The mark the icon wears on its corner, if any. Without an icon there is nothing to wear it.
     private let corner: SettledMark.Kind?
     private let suffix: Suffix?
+    /// The words raised above the badge under the pointer, if any.
+    private let hoverChip: String?
     private let style: Style
     private let markInk: MarkInk
 
@@ -111,12 +116,14 @@ public struct Badge: View {
                 diff: Diff? = nil,
                 suffix: Suffix? = nil,
                 corner: SettledMark.Kind? = nil,
+                hoverChip: String? = nil,
                 style: Style = .boxed,
                 markInk: MarkInk = .own,
                 accessibilityLabel: String? = nil,
                 action: (() -> Void)? = nil) {
-        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, corner: corner, style: style,
-                  markInk: markInk, accessibilityLabel: accessibilityLabel, action: action, menu: nil)
+        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, corner: corner,
+                  hoverChip: hoverChip, style: style, markInk: markInk, accessibilityLabel: accessibilityLabel,
+                  action: action, menu: nil)
     }
 
     /// A badge that opens a menu of `items` when clicked.
@@ -127,12 +134,13 @@ public struct Badge: View {
                              markInk: MarkInk = .own,
                              accessibilityLabel: String? = nil,
                              @ViewBuilder menu items: () -> Items) {
-        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, corner: nil, style: style,
-                  markInk: markInk, accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
+        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, corner: nil, hoverChip: nil,
+                  style: style, markInk: markInk, accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
     }
 
     private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, suffix: Suffix?,
-                 corner: SettledMark.Kind?, style: Style, markInk: MarkInk, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
+                 corner: SettledMark.Kind?, hoverChip: String?, style: Style, markInk: MarkInk, accessibilityLabel: String?,
+                 action: (() -> Void)?, menu: AnyView?) {
         self.label = label
         self.icon = icon
         self.help = help
@@ -140,6 +148,7 @@ public struct Badge: View {
         self.diff = diff.flatMap { $0.isEmpty ? nil : $0 }
         self.suffix = suffix
         self.corner = corner
+        self.hoverChip = hoverChip.flatMap { $0.isEmpty ? nil : $0 }
         self.style = style
         self.markInk = markInk
         self.accessibilityText = accessibilityLabel
@@ -180,12 +189,22 @@ public struct Badge: View {
                 .buttonStyle(.plain)
                 .fixedSize()
                 .onHover { hovered = $0 }
+                .raisingHoverChip(raised, shown: hovered)
+                .ifHelp(help)
+                .ifAccessibilityLabel(accessibilityText ?? label ?? help)
+        } else if hoverChip != nil {
+            // Not a button, but it still answers the pointer with its chip, and its wash with it.
+            shape.fixedSize()
+                .onHover { hovered = $0 }
+                .raisingHoverChip(raised, shown: hovered)
                 .ifHelp(help)
                 .ifAccessibilityLabel(accessibilityText ?? label ?? help)
         } else {
             shape.fixedSize().ifHelp(help).ifAccessibilityLabel(accessibilityText ?? label ?? help)
         }
     }
+
+    private var raised: HoverChip? { hoverChip.map { HoverChip($0) } }
 
     private var shape: some View {
         // A quiet badge has no padding of its own, so its text lines up with the row's title; its
