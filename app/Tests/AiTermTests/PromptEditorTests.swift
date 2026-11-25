@@ -346,6 +346,68 @@ import AiTermTestSupport
         #expect(PromptTextView.insertion(for: ["/a/it's (1).pdf", "/c"], after: "\n") == #"/a/it\'s\ \(1\).pdf /c "#)
     }
 
+    /// ⇥ in an empty editor that has a fill writes the fill in, as typing would: to the binding, with the caret after
+    /// it, and undone by ⌘Z.
+    @Test func tabInAnEmptyEditorWritesItsFill() throws {
+        let text = TextBox()
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
+                                  agent: .claude, completions: PromptCompletions(), tabFill: "status = Done")
+            .frame(width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
+        let window = testWindow(hosting: host, styleMask: [])
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
+        window.makeFirstResponder(textView)
+
+        #expect(textView.delegate?.textView?(textView, doCommandBy: #selector(NSResponder.insertTab(_:))) == true)
+        #expect(text.value == "status = Done" && textView.string == "status = Done")
+        #expect(textView.selectedRange() == NSRange(location: ("status = Done" as NSString).length, length: 0))
+
+        let undo = try #require(textView.undoManager)
+        #expect(undo.canUndo)
+        undo.undo()
+        settle(host)
+        #expect(textView.string.isEmpty && text.value.isEmpty)
+    }
+
+    /// ⇥ fills only an empty editor, and only one given a fill: otherwise it stays the text view's, as before.
+    @Test(arguments: [("x", "status = Done" as String?), ("", nil)])
+    func tabIsTheTextViewsOtherwise(typed: String, fill: String?) throws {
+        let text = TextBox()
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
+                                  agent: .claude, completions: PromptCompletions(), tabFill: fill)
+            .frame(width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
+        host.layoutSubtreeIfNeeded()
+        let textView = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
+        if !typed.isEmpty { textView.insertText(typed, replacementRange: textView.selectedRange()) }
+
+        #expect(textView.delegate?.textView?(textView, doCommandBy: #selector(NSResponder.insertTab(_:))) == false)
+        #expect(text.value == typed)
+    }
+
+    /// In the Signal sheet only the query editor fills on ⇥, with its own example: the Start JQL, and a schedule's
+    /// cron. The description beside it is the person's own words and keeps its ⇥.
+    @Test(arguments: [false, true]) func aSignalQueryFillsItsExampleOnTab(scheduled: Bool) throws {
+        let agent = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")
+        let context = SignalContext(models: [.claude: [AgentModel(id: agent.model, label: "Opus", detail: nil,
+                                                                  efforts: ["high"], defaultEffort: "high")]],
+                                    defaults: [.claude: agent])
+        let model = SignalModel(projects: [], context: context, save: { _ in })
+        if scheduled { model.startKind = .schedule }
+        let host = testHost(VStack { SignalTriggerStep(model: model, start: true) }.frame(width: Sheet.width),
+                            size: CGSize(width: Sheet.width, height: 600))
+        host.layoutSubtreeIfNeeded()
+        let editors = host.descendants(NSScrollView.self).compactMap { $0.documentView as? NSTextView }
+        #expect(editors.count == 2, "the description and the query")
+
+        let filled = editors.filter { $0.delegate?.textView?($0, doCommandBy: #selector(NSResponder.insertTab(_:))) == true }
+        #expect(filled.count == 1)
+        #expect(model.start.query == (scheduled ? "0 9 * * 1" : "assignee = currentUser() AND sprint in openSprints()"))
+        #expect(model.start.description.isEmpty)
+    }
+
     private final class TextBox { var value = "" }
 
 }

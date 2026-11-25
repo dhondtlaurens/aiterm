@@ -60,6 +60,6 @@ Decided while grilling: the seven fields above; "tab in" means pressing Tab insi
 
 ## To-dos
 
-- [ ] Tab fill rule in `PromptEditor`, nil by default, with its three tests
-- [ ] Signal query fields opt in through `PromptStep` and `SignalTriggerStep`, with the wiring test
+- [x] Tab fill rule in `PromptEditor`, nil by default, with its three tests
+- [x] Signal query fields opt in through `PromptStep` and `SignalTriggerStep`, with the wiring test
 - [ ] Gate green and the dev app check

@@ -16,16 +16,19 @@ struct PromptStep<Extra: View>: View {
     let helpTone: HelpText.Tone
     let height: CGFloat
     let focusOnAppear: Bool
+    /// Whether ⇥ in the empty editor writes the placeholder in: for a query, whose example is often what is wanted.
+    let tabFillsPlaceholder: Bool
     let extra: () -> Extra
     @State private var editorFocused: Bool = false
 
     init(text: @autoclosure @escaping () -> Binding<String>, agent: AgentKind, completions: PromptCompletions,
          label: String = "Prompt (optional)", placeholder: String? = "Describe what the agent should do.", help: String? = nil,
          helpTone: HelpText.Tone = .secondary, editorHeight: CGFloat? = nil, focusOnAppear: Bool = true,
-         @ViewBuilder extra: @escaping () -> Extra = { EmptyView() }) {
+         tabFillsPlaceholder: Bool = false, @ViewBuilder extra: @escaping () -> Extra = { EmptyView() }) {
         self.text = text; self.agent = agent; self.completions = completions
         self.label = label; self.placeholder = placeholder; self.help = help; self.helpTone = helpTone
-        self.height = editorHeight ?? Self.editorHeight; self.focusOnAppear = focusOnAppear; self.extra = extra
+        self.height = editorHeight ?? Self.editorHeight; self.focusOnAppear = focusOnAppear
+        self.tabFillsPlaceholder = tabFillsPlaceholder; self.extra = extra
     }
 
     /// Trimmed further than the sheet's own gutters (`Space.margin` on each side) so the completion
@@ -40,7 +43,8 @@ struct PromptStep<Extra: View>: View {
             FormField(label) {
                 ZStack(alignment: .topLeading) {
                     PromptEditor(text: text, agent: agent, completions: completions,
-                                 onFocusChange: { if editorFocused != $0 { editorFocused = $0 } }, focusOnAppear: focusOnAppear)
+                                 onFocusChange: { if editorFocused != $0 { editorFocused = $0 } }, focusOnAppear: focusOnAppear,
+                                 tabFill: tabFillsPlaceholder ? placeholder : nil)
                         .frame(height: height)
                         .fieldBox(focused: editorFocused)
                     PromptPlaceholder(text: text, placeholder: placeholder)
