@@ -25,9 +25,10 @@ cp "$ROOT/LICENSE" "$OUT/Contents/Resources/LICENSE"
 rm -rf "$ROOT/daemon/build"
 "$PY" -m pip install --quiet --no-compile --target "$OUT/Contents/Resources/daemon" "$ROOT/daemon"
 # The delivery check, beside the package it drives: Settings › Agents' Run check runs it from here,
-# with the helper's own Python (`DeliveryCheck.command`).
+# with the helper's own Python (`DeliveryCheck.command`). Every `tools.*` module it imports comes
+# along; scripts/test-app-bundle.sh follows those imports.
 mkdir -p "$OUT/Contents/Resources/daemon/tools"
-cp "$ROOT/daemon/tools/"{__init__.py,delivery_check.py} "$OUT/Contents/Resources/daemon/tools/"
+cp "$ROOT/daemon/tools/"{__init__.py,delivery_check.py,compat_preflight.py} "$OUT/Contents/Resources/daemon/tools/"
 find "$OUT/Contents/Resources/daemon" -name '__pycache__' -type d -prune -exec rm -rf {} +
 cp "$ROOT/hooks/claude-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
 cp "$ROOT/hooks/pi-aiterm-status.ts" "$OUT/Contents/Resources/hooks/"
