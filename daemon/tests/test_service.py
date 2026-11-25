@@ -687,6 +687,39 @@ async def test_a_claude_trust_prompt_dismissed_without_a_file_goes_back_to_idle(
     assert svc.registry.get(sid).state == "idle"
 
 
+async def test_a_pi_trust_prompt_needs_input_until_its_session_starts(stack):
+    """PI asks whether to trust a folder with project resources before its extension's first post,
+    so the screen is all that shows it -- read only until that post names the conversation."""
+    svc, it, files, r, w = stack
+    wid, sid = await task_tab(svc, r, w)
+    await it.user_runs(sid, "pi", job_pid=790)
+    it.screens[sid] = ("Trust project folder?\n/repo/.worktrees/x\n\nThis allows pi to load .pi settings and "
+                       "resources, install missing project packages, and execute project extensions.\n"
+                       "→ Trust\n  Trust for this session\n  Do not trust")
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+    # Trusted: PI starts its session, and the row was never in a turn.
+    it.screens[sid] = ""
+    await svc.hook_router.handle_hook("/hook/pi", {"hook_event_name": "session_start", "reason": "startup",
+                                                   "session_id": "p1", "cwd": "/wt", "_aiterm_iterm_session_id": sid})
+    assert svc.registry.get(sid).state == "idle"
+    reads = len(it.screen_reads)
+    await svc.tick()
+    assert len(it.screen_reads) == reads, "a PI tab that posted its session is past the dialog: its screen is not read"
+
+
+async def test_a_pi_trust_prompt_dismissed_before_any_post_goes_back_to_idle(stack):
+    svc, it, files, r, w = stack
+    wid, sid = await task_tab(svc, r, w)
+    await it.user_runs(sid, "pi", job_pid=791)
+    it.screens[sid] = "Trust project folder?"
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+    it.screens[sid] = ""
+    await svc.tick()
+    assert svc.registry.get(sid).state == "idle"
+
+
 async def test_a_screen_that_cannot_be_read_leaves_the_row_alone(stack):
     svc, it, files, r, w = stack
     wid, sid = await task_tab(svc, r, w)

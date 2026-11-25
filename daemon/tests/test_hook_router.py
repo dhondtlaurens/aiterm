@@ -74,6 +74,15 @@ async def test_statusline_updates_usage_and_publishes_it(hooks):
     assert hooks.usage.snapshot()["claude"]["fiveHour"]["usedPercent"] == 23
 
 
+async def test_a_pi_relay_of_codex_limits_fills_codexs_footer_and_touches_no_row(hooks):
+    [sid] = hooks.tabs(("s1", "pi", 100))
+    limits = {"primary": {"used_percent": 12, "window_minutes": 10080, "reset_at": 99}, "secondary": None}
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "rate_limits", "vendor": "codex", "rate_limits": limits})
+    [(name, payload)] = hooks.events
+    assert name == "usage.changed" and payload["codex"]["sevenDay"] == {"usedPercent": 12, "resetsAt": 99}
+    assert hooks.state(sid) == "idle" and hooks.ticks == 0
+
+
 async def test_a_statusline_with_type_confused_fields_changes_nothing(hooks):
     [sid] = hooks.tabs(("s1", "claude", 100))
     # A dict session id cannot key a pin.
@@ -166,29 +175,13 @@ def pi_base(sid):
     return {"session_id": "pi-thread", "cwd": "/wt", "_aiterm_iterm_session_id": sid}
 
 
-async def test_a_pi_background_subagent_holds_the_task_working_after_the_parent_settles(hooks):
+async def test_a_subagent_post_from_an_older_pi_extension_changes_nothing(hooks):
+    # Schema 6 relayed a third-party package's subagents; AiTerm now follows PI's own events only.
     [sid] = hooks.tabs(("s1", "pi", 121))
-    base = pi_base(sid)
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "agent_start"})
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "subagent_start", "agent_id": "child-1"})
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "agent_settled"})
-    assert hooks.state(sid) == "working", "a background subagent is still running"
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "subagent_stop", "agent_id": "child-1"})
-    assert hooks.state(sid) == "done"
-
-
-@pytest.mark.parametrize("reason,forgotten", [("new", True), ("resume", True), ("reload", False)])
-async def test_a_new_pi_session_forgets_the_previous_ones_subagents(hooks, reason, forgotten):
-    [sid] = hooks.tabs(("s1", "pi", 123))
-    base = pi_base(sid)
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "agent_start"})
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "subagent_start", "agent_id": "lost"})
-
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "session_start", "reason": reason})
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "agent_start"})
-    await hooks.post("/hook/pi", {**base, "hook_event_name": "agent_settled"})
-
-    assert hooks.state(sid) == ("done" if forgotten else "working")
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_start"})
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "subagent_start", "agent_id": "child-1"})
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_settled"})
+    assert hooks.state(sid) == "done" and hooks.registry.get(sid).shown_subagents in (None, ())
 
 
 async def test_a_pi_prompt_closed_between_turns_leaves_the_row_as_it_was(hooks):
@@ -198,15 +191,6 @@ async def test_a_pi_prompt_closed_between_turns_leaves_the_row_as_it_was(hooks):
     assert hooks.state(sid) == "needsInput"
     await hooks.post("/hook/pi", {**base, "hook_event_name": "ui_prompt_end"})
     assert hooks.state(sid) == "idle", "no turn is running, so the row must not spin"
-
-
-async def test_a_pi_child_that_finishes_under_a_prompt_ends_the_turn_when_the_prompt_closes(hooks):
-    [sid] = hooks.tabs(("s1", "pi", 124))
-    for event in ({"hook_event_name": "agent_start"}, {"hook_event_name": "subagent_start", "agent_id": "c"},
-                  {"hook_event_name": "agent_settled"}, {"hook_event_name": "ui_prompt_start"},
-                  {"hook_event_name": "subagent_stop", "agent_id": "c"}, {"hook_event_name": "ui_prompt_end"}):
-        await hooks.post("/hook/pi", {**pi_base(sid), **event})
-    assert hooks.state(sid) == "done", "PI has no tick to end a turn left working"
 
 
 async def test_a_hook_from_an_agent_the_tick_has_not_yet_classified_is_retried_against_a_tick(hooks):
@@ -229,6 +213,81 @@ async def test_a_hook_that_the_tick_still_cannot_place_is_dropped_after_one_retr
     hooks.tabs(("s1", "codex", 101))
     await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/elsewhere"})
     assert hooks.ticks == 1 and hooks.events == [] and hooks.state("s1") == "idle"
+
+
+async def test_a_pi_launch_post_waits_out_the_ticks_until_its_tab_is_named(hooks):
+    # PI runs its launch prompt the moment it starts; iTerm2 can take a few polls to name the job.
+    [sid] = hooks.tabs(("s1", "-zsh", 100))
+
+    async def classifies_on_the_third():
+        if hooks.ticks == 3:
+            hooks.tabs(("s1", "pi", 101))
+
+    hooks.on_tick = classifies_on_the_third
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_start"})
+    assert hooks.ticks == 3 and hooks.state(sid) == "working"
+
+
+async def test_a_retried_post_does_not_overwrite_a_newer_one_that_landed_while_it_waited(hooks):
+    # The tick that names the tab lets a newer post land at once -- a quick Escape's settle -- while the
+    # launch's agent_start still waits for that tick to finish. Applied late, it would spin the row for good.
+    [sid] = hooks.tabs(("s1", "-zsh", 100))
+    later = []
+
+    async def names_it_and_the_run_settles():
+        hooks.tabs(("s1", "pi", 101))
+        # Each post is its own request: the settle arrives while the agent_start still waits.
+        later.append(asyncio.create_task(hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_settled"})))
+        await asyncio.sleep(0)
+
+    hooks.on_tick = names_it_and_the_run_settles
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_start"})
+    await asyncio.gather(*later)
+    assert hooks.state(sid) == "done"
+    assert [payload["state"] for _, payload in hooks.events] == ["working", "done"]
+
+
+async def test_a_prompt_that_opens_while_the_launch_waits_gives_back_the_turn_it_interrupted(hooks):
+    # A tool's confirmation opens the moment the tab is named: closing it must put back working.
+    [sid] = hooks.tabs(("s1", "-zsh", 100))
+    later = []
+
+    async def names_it_and_a_prompt_opens():
+        hooks.tabs(("s1", "pi", 101))
+        later.append(asyncio.create_task(hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "ui_prompt_start"})))
+        await asyncio.sleep(0)
+
+    hooks.on_tick = names_it_and_a_prompt_opens
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_start"})
+    await asyncio.gather(*later)
+    assert hooks.state(sid) == "needsInput"
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "ui_prompt_end"})
+    assert hooks.state(sid) == "working"
+
+
+async def test_a_post_naming_its_tab_is_dropped_once_the_tab_stays_a_shell_past_the_deadline(hooks):
+    hooks.router._place_seconds = 0.05
+    [sid] = hooks.tabs(("s1", "-zsh", 100))
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_start"})
+    assert 1 < hooks.ticks < 10 and hooks.events == [] and hooks.state(sid) == "idle"
+
+
+async def test_a_post_from_an_agent_nested_in_another_agents_tab_retries_once(hooks):
+    # A Codex review a Claude runs carries the Claude tab's id; that tab never becomes Codex's.
+    [sid] = hooks.tabs(("s1", "claude", 100))
+    await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/elsewhere",
+                                     "_aiterm_iterm_session_id": sid})
+    assert hooks.ticks == 1 and hooks.state(sid) == "idle"
+
+
+async def test_a_pi_turn_mends_a_run_whose_agent_start_was_lost(hooks):
+    [sid] = hooks.tabs(("s1", "pi", 125))
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "session_start", "reason": "startup"})
+    assert hooks.state(sid) == "idle"
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "turn_start"})
+    assert hooks.state(sid) == "working"
+    await hooks.post("/hook/pi", {**pi_base(sid), "hook_event_name": "agent_settled"})
+    assert hooks.state(sid) == "done"
 
 
 async def test_a_burst_of_unplaced_hooks_shares_a_few_ticks(hooks):

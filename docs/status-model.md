@@ -11,7 +11,7 @@ implementation.
 - **Working** — A turn is in flight. Entered on `UserPromptSubmit`, and held while any subagent is
   alive.
 - **Needs input** — The agent is blocked on you — a permission prompt, an elicitation dialog, an
-  explicit "needs input" notification, or Claude Code asking whether to trust a new folder. The one
+  explicit "needs input" notification, or Claude Code or PI asking whether to trust a folder. The one
   state worth amber.
 - **Done** — The turn finished and you have not looked yet. Clicking the row calls
   `sessions.markSeen` and it falls back to idle.
@@ -37,24 +37,29 @@ PI reports the same state machine through its public extension events:
 
 | PI extension event | Signal | Notes |
 |---|---|---|
-| `session_start` | metadata | Resolves the PI session and updates context when present. With reason `startup`, `new`, `resume` or `fork` it is also Claude's `SessionStart`: the previous conversation's subagents and deferred completion are forgotten. `reload`, or no reason at all (an extension older than schema 3), is metadata only — PI's counterpart of a compaction. |
+| `session_start` | metadata | Resolves the PI session and updates context when present. With reason `startup`, `new`, `resume` or `fork` it is also Claude's `SessionStart`: the previous conversation's turn state is forgotten. `reload`, or no reason at all (an extension older than schema 3), is metadata only — PI's counterpart of a compaction. |
 | `agent_start` | working | A PI turn started. |
 | `ui_prompt_start` | needsInput | PI opened a prompt that needs the user. It remembers the state it interrupted — the first one, if prompts nest — and counts the prompts open. |
 | `ui_prompt_end` | the interrupted state | Once the last open prompt closes, restores what the first interrupted: idle, done or working; an inner prompt closing leaves the row at needs input. A deferred completion is left alone. It changes nothing when no state is remembered: no prompt was opened, or a state hook since then took over. |
 | `agent_settled` | done | The PI turn finished. |
-| `subagent_start` / `subagent_stop` | working | Relayed from pi-subagents' `subagents:started`, `:completed` and `:failed`, and tracked per child id like Claude's. The extension keeps its last session past `session_shutdown`, so a child that ends after it is still reported. |
+| `rate_limits` | usage | Relayed from PI's `openai-codex` provider, which receives a `codex.rate_limits` stream event with each response: the ChatGPT account Codex spends, so it fills Codex's usage footer. Touches no row. |
 | `thinking_level_select` | metadata | Refreshes the context percentage when present. |
+| `turn_start` | working | Each model call of a run says the turn is at work again, so a run whose `agent_start` was lost still shows working from its next turn. No blocking prompt can be open then: it holds the tool that opened it. |
 | `turn_end` | metadata | Refreshes the context percentage after each tool turn while the agent keeps running. Child sessions post nothing. |
+
+PI has no subagents of its own, and AiTerm follows PI's own events only: a subagent package's
+announcements are not relayed, so a child that outlives its parent's turn does not hold the row at
+working. Extensions before schema 7 relayed @tintinweb/pi-subagents'; the daemon ignores those posts.
+
+The extension sends its posts one at a time, in the order PI raised them, so a `turn_start` on a
+slow connection never lands after its run's `agent_settled`.
 
 These extension events use the existing urgency and unread rules; PI does not introduce a fifth
 state. In particular, `agent_settled` stays Done until the row is seen, just like Claude Code and
 Codex completion, and a PI input prompt outranks Working.
 
 An open PI prompt keeps the row at needs input, but what happens under it lands in the state the
-prompt will restore, because PI has no tick to correct it afterwards. A child starting makes that
-state working, and the last child finishing a deferred turn makes it done. A done that a running
-child defers is not a state hook that takes over: the prompt keeps what it will restore, and the
-last child's stop completes it, before or after the prompt closes. Opening the row under
+prompt will restore, because PI has no tick to correct it afterwards. Opening the row under
 the prompt turns a remembered done into idle, so closing the prompt does not bring back a
 completion already seen. Claude's and Codex's input requests remember nothing; their tick signals
 below do the correcting.
@@ -78,6 +83,12 @@ to done, because no turn ran. It is closed by the screen not showing it any more
 appearing, by any hook (only a trusted folder loads them), or by Claude exiting. A screen that
 cannot be read changes nothing. A tab past the dialog has its session file, so its screen is not
 read again.
+
+PI asks the same of a folder with project resources (`.pi/extensions`, `.agents/skills` and the
+like) when no saved decision applies: "Trust project folder?", before its extension posts anything.
+The tick reads the screen of a PI tab that has a process but has not yet posted its session, while
+its row is idle, or while the dialog holds the row, and treats the dialog as Claude's. Its
+`session_start` closes it, and from then on the tab's screen is not read.
 
 Signal workers use the same daemon session states and permission prompts as ordinary tasks.
 A worker's human permission/sign-in prompt remains in its own terminal; the Operator never answers
@@ -103,7 +114,14 @@ Blank/unreadable screens never prove safe delivery.
 A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
 command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and
 first prompt find no tab running that agent. A hook that places nowhere therefore asks for one tick
-and is placed again against it, once; if it still places nowhere it is dropped. The ack has already
+and is placed again against it, once; if it still places nowhere it is dropped. A post that carries
+the id of a tab the registry still reads as a shell keeps asking, tick after tick, for up to five
+seconds: the agent provably runs there and only iTerm2's name for the job is behind, which can take
+more than one poll -- and PI runs its launch prompt the moment it starts, so its `agent_start` would
+otherwise be lost for the whole turn. A tab that runs another agent is not waited on. Posts from one
+source -- the tab a post names, else its agent's conversation -- are applied in the order they
+arrived: one waits behind an older post of its source that still waits for its tab, so a quick
+Escape's `agent_settled`, or a prompt opened at once, cannot land before the launch's `agent_start`. The ack has already
 gone out, so no agent waits on this. Hooks that arrive before that tick starts share it, and no more
 than one runs and one waits, at least a second apart, so a flood from an agent outside iTerm2 costs
 about one tick a second. Statusline posts are not retried: the next one carries the same data.
@@ -150,9 +168,8 @@ The file rule compares two wall-clock times: the daemon's clock when the hook ar
 file's mtime. If the clock steps backwards between them (an NTP correction), a newer file looks
 older than the hook, and it is ignored until the next hook.
 
-Subagent tracking cannot outlive its conversation: a new `SessionStart` (for PI, a `session_start`
-that begins a conversation), or a different process id in the tab, forgets every child still
-counted. One lost `SubagentStop` would otherwise hold the row at working for good.
+Subagent tracking cannot outlive its conversation: a new `SessionStart`, or a different process id
+in the tab, forgets every child still counted. One lost `SubagentStop` would otherwise hold the row at working for good.
 
 Each session carries one ordered `work` list (`work_items`). First comes what the last Claude Stop
 listed and still stands, each item marked `holdsTurn`: a subagent always, a shell once the turn has
