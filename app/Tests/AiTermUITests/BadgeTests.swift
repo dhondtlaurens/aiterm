@@ -139,6 +139,47 @@ struct BadgeTests {
                 > Self.width(Badge(icon: .brand(Palette.github), style: .quiet)))
     }
 
+    @Test(arguments: InterfaceScale.all)
+    func anIconSuffixFollowsTheLabelOrHostWithOneGap(scale: InterfaceScale) throws {
+        for label: String? in [nil, "!42"] {
+            for ink in [Badge.MarkInk.label, .own] {
+                let action: (() -> Void)? = label == nil ? nil : {}
+                let plain = Badge(label, icon: .brand(Palette.gitlab), style: .quiet, markInk: ink)
+                let merged = Badge(label, icon: .brand(Palette.gitlab), suffix: .init(icon: .joinedBranches),
+                                   hoverChip: "Merged", style: .quiet, markInk: ink, action: action)
+                let size = Self.size(merged, scale)
+                #expect(abs(size.width - Self.size(plain, scale).width - scale(10) - scale(Space.tight)) < 1)
+                #expect(size.height == scale(Size.chip))
+                // In both ink modes the last 10 pt contain the same neutral ink.
+                let host = NSHostingView(rootView: merged.surface(.sidebar).interfaceScale(scale))
+                host.appearance = NSAppearance(named: .darkAqua)
+                host.frame = CGRect(origin: .zero, size: size)
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let pointsToPixels = CGFloat(bitmap.pixelsWide) / size.width
+                let glyphWidth = Int(scale(10) * pointsToPixels)
+                var colors: [NSColor] = []
+                for x in (bitmap.pixelsWide - glyphWidth)..<bitmap.pixelsWide {
+                    for y in 0..<bitmap.pixelsHigh {
+                        if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.alphaComponent > 0.75 {
+                            colors.append(color)
+                        }
+                    }
+                }
+                let sample = try #require(colors.max { $0.alphaComponent < $1.alphaComponent })
+                var expected: NSColor?
+                host.effectiveAppearance.performAsCurrentDrawingAppearance {
+                    expected = NSColor(Badge.labelInk(surface: .sidebar, style: .quiet)).usingColorSpace(.sRGB)
+                }
+                let inkColor = try #require(expected)
+                #expect(abs(sample.redComponent - inkColor.redComponent) < 0.03)
+                #expect(abs(sample.greenComponent - inkColor.greenComponent) < 0.03)
+                #expect(abs(sample.blueComponent - inkColor.blueComponent) < 0.03)
+            }
+        }
+    }
+
     /// A suffix keeps the badge a chip: no taller, at any scale.
     @Test func aBadgeWithASuffixIsStillAChipAtItsScale() {
         for scale in InterfaceScale.all {
@@ -149,18 +190,16 @@ struct BadgeTests {
         }
     }
 
-    /// The corner mark is drawn over the icon, never beside it: a badge wearing either kind is the same
+    /// The corner mark is drawn over the icon, never beside it: a badge wearing the check is the same
     /// chip, the same width and height, as one without at every scale, so the badge line does not move
-    /// when a ticket is done or a request is approved or merges.
+    /// when a ticket is done or a request is approved.
     @Test func aBadgeWithACornerMarkIsTheSameChipAsOneWithout() {
         for scale in InterfaceScale.all {
             let threads = Badge.Suffix(icon: .symbol("bubble.left"), text: "4/4")
-            for corner in [SettledMark.Kind.finished, .merged] {
-                #expect(Self.size(Badge("!81", icon: .brand(Palette.gitlab), suffix: threads, corner: corner, style: .quiet), scale)
-                        == Self.size(Badge("!81", icon: .brand(Palette.gitlab), suffix: threads, style: .quiet), scale), "\(corner) at ×\(scale.factor)")
-                #expect(Self.size(Badge(icon: .brand(Palette.jira), corner: corner, style: .quiet), scale)
-                        == Self.size(Badge(icon: .brand(Palette.jira), style: .quiet), scale), "\(corner) at ×\(scale.factor)")
-            }
+            #expect(Self.size(Badge("!81", icon: .brand(Palette.gitlab), suffix: threads, corner: .finished, style: .quiet), scale)
+                    == Self.size(Badge("!81", icon: .brand(Palette.gitlab), suffix: threads, style: .quiet), scale), "at ×\(scale.factor)")
+            #expect(Self.size(Badge(icon: .brand(Palette.jira), corner: .finished, style: .quiet), scale)
+                    == Self.size(Badge(icon: .brand(Palette.jira), style: .quiet), scale), "at ×\(scale.factor)")
         }
     }
 

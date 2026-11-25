@@ -350,7 +350,7 @@ you” stands out, in the attention chip. Unfolding the section shows the curren
 two-line layout and badges under projects and signals. Reduce Motion uses a plain swap.
 
 A row's trailing mark is a ring while its state can still move and a filled disc once it holds: a
-finished task wears the green disc with a white check (the corner mark of a merged request's badge),
+finished task wears the green disc with a white check (also used on a done ticket's badge),
 and a paused one the grey pause disc. A finished task is past pausing: it stays done when you pause
 the Operator or switch its signal off. A done task whose closeout is still running is paused with
 the rest. The blue done ring stays what it is under projects: a chat ended its turn and wants reading.

@@ -10,7 +10,7 @@ import AiTermCore
 /// see, so it keeps its intrinsic width however narrow the row gets — `fixedSize` plus the higher
 /// layout priority is what makes SwiftUI shorten the name instead of the chip. Amber means the
 /// agent is not on the branch the row is bound to; the tooltip then names both. A task row turns
-/// `showsHelp` off: nothing on its badge line but a checked badge answers the pointer.
+/// `showsHelp` off: nothing on its badge line but a checked or merged badge answers the pointer.
 struct BranchLabelView: View {
     let label: BranchLabel
     var showsHelp = true

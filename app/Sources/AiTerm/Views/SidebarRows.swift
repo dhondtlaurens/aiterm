@@ -361,7 +361,7 @@ extension QuietBadgeValue {
     init(_ link: TaskRowBadges.Link, ticket: Bool, markInk: Badge.MarkInk) {
         self.init(label: link.label,
                   icon: .brand(ticket ? (link.host == .gitLab ? Palette.gitlab : Palette.jira) : (link.host ?? .gitLab).brand),
-                  help: link.help, suffix: link.threads, corner: link.corner, hoverChip: link.hoverChip,
+                  help: link.help, suffix: link.threads, isMerged: link.isMerged, corner: link.corner, hoverChip: link.hoverChip,
                   accessibilityLabel: link.accessibilityLabel,
                   markInk: markInk, action: link.url.map { url in { ExternalApps.open(link: url) } })
     }

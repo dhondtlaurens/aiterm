@@ -6,6 +6,8 @@ import AppKit
 public enum IconSource: Sendable, Equatable {
     /// An SF Symbol, by name.
     case symbol(String)
+    /// Two branches joining, drawn as three connected nodes in the label ink.
+    case joinedBranches
     /// A single-colour vendor mark, in its brand colour unless tinted. Adding a vendor is one
     /// `Brand`, usable everywhere.
     case brand(Brand)
@@ -47,6 +49,10 @@ public struct Icon: View {
             Image(systemName: name)
                 .font(.system(size: size))
                 .foregroundStyle(tint ?? surface.ink)
+        case .joinedBranches:
+            JoinedBranches().stroke(tint ?? surface.ink, lineWidth: size / 10)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
         case let .brand(brand):
             LogoGlyph(brand: brand, fill: tint.map(Self.hexString) ?? brand.hex, size: size)
         case let .artwork(name, svg, fallback):
@@ -84,4 +90,20 @@ public struct Icon: View {
     }
 
     @MainActor private static var hexes: [Color: String] = [:]
+}
+
+/// The three nodes and their connecting strokes on the glyph’s 16-unit drawing grid.
+private struct JoinedBranches: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: 4, y: 4))
+        path.addLine(to: CGPoint(x: 4, y: 12))
+        path.move(to: CGPoint(x: 4, y: 9))
+        path.addCurve(to: CGPoint(x: 11, y: 4), control1: CGPoint(x: 8, y: 9), control2: CGPoint(x: 11, y: 7))
+        for center in [CGPoint(x: 4, y: 2.5), CGPoint(x: 11, y: 2.5), CGPoint(x: 4, y: 13.5)] {
+            path.addEllipse(in: CGRect(x: center.x - 1.5, y: center.y - 1.5, width: 3, height: 3))
+        }
+        return path.applying(CGAffineTransform(translationX: rect.minX, y: rect.minY)
+            .scaledBy(x: rect.width / 16, y: rect.height / 16))
+    }
 }

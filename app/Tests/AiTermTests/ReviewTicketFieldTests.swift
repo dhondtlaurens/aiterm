@@ -171,6 +171,35 @@ import AiTermUI
         #expect(issue.ticket?.host == .gitLab)
     }
 
+    @Test(arguments: [true, false], [true, false])
+    func mergedGlyphAndHoverBelongToTheSameLink(issueNumber: Bool, requestNumber: Bool) throws {
+        let details = BadgeDetails(jiraTicket: issueNumber, mergeRequest: requestNumber)
+        let values = TaskRowBadges(row: row(ticket: "#53", gitLabIssue: true, mr: 29), details: details,
+                                   threads: ReviewThreads(resolved: 2, total: 2, merged: true, approved: true))
+        var issue = QuietBadgeValue(try #require(values.ticket), ticket: true, markInk: .label)
+        var request = QuietBadgeValue(try #require(values.mergeRequest), ticket: false, markInk: .label)
+        var opened: [String] = []
+        issue.action = { opened.append("issue") }
+        request.action = { opened.append("request") }
+        let line = QuietBadgeLine.parts(ticket: issue, request: request, sharesMark: true)
+        #expect(line.badges.count == (requestNumber ? 2 : 1))
+        #expect(line.badges.filter { $0.drawnSuffix == .init(icon: .joinedBranches) }.count == 1)
+        #expect(line.badges.compactMap(\.hoverChip) == ["Merged"])
+        let owner = try #require(line.badges.last)
+        #expect(owner.drawnSuffix == .init(icon: .joinedBranches))
+        #expect(owner.hoverChip == "Merged")
+        #expect(owner.accessibilityLabel?.contains("merged") == true)
+        #expect(owner.label == (requestNumber ? "!29" : issue.label))
+        for badge in line.badges { badge.action?() }
+        #expect(opened == (requestNumber ? ["issue", "request"] : [issueNumber ? "issue" : "request"]))
+
+        // Once the fit drops the request, the surviving issue has no request status.
+        let narrow = QuietBadgeLine.parts(ticket: issue, request: nil, sharesMark: true)
+        #expect(narrow.badges.count == 1)
+        #expect(narrow.badges[0].drawnSuffix == nil)
+        #expect(narrow.badges[0].hoverChip == nil)
+    }
+
     /// The shared mark wears the request's corner. With the issue's number shown and the request's off, a request
     /// with nothing left of its own to draw (merged, so no bubble; approved without a thread) is one badge, the
     /// issue's, whose tooltip and VoiceOver still name the request and say what became of it.
@@ -185,7 +214,8 @@ import AiTermUI
         let merged = line(ReviewThreads(resolved: 2, total: 2, merged: true))
         #expect(merged.badges.count == 1)
         #expect(merged.badges.first?.label == "#53")
-        #expect(merged.badges.first?.corner == .merged)
+        #expect(merged.badges.first?.drawnSuffix == .init(icon: .joinedBranches))
+        #expect(merged.badges.first?.corner == nil)
         #expect(merged.badges.first?.hoverChip == "Merged")
         #expect(merged.badges.first?.help == "https://x/#53 · Merged · !29 · MR")
         #expect(merged.badges.first?.accessibilityLabel == "#53, !29 · MR, merged")

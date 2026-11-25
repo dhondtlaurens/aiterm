@@ -10,16 +10,13 @@ import SwiftUI
 /// the VS Code badge on a row whose checkout has moved from the branch it started at. An empty diff
 /// draws nothing extra, so a caller can pass one unconditionally.
 ///
-/// A `suffix` closes the badge with an icon and a short text — `[bubble] 2/5`, a merge request's
+/// A `suffix` closes the badge with an icon and optional short text — `[bubble] 2/5`, a merge request's
 /// resolved review threads of all of them — both in the label's ink, so on a quiet badge they sit
 /// back with it and on the accent they turn white with it.
 ///
-/// `corner` puts a `SettledMark` on the icon's bottom-trailing corner: `.finished`, the green disc
-/// with a white check (a ticket in Jira's Done, a request approved with every thread resolved), or
-/// `.merged`, the purple disc with the same check (a request merged). `Size.cornerBadge` wide,
-/// overhanging the icon by `Space.hairline` and cut from the ground by an unscaled one-point ring of
-/// the surface's `occludingBackground`. The check says the state settled; which state, done, approved
-/// or merged, the colour shows and `hoverChip` names, so it never rests on colour alone.
+/// A merged request uses the joined-branches suffix by itself. A ticket in Done or an approved request
+/// with every thread resolved wears a green corner check. The corner is `Size.cornerBadge` wide, overhangs by `Space.hairline`
+/// and has an unscaled ring of the surface’s occluding background.
 ///
 /// `hoverChip` raises a `HoverChip` of those words above the badge the moment the pointer is on it,
 /// as the footer's usage reading raises when it resets: no tooltip delay, and nothing else in it.
@@ -96,12 +93,12 @@ public struct Badge: View {
         }
     }
 
-    /// An icon and a short text drawn after the label and the diff. A standard shape, not an AiTerm
+    /// An icon and optional short text drawn after the label and the diff. A standard shape, not an AiTerm
     /// type: the badge does not know what the text counts. The glyph and its text sit
     /// `Space.hairline` apart, as a diff's two counts do, so they read as one figure.
     public struct Suffix: Equatable, Sendable {
         public var icon: IconSource, text: String
-        public init(icon: IconSource, text: String) { self.icon = icon; self.text = text }
+        public init(icon: IconSource, text: String = "") { self.icon = icon; self.text = text }
     }
 
     @Environment(\.surface) private var surface
@@ -298,9 +295,11 @@ public struct Badge: View {
         let ink = Self.labelInk(surface: surface, style: style)
         return HStack(spacing: scale(Space.hairline)) {
             Icon(suffix.icon, size: scale(Self.iconSize), tint: ink)
-            Text(suffix.text)
-                .font(Typography.chip.tabular)
-                .foregroundStyle(ink)
+            if !suffix.text.isEmpty {
+                Text(suffix.text)
+                    .font(Typography.chip.tabular)
+                    .foregroundStyle(ink)
+            }
         }
     }
 }
