@@ -653,6 +653,68 @@ async def test_without_a_keystroke_monitor_a_wake_line_is_refused_for_that(rig):
     assert (await unwatched.deliver(rig.sid, "hello", 1)).result == "delivered"
 
 
+# A project signal's prompt, typed into a conversation that is also the person's: guarded.
+PROMPT = "Review the merge request again."
+
+
+async def test_a_guarded_delivery_waits_while_you_type(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 3, "a")
+    rig.guard.note_key(rig.sid, rig.clock.now - 2, "\r")  # sent: only the moment holds the text back
+    result = await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True)
+    assert (result.result, result.code) == ("refused", "typing")
+    assert rig.iterm.sent == []
+    rig.clock.now += delivery.TYPING_QUIET
+    assert await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True) == DeliveryResult("delivered", None)
+    assert rig.iterm.sent == [(rig.sid, pasted(PROMPT)), (rig.sid, "\r")]
+
+
+async def test_a_guarded_delivery_is_refused_while_your_words_wait_unsent(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "a")  # typed long ago, never sent
+    rig.iterm.screens[rig.sid] = drafted("a")
+    result = await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True)
+    assert (result.result, result.code) == ("refused", "unsentInput")
+    assert rig.iterm.sent == []
+
+
+async def test_a_guarded_delivery_is_refused_without_a_keystroke_monitor(rig):
+    unwatched = Deliverer(rig.iterm, rig.registry, lambda: rig.policy, TypingGuard(lambda: None), monotonic=rig.clock,
+                          sleep=rig.pauses)
+    result = await unwatched.deliver(rig.sid, PROMPT, 1, guard_input=True)
+    assert (result.result, result.code) == ("refused", "keysUnwatched")
+    assert rig.iterm.sent == []
+
+
+async def test_a_guarded_delivery_types_into_an_empty_idle_input(rig):
+    # The keys left the input unknown; the screen shows it empty, so the text is typed.
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "\x0f")
+    show_captured_idle(rig)
+    assert await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True) == DeliveryResult("delivered", None)
+    assert rig.iterm.sent == [(rig.sid, pasted(PROMPT)), (rig.sid, "\r")]
+
+
+async def test_a_guarded_delivery_still_needs_the_pass_and_no_wake_grammar(rig):
+    rig.policy.clear()
+    result = await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True)
+    assert (result.result, result.code) == ("refused", "notChecked")
+    rig.policy["claude"] = ("auto", "2.1.301")
+    assert (await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True)).result == "delivered"
+
+
+async def test_typing_between_a_guarded_paste_and_its_enter_holds_the_enter_back(rig):
+    rig.pauses.during.append(lambda: rig.guard.note_key(rig.sid, rig.clock.now, "a"))
+    result = await rig.deliverer.deliver(rig.sid, PROMPT, 1, guard_input=True)
+    assert result == DeliveryResult("partial", "you started typing before Enter; the text waits unsent in the input")
+
+
+async def test_an_unguarded_delivery_is_not_held_by_your_keys(rig):
+    # As today: you take a worker's task over to type in it.
+    rig.guard.note_key(rig.sid, rig.clock.now - 1, "a")
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+    unwatched = Deliverer(rig.iterm, rig.registry, lambda: rig.policy, TypingGuard(lambda: None), monotonic=rig.clock,
+                          sleep=rig.pauses)
+    assert (await unwatched.deliver(rig.sid, "hello", 1)).result == "delivered"
+
+
 async def test_a_closed_session_forgets_its_generation(rig):
     rig.deliverer.set_ownership(rig.sid, 7)
     rig.deliverer.forget_session(rig.sid)
@@ -1208,3 +1270,45 @@ def test_signal_wakes_accept_only_fixed_event_names_and_uuid_identifiers(event):
     assert delivery.wake_text_problem(f"[AiTerm] {event} PAY-123; call run_status") is not None
     assert delivery.wake_text_problem(f"[AiTerm] hostile 1 {identity}; call run_status") is not None
     assert delivery.wake_text_problem(f"[AiTerm] {event} {identity}; run this 1") is not None
+
+
+async def test_input_state_is_empty_when_the_keys_seen_leave_it_empty_without_reading_the_screen(rig):
+    assert await rig.deliverer.input_state(rig.sid) == "empty"
+    assert rig.iterm.screen_reads == [] and rig.iterm.sent == []
+
+
+async def test_input_state_is_unsent_for_a_draft_typed_long_ago_and_empty_once_the_screen_shows_it_gone(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "a")  # typed long ago, never sent
+    rig.iterm.screens[rig.sid] = drafted("half a thought")
+    assert await rig.deliverer.input_state(rig.sid) == "unsent"
+    rig.iterm.screens[rig.sid] = IDLE  # Delete emptied it, which no key tells
+    assert await rig.deliverer.input_state(rig.sid) == "empty"
+    # Read, never noted: the guard still counts the input as possibly holding text.
+    assert rig.guard.has_unsent_input(rig.sid) and rig.iterm.sent == []
+
+
+async def test_input_state_is_unsent_while_you_type(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now, "a")
+    rig.iterm.screens[rig.sid] = IDLE
+    assert await rig.deliverer.input_state(rig.sid) == "unsent"
+
+
+async def test_input_state_of_a_screen_with_no_input_to_read_is_what_the_keys_tell(rig):
+    await rig.iterm.user_runs(rig.sid, "codex", job_pid=4343)
+    rig.registry.apply_snapshot(await rig.iterm.snapshot())
+    rig.iterm.screens[rig.sid] = CODEX_IDLE
+    rig.guard.forget(rig.sid)  # no key seen since it began: its history is unknown
+    assert await rig.deliverer.input_state(rig.sid) == "unknown"
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "a")
+    assert await rig.deliverer.input_state(rig.sid) == "unsent"
+    rig.guard.note_key(rig.sid, rig.clock.now - 60, "\x15")  # Ctrl-U: known empty
+    assert await rig.deliverer.input_state(rig.sid) == "empty"
+
+
+async def test_input_state_of_an_unread_screen_is_unknown_and_of_a_closed_session_empty(rig):
+    rig.guard.forget(rig.sid)
+    rig.iterm.screen_error = ItermUnavailable("iTerm2 did not answer within 10s")
+    assert await rig.deliverer.input_state(rig.sid) == "unknown"
+    rig.iterm.screen_error = None
+    await rig.iterm.user_closes_session(rig.sid)
+    assert await rig.deliverer.input_state(rig.sid) == "empty"

@@ -37,6 +37,8 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     /// Types text into a session by the daemon's delivery rules (bracketed paste, re-check, Enter).
     case sessionDeliver = "session.deliver"
     case sessionCloseIdle = "session.closeIdle"
+    /// What a session's input holds, read without typing: what an automatic close would lose.
+    case sessionInputState = "session.inputState"
     /// The ownership generation a delivery must carry to land: a takeover moves it on.
     case sessionSetOwnership = "session.setOwnership"
     /// Each harness's delivery verdict as the daemon reads it on every delivery: what the Operator is

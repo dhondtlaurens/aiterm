@@ -20,7 +20,7 @@ import AiTermUI
         controller.workspace.mutate { $0 = world.state }
         let rows = try #require(controller.rows.sections.first?.tasks)
         #expect(rows.count == 1 && !rows[0].canMove(.up) && !rows[0].canMove(.down))
-        let signalRows = try #require(controller.rows.signalSections.first?.tasks)
+        let signalRows = try #require(controller.rows.operatorSections.first?.tasks)
         #expect(signalRows.map(\.id) == [held, otherHeld])
         for row in signalRows {
             #expect(!TaskRowView(row: row, controller: controller).commands(removing: false)
@@ -33,11 +33,88 @@ import AiTermUI
         #expect(takenOver.map { [$0.canMove(.up), $0.canMove(.down)] } == [[false, true], [true, false]])
         #expect(controller.projects.move(taskId: held, .down))
         #expect(controller.rows.sections.first?.tasks.map(\.id) == [own.id, held])
-        #expect(controller.rows.signalSections.first?.tasks.map(\.id) == [otherHeld])
+        #expect(controller.rows.operatorSections.first?.tasks.map(\.id) == [otherHeld])
+    }
+
+    /// A project signal's tasks are the person's, in their projects: nothing of it is drawn under OPERATOR, and an
+    /// Operator signal with no task draws nothing there either.
+    @Test func aProjectSignalsTaskStaysInItsProject() {
+        var world = SignalWorld()
+        _ = world.signal(); let projectSignal = world.projectSignal()
+        let marked = world.markedTask(signal: projectSignal)
+        let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])
+        let sidebar = SignalSidebar(state: world.state, entries: entries)
+        #expect(sidebar.operatorEntries.isEmpty)
+        let projectTasks = sidebar.projects.flatMap { entry -> [UUID] in
+            if case .project(let section) = entry { return section.tasks.map(\.id) }; return []
+        }
+        #expect(projectTasks == [marked])
+    }
+
+    /// The Operator's section is the projects' level cut to the tasks it runs: each project in the projects' order with
+    /// its held tasks in their order, without terminals, moves or the person's own tasks; a project with none is left
+    /// out, and a divider stays only when a project of the Operator's follows it before the next divider.
+    @Test func theOperatorsSectionGroupsItsTasksByProjectInTheProjectsOrder() throws {
+        var world = SignalWorld()
+        let plan = world.signal(name: "Plan"), review = world.signal(name: "Review")
+        let docs = Project.make(name: "docs", path: "/synthetic/docs"), site = Project.make(name: "site", path: "/synthetic/site")
+        let empty = Project.make(name: "empty", path: "/synthetic/empty")
+        let first = SidebarDivider(id: UUID(), name: "Work"), second = SidebarDivider(id: UUID(), name: "Later")
+        let third = SidebarDivider(id: UUID(), name: "Archive")
+        // shop · Work · docs · empty · Later · Archive · site
+        world.state.append(divider: first); world.state.append(project: docs); world.state.append(project: empty)
+        world.state.append(divider: second); world.state.append(divider: third); world.state.append(project: site)
+        let a = world.workingTask(signal: plan), b = world.workingTask(signal: review)
+        let own = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/own"); world.state.tasks.append(own)
+        var inDocs = TaskItem.make(project: docs.id, worktreePath: "/synthetic/docs/a")
+        inDocs.signalTask = world.state.task(id: a)?.signalTask
+        var inSite = inDocs; inSite.id = UUID(); inSite.projectId = site.id
+        world.state.tasks += [inDocs, inSite]
+        world.state.terminals = [TerminalItem(id: UUID(), projectId: world.project.id, name: "Shell", windowId: "w", createdAt: world.now)]
+        let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])
+        let sidebar = SignalSidebar(state: world.state, entries: entries)
+        #expect(sidebar.operatorEntries.map(\.id) == [world.project.id, first.id, docs.id, third.id, site.id],
+                "empty is left out, and Later has no project of the Operator's before Archive")
+        #expect(sidebar.operatorSections.map { $0.tasks.map(\.id) } == [[a, b], [inDocs.id], [inSite.id]])
+        #expect(sidebar.operatorSections.allSatisfy { $0.terminals.isEmpty && !$0.canMoveUp && !$0.canMoveDown })
+        let dividers = sidebar.operatorEntries.compactMap { entry -> DividerEntry? in
+            if case .divider(let divider) = entry { return divider }; return nil
+        }
+        #expect(dividers.allSatisfy { !$0.canMoveUp && !$0.canMoveDown })
+        #expect(sidebar.projects.map(\.id) == entries.map(\.id), "the projects keep every entry")
+
+        // The last held task of site leaving takes its heading, and Archive with it; docs alone keeps Work.
+        world.state.tasks.removeAll { $0.id == inSite.id }
+        let fewer = SignalSidebar(state: world.state, entries: SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:]))
+        #expect(fewer.operatorEntries.map(\.id) == [world.project.id, first.id, docs.id])
+    }
+
+    /// The Operator's section has its own fold per project (`AppState.operatorFolded`): folding there leaves
+    /// `Project.collapsed`, and a project folded in the projects is open in the Operator's section.
+    @Test func theOperatorsFoldIsApartFromTheProjectsFold() throws {
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
+        world.state.updateProject(id: world.project.id) { $0.collapsed = true }
+        let own = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/own"); world.state.tasks.append(own)
+        func sidebar() -> SignalSidebar {
+            SignalSidebar(state: world.state, entries: SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:]))
+        }
+        func projectFolded() -> Bool? {
+            if case .project(let section)? = sidebar().projects.first { return section.collapsed }; return nil
+        }
+        #expect(sidebar().operatorSections.first?.collapsed == false)
+        #expect(projectFolded() == true)
+        world.state.operatorFolded = [world.project.id]
+        world.state.updateProject(id: world.project.id) { $0.collapsed = false }
+        #expect(sidebar().operatorSections.first?.collapsed == true)
+        #expect(projectFolded() == false)
+        let section = try #require(sidebar().operatorSections.first)
+        let heading = HeadingValue(operatorSection: section)
+        #expect(heading.id == OperatorSession.projectRowID(world.project.id) && heading.id != world.project.id)
+        #expect(heading.collapsed && heading.title == world.project.name && heading.kind == .operatorProject(section.project))
     }
 
     @Test(arguments: [false, true])
-    func foldingASignalHandsItsSelectedTaskToTheHeading(removed: Bool) throws {
+    func foldingAnOperatorProjectHandsItsSelectedTaskToTheHeading(removed: Bool) throws {
         var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal)
         world.state.operatorOpen = true
         if removed { world.state.signals = [] }
@@ -47,9 +124,10 @@ import AiTermUI
         controller.workspace.mutate { $0 = world.state }
         let daemon = RecordingDaemon(); controller.helper.setDaemonClient(daemon)
         controller.focus.browse(.task(task))
-        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
-        #expect(controller.focus.selection == .signal(signal))
-        #expect(controller.rows.signalSections.first?.collapsed == true)
+        controller.toggleOperatorFold(world.project)
+        #expect(controller.focus.selection == .operatorProject(world.project.id))
+        #expect(controller.rows.operatorSections.first?.collapsed == true)
+        #expect(controller.state.project(id: world.project.id)?.collapsed == false)
         #expect(daemon.requests.isEmpty, "handing selection to a heading raises and marks nothing")
     }
 
@@ -62,14 +140,14 @@ import AiTermUI
         try controller.workspace.load()
         defer { controller.shutdown() }
         controller.workspace.mutate { $0 = world.state }
-        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
+        controller.toggleOperatorFold(world.project)
         controller.focus.browse(.task(task))
         controller.workspace.mutate { $0.tasks[0].title = "Selected by notification" }
         #expect(controller.focus.selection == .task(task))
-        #expect(controller.rows.signalSections.first?.collapsed == true)
+        #expect(controller.rows.operatorSections.first?.collapsed == true)
         controller.reveal(.task(task))
         #expect(controller.focus.selection == .task(task))
-        #expect(controller.rows.signalSections.first?.collapsed == false)
+        #expect(controller.rows.operatorSections.first?.collapsed == false)
     }
 
     @Test(arguments: [false, true])
@@ -95,9 +173,9 @@ import AiTermUI
     }
 
     @Test func openingOperatorClearsASelectedProjectTask() throws {
-        var world = SignalWorld(); _ = world.signal()
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
         let task = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/task")
-        world.state.tasks = [task]
+        world.state.tasks.append(task)
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
@@ -108,8 +186,10 @@ import AiTermUI
         #expect(controller.focus.selection == nil)
     }
 
+    /// A task taken over while the Operator still runs another leaves the open section, so its selection goes; taking
+    /// over its last task empties the section, the projects open again and the task stays selected in them.
     @Test func takingOverASelectedDrivenTaskClearsItWhileProjectsAreFolded() throws {
-        var world = SignalWorld(); let task = world.workingTask(signal: world.signal())
+        var world = SignalWorld(); let signal = world.signal(), task = world.workingTask(signal: signal), other = world.workingTask(signal: signal)
         world.state.operatorOpen = true
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
@@ -119,6 +199,11 @@ import AiTermUI
         controller.workspace.mutate { $0.takeOver(task) }
         #expect(controller.focus.selection == nil)
         #expect(controller.rows.sections.first?.tasks.map(\.id) == [task])
+
+        controller.focus.browse(.task(other))
+        controller.workspace.mutate { $0.takeOver(other) }
+        #expect(!controller.rows.operatorOpen && controller.rows.operatorEntries.isEmpty)
+        #expect(controller.focus.selection == .task(other))
     }
 
     @Test func signalHeadingsProjectRowsAndRemovalAgreeOnWhichTasksAreUnderTheOperator() async throws {
@@ -135,8 +220,8 @@ import AiTermUI
 
         let entries = SidebarModel.entries(state: controller.state, sessions: [], branchByCwd: [:], projectBranch: [:])
         let sidebar = SignalSidebar(state: controller.state, entries: entries)
-        #expect(sidebar.signals.map(\.id) == [signal])
-        #expect(sidebar.signals[0].tasks.map(\.id) == [working, done])
+        #expect(sidebar.operatorEntries.map(\.id) == [world.project.id])
+        #expect(sidebar.operatorSections[0].tasks.map(\.id) == [working, done])
         let projectTasks = sidebar.projects.flatMap { entry -> [TaskRow] in
             if case .project(let section) = entry { return section.tasks }; return []
         }
@@ -150,7 +235,8 @@ import AiTermUI
             state.tasks[state.tasks.firstIndex { $0.id == working }!].worktreePath = ""
             state.signals = []
         }
-        #expect(controller.focus.row(id: signal) == .signal(signal))
+        #expect(controller.focus.row(id: OperatorSession.projectRowID(world.project.id)) == .operatorProject(world.project.id),
+                "a removed signal's tasks stay under their project")
         await controller.projects.confirmRemove(project: world.project)
         controller.workspace.mutate { state in
             state.tasks[state.tasks.firstIndex { $0.id == done }!].worktreePath = ""
@@ -171,7 +257,7 @@ import AiTermUI
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         controller.workspace.mutate { $0 = world.state }
         _ = controller.signalController.activity.begin(task: id, act: "answering its worker")
-        let driven = try #require(controller.rows.signalSections.first?.tasks.first)
+        let driven = try #require(controller.rows.operatorSections.first?.tasks.first)
         func height(_ row: TaskRow) -> CGFloat {
             NSHostingView(rootView: TaskRowView(row: row, controller: controller)
                 .frame(width: Size.sidebarWidth).environment(\.motionStill, .snapshot).surface(.sidebar)).fittingSize.height
@@ -183,112 +269,74 @@ import AiTermUI
         #expect(drivenHeight == Size.row)
     }
 
-    @Test func removedSignalHeadingsAreNotPausedButSwitchedOffLiveSignalsAre() throws {
-        var world = SignalWorld(); let id = world.signal(); _ = world.workingTask(signal: id)
-        world.state.signals[0].enabled = false
-        let live = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(try #require(live.signals.first)).kind == .signal(source: world.state.signals[0].start.source, removed: false, paused: true, canMoveUp: false, canMoveDown: false))
-        world.state.signals = []
-        let removed = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(try #require(removed.signals.first)).kind == .signal(source: world.state.tasks[0].signalTask!.current.configuration.start.source, removed: true, paused: false, canMoveUp: false, canMoveDown: false))
-    }
-
-    /// Only live signals move: a removed signal's heading is drawn after the last live one and is no
-    /// neighbour, so the last live heading cannot move down; a switched-off signal still moves and counts.
-    @Test func signalHeadingsMoveAmongLiveSignalsOnly() throws {
-        var world = SignalWorld()
-        let first = world.signal(name: "First"), off = world.signal(name: "Off"), last = world.signal(name: "Last")
-        let gone = world.signal(name: "Gone")
-        world.workingTask(signal: gone)
-        world.state.signals.removeAll { $0.id == gone }
-        world.state.signals[1].enabled = false
-        let sections = SignalSidebar(state: world.state, entries: []).signals
-        #expect(sections.map(\.id) == [first, off, last, gone])
-        #expect(sections.map { [$0.canMoveUp, $0.canMoveDown] } == [[false, true], [true, true], [true, false], [false, false]])
-        #expect(HeadingValue(sections[1]).kind == .signal(source: .jira, removed: false, paused: true, canMoveUp: true, canMoveDown: true))
-        world.state.signals = [world.state.signals[0]]
-        let alone = try #require(SignalSidebar(state: world.state, entries: []).signals.first)
-        #expect(!alone.canMoveUp && !alone.canMoveDown)
-    }
-
-    /// Dividers are drawn between the live signals where they were put, removed signals' headings after them all, and
-    /// each divider moves only while it has a drawn neighbour that way. The headings' own list is unchanged.
-    @Test func dividersSitBetweenLiveSignalsAndRemovedHeadingsComeLast() throws {
-        var world = SignalWorld()
-        let first = world.signal(name: "First"), last = world.signal(name: "Last"), gone = world.signal(name: "Gone")
-        world.workingTask(signal: gone)
-        world.state.removeSignal(id: gone)
-        let middle = UUID(), trailing = UUID()
-        world.state.append(signalDivider: SignalDivider(id: middle, name: "Reviews"))
-        world.state.move(signalDividerId: middle, .up)
-        world.state.append(signalDivider: SignalDivider(id: trailing, name: ""))
-        let sidebar = SignalSidebar(state: world.state, entries: [])
-        #expect(sidebar.signals.map(\.id) == [first, last, gone])
-        #expect(sidebar.entries.map(\.id) == [first, middle, last, trailing, gone])
-        let dividers = sidebar.entries.compactMap { entry -> DividerEntry? in
-            if case .divider(let divider) = entry { return divider }; return nil
-        }
-        #expect(dividers.map(\.divider.name) == ["Reviews", ""])
-        #expect(dividers.map { [$0.canMoveUp, $0.canMoveDown] } == [[true, true], [true, false]])
-        // The signal under a divider moves past it, so it can go up although it was the first signal's neighbour.
-        #expect(sidebar.signals.map { [$0.canMoveUp, $0.canMoveDown] } == [[false, true], [true, true], [false, false]])
-    }
-
-    @Test func aRemovedSignalsFoldIsRuntimeOnlyAndStartsOpen() throws {
-        var world = SignalWorld(); let id = world.signal()
-        _ = world.workingTask(signal: id); _ = world.workingTask(signal: id)
-        world.state.tasks[0].signalTask?.current.configuration.collapsed = true
-        world.state.signals = []
+    /// A project's heading in the Operator's section has its own id, which turns back into the project's while the
+    /// Operator runs a task of it: a project in both sections is two rows, selected apart, and the heading's selection
+    /// goes once its last task leaves the Operator.
+    @Test func aProjectInBothSectionsIsTwoRowsAndItsOperatorHeadingGoesWithItsLastTask() throws {
+        var world = SignalWorld(); let task = world.workingTask(signal: world.signal())
+        let own = TaskItem.make(project: world.project.id, worktreePath: "/synthetic/own"); world.state.tasks.append(own)
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
         controller.workspace.mutate { $0 = world.state }
-        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
-        let before = try encoder.encode(controller.state.tasks)
-        var section = try #require(controller.rows.signalSections.first)
-        #expect(!section.collapsed, "saved configuration does not fold a removed signal")
-        controller.toggleCollapsed(section.signal)
-        section = try #require(controller.rows.signalSections.first)
-        #expect(section.collapsed)
-        #expect(try encoder.encode(controller.state.tasks) == before)
-        controller.toggleCollapsed(section.signal)
-        #expect(controller.rows.signalSections.first?.collapsed == false)
-        #expect(try encoder.encode(controller.state.tasks) == before)
-        controller.toggleCollapsed(section.signal)
-        let fresh = SidebarProjection(workspace: controller.workspace, live: controller.live, checkouts: controller.checkouts)
-        #expect(fresh.signalSections.first?.collapsed == false, "a new projection starts open")
+        let heading = OperatorSession.projectRowID(world.project.id)
+        #expect(heading != world.project.id && OperatorSession.projectRowID(heading) == world.project.id)
+        #expect(RowSelection.operatorProject(world.project.id).id == heading)
+        #expect(controller.focus.row(id: heading) == .operatorProject(world.project.id))
+        #expect(controller.focus.row(id: world.project.id) == .project(world.project.id))
+        controller.focus.browse(.project(world.project.id))
+        #expect(controller.focus.isSelected(world.project.id) && !controller.focus.isSelected(heading))
+        controller.focus.browse(.operatorProject(world.project.id))
+        #expect(controller.focus.isSelected(heading) && !controller.focus.isSelected(world.project.id))
+        #expect(controller.targetProject?.id == world.project.id, "File › New Task acts on its project")
+
+        controller.workspace.mutate { $0.takeOver(task) }
+        #expect(controller.focus.row(id: heading) == nil)
+        #expect(controller.focus.selection == nil, "the heading went with its last task")
+        #expect(controller.rows.operatorEntries.isEmpty)
     }
 
+    /// Focus View opens a project in the Operator's section whose task needs you, as it opens a project.
+    @Test func focusViewOpensAnOperatorProjectWhoseTaskNeedsYou() throws {
+        var world = SignalWorld(); let id = world.workingTask(signal: world.signal())
+        world.state.operatorFolded = [world.project.id]
+        let asked = world.now
+        world.state.operatorSession?.questions = [.init(id: "q", task: id, text: "Which locale?", openedAt: asked)]
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.focus.cancel(); controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        #expect(controller.rows.operatorNeedingAttention.contains(.task(id)))
+        controller.showFocusView()
+        #expect(controller.state.operatorFolded.isEmpty)
+        #expect(controller.rows.operatorSections.first?.collapsed == false)
+    }
+
+    /// Revealing a task the Operator runs, as a notification or Focus View does, unfolds its project in the Operator's
+    /// section and leaves the project's own fold.
     @Test(arguments: [false, true])
-    func revealingATaskOpensItsSignalAndLeavesItsProjectFolded(removed: Bool) throws {
+    func revealingATaskOpensItsOperatorProjectAndLeavesItsProjectFolded(removed: Bool) throws {
         var world = SignalWorld(); let id = world.signal(), task = world.workingTask(signal: id)
         if removed { world.state.signals = [] }
         var project = world.project; project.collapsed = true
         world.state.items = [.project(project)]
+        world.state.operatorFolded = [project.id]
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
         controller.workspace.mutate { $0 = world.state }
-        controller.toggleCollapsed(try #require(controller.rows.signalSections.first).signal)
-        #expect(controller.rows.signalSections.first?.collapsed == true)
+        #expect(controller.rows.operatorSections.first?.collapsed == true)
         controller.reveal(.task(task))
-        #expect(controller.rows.signalSections.first?.collapsed == false)
+        #expect(controller.rows.operatorSections.first?.collapsed == false)
+        #expect(controller.rows.operatorOpen, "its section opens, folding the projects")
         #expect(controller.state.project(id: world.project.id)?.collapsed == true)
         controller.reveal(.task(task))
-        #expect(controller.state.project(id: world.project.id)?.collapsed == true, "an already-open signal still owns the task")
+        #expect(controller.state.project(id: world.project.id)?.collapsed == true, "an already-open Operator project still owns the task")
     }
 
-    @Test func aSignalsHeadingNamesItsQueriesAndWhyItCannotRun() {
-        var world = SignalWorld(); _ = world.signal()
-        let help = HeadingValue(SignalSidebar(state: world.state, entries: []).signals[0]).help
-        #expect(help.hasPrefix("Starts: labels = operator\nDone: status = Done") && !help.contains("cannot run"))
-        world.state.signals[0].start.source = .unknown("future")
-        let sidebar = SignalSidebar(state: world.state, entries: [])
-        #expect(HeadingValue(sidebar.signals[0]).help.contains("cannot run"))
-    }
-    /// A schedule's heading reads its cron in words and its next run, its last skipped run by time, and an Operator Done
+    /// A schedule's next run and its last skipped run, by time, as the signals sheet lists them, and an Operator Done
     /// its guidance, never an empty Done line.
-    @Test func aScheduledSignalsHeadingNamesItsScheduleNextRunAndLastSkip() {
+    @Test func aScheduledSignalsLinesNameItsScheduleNextRunAndLastSkip() {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
         var world = SignalWorld()
         let monday = calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 8))!
@@ -298,13 +346,11 @@ import AiTermUI
         world.state.signalSeen.append(SignalSeen(signal: id, item: .run(run), disposition: .skipped, at: monday,
                                                  reason: "The last run is still unfinished."))
         let runs = SignalSidebar.nextRuns(in: world.state, now: monday, calendar: calendar)
-        let sidebar = SignalSidebar(state: world.state, entries: [], skipped: SignalSidebar.skipped(in: world.state, calendar: calendar), nextRuns: runs)
-        let section = sidebar.signals[0]
-        #expect(HeadingValue.triggers(section.signal, nextRun: section.nextRun, calendar: calendar)
+        #expect(SignalSummary.triggers(world.state.signals[0], nextRun: runs[id], calendar: calendar)
                 == ["Starts: At 09:00 on Monday (0 9 * * 1)", "Next run: 23 Nov 2026 09:00", "Done: The Operator decides (A merge request is open)"])
-        #expect(section.skipped == ["Run of 16 Nov 2026 09:00: The last run is still unfinished."])
+        #expect(SignalSidebar.skipped(in: world.state, calendar: calendar)[id] == ["Run of 16 Nov 2026 09:00: The last run is still unfinished."])
         world.state.signals[0].done.description = ""
-        #expect(HeadingValue.triggers(world.state.signals[0], nextRun: nil).last == "Done: The Operator decides")
+        #expect(SignalSummary.triggers(world.state.signals[0], nextRun: nil).last == "Done: The Operator decides")
     }
     @Test func backpackModeWaitsForOrphanedStagesButNotUnsupportedSources() throws {
         let controller = AppController(preferences: .scratch()); try controller.workspace.load()
@@ -350,15 +396,15 @@ import AiTermUI
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])
         let sidebar = SignalSidebar(state: world.state, entries: entries)
-        #expect(sidebar.signals.count == 1)
-        #expect(sidebar.signals[0].tasks.map(\.id) == [id])
+        #expect(sidebar.operatorSections.count == 1)
+        #expect(sidebar.operatorSections[0].tasks.map(\.id) == [id])
         let ordinary: [TaskRow] = sidebar.projects.flatMap { entry -> [TaskRow] in
             if case .project(let section) = entry { return section.tasks }; return []
         }
         #expect(ordinary.isEmpty)
         world.state.takeOver(id)
         let taken = SignalSidebar(state: world.state, entries: entries)
-        #expect(taken.signals[0].tasks.isEmpty)
+        #expect(taken.operatorEntries.isEmpty, "its project has nothing of the Operator's left")
         let projectTasks: [UUID] = taken.projects.flatMap { entry -> [UUID] in
             if case .project(let section) = entry { return section.tasks.map(\.id) }; return []
         }
@@ -369,7 +415,7 @@ import AiTermUI
         let controller = AppController(store: StateStore(url: folder.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
         #expect(controller.focus.row(id: OperatorSession.rowID) == .operatorChat)
-        #expect(controller.rows.signalSections.isEmpty)
+        #expect(controller.rows.operatorEntries.isEmpty)
     }
     /// The projects are the default: with nothing to fold, OPERATOR is a heading and its "+"; once a signal exists the
     /// two sections fold into each other, the Operator's folded until it is opened, which folds the projects.
@@ -385,7 +431,10 @@ import AiTermUI
         controller.toggleOperatorOpen()
         #expect(!controller.state.operatorOpen, "Nothing to fold: the projects stay open")
 
-        var world = SignalWorld(); _ = world.signal(); _ = world.workingTask(signal: world.state.signals[0].id)
+        var world = SignalWorld(); _ = world.signal()
+        controller.workspace.mutate { $0 = world.state }
+        #expect(!controller.rows.operatorHeading.folds, "a signal with no task yet: nothing of the Operator's to show")
+        _ = world.workingTask(signal: world.state.signals[0].id)
         controller.workspace.mutate { $0 = world.state }
         settle(host) { list.numberOfRows == 3 }
         #expect(list.numberOfRows == 3, "Operator heading folded, Projects heading, the project")
@@ -394,12 +443,12 @@ import AiTermUI
 
         controller.toggleOperatorOpen()
         settle(host) { list.numberOfRows == 5 }
-        #expect(list.numberOfRows == 5, "Operator heading, its row, the signal and its task, Projects heading folded")
+        #expect(list.numberOfRows == 5, "Operator heading, its row, the project's heading and its task, Projects heading folded")
         #expect(controller.state.operatorOpen, "kept with the workspace")
-        controller.toggleCollapsed(world.state.signals[0])
+        controller.toggleOperatorFold(world.project)
         settle(host) { list.numberOfRows == 4 }
         #expect(list.numberOfRows == 4)
-        controller.toggleCollapsed(world.state.signals[0])
+        controller.toggleOperatorFold(world.project)
         controller.toggleOperatorOpen()
         settle(host) { list.numberOfRows == 3 }
         #expect(list.numberOfRows == 3)
@@ -428,8 +477,8 @@ import AiTermUI
         #expect(controller.rows.operatorOpen, "the Operator's row opens its section")
     }
     /// Folded, OPERATOR draws one chip: the most urgent state among the Operator and the tasks it runs, whether their
-    /// signal is folded or open, counting its tasks; its click opens the section at the row that state comes from,
-    /// unfolding its signal.
+    /// project is folded or open there, counting its tasks; its click opens the section at the row that state comes
+    /// from, unfolding its project there.
     @Test func aFoldedOperatorDrawsItsMostUrgentStateAndItsChipOpensThatRow() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
@@ -440,7 +489,7 @@ import AiTermUI
         for (index, id) in [asking, working, ended].enumerated() {
             if let at = world.state.tasks.firstIndex(where: { $0.id == id }) { world.state.tasks[at].windowId = "worker-\(index)" }
         }
-        world.state.signals[1].collapsed = true
+        world.state.operatorFolded = [world.project.id]
         controller.workspace.mutate { $0 = world.state }
         controller.live.sessions = [SessionInfo.make("a", window: "worker-0", task: asking, state: .needsInput),
                                     SessionInfo.make("w", window: "worker-1", task: working, state: .working),
@@ -457,7 +506,7 @@ import AiTermUI
         controller.openSection(.operator, at: .operatorState)
         #expect(controller.rows.operatorOpen)
         #expect(controller.focus.selection == .task(working), "the first working row")
-        #expect(controller.state.signal(id: folded)?.collapsed == false, "its signal unfolds")
+        #expect(controller.state.operatorFolded.isEmpty, "its project unfolds in the Operator's section")
         #expect(controller.rows.isDrawn(.task(working)))
     }
     /// The Operator chip's other states: paused while it holds work, every task waiting, a question with no task (the
@@ -488,7 +537,8 @@ import AiTermUI
     }
 
     /// A finished task (done, its closeout through) is counted in the green chip, apart from the Operator's, even once
-    /// the Operator row has gone; the chip opens at it. A folded signal counts it there too, beside its other statuses.
+    /// the Operator row has gone; the chip opens at it. A folded project in the Operator's section counts it there too,
+    /// beside its other statuses.
     @Test func finishedTasksHaveTheirOwnChipOnBothFoldedHeadings() throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
@@ -497,12 +547,12 @@ import AiTermUI
         let waiting = world.workingTask(signal: signal), finished = world.workingTask(signal: signal)
         world.state.updateSignalTask(waiting) { $0.phase = .watching }
         world.state.updateSignalTask(finished) { $0.phase = .done; $0.thenApplied = true }
-        world.state.signals[0].collapsed = true
+        world.state.operatorFolded = [world.project.id]
         controller.workspace.mutate { $0 = world.state }
         #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.waiting), tasks: 1), "the finished one is not workload")
         #expect(controller.rows.operatorHeading.finished == 1)
-        let heading = HeadingValue(try #require(controller.rows.signalSections.first))
-        #expect(heading.counts == [StatusCount(status: .waiting, count: 1)] && heading.finished == 1, "the folded signal")
+        let heading = HeadingValue(operatorSection: try #require(controller.rows.operatorSections.first))
+        #expect(heading.counts == [StatusCount(status: .waiting, count: 1)] && heading.finished == 1, "the folded project")
 
         controller.workspace.mutate { $0.updateSignalTask(waiting) { $0.phase = .done; $0.thenApplied = true } }
         #expect(!controller.rows.signalOperator.shown, "no work left: the Operator's row has gone")
@@ -522,23 +572,23 @@ import AiTermUI
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.updateSignalTask(id) { $0.phase = .done; $0.thenApplied = true }
         if let at = world.state.tasks.firstIndex(where: { $0.id == id }) { world.state.tasks[at].windowId = "kept" }
-        world.state.signals[0].collapsed = true
+        world.state.operatorFolded = [world.project.id]
         controller.workspace.mutate { $0 = world.state }
         controller.live.sessions = [SessionInfo.make("k", window: "kept", task: id, state: .needsInput)]
         #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.needsInput), tasks: 0), "its prompt needs you")
         #expect(controller.rows.operatorHeading.finished == 0, "not hidden in the green chip")
         #expect(controller.rows.firstRow(in: .operator, chip: .operatorState) == .task(id))
-        var heading = HeadingValue(try #require(controller.rows.signalSections.first))
-        #expect(heading.counts == [StatusCount(status: .needsInput, count: 1)] && heading.finished == 0, "the folded signal")
+        var heading = HeadingValue(operatorSection: try #require(controller.rows.operatorSections.first))
+        #expect(heading.counts == [StatusCount(status: .needsInput, count: 1)] && heading.finished == 0, "the folded project")
 
         controller.live.sessions = [SessionInfo.make("k", window: "kept", task: id, state: .working)]
-        heading = HeadingValue(try #require(controller.rows.signalSections.first))
+        heading = HeadingValue(operatorSection: try #require(controller.rows.operatorSections.first))
         #expect(controller.rows.operatorHeading.operatorChip == OperatorChip(mark: .status(.working), tasks: 0), "its worker runs again")
         #expect(controller.rows.operatorHeading.finished == 0 && heading.counts == [StatusCount(status: .working, count: 1)])
         #expect(controller.rows.firstRow(in: .operator, chip: .operatorState) == .task(id))
 
         controller.live.sessions = [SessionInfo.make("k", window: "kept", task: id, state: .idle)]
-        heading = HeadingValue(try #require(controller.rows.signalSections.first))
+        heading = HeadingValue(operatorSection: try #require(controller.rows.operatorSections.first))
         #expect(controller.rows.operatorHeading.operatorChip == nil && controller.rows.operatorHeading.finished == 1, "settled again")
         #expect(heading.counts.isEmpty && heading.finished == 1)
     }
@@ -574,10 +624,10 @@ import AiTermUI
         let second = Project.make(name: "docs", path: "/synthetic/docs"); world.state.append(project: second)
         world.state.operatorOpen = true
         controller.workspace.mutate { $0 = world.state }
-        #expect(controller.rows.operatorPath == [.operatorChat, .signal(signal), .task(task)])
+        #expect(controller.rows.operatorPath == [.operatorChat, .operatorProject(world.project.id), .task(task)])
 
-        controller.focus.browse(.signal(signal))
-        #expect(!controller.crossSections(down: true), "the signal's task is still below it")
+        controller.focus.browse(.operatorProject(world.project.id))
+        #expect(!controller.crossSections(down: true), "the project's task is still below its heading")
         #expect(!controller.crossSections(down: false))
         controller.focus.browse(.task(task))
         #expect(!controller.crossSections(down: false), "↑ leaves the Operator's section only from the projects")
@@ -593,12 +643,13 @@ import AiTermUI
         #expect(controller.focus.selection == .task(task), "the Operator's last row")
         #expect(controller.rows.operatorOpen, "the Operator opens, the projects fold")
 
-        controller.toggleCollapsed(world.state.signals[0])
-        #expect(controller.rows.operatorPath.last == .signal(signal), "a folded signal's heading is its last row")
-        controller.focus.browse(.signal(signal))
+        controller.toggleOperatorFold(world.project)
+        #expect(controller.rows.operatorPath.last == .operatorProject(world.project.id), "a folded project's heading is its last row")
+        controller.focus.browse(.operatorProject(world.project.id))
         #expect(controller.crossSections(down: true))
+        #expect(controller.focus.selection == .project(world.project.id), "the same project, under PROJECTS: another row")
         #expect(controller.crossSections(down: false))
-        #expect(controller.focus.selection == .signal(signal))
+        #expect(controller.focus.selection == .operatorProject(world.project.id))
     }
 
     /// The real key: a plain ↓ on the sidebar's list, at the edge, is taken before the table; ⇧↓ and a ↓ inside a
@@ -637,7 +688,7 @@ import AiTermUI
         var world = SignalWorld(); let signal = world.signal(done: SignalTrigger(source: .gitLab, description: "When a reviewer is asked", query: "reviewer:any")); let id = world.workingTask(signal: signal)
         func row(acts: [UUID: String] = [:]) throws -> TaskRow {
             let entries = SidebarModel.entries(state: world.state, sessions: [], branchByCwd: [:], projectBranch: [:])
-            return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).signals.first?.tasks.first)
+            return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).operatorSections.first?.tasks.first)
         }
         #expect(try row(acts: [id: "answering its worker"]).operatorLine == OperatorLine("Operator answering its worker", look: .acting))
         let questionAt = world.now
@@ -652,16 +703,21 @@ import AiTermUI
         #expect(try row().operatorLine == .paused)
         #expect(try row().mark == .pauseSign)
     }
-    @Test func signalHeadersAreSelectableAndAFoldDoesNotFoldItsProject() throws {
+    /// ↩ on a project's heading in the Operator's section folds it there and saves the fold, leaving the project's own.
+    @Test func operatorProjectHeadersAreSelectableAndAFoldDoesNotFoldTheProject() throws {
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let controller = AppController(store: h.file, preferences: .scratch())
         try controller.workspace.load()
-        #expect(controller.focus.row(id: signal) == .signal(signal))
-        controller.focus.browse(.signal(signal)); controller.activateSelection()
-        #expect(controller.state.signal(id: signal)?.collapsed == true)
+        let heading = OperatorSession.projectRowID(world.project.id)
+        #expect(controller.focus.row(id: heading) == .operatorProject(world.project.id))
+        controller.focus.browse(.operatorProject(world.project.id)); controller.activateSelection()
+        #expect(controller.state.operatorFolded == [world.project.id])
+        #expect(try controller.savedWorkspace().operatorFolded == [world.project.id])
         #expect(controller.state.project(id: world.project.id)?.collapsed == false)
-        #expect(controller.focus.selection == .signal(signal))
+        #expect(controller.focus.selection == .operatorProject(world.project.id))
+        controller.activateSelection()
+        #expect(controller.state.operatorFolded.isEmpty)
     }
     @Test func anOrdinaryUntaggedPermissionPromptDoesNotBecomeTheOperators() {
         let session = SessionInfo.make("shell", window: "window", state: .needsInput)
@@ -693,26 +749,26 @@ import AiTermUI
         let paused = SignalOperatorRowValue.make(state: world.state, sessions: [])
         #expect(!paused.needsYou && paused.mark == .pauseSign)
     }
-    @Test func theOperatorNamesItsActAndCountsTheSignalsStillHoldingTasks() throws {
+    @Test func theOperatorNamesItsActAndCountsTheTasksOfARemovedSignal() throws {
         var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
         world.state.tasks[0].jira = JiraRef(key: "PAY-1", summary: "Retries", url: "https://jira.example/browse/PAY-1")
         let acting = SignalOperatorRowValue.make(state: world.state, sessions: [], latestAct: OperatorAct(task: id, words: "answering its worker"))
         #expect(acting.line.text.contains("answering") && acting.line.text.contains("PAY-1"))
         world.state.signals = []
         let resting = SignalOperatorRowValue.make(state: world.state, sessions: [])
-        #expect(resting.title == "1 task · 1 signal" && resting.line.text == "watching")
+        #expect(resting.title == "Running 1 task" && resting.line.text == "watching")
     }
     /// The row's title is its workload, never a second "Operator" under the heading that already says it.
-    @Test func theOperatorTitleCountsItsTasksAndSignals() throws {
+    @Test func theOperatorTitleSaysHowManyTasksItRuns() throws {
         var world = SignalWorld()
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).title == "No tasks")
         #expect(SignalOperatorRowValue.empty.title == "No tasks")
         let first = world.signal(name: "Plan tickets"), second = world.signal(name: "Review requests")
         world.workingTask(signal: first)
-        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).title == "1 task · 1 signal")
+        #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).title == "Running 1 task")
         world.workingTask(signal: first); world.workingTask(signal: second)
         let value = SignalOperatorRowValue.make(state: world.state, sessions: [])
-        #expect(value.title == "3 tasks · 2 signals" && value.line.text == "watching")
+        #expect(value.title == "Running 3 tasks" && value.line.text == "watching")
         world.state.operatorSession?.lifecycle = .closing(then: .renew)
         #expect(SignalOperatorRowValue.make(state: world.state, sessions: []).line.text == "starting fresh")
     }

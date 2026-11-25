@@ -101,6 +101,41 @@ struct LockedSidebarTests {
         #expect(controller.state.projects[0].collapsed == !locked)
     }
 
+    /// The same click on a project's heading in the Operator's section folds it there, and only while unlocked; the
+    /// project's own fold is untouched either way.
+    @Test(.serialized, .enabled(if: !LoginSession.isLocked, "a panel cannot become key while the screen is locked"),
+          arguments: [false, true]) func aClickOnAnOperatorProjectHeadingFoldsItThereOnlyWhileUnlocked(locked: Bool) throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
+        if !locked { try controller.workspace.load() }
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
+        controller.workspace.mutate { $0 = world.state }
+        let entries = SidebarModel.entries(state: controller.state, sessions: [], branchByCwd: [:], projectBranch: [:], diffByTask: [:])
+        let section = try #require(SignalSidebar(state: controller.state, entries: entries).operatorSections.first)
+        let host = testHost(HeadingRow(value: HeadingValue(operatorSection: section), controller: controller).frame(width: 300),
+                            size: CGSize(width: 300, height: 40))
+        let panel = testPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel])
+        panel.contentView = host; panel.makeKeyAndOrderFront(nil)
+        defer { panel.orderOut(nil) }
+        settle(host) { panel.isKeyWindow }
+        try #require(panel.isKeyWindow)
+        let point = host.convert(NSPoint(x: 30, y: host.bounds.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            panel.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                                            timestamp: ProcessInfo.processInfo.systemUptime,
+                                                            windowNumber: panel.windowNumber, context: nil, eventNumber: 1,
+                                                            clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+        }
+        if locked {
+            settle(host, for: 0.3) // Absence, as above.
+        } else {
+            settle(host) { !controller.state.operatorFolded.isEmpty }
+        }
+        #expect(controller.state.operatorFolded == (locked ? [] : [world.project.id]))
+        #expect(controller.state.project(id: world.project.id)?.collapsed == false)
+    }
+
     @Test func aLockedProjectRowDrawsItsJiraBadgeAsAnUnlockedOneDoes() throws {
         let unlocked = try projectRow(locked: false), locked = try projectRow(locked: true)
         #expect(unlocked.pixelsWide == locked.pixelsWide && unlocked.pixelsHigh == locked.pixelsHigh)

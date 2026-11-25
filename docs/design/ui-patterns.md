@@ -9,7 +9,7 @@ Swift defines geometry and projections. This inventory explains reuse; the [Oper
 `SidebarRowContent` shares the avatar, title/badge column and trailing mark grid. `FoldOnTap` folds
 only the label; `SidebarHeadingInset` owns its gutter. Project headers use `HeaderChevron`,
 `HeaderTitle`, `ProviderIcon` and `AddMenu`. `RowPill` declares the surface. `TaskRowView` is used
-under both projects and signals. Its actions resolve the current task at invocation; its body reads
+in both sections. Its actions resolve the current task at invocation; its body reads
 cached drawn facts. `TaskRowBadges` drops whole badges so only the branch truncates. Merged requests
 show joined branches after their number. When that number is hidden, the glyph follows the host mark
 or, on a shared GitLab badge showing an issue number, the issue number. An approved request with all threads resolved
@@ -19,31 +19,35 @@ on hover and is included in the VoiceOver label.
 Project task rows offer Move Up and Move Down in their context menu and VoiceOver actions. Each
 moves one place within that project's task or review group; tasks stay above reviews, and terminals
 stay above both. The order is saved. Movement is disabled at each group's edges, while the workspace
-is locked, or while the target row is being removed or archived. Signal-owned rows have no movement
-commands; Take Over returns them to their project's usual task or review group.
+is locked, or while the target row is being removed or archived. Rows in the Operator's section have no
+movement commands; Take Over returns them to their project's usual task or review group.
 
-Signal headings have Move Up and Move Down in the same place as a project heading's, before Remove.
-Each moves the signal one place past its drawn neighbour. Past another signal the two swap: that order is
-saved and is the signals' priority for an item several of them match. Dividers sit between signal headings as
-they do between projects (`DividerRow`, off the arrow path), and a signal moves past one on one press without
-changing priority. So only the first and last drawn rows disable a direction: a signal between two dividers
-moves both ways. The Operator's row stays above every divider. A removed signal's heading has no commands, is
-drawn after the live ones and every divider, and is never a neighbour.
+Both sections group tasks by project. The Operator's section draws its row, then each project holding a task it
+runs, with only those tasks, under the divider the project has in Projects; a project or divider with nothing of
+the Operator's is left out. Its project heading is the same `HeadingRow` on a derived id
+(`OperatorSession.projectRowID`), so a project selected in one section is not selected in the other: no + and no
+menu, its click and Return fold it there alone (`AppState.operatorFolded`, apart from `Project.collapsed`). Its
+`DividerRow` has no menu. A signal's priority is its place in its section's signals sheet (Move Up and Move Down in
+a row's menu), project signals before Operator signals.
 
 Restoring an archived row keeps the existing date-based insertion rule, so it may return at the
 top of a manually reordered group. Existing rows keep their chosen relative order; the archived
 row's previous manual position is not remembered.
 
-`SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause, offers New Signal… in its + menu and Pause Operator / Resume Operator in its context menu. `SignalOperatorRow` is the active workload’s chat row,
-waiting count, errors and window recovery. `HeadingRow` draws project and signal headings with their source marks;
-its `HeadingValue` contains only the heading's drawn facts, folded counts (a signal's finished tasks apart, in the
+`SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause, offers New Signal… in its + menu and
+Pause Operator / Resume Operator in its context menu; PROJECTS' + offers Add Project…, New Signal… and Add Divider….
+Left of each +, while the section has a signal, `SectionSignalsButton` draws the signals glyph and the section's
+count in the +'s ink, `Palette.amber` while a source fails or an item is skipped (its help names the first), and
+opens that section's signals sheet. `SignalOperatorRow` is the active workload’s chat row,
+waiting count, errors and window recovery. `HeadingRow` draws project headings in either section;
+its `HeadingValue` contains only the heading's drawn facts, folded counts (finished tasks apart, in the
 green chip) and tooltip. Folded, OPERATOR draws the Operator's own chip (`OperatorChip`: its most urgent state as a
 `TaskRowMark`, needs you, paused, working, waiting, idle, and its workload's count) and the finished chip; PROJECTS
 its per-status counts. Each chip opens the section at the row it stands for (`ChipTarget`).
 `SignalSidebar` groups existing task rows; Take Over returns the same row to its project.
 
 Signal tasks use the same two-line task row as ordinary tasks: title, badges and branch, with the
-same avatar and status grid. The Operator adds no status line and never replaces task badges.
+same avatar and status grid. The Operator adds no third line to a row and never replaces task badges.
 `OperatorBadge` on the Operator’s own row describes its current action, every word in the surface’s
 secondary ink; only needs-you stands out, in the attention chip. One view, `DecodeWordsView`, draws
 the words whatever they say, in a line that spans the row so a change never resizes it, and its layer
@@ -56,7 +60,27 @@ watching; `OperatorActivityCaption` keeps a quick completed action readable for 
 result carries the same words, so nothing moves) before returning to the current status; a new event
 replaces it immediately, and a caption that has just appeared (its section unfolded) shows the
 current words without replaying an action that already ended.
-The status mark always reflects current work. The title counts the workload (“3 tasks · 2 signals”, or “No tasks”) rather than repeating the heading, and never decodes. Reduce Motion swaps; snapshots remain still.
+The status mark always reflects current work. The title counts the workload (“Running 3 tasks”, “Running 1 task” or “No tasks”) rather than repeating the heading, and never decodes. Reduce Motion swaps; snapshots remain still.
+
+The Operator shows what it runs with one status line down the status column (`StatusLineSegment`), from its own
+mark through the mark of each task it runs, in `Palette.statusLine`, ending at the last. Each row draws its own
+piece behind its trailing slot, reaching half the list's gap to its row's edge, so neighbours meet without either
+drawing into the other; it stops `Space.base` from a mark's centre (3 pt clear of the ring). A divider and an open
+project heading are passed through, a finished task's mark is passed around, and a folded project's heading takes a
+`Size.statusStop` stop in the line's ink. An exchange dots its stretch, from the Operator's mark to its task's (or
+the stop), in `text`: marching down while the Operator acts, up once for `Motion.pulse` when the task wakes it, at
+`Motion.march`; a question holds it `amber`, solid and still. A wake shows over an act and an act over a question,
+and the stop takes the stretch's ink. Only the text ink moves; status marks stay as they are. The march is a Core
+Animation dash phase anchored to media time and to each stroke's y in the list's document, so every row's dots line
+up and march in step without a `body` per frame; Reduce Motion and snapshots hold them still. A piece lives in a
+`PerRow` cell its leaf reads, so an exchange redraws no row body. The `List` clips each row view, so hosted captures,
+not the stacked snapshots, prove the seams (`StatusLineSeamTests`).
+
+A task a signal started wears the signals disc on its first avatar mark's corner (`AvatarGroupView`), a
+`SymbolMark` of the signals glyph at `Size.cornerBadge`, as a badge wears its corner check; the column keeps its
+width. Resting on the disc opens `SignalCardView` through the same presenter and hover delays as the work card,
+one card at a time, anchored after the avatar column: the signal's name, each signal that ran the task (earlier ones
+muted, a removed one marked so) with when, and the work going on now.
 
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on
 someone: a turn's background work that wakes the agent again (`background`), or a driven task that waits
@@ -114,10 +138,10 @@ of its current picks.
 | --- | --- |
 | `NewTaskSheet` | Task (ticket, name, branch beside its base) → Agent → Prompt. |
 | `NewReviewSheet` | Review (merge request, ticket, name, branch) → Agent → Prompt. |
-| `SignalSheet` | Signal → Starts when → Agents → Prompt → Done when. |
+| `SignalSheet` | Signal → Starts when → Agents (Agent on a project signal) → Prompt → Done when. Its kind is where it was made; the title says “New Operator signal” or “New project signal”. |
 | `SignalTriggerStep`, `SignalMatchPreview` | A Start or Done trigger: Reads (Jira, GitLab, GitHub), Describe it with its Write button on the label row, the query, and on Start the complete-read preview. |
-| `AgentsStep`, `AgentStep`, `ModelReasoningFields` | Agent/Model/Reasoning as selects; the signal edits a list of permitted rows. |
-| `SignalDoneStep` | The Done trigger, merge opt-in where offered, Then, optional merged-branch deletion. |
+| `AgentsStep`, `AgentStep`, `ModelReasoningFields` | Agent/Model/Reasoning as selects; an Operator signal edits a list of permitted rows, a project signal one `AgentStep` row. |
+| `SignalDoneStep` | The Done trigger (A query matches, or The Operator decides / You decide by kind), merge opt-in where offered, Then (Keep or Archive on a project signal), optional merged-branch deletion. |
 | `ProjectSheet` | Folder, Jira project links and optional worktree import; explicit Add/Save. Edit keeps the folder read-only. |
 | `NameSheet` | One confined group with the same chrome/closing block. |
 
@@ -148,7 +172,11 @@ explains behavior; only the Oracle's disabled fields fade, with their values kep
 `SettingsSwitch`, `SettingsTone` and native controls remain the shared settings vocabulary.
 
 `ArchiveSheet`/`ArchiveRow` restore or remove tasks. Search retains keyboard ownership; there are
-no broadcast records. `Notice` offers useful actions and one amber attention mark. `CheckChip`
+no broadcast records. `SignalsSheet` follows the same list pattern for one section's signals: each
+`SignalsSheetRow` in a sheet-ground `RowPill` with its source mark, name, Starts and Done lines and issues in the
+warning tone, a switched-off one faded with the pause glyph, its menu (Edit Signal…, Switch Off/On, Move Up/Down,
+Remove Signal…) as a context menu and behind a trailing ellipsis; no switch per row; New Signal… and Done in the
+footer. A source failing three reads in a row also raises `IssueBanner` with Open Signals and Settings…. `Notice` offers useful actions and one amber attention mark. `CheckChip`
 and `CheckFailureDetails` show check status and failure details.
 
 The [design reference](design-system.html) mirrors shipped components; Proposals holds only future

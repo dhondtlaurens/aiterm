@@ -90,6 +90,11 @@ class TypingGuard:
         self._sync_monitor()
         return self._epoch is None or session_id not in self._known or session_id in self._unsent
 
+    def typed_unsent(self, session_id: str) -> bool:
+        """Whether text is known to wait in the session's input: keys seen typed there and not sent, or a paste
+        whose Enter was held back. Unlike `has_unsent_input`, an unknown history is not counted."""
+        return session_id in self._unsent
+
     def _sync_monitor(self) -> None:
         epoch = self._monitoring()
         if epoch is not self._epoch:

@@ -32,4 +32,21 @@ import Testing
         let match = SignalMatch(signal: signal, item: item, project: world.project.id, matchedAt: world.now)
         #expect(MatchDecision.decide(matches: [match], signals: world.state.signals, tasks: [], seen: [seen], complete: true).isEmpty)
     }
+    /// A kind or a Done source from a newer build is written back as it came and leaves the signal unable to run.
+    @Test func aFutureKindOrDoneSourceRoundTripsAndCannotRun() throws {
+        let raw: JSONValue = "team"
+        #expect(try JSONValue(encoding: raw.decode(Signal.Kind.self)) == raw)
+        var world = SignalWorld(); world.projectSignal()
+        var object = try #require(JSONValue(encoding: world.state.signals[0]).objectValue)
+        object["kind"] = raw
+        let future = try JSONValue.object(object).decode(Signal.self)
+        #expect(future.kind == .unknown("team") && !future.isProject && !future.isRunnable)
+        #expect(try JSONValue(encoding: future) == .object(object))
+
+        var done = try #require(JSONValue(encoding: world.state.signals[0]).objectValue)
+        done["done"] = ["description": "", "query": "", "source": "someoneElse"]
+        let later = try JSONValue.object(done).decode(Signal.self)
+        #expect(later.done.source == .unknown("someoneElse") && later.isProject && !later.isRunnable)
+        #expect(try JSONValue(encoding: later) == .object(done))
+    }
 }

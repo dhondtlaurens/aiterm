@@ -81,9 +81,10 @@ struct SidebarView: View {
 
     /// The OPERATOR heading and, while its section is open (`SidebarProjection.operatorOpen`), what it holds, as the
     /// list draws them above the projects: the Operator's row — left out while it has no unfinished work or attention
-    /// (`SignalOperatorRowValue.shown`) — then each signal's heading and tasks, with the dividers between them. The
-    /// heading and the dividers are off the arrow path; the rest is on it, the Operator's row using the fixed
-    /// `OperatorSession.rowID`.
+    /// (`SignalOperatorRowValue.shown`) — then each project it runs a task of, its heading and, unfolded, those tasks,
+    /// with the projects' dividers between them as labels. The section heading and the dividers are off the arrow path;
+    /// the rest is on it, the Operator's row using the fixed `OperatorSession.rowID` and a project's heading
+    /// `OperatorSession.projectRowID`, apart from the project's own heading.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         SectionHeading(controller: controller, kind: .operator).selectionDisabled()
         ForEach(rows.operatorOpen && rows.signalOperator.shown ? [rows.signalOperator] : []) { value in
@@ -92,9 +93,10 @@ struct SidebarView: View {
         ForEach(rows.operatorOpen ? rows.operatorEntries : []) { entry in
             switch entry {
             case .divider(let divider):
-                DividerRow(signalEntry: divider, controller: controller).selectionDisabled()
-            case .signal(let section):
-                HeadingRow(value: HeadingValue(section), controller: controller).equatable().tag(section.id)
+                DividerRow(label: divider, rows: rows).selectionDisabled()
+            case .project(let section):
+                let heading = HeadingValue(operatorSection: section)
+                HeadingRow(value: heading, controller: controller).equatable().tag(heading.id)
                 if !section.collapsed {
                     ForEach(section.tasks) { row in
                         TaskRowView(row: row, controller: controller).tag(row.id)
@@ -396,18 +398,12 @@ struct SidebarSheet: View {
                 case .newTask(let model): NewTaskSheet(model: model)
                 case .newReview(let model): NewReviewSheet(model: model)
                 case .newTerminal(let project, let name, let branch): NameSheet.newTerminal(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.terminals.newTerminal(project: project, name: $0) })
-                case .newDivider(let section):
-                    NameSheet.newDivider(in: section, canSubmit: controller.canChangeWorkspace, submit: { name in
-                        switch section {
-                        case .projects: controller.projects.addDivider(name: name)
-                        case .operator: controller.addSignalDivider(name: name)
-                        }
-                    })
+                case .newDivider:
+                    NameSheet.newDivider(canSubmit: controller.canChangeWorkspace, submit: { controller.projects.addDivider(name: $0) })
                 case .rename(let target):
                     NameSheet.rename(target, canSubmit: controller.canChangeWorkspace, submit: { name in
                         switch target {
                         case .divider(let divider): controller.projects.rename(divider: divider, to: name)
-                        case .signalDivider(let divider): controller.renameSignalDivider(divider.id, to: name)
                         case .task(let task): controller.projects.rename(task: task, to: name)
                         case .terminal(let terminal): controller.projects.rename(terminal: terminal, to: name)
                         }
@@ -427,6 +423,7 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
+                case .signals(let model): SignalsSheet(model: model)
                 case .signal(let model): SignalSheet(model: model)
             }
         }

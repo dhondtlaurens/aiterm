@@ -5,8 +5,8 @@ import Foundation
 /// Per runnable scheduled signal, the latest time of its cron after both its cursor (the last time fired or skipped) and
 /// its `scheduledFrom`, and at or before now, is due: older missed times are dropped, and a time is never due twice. A
 /// due time is skipped, with its reason, while the signal's previous run is unfinished or its project is gone. Either
-/// way the cursor moves to it. While the Operator may not act (paused or stopped), nothing is due and no cursor moves,
-/// so the latest time missed meanwhile runs once it may.
+/// way the cursor moves to it. While a signal may not act (an Operator signal while the Operator is paused, any while it
+/// is stopped), nothing of it is due and its cursor does not move, so the latest time missed meanwhile runs once it may.
 public enum ScheduleDecision {
     public struct Due: Equatable, Sendable {
         public var signal: UUID, run: SignalRunRef, project: UUID
@@ -23,18 +23,19 @@ public enum ScheduleDecision {
     }
 
     static let unfinished = "The last run is still unfinished."
-    static let projectGone = "Its project is no longer in AiTerm."
+    public static let projectGone = "Its project is no longer in AiTerm."
 
-    public static func decide(signals: [Signal], cursors: [UUID: Date], tasks: [TaskItem], projects: [Project],
-                              now: Date, calendar: Calendar, mayAct: Bool) -> Outcome {
+    /// `tasks` are the sidebar's, `archive` the archived ones; `pending` names the signals with a run queued or being
+    /// created that has no task yet.
+    public static func decide(signals: [Signal], cursors: [UUID: Date], tasks: [TaskItem], archive: [TaskItem], projects: [Project],
+                              now: Date, calendar: Calendar, mayAct: (Signal) -> Bool, pending: Set<UUID> = []) -> Outcome {
         var outcome = Outcome()
-        guard mayAct else { return outcome }
-        for signal in signals where signal.isScheduled && signal.isRunnable {
+        for signal in signals where signal.isScheduled && signal.isRunnable && mayAct(signal) {
             guard let cron = signal.start.cron,
                   let at = cron.latest(atOrBefore: now, after: lowerBound(of: signal, cursor: cursors[signal.id]), in: calendar) else { continue }
             let run = SignalRunRef(signal: signal.id, at: at)
             outcome.cursors[signal.id] = at
-            if previousRunUnfinished(signal.id, in: tasks) {
+            if previousRunUnfinished(signal.id, tasks: tasks, archive: archive, pending: pending) {
                 outcome.skipped.append(Skip(signal: signal.id, run: run, reason: unfinished))
             } else if let project = signal.start.project, projects.contains(where: { $0.id == project }) {
                 outcome.due.append(Due(signal: signal.id, run: run, project: project))
@@ -51,12 +52,18 @@ public enum ScheduleDecision {
         return cron.next(after: max(now, lowerBound(of: signal, cursor: cursor)), in: calendar)
     }
 
-    /// Whether a task that started from one of `signal`'s runs is still the Operator's and unfinished, whichever signal's
-    /// stage it runs now.
-    public static func previousRunUnfinished(_ signal: UUID, in tasks: [TaskItem]) -> Bool {
-        tasks.contains { task in
+    /// Whether one of `signal`'s runs is unfinished: a task that started from one is still the Operator's and
+    /// unfinished, whichever signal's stage it runs now; a project signal's run task, in the sidebar and not taken over,
+    /// has not reached its Done; or a run is in `pending`, queued or being created with no task yet.
+    public static func previousRunUnfinished(_ signal: UUID, tasks: [TaskItem], archive: [TaskItem], pending: Set<UUID> = []) -> Bool {
+        if pending.contains(signal) { return true }
+        if (tasks + archive).contains(where: { task in
             guard let record = task.signalTask, record.scheduledRun?.signal == signal else { return false }
             return !record.isFinished
+        }) { return true }
+        return tasks.contains { task in
+            guard task.signalTask == nil, !task.takenOver, let origin = task.signalOrigin, case .run(let run) = origin.item else { return false }
+            return run.signal == signal && origin.doneAt == nil
         }
     }
 

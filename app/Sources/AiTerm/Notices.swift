@@ -14,6 +14,9 @@ final class Notices {
     /// The latest report that had nothing to offer while `issue` held a question: it waits here, and
     /// takes the banner once the question is answered or dismissed. Not drawn, so not observed.
     @ObservationIgnored private var deferredIssue: OperationIssue?
+    /// A background report (a failing signal's source) kept back while a question is up, or put back when something
+    /// else took its place: it takes the banner once the banner is free and nothing else waits. Not drawn.
+    @ObservationIgnored private var heldBackground: OperationIssue?
     private(set) var toastState = ToastState()
 
     /// How long a completion toast stays up.
@@ -62,15 +65,54 @@ final class Notices {
     }
 
     /// Shows `issue` above the list, in place of whatever was there — unless it is about a task or
-    /// project that has gone while the work it reports was running, or it offers nothing while a
-    /// question with answers is still up: a background failure must not take a diverged pull's
+    /// project that has gone while the work it reports was running, or it asks nothing (`isQuestion`)
+    /// while a question with answers is still up: a background failure must not take a diverged pull's
     /// Rebase from someone who has not answered yet. It waits (the newest one) until
     /// the question is gone, and is logged meanwhile. The toast cannot carry it: it is the
     /// completion toast, a checkmark and all.
     func report(_ issue: OperationIssue) {
         guard !isStale(issue) else { return }
-        if issue.actions.isEmpty, self.issue?.actions.isEmpty == false { return hold(issue, while: "a question is waiting") }
-        if let shown = self.issue, shown.subject != issue.subject { withdraw(shown) }
+        if !issue.isQuestion, self.issue?.isQuestion == true { return hold(issue, while: "a question is waiting") }
+        replace(with: issue)
+    }
+
+    /// Shows `issue`, which nobody asked for just now (a signal whose source keeps failing), unless a question is up:
+    /// then it waits, even though it has actions of its own, and takes the banner once the question is gone. The newest
+    /// background report wins the one place: it replaces another shown or held.
+    func report(_ issue: OperationIssue, background: Bool) {
+        guard background else { return report(issue) }
+        guard !isStale(issue) else { return }
+        if self.issue?.isQuestion == true {
+            Log.ui.notice("Held back while a question is waiting: \(issue.title, privacy: .public)")
+            heldBackground = issue
+            return
+        }
+        if heldBackground?.signal == issue.signal { heldBackground = nil }
+        replace(with: issue)
+    }
+
+    /// The banner about signal `issue.signal`, shown or held, says `issue` now (its newer error and retry time). Nothing
+    /// else changes: a dismissed one stays dismissed.
+    func refresh(_ issue: OperationIssue) {
+        guard let signal = issue.signal else { return }
+        if heldBackground?.signal == signal { heldBackground = issue }
+        if self.issue?.signal == signal { show(issue) }
+    }
+
+    /// Takes down what is about `signal`, shown or held back: its source reads again, or it was switched off.
+    func dropIssue(aboutSignal signal: UUID) {
+        if heldBackground?.signal == signal { heldBackground = nil }
+        if deferredIssue?.signal == signal { deferredIssue = nil }
+        if issue?.signal == signal { clearIssue() }
+    }
+
+    /// Shows `issue` in place of the banner's, withdrawing that one's task. A background banner something else takes the
+    /// place of is put back behind it, unless a newer one waits there already.
+    private func replace(with issue: OperationIssue) {
+        if let shown = self.issue {
+            if shown.subject != issue.subject { withdraw(shown) }
+            if shown.signal != nil, shown.signal != issue.signal, issue.signal == nil, heldBackground == nil { heldBackground = shown }
+        }
         show(issue)
     }
 
@@ -87,10 +129,13 @@ final class Notices {
     /// For an action that answered the banner's question.
     func clearIssue() {
         show(nil)
-        guard let held = deferredIssue else { return }
-        deferredIssue = nil
-        if !isStale(held) {
-            show(held)
+        if let held = deferredIssue {
+            deferredIssue = nil
+            if !isStale(held) { return show(held) }
+        }
+        if let background = heldBackground {
+            heldBackground = nil
+            if !isStale(background) { show(background) }
         }
     }
 
@@ -113,6 +158,7 @@ final class Notices {
     /// `window.closed`, a removed project, a restored backup or a removal.
     func dropStale() {
         if let held = deferredIssue, isStale(held) { deferredIssue = nil }
+        if let background = heldBackground, isStale(background) { heldBackground = nil }
         if let issue, isStale(issue) { clearIssue() }
     }
 
@@ -121,8 +167,8 @@ final class Notices {
     /// it would be behind the question shown). A question held in place of another withdraws it, so
     /// whatever its row said in the banner's stead goes with it.
     private func hold(_ issue: OperationIssue, while reason: String) {
-        if let held = deferredIssue, !held.actions.isEmpty {
-            if issue.actions.isEmpty {
+        if let held = deferredIssue, held.isQuestion {
+            if !issue.isQuestion {
                 Log.ui.notice("Dropped behind a held question: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
                 return
             }

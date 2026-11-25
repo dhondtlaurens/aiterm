@@ -2,7 +2,10 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Projects and signals share their fold, mark, title and counts on the same grid.
+/// A project's heading, in the projects or in the Operator's section, draws its fold, mark, title and counts on one
+/// grid. In the Operator's section it is a label over the tasks the Operator runs there: no "+", no menu, and its
+/// click and ↩ fold it there alone (`AppController.toggleOperatorFold`), and its trailing slot carries its piece of the
+/// Operator's status line: passed through, or a folded project's stop.
 struct HeadingRow: View, Equatable {
     let value: HeadingValue
     let controller: AppController
@@ -33,7 +36,9 @@ struct HeadingRow: View, Equatable {
             .modifier(RowCommandActions(groups: commands))
             trailing(commands: commands)
         }
-        .frame(height: scale(Size.projectRow)).modifier(SidebarHeadingInset())
+        .frame(height: scale(Size.projectRow))
+        .modifier(StatusLineOverlay(id: value.id, rows: value.isOperatorProject ? controller.rows : nil, reach: StatusLineReach.halfGap))
+        .modifier(SidebarHeadingInset())
         .modifier(RowPill(selected: selected))
         .modifier(RowHelp(text: value.help))
         .modifier(RowCommandContextMenu(groups: commands))
@@ -56,7 +61,7 @@ struct HeadingRow: View, Equatable {
                     }
                 }
             }
-        case .signal:
+        case .operatorProject:
             HeaderTitle(text: value.title)
         }
     }
@@ -67,19 +72,15 @@ struct HeadingRow: View, Equatable {
             AddMenu(help: "New task, review or terminal", enabled: controller.canChangeWorkspace) {
                 RowCommandMenu(groups: Array(commands.prefix(1)))
             }
-        case .signal(_, _, let paused, _, _):
-            Group {
-                if paused { Image(systemName: "pause.fill").font(Typography.chip).foregroundStyle(Palette.tertiary) }
-                else { Color.clear }
-            }.frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
+        case .operatorProject:
+            Color.clear.frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
         }
     }
 
     private func toggleCollapsed() {
         switch value.kind {
         case .project(let project, _, _): controller.projects.toggleCollapsed(project)
-        case .signal:
-            if let section = controller.rows.signalSections.first(where: { $0.id == value.id }) { controller.toggleCollapsed(section.signal) }
+        case .operatorProject(let project): controller.toggleOperatorFold(project)
         }
     }
 
@@ -121,22 +122,8 @@ struct HeadingRow: View, Equatable {
                 Task { if let current = controller.state.project(id: id) { await controller.projects.confirmRemove(project: current) } }
             }])
             return groups
-        case let .signal(_, removed, paused, canMoveUp, canMoveDown):
-            guard !removed else { return [] }
-            let id = value.id
-            return [
-                [RowCommand(title: "Edit Signal…", enabled: controller.canPresentNewSignal) {
-                    if let current = controller.state.signal(id: id) { controller.presentNewSignal(editing: current) }
-                },
-                 RowCommand(title: !paused ? "Switch Off" : "Switch On", enabled: enabled) {
-                    if let current = controller.state.signal(id: id) { controller.toggleEnabled(current) }
-                }],
-                [RowCommand(title: "Move Up", enabled: enabled && canMoveUp) { controller.moveSignal(id, .up) },
-                 RowCommand(title: "Move Down", enabled: enabled && canMoveDown) { controller.moveSignal(id, .down) }],
-                [RowCommand(title: "Remove Signal…", role: .destructive, enabled: enabled) {
-                    if let current = controller.state.signal(id: id) { controller.removeSignal(current) }
-                }]
-            ]
+        case .operatorProject:
+            return []
         }
     }
 }
@@ -164,13 +151,18 @@ struct SectionHeading: View {
             SectionFoldLabel(title: title, fold: fold, hovering: hovering, commands: commands,
                              enabled: controller.canChangeWorkspace, toggle: { controller.toggleOperatorOpen() },
                              open: { controller.openSection(kind, at: $0) })
+            if fold.signals > 0 {
+                SectionSignalsButton(section: kind, count: fold.signals, issue: fold.signalIssue, enabled: controller.canChangeWorkspace) {
+                    controller.presentSignals(kind)
+                }
+            }
             switch kind {
             case .operator:
                 AddMenu(help: "Operator actions", enabled: controller.canPresentNewSignal) {
                     RowCommandMenu(groups: addCommands)
                 }
             case .projects:
-                AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
+                AddMenu(help: "Add project, signal or divider", enabled: controller.canChangeWorkspace) {
                     RowCommandMenu(groups: addCommands)
                 }
             }
@@ -191,10 +183,10 @@ struct SectionHeading: View {
     func addCommands() -> [[RowCommand]] {
         switch kind {
         case .operator:
-            [[RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal() },
-              RowCommand(title: "Add Divider…", enabled: controller.canAddSignalDivider) { controller.sheets.presentNewDivider(in: .operator) }]]
+            [[RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal(kind: .operator) }]]
         case .projects:
             [[RowCommand(title: "Add Project…", enabled: controller.canChangeWorkspace) { Task { await controller.projects.addProject() } },
+              RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal(kind: .project) },
               RowCommand(title: "Add Divider…", enabled: controller.canChangeWorkspace) { controller.sheets.presentNewDivider() }]]
         }
     }
@@ -235,6 +227,44 @@ struct SectionFoldLabel: View {
                     .onTapGesture { if folds { toggle() } }
             }
         }
+    }
+}
+
+/// A section heading's signals icon, left of its "+": the signals glyph and how many signals the section has, in the
+/// "+"'s ink. Its click opens the section's signals sheet; VoiceOver says the count in words ("3 Operator signals").
+struct SectionSignalsButton: View {
+    let section: SidebarSection
+    let count: Int
+    /// The section's first failing source or skipped item (`SectionFold.signalIssue`): the icon and count turn
+    /// `Palette.amber` and the hover says it.
+    var issue: String? = nil
+    let enabled: Bool
+    let open: () -> Void
+    @Environment(\.interfaceScale) private var scale
+    @Environment(\.surface) private var surface
+
+    /// "1 Operator signal", "3 project signals".
+    static func label(section: SidebarSection, count: Int) -> String {
+        "\(count) \(section == .operator ? "Operator" : "project") \(count == 1 ? "signal" : "signals")"
+    }
+
+    var body: some View {
+        let label = Self.label(section: section, count: count)
+        Button(action: open) {
+            HStack(spacing: scale(Space.tight)) {
+                Image(systemName: "dot.radiowaves.left.and.right").font(Typography.chip)
+                Text("\(count)").font(Typography.chip.tabular)
+            }
+            .foregroundStyle(issue != nil && !surface.isOnAccent ? Palette.amber : surface.secondaryInk)
+            .frame(height: SidebarRowLayout.trailingSlot(scale))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .fixedSize()
+        .help(issue ?? label)
+        .accessibilityLabel(label)
+        .accessibilityValue(issue ?? "")
     }
 }
 
@@ -325,6 +355,7 @@ struct ProviderIcon: View {
         case .gitHub: .brand(Palette.github)
         case .schedule: .symbol("clock")
         case .operator: .symbol("checkmark.seal")
+        case .person: .symbol("person")
         case .unknown: .symbol("questionmark.circle")
         }
     }

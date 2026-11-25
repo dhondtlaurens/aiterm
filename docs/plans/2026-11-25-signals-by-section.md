@@ -53,7 +53,8 @@ Decided from the code and the agreed design (stated, not asked):
 
 ### Corrected against the code
 
-Each of these changes what the first version of this plan said, with the reason.
+Each of these changes what the first version of this plan said, with the reason. Line references are to the code
+before this change; the behaviour items 2, 3, 5, 6, 7, 11 and 13 describe is fixed in this change.
 
 1. **A pick-up is recorded as started only once its task is saved.** The first version recorded `seen(.started)`
    in `ItemRouter` and then queued the create. `TaskLauncher.create` can throw before a row exists (`work.begin(.creatingTask)`
@@ -344,7 +345,12 @@ Docs: `docs/operators.md`, `docs/architecture.md`, `docs/keyboard.md` (⌘S, if 
 Each step lists its changes, the cases it must handle, its tests and its proof. "Not handled" names a case judged
 not worth the code, with the reason.
 
-- [ ] **0. Probe the status line's seams** (test code only).
+- [x] **0. Probe the status line's seams** (test code only). **Result, 25 Nov 2026:** the seam is fully painted at
+  standard, large and extra large (16/16 gap pixels at 2×) by each row reaching `Space.tight` past its pill. The list's
+  8 pt gap is a fixed inset (it does not scale) split half to each row: `ListTableCellView` is the row rect and does
+  not clip, `NSTableRowView` clips (`clipsToBounds`). So a segment reaches **to its own row's edge** and the
+  neighbour paints the other half; nothing draws into another row. Step 12 draws each piece to its row's edge.
+  `StatusLineSeamTests` stays as the seam guard.
   - Create `app/Tests/AiTermTests/StatusLineSeamTests.swift` in the style of `SidebarRowGeometryTests`: host a
     `List` set up as `SidebarView` sets its own up (sidebar style, hidden separators, `NativeRowHighlight.off`) with
     three `SelectableRow`s whose trailing slot holds a throwaway overlay drawing a 1.5 pt vertical stroke that
@@ -355,7 +361,10 @@ not worth the code, with the reason.
     before step 12.
   - Proof: `scripts/test.sh swift -- --filter StatusLineSeamTests`.
 
-- [ ] **1. Model and saved format.**
+- [x] **1. Model and saved format.** Done 25 Nov 2026. Beyond the text below: `.dropped` also restores `startedAt`
+  from the popped step; `Signal.init(kind: .operator)` stores nil; `.person` also reached `QueryWriterRunner.check`
+  and `SignalTriggerStep` ("You decide", the `person` symbol); `SignalModel` does not carry `kind` yet (step 8 adds it,
+  so editing a project signal before step 8 would drop its kind).
   - `Signal.swift`: `kind` and `Kind`; `isValid` gains: an unknown kind is invalid; a project signal has exactly one
     agent row, no `mergesWhenReady`, Then `.keep` or `.archive`, no `deletesMergedBranch`, and a Done that is not
     `.operator`; an Operator signal's Done is not `.person`.
@@ -384,7 +393,11 @@ not worth the code, with the reason.
     `SignalSavedFormatTests`: unchanged and green.
   - Proof: `--filter SignalKindFormatTests`, `SignalSavedFormatTests`, `SignalDomainTests`, `ModelsTests`.
 
-- [ ] **2. Matching rules** (pure Core; no runtime reads the new decisions yet).
+- [x] **2. Matching rules** (pure Core; no runtime reads the new decisions yet). Done 25 Nov 2026. Notes:
+  `SignalMatch.fromFork` (set by `ItemRouter` from `forkHead`) carries the fork fact; `.rematch` also claims the item
+  for the pass; a project signal's skip (fork, several projects, the Operator's task) claims nothing, so an Operator
+  signal behaves as today (decided: a skip means the project signal declines the item); `ScheduleDecision` takes the
+  archive apart from the sidebar tasks for O3; project skips still go through `changed` until 3b moves them.
   - `MatchDecision.swift`:
     - `decide` takes `claimed: Set<String>` (default empty). Ranks: runnable project signals first in their order
       in `signals`, then Operator signals in theirs.
@@ -421,8 +434,11 @@ not worth the code, with the reason.
     only Operator schedules; a marked run blocks its signal until `doneAt` or the archive; a taken-over run does not.
   - Proof: `--filter ProjectSignalDecisionTests`, `SignalDomainTests`, `ScheduleDecisionTests`, `ModelsTests`.
 
-- [ ] **3. Pick-up.** Three sub-steps, each green.
-  - **3a. An unattended create.**
+- [x] **3. Pick-up.** Three sub-steps, each green.
+  - **3a. An unattended create.** Done 25 Nov 2026: `TaskLauncher.UnattendedCreate` (`.task`, `.run`, `.review`,
+    `.ownRequest(ReviewDraft)`, `saving`, `prompt`), `createUnattended`, `openUnattended(_:prompt:saving:)`,
+    `CreationBusy` (manual creates throw it too), `TaskWorkflow.createOnRequest`; a checkout owner refuses
+    `.ownRequest` too. Compose the owed prompt once (`request.prompt`): description JSON key order varies per call.
     - `TaskLauncher.swift`: `createUnattended(_ request:) async throws -> UUID`. The request carries the project,
       the kind of create (review, task, own request, run), the draft, and `saving: (inout AppState, UUID) -> Void`,
       run inside the change that appends the row. It reuses `create`'s order (`work.begin(.creatingTask)`, checkout,
@@ -444,10 +460,15 @@ not worth the code, with the reason.
       a busy project throws `CreationBusy`; a checkout owner throws and opens no tab (`RecordingDaemon` saw no
       `createTab` and no `activate`); `openUnattended` asks for a background window.
     - Proof: `--filter UnattendedCreateTests`, `TaskWorkflowTests`, `ReviewInTaskTests`.
-  - **3b. Route, queue, gate, launch** (item signals).
+  - **3b. Route, queue, gate, launch** (item signals). Done 25 Nov 2026: `ItemRouter.route(observations:)` returns
+    `Routed` (launches, pick-ups); `apply(observations:)` stays and returns the launches, so existing tests are
+    unchanged; `router.claimed` and `router.projectChanged` (no listener yet). `ProjectSignals.Ports` also carries
+    `defaultBranch`; `choose(_:)` is called by `RowWindows.open` for a task owing its launch. A launch waits while its
+    signal is switched off and still runs when the signal was removed; a failed open backs off 300 s in memory. The
+    `.delivery` restart-and-deliver test is step 5's.
     - `ItemRouter.swift`: `apply(observations:)` returns launches and pick-ups. `.startOrdinary` builds a
-      `ProjectPickup` and writes nothing. `.rematch` is written in step 5; until then it only records
-      `seen(.started)`. Skips are recorded as today. Project events go to a second hook, not `changed`, so they are
+      `ProjectPickup` and writes nothing. `.rematch` writes the change described under Flows (step 5)
+      and records `seen(.started)`. Skips are recorded as today. Project events go to a second hook, not `changed`, so they are
       neither written to the Operator's activity log nor wake it. The router is handed the claims.
     - `ProjectSignals.swift` (new, built lazily by `SignalOperatorController` like `stages`, its effects behind a
       `Ports` struct the app sets: create, open, restore, deliver): `enqueue`, the per-project runners, the
@@ -507,7 +528,13 @@ not worth the code, with the reason.
       its budget. `SignalEngineTests`, `SignalJourneyTests`: green unchanged.
     - Proof: `--filter ProjectSignalsTests`, `SignalPollerTests`, `SignalControllerTests`, `SignalReadIssuesTests`,
       `SignalEngineTests`, `SignalJourneyTests`, `SignalFreshDigestTests`.
-  - **3c. Schedules.**
+  - **3c. Schedules.** Done 25 Nov 2026: `SignalScheduler.canSchedule` takes the signal and `pending` reads
+    `ProjectSignals.pendingRuns` (runs queued, under way or waiting to be tried again); `scheduler.tick()` and
+    `ItemRouter.apply(schedule:)` return `Routed`, whose pick-ups the controller enqueues. A run's pick-up carries a
+    `SignalItem` titled `runTitle`; its create writes the origin and no started record. "Three times" is read as three
+    tries after the first (four creates); only the last failure is recorded, as the signal's run skip
+    (`ItemRouter.recordRunSkip`). A project run's skips go to `projectChanged`, not the Operator's log. Not handled: a
+    queued run dropped by the re-check (signal switched off, project removed) leaves no skip record.
     - `SignalScheduler.swift`: `canSchedule` becomes per signal (stopped: none; an Operator signal: not paused; a
       project signal: always). `ItemRouter.apply(schedule:)`: a due run of a project signal returns a pick-up and
       moves its cursor in the same flush, as a run's cursor, not `signalSeen`, keeps it from starting twice
@@ -526,7 +553,17 @@ not worth the code, with the reason.
       records the skip.
     - Proof: `--filter ProjectSignalScheduleTests`, `SignalScheduleJourneyTests`, `ScheduleDecisionTests`.
 
-- [ ] **4. Done and Then.**
+- [x] **4. Done and Then.** Done 25 Nov 2026. `SignalHostIO.doneFacts(for:done:item:)`;
+  the private check takes the Done and the item (`accountReference` names the request by the item). `ProjectSignals.baseline(_:)`
+  is the pre-send read step 5's delivery calls before typing: it saves `doneKey` (`SignalOrigin.doneKey`, also for
+  **You decide**, with `doneMatched` nil, so an edit to a query is a key change) and returns false while held. A held
+  read's reason is a `.skipped` record **beside** the item's `.started` one (a run's via `recordRunSkip`), removed when
+  the read succeeds: replacing the started record would let the next pass decide the item again (`.rematch`). The
+  watch (`ProjectSignalWatch`, the controller's `projectWatch`, its reads through the controller's `doneFacts` and its
+  archive through `archive`) reads no task owing any prompt, `.delivery` included, and treats a nil `doneKey` on a
+  launched task as a changed key (a baseline). A queued run the re-check drops records its run skip ("Its signal was
+  switched off before its task was made.", `projectGone`, or "Its signal changed…"). Then `.remove` and `.unknown`
+  wait without acting.
   - `SignalHostIO.swift`: the private query check takes the Done trigger and the item instead of reading
     `task.signalTask`; the Operator's two callers pass their stage's. New `doneFacts(for:done:item:)`: the task's own
     request by `task.mr` or its branch, its merged and closed state, and the query's answer, with the rule that a
@@ -556,7 +593,20 @@ not worth the code, with the reason.
     does. `SignalHostIOTests`, `SignalWatchTests`: green, the Operator's reads unchanged.
   - Proof: `--filter ProjectSignalWatchTests`, `SignalHostIOTests`, `SignalWatchTests`, `SignalAutomaticCleanupTests`.
 
-- [ ] **5. Re-match delivery.**
+- [x] **5. Re-match delivery.** Done 25 Nov 2026. `ItemRouter.rematched` writes the origin; the prompt is composed once
+  through `pickupKind(...).prompt` (`UnattendedCreate.Kind.prompt`), as a pick-up's; `Routed.rematches` reaches
+  `ProjectSignals.deliverSoon`. The daemon's guarded mode is `guardInput` on `session.deliver` (sent only when set, so
+  every other request's bytes are unchanged); `DaemonCommands` keeps the old signature as an unguarded extension. The
+  `deliver` port is `(session, text, worktree) -> Delivery`. A delivery decides its route before the baseline read (a
+  worker at work, asking, holding its turn or running your own prompt waits and reads nothing), reads it, then looks again.
+  `typing`, `unsentInput`, `prompt`, `screenUnread`, `sessionClosed`, `replaced`, `itermDisconnected` and `itermRefused`
+  wait silently for the next tick; any other refusal (`notChecked`, `keysUnwatched`, …) also waits for the tick and is
+  said as the signal's skipped record "Its prompt couldn’t be typed: …" beside the started one, as a failed restore
+  ("Couldn’t restore its task: …", backed off 300 s) is; a delivery takes it down. The open path (no agent listed: a
+  closed window, an archived task once restored, or a window with no agent) uses the pause and the window turn as the
+  launch does, but `choose(_:)` stays launch-only: choosing such a row opens it as the person's, and the prompt is typed
+  once its worker is idle. A delivery that throws waits for the tick. Not handled: a newer re-match written while an
+  older prompt is being typed leaves the newer owed too, so both reach the worker.
   - `ItemRouter.swift`: `.rematch` writes the change described under Flows and reports the task to `ProjectSignals`.
   - `ProjectSignals.swift`: the delivery step of `tick()`, and on `LiveSessions.onSessionsChanged` for a task that
     owes a prompt: restore, then deliver, open or add a tab as Flows says. Today the typing, unsent-input and
@@ -585,9 +635,17 @@ not worth the code, with the reason.
     `SignalSelectionTests.aMergeRequestOnAnExistingTasksBranchContinuesThatTask` stays green for Operator signals.
   - Proof: `--filter ProjectSignalsTests`, `SignalSelectionTests`.
 
-- [ ] **6. First-turn notification.**
-  - `ProjectSignals.swift`: the hook and rule under Flows. The note's id is per task; its title is the task's
-    title, its body the signal's name and "is ready for you" or "asks you something". It is withdrawn when the row
+- [x] **6. First-turn notification.** Done 25 Nov 2026. `ProjectSignals.watchTurns` runs on every change to the tabs
+  Wording (as picked, 7B): the note's title is the signal's name, its body "<!iid or ticket key> <task title> is ready
+  for you, in <project>." or "… asks you something, in <project>."
+  and at each tick (the first snapshot can come before the tabs are known). Evidence is any agent session of the task
+  at `.working` while the turn is saved; "nothing holding the turn" is every agent of the task with its turn ended, no
+  `holdsTurn` work and no active test run. A task taken over or with a `signalTask` never notifies. The maker is
+  `SignalTurnNotification` (id `aiterm.signal.turn.<task>`, title and body as worded above), posted through the controller's `ports.notifications`. `rowChosen` is called from
+  `RowFocus.onSelectionChanged` in `AppController`; a task that leaves the sidebar (removed or archived) takes its note
+  with it. Not handled: a note left showing for a task removed while AiTerm was closed.
+  - `ProjectSignals.swift`: the hook and rule under Flows. The note's id is per task; its title is the signal's
+    name, its body the item, the task's title and "is ready for you" or "asks you something". It is withdrawn when the row
     is chosen (`RowFocus.onSelectionChanged`) or the task goes.
   - `Operators/OperatorNotifications.swift`: a small maker beside `SignalQuestionNotification`.
   - Cases: a turn that ends with background work running (waits for the real end); a restart after the turn ended
@@ -601,7 +659,17 @@ not worth the code, with the reason.
     (`SignalSidebarTests.aQuestionNotificationSelectsTheOperatorThroughTheManagedFocusPath` is the pattern).
   - Proof: `--filter ProjectSignalsTests`.
 
-- [ ] **7. The signals sheet and the OPERATOR heading's icon.**
+- [x] **7. The signals sheet and the OPERATOR heading's icon.** Done 25 Nov 2026. `SignalSummary` (Core) has
+  `starts`, `nextRun`, `done` and `triggers`; `HeadingValue.triggers` is gone (its test calls `SignalSummary`).
+  `SignalsSheetModel.rows(state:section:failure:now:calendar:)` builds the rows; `failure` is
+  `SignalReadIssues.issue(for:)?.text`, said "Can’t read GitLab: …". Move Up/Down in the sheet is
+  `AppController.moveSignalPriority`: it steps past dividers until it passes a signal of its kind (dividers are not
+  drawn in the sheet), and is off when none lies that way. Edit and New empty the slot and call `presentNewSignal`
+  (the list's slot is not `sheet == nil`, so they go through `replaceSignalsSheet`). Footer: New Signal… on the left,
+  Done (⌘↩, ⎋) on the right. A skipped item is now named by its key or `!n`/`#n` (it was the raw identity,
+  `jira:https://…:PAY-7`), in the heading's tooltip too. `SectionFold.signals` counts the Operator's signals only;
+  `signalIssue` stays nil until step 9, and the icon does not read it yet. The hosted `signals-*` poses gain the icon;
+  they were not rendered (hosted only).
   - `SignalSummary.swift` (Core): `triggers(_:nextRun:calendar:)` moved from `HeadingValue`, with the `.person` line
     "Done: You decide". `HeadingValue` calls it until step 10 removes its signal case.
   - `SignalsSheetModel.swift`: a section kind and a closure giving its rows. A row: id, source mark, name, Starts
@@ -619,7 +687,7 @@ not worth the code, with the reason.
     `Views/SidebarHeadings.swift`: in `SectionHeading`, between the fold chevron and the `+`, a button with the
     signals glyph (O6) and the count in `Typography.chip.tabular`, shown while the section has a signal, with an
     accessibility label in words ("3 Operator signals"). Step 7 wires the Operator's only.
-  - Signal headings stay as they are in this step; the sheet is a second way to the same actions.
+  - The sheet holds every signal action; step 10b removes the signal headings that also carried them.
   - Tests: new `app/Tests/AiTermTests/SignalsSheetModelTests.swift`: rows in priority order; lines for a query, a
     schedule with its next run and **You decide**; issue lines; Move Up changes the order and the priority; Switch
     Off saves through the controller; Remove asks through the scripted prompter. `SidebarProjectionTests`: the count
@@ -628,7 +696,15 @@ not worth the code, with the reason.
   - Proof: `--filter SignalsSheetModelTests`, `SidebarProjectionTests`; snapshots `signals-sheet-operator`,
     `signals-sheet-empty`, `signals-heading-icon` (new poses in `SheetSnapshots.swift` and `SignalSidebarSnapshots.swift`).
 
-- [ ] **8. Project signals in the interface.**
+- [x] **8. Project signals in the interface.** Done 25 Nov 2026. `SignalModel(signal:kind:…)`: editing reads the
+  signal's kind and ignores the caller's; `doneKinds`, `thenValues` and `stepNames` (step 3 is "Agent" on a project
+  signal) come from the model, and `setDoneKind` refuses a kind the signal's kind does not offer. You decide's fields are
+  one help line under Done when (with O3's skipped run on a schedule). A project signal's summary opens "Each … starts a
+  task / a review in its project with your prompt; …". `AppController.presentNewSignalInOpenSection()` is File › New
+  Signal…; `SidebarSection.signalKind` presets the sheet's New Signal…. `SignalSidebar` leaves project signals out of
+  `signals` and `entries`; dividers among them are untouched until 10c. The project poses and `signals-sheet-projects`
+  are drawn last (`SignalSnapshots.project`, `SheetSnapshots.projectSignalsSheets`). The other `signal-*` images
+  differ from `build/snapshots-before` in the title and, in some, by a colour-profile tint of every pixel (no layout move).
   - `Operators/SignalModel.swift`: `kind`, set by the caller for a new signal and read from the signal when
     editing; `title` is "New Operator signal", "New project signal", "Edit Operator signal" or "Edit project
     signal". For a project signal: one agent row (the first; Add and Remove are absent), `DoneKind` gains
@@ -657,7 +733,18 @@ not worth the code, with the reason.
     `signal-project-gitLab-1..5`, `signal-project-schedule-5`, `signals-sheet-projects`; the existing `signal-*`
     poses change only in their title.
 
-- [ ] **9. Errors.**
+- [x] **9. Errors.** Done 25 Nov 2026. The controller's port is `readIssueBanner` (`raise`, `refresh`, `drop`), wired
+  to `Notices.report(_:background: true)`, `Notices.refresh(_:)` and `dropIssue(aboutSignal:)`; a later failure of a
+  raised streak only rewrites a banner still up or held (newer error and retry time), so a dismissed one stays gone.
+  `OperationIssue.Action.answers` and `isQuestion` (only Rebase answers): a plain report now waits only behind a
+  question, not behind a source's banner, and a source's banner that a question or a plain report displaces is held
+  and returns once the banner is free; the newest source wins the one place, shown or held. `configure` prunes the
+  issues of signals removed or switched off (`SignalReadIssues.prune`), taking their banner down; `Issue.last` is the
+  latest failure, which the retry time counts from. Words in Core: `SignalReadIssues.sentence`, `retry(at:from:)`
+  ("AiTerm tries again at 14:05.", the weekday only across midnight) and `reason(_:retry:)`. The skipped item's hover
+  is "“Reviews for me” skipped !12: …". The snapshot fixture's workspace is never loaded, so a heading's controls draw
+  disabled (dimmed amber in `signals-heading-issue`, as the grey in `signals-heading-icon`); the pose ends with the
+  icon alone, enabled.
   - `SignalOperatorController.swift`: at the third failure in a row of a signal (`SignalReadIssues`, step 3b) it
     raises the banner and marks the issue `raised`; `succeed` takes the banner down.
   - `OperationIssue.swift`: `.openSignals(signal:)` ("Open Signals") and `.openSettings` ("Settings…"); `isStale` is
@@ -680,8 +767,13 @@ not worth the code, with the reason.
   - Proof: `--filter SignalControllerTests`, `NoticesTests`, `OperationIssueTests`, `SidebarProjectionTests`;
     snapshots `signals-heading-issue`, `signals-sheet-issues`, `issue-signal-read`.
 
-- [ ] **10. The Operator section by project.** Three sub-steps; signal headings are replaced in 10b, in one commit.
-  - **10a. Values, beside the old ones** (nothing drawn changes).
+- [x] **10. The Operator section by project.** Three sub-steps; signal headings are replaced in 10b, in one commit.
+  - **10a. Values, beside the old ones** (nothing drawn changes). Done 25 Nov 2026, with 10b in one change (no commit
+    between). `SignalSidebar` keeps `projects` and gains `operatorEntries` and `operatorSections`; a project's copy in the
+    Operator's section carries `operatorFolded` as its `collapsed`, so `ProjectSection.collapsed` and `HeadingValue`
+    read it unchanged. `RowFocus.row(id:)` resolves the derived id only while the Operator runs a task of the project
+    (so `dropStale` drops the heading with its last task); `PerRow.dropGone` keeps a cell for it. `toggleOperatorFold`
+    lives in `AppController+Operators.swift` and does nothing for a project with no held task.
     - `SignalSidebar.swift`: `operatorEntries: [SidebarEntry]`, the Projects entries with each section's tasks cut
       to the ones the Operator holds (presented by `presentingOperator`), no terminals, no move flags, its fold read
       from `operatorFolded`; a section with none is left out; a divider stays only when a project survives between
@@ -695,7 +787,20 @@ not worth the code, with the reason.
     - Tests: `SignalSidebarTests`: grouping, task order, a project with none left out, a divider with no surviving
       project left out, two dividers in a row, the fold apart from `Project.collapsed`. `ModelsTests` or a small new
       test: the derived id round-trips and differs from the project's.
-  - **10b. Draw it.**
+  - **10b. Draw it.** Done 25 Nov 2026. Against the text: `Inputs` keeps `skipped`, since step 9's amber
+    `SectionFold.signalIssue` reads it (dropping it would leave the icon stale); `DrawnTask.Driven.removedSignal` and the
+    projection's `now` went with the headings. `viewLayout` returns a `ViewLayout` (`projects`, `operator`), which
+    `ProjectActions.setCollapsed` saves in one change; its signal branch went. `AppController.moveSignal` went with the
+    heading menu (the sheet uses `moveSignalPriority`). `DividerRow(label:)` is the menu-less divider
+    (`commandsShown: false`); `DividerRow(signalEntry:)` stays for 10c to delete. A signal with no task no longer makes a
+    fold: OPERATOR folds only while its row shows or a project holds its task, so tests that opened the section with a
+    bare signal now give it a held task, and a take-over of the last held task closes the section with the task still
+    selected in the projects. Snapshots, hosted (`AITERM_SNAPSHOT_HOSTED=1`, the `signals-*` sidebar poses are hosted
+    only) against a hosted capture of step 9: the four new poses; `folded`, `waiting-folded` and
+    `finished-signal-folded` fold through `operatorFolded`; `heading-icon` and `heading-issue` give the Operator a held
+    task so their folded line keeps its chevron (it now also draws the Operator chip); `idle`, `idle-paused` and
+    `taken-over` draw no fold (nothing of the Operator's); every other changed pose differs in the title ("Running 1
+    task") and the project heading in place of the signal's. No image outside `signals-*` changed.
     - `SidebarProjection.swift`: publishes the new entries and their sections; every reader of `signalSections`
       moves to them (`operatorNeedingAttention`, `rowStatuses`, `finishedTasks`, `operatorChip`, `operatorPath`,
       `isDrawn`, `visibleHeading`, `backgroundJobs`, `crossing`); `viewLayout` returns the Projects folds and the
@@ -734,12 +839,36 @@ not worth the code, with the reason.
     bytes of every saved signal and stage. Tests: `FileMenuTests`, `ModelsTests`, `AppControllerTests` lose their
     signal-divider cases; `ModelsTests` gains: a workspace saved with dividers loads, saves the same
     `signalDividers` value, and still does after a signal is removed.
+    Done 25 Nov 2026. `PreservedFields` now carries `signalDividers` as it came (order, positions and unknown fields;
+    no clamping), so `removeSignal` is `signals.removeAll`; signal moves swap neighbours of one kind in `signals`
+    directly. `presentNewDividerInOpenSection` went whole: ⌘D calls `sheets.presentNewDivider()`, enabled as Add
+    Project… is, and `SheetKind.newDivider` has no section (its id is `divider-new`). `docs/keyboard.md`'s ⌘D line says
+    so. Tests: `ModelsTests.savedSignalDividersRoundTripUntouched` replaces the three divider cases;
+    `FileMenuTests.addDividerAlwaysAddsBetweenProjects` replaces `addDividerFollowsTheOpenSection`; `AppControllerTests`
+    lost its signal-divider case; `SignalsSheetModelTests` and `SidebarProjectionTests` lost the divider set-up lines.
+    No fixture holds `signalDividers`.
   - Proof: `--filter SignalSidebarTests`, `SidebarProjectionTests`, `AppControllerTests`, `SidebarRowRedrawTests`,
     `FileMenuTests`, `ModelsTests`; snapshots: `signals-by-project`, `signals-by-project-divider`,
     `signals-by-project-folded` and `signals-removed-signal` are new; `signals-divider`, `signals-removed` and
     `signals-off` go; every other `signals-*` pose is compared with its "before".
 
-- [ ] **11. The avatar disc and the signal card.**
+- [x] **11. The avatar disc and the signal card.** Done 25 Nov 2026. `TaskRow.startedBySignal` is the signal's name
+  (`SidebarModel.startedBySignal`: the Operator stage's signal, else the origin's; live name, else "<saved> (removed)"),
+  so the disc, VoiceOver and a removed signal follow the row. The cards are a projection map, `signalCards` by task,
+  apart from the rows: a chain or current line changing redraws no row; `DrawnTask` gains `Origin` (signal, name,
+  start, `earlier`, owed, the held reason, `doneAt`, `thenNote`) and `Driven` the stage's name, start and `earlier`.
+  `SignalCard.make(task:row:state:)` builds it; steps carry dates and `SignalCardView` formats them against
+  `footerClock` ("14:05", "Mon 14:05", "18 Nov"). The held reason (help on both waiting lines) is the signal's skipped
+  record for the item. "Done · archived" is Archive with no `thenNote` (pending or applied); a refused archive says
+  "Done · kept" with the note. `FloatingCardChrome` is the chrome both cards share. The presenter has a `Kind`
+  (`jobs`, `signal`) carried by `BackgroundCardAnchor`; the signal card spans from the avatar column plus
+  `Space.tight` to the pill's trailing edge, closes when the disc leaves the viewport, and keeps its latest steps
+  when short of room. The disc sits on the first mark's bottom-trailing corner (as a badge's check), drawn over the
+  stack. A task a signal started with no agent listed draws one mark of its agent (its first saved conversation's,
+  else its own agent row) at `Opacity.disabled` under the disc (`AvatarGroup.muted`, `SidebarModel.mutedAvatars`), so
+  the disc never stands alone; a task you made still draws none, and VoiceOver says no more. Snapshots `signals-disc`,
+  `signals-card-*` are stacked, drawn last; the hosted `signals-*` and `sidebar*` poses changed only at the disc (the
+  `sidebar*` ones below the diff threshold; `step1-gitlab-issues` differs in its hovered dropdown row, a capture flake).
   - Core: `TaskRow.startedBySignal`, set in `SidebarModel.taskRow` for a task with `signalOrigin` or `signalTask`.
     `SidebarProjection.DrawnTask` gains the origin's drawn facts (signal, name, the steps, whether a prompt is
     owed, `doneAt`, `thenNote`) and the record's `earlier`, so the row and an open card follow them.
@@ -771,7 +900,26 @@ not worth the code, with the reason.
   - Proof: `--filter BackgroundCardTests`, `BackgroundCardPresentationTests`, `RowAccessibilityTests`; snapshots
     `signals-disc`, `signals-card-operator`, `signals-card-project`, `signals-card-chain`.
 
-- [ ] **12. The status line.** Four sub-steps. Step 0's result decides how a segment reaches its neighbour.
+- [x] **12. The status line.** Four sub-steps. Step 0's result decides how a segment reaches its neighbour.
+  Done 25 Nov 2026. Against the text: the segment is not in the mark's own slot view but behind the pill's trailing
+  slot (`StatusLineOverlay`, a `.background` after `SelectableRow`'s `minHeight`, `trailingInset` in), so it spans the
+  whole pill whatever the row's height and draws under the row's content (a fixture's card no longer has the line over
+  it); a heading's and a divider's sit behind their trailing slot the same way. Each reaches `StatusLineReach.halfGap`
+  (`Space.tight`, unscaled) past its box to its row's edge. Round ends: a stroke stopping at a node is shortened by half
+  its width so its ink ends `Space.base` (or `Size.statusStop`) from the centre; dots are scaled with the row
+  (`scale(Space.hairline)` on, `scale(Space.tight)` off), the march is `period / Motion.march`. `StatusLineView`
+  re-reads its document y on layout and when its `NSTableRowView`'s frame changes. The rule (`StatusLine.pieces`) also
+  carries a line on to any drawn task the Operator exchanges with past the last one it runs, and a folded project
+  exchanging with a finished task takes a stop; on a shared stretch a wake shows over an act, an act over a question
+  (O7). Pulses: `OperatorActivityTracker.woke(task:)`/`waking`, `pulseLength` (`Motion.pulse`, a test shortens it);
+  the projection reads them through `operatorWaking` into `Inputs`. `signals-waiting-marks` keeps the Operator's
+  section closed so its isolated rows carry no line. Tests: `StatusLineTests` (Core), `StatusLineViewTests` (phase by
+  y, Reduce Motion, march, stop distances), `StatusLineSeamTests` on the real sidebar (every seam from the Operator's
+  row to a folded stop, 3 pt clear of the ring; it fails with the reach removed), `SidebarRowRedrawTests` (a wake
+  redraws no row body and only the line cells on its stretch; an act on the third task redraws its row and the
+  Operator's, and the line cells on its stretch), `OperatorActivityTests`, `MetricsTests.theStatusLine`; `SignalSnapshotTests` pins the line poses last. Hosted, every
+  changed image outside `signals-line-*` is a `signals-*` pose whose Operator section is open (the line) or folded (the
+  stop).
   - **12a. Tokens and the segment.**
     - `Palette.statusLine` (alias of `idleRing`, added to `PaletteDistinctionTests`' alias manifest); `Motion.march`;
       `Size.statusStop`. An exchange is `Palette.text`, a question `Palette.amber`.
@@ -818,7 +966,11 @@ not worth the code, with the reason.
     `signals-line-stop`, `signals-line-stop-acting`, `signals-line-stop-asking`, stacked and hosted, at the three
     interface sizes.
 
-- [ ] **13. Docs, design system, release.**
+- [x] **13. Docs, design system, release.** Done 25 Nov 2026: `docs/operators.md`, `docs/architecture.md`,
+  `docs/keyboard.md`, the UI README and `ui-patterns.md` rewritten for the shipped behaviour; the design-system page's
+  proposal removed and Foundations/Components synced locally (not published); release note
+  `docs/release-notes/2026-11-signals-by-section.md`. Proposed for `docs/workflow/` (owner's call): a `release.md`
+  "Operator format" section, and in `verify.md` that hosted captures prove anything drawn across list rows.
   - `docs/operators.md`: the two kinds and what a project signal keeps and drops; the sections by project; the
     signals sheets, priority within a kind, project signals first; the icon, amber and the banner; the disc and
     card; the line; schedules for project signals and O3's rule; that a project signal's first turn has no branch

@@ -24,7 +24,7 @@ import AiTermCore
             throw ActionUnavailable("The saved request belongs to another repository.")
         }
         if let mr = task.mr {
-            var ordinary = task; ordinary.signalTask = nil
+            var ordinary = task; ordinary.signalTask = nil; ordinary.signalOrigin = nil
             guard MatchDecision.matchesItem(.request(remote: current, number: mr.iid), task: ordinary) else {
                 throw ActionUnavailable("The request link belongs to another repository.")
             }
@@ -75,10 +75,10 @@ import AiTermCore
         guard request.sourceBranch == task.branch else { throw ActionUnavailable("The request belongs to another branch.") }
         return request
     }
-    /// The merge request as its account names it: the stage's own item, else its number under the origin's repository
-    /// on the account's host.
-    private func accountReference(_ task: TaskItem, number: Int, origin: String, source: SignalTrigger.Source, links: SignalConnections) throws -> SignalRequestRef {
-        if case .mergeRequest(let item) = task.signalTask?.current.item, item.number == number { return item }
+    /// The merge request as its account names it: the matched item, else its number under the origin's repository on
+    /// the account's host.
+    private func accountReference(_ item: ItemRef?, number: Int, origin: String, source: SignalTrigger.Source, links: SignalConnections) throws -> SignalRequestRef {
+        if case .mergeRequest(let item) = item, item.number == number { return item }
         guard let remote = RemoteURL(origin), let host = remote.host, !remote.path.isEmpty else { throw ActionUnavailable("Its origin is not a repository URL.") }
         switch source {
         case .gitLab:
@@ -89,17 +89,17 @@ import AiTermCore
         case .gitHub:
             guard host.lowercased() == "github.com" else { throw ActionUnavailable("Its pull request is not on GitHub.") }
             return SignalRequestRef(remote: "https://github.com/" + remote.path, number: number)
-        case .jira, .schedule, .operator, .unknown: throw ActionUnavailable("Only a GitLab or GitHub trigger reads a merge request.")
+        case .jira, .schedule, .operator, .person, .unknown: throw ActionUnavailable("Only a GitLab or GitHub trigger reads a merge request.")
         }
     }
-    /// Whether the stage's Done query matches the task's own item now: for Jira, its ticket (a merge request task's
-    /// from the key in its branch or title); for GitLab or GitHub, its merge request (`request`, found by the caller).
-    /// No ticket or no merge request means it does not match. An Operator Done never matches: the Operator's
-    /// `finish_stage(done)` ends it.
-    private func doneMatches(_ task: TaskItem, request: MergeRequest?, origin: String?, links: SignalConnections) async throws -> Bool {
-        guard let done = task.signalTask?.current.configuration.done else { throw ActionUnavailable("The task is no longer the Operator’s.") }
+    /// Whether `done`'s query matches the task's own item now: for Jira, its ticket (a merge request task's from the key
+    /// in its branch or title); for GitLab or GitHub, its merge request (`request`, found by the caller), named as the
+    /// matched `item` names it. No ticket or no merge request means it does not match. An Operator Done never matches:
+    /// the Operator's `finish_stage(done)` ends it. Nor does a Done the person decides: it has no query to ask.
+    private func doneMatches(_ task: TaskItem, done: SignalTrigger, item: ItemRef?, request: MergeRequest?, origin: String?,
+                             links: SignalConnections) async throws -> Bool {
         switch done.source {
-        case .operator: return false
+        case .operator, .person: return false
         case .jira:
             let own = task.jira.flatMap { $0.source == .jira ? $0.key : nil }
             guard let key = own ?? TicketMergeRequests.jiraKey(in: task.branch) ?? TicketMergeRequests.jiraKey(in: task.title) else { return false }
@@ -115,12 +115,12 @@ import AiTermCore
         case .gitLab:
             guard let gitLab = links.gitLab else { throw ActionUnavailable("Connect GitLab in Settings to read this Done trigger.") }
             guard let request, let origin else { return false }
-            let reference = try accountReference(task, number: request.iid, origin: origin, source: .gitLab, links: links)
+            let reference = try accountReference(item, number: request.iid, origin: origin, source: .gitLab, links: links)
             return try await GitLabAccount(config: gitLab, session: links.session).matches(try GitLabQuery.done(done.query), request: reference, branch: task.branch)
         case .gitHub:
             guard let gitHub = links.gitHub else { throw ActionUnavailable("Connect GitHub in Settings to read this Done trigger.") }
             guard let request, let origin else { return false }
-            let reference = try accountReference(task, number: request.iid, origin: origin, source: .gitHub, links: links)
+            let reference = try accountReference(item, number: request.iid, origin: origin, source: .gitHub, links: links)
             return try await GitHubAccount(config: gitHub, session: links.session).matches(try GitHubQuery.done(done.query), request: reference, branch: task.branch)
         case .schedule, .unknown: throw ActionUnavailable("This version of AiTerm cannot read this Done trigger.")
         }
@@ -139,15 +139,39 @@ import AiTermCore
     }
     /// The baseline a stage's done edge is read against, before its worker launches.
     func doneMatches(_ task: TaskItem) async throws -> Bool {
-        guard let done = task.signalTask?.current.configuration.done else { throw ActionUnavailable("The task is no longer the Operator’s.") }
-        if done.source == .operator { return false }
+        guard let record = task.signalTask else { throw ActionUnavailable("The task is no longer the Operator’s.") }
+        let done = record.current.configuration.done
+        if done.source == .operator || done.source == .person { return false }
         let links = await connections()
         var request: MergeRequest?, origin: String?
         if done.source != .jira, requestReadable(task, links: links) {
             let (current, host) = try await binding(task, links: links)
             request = try await ownRequest(task, host: host); origin = current
         }
-        return try await doneMatches(task, request: request, origin: origin, links: links)
+        return try await doneMatches(task, done: done, item: record.current.item, request: request, origin: origin, links: links)
+    }
+    /// A project signal's Done read for its task: the task's own request (by its known number, else by its branch, as a
+    /// scheduled run's item names no request), whether it merged or closed, and whether `done`'s query matches `item`
+    /// now. A merged or closed request is done even when the query cannot be read. A Done the person decides asks no
+    /// query; with it, or a Jira Done, a code host that cannot be read leaves merged and closed unknown.
+    func doneFacts(for task: TaskItem, done: SignalTrigger, item: ItemRef) async throws -> DoneCheck.Facts {
+        let links = await connections()
+        var facts = DoneCheck.Facts()
+        var found: MergeRequest?, origin: String?
+        if requestReadable(task, links: links) {
+            // A changed repository is refused whatever the Done source; only reading the host may fail quietly.
+            let (current, host) = try await binding(task, links: links)
+            do {
+                found = try await ownRequest(task, host: host); origin = current
+                facts.merged = found?.state == "merged"; facts.closed = found?.state == "closed"
+            } catch {
+                guard done.source == .jira || done.source == .person else { throw error }
+                found = nil; origin = nil
+            }
+        }
+        do { facts.doneMatches = try await doneMatches(task, done: done, item: item, request: found, origin: origin, links: links) }
+        catch { guard facts.merged || facts.closed else { throw error } }
+        return facts
     }
     /// One host watch read: the stage's Done trigger against its own item, and its merge request where it has one,
     /// with everything a merge needs when merge when ready may merge it.
@@ -159,7 +183,7 @@ import AiTermCore
         var found: MergeRequest?, origin: String?
         // With a Jira Done trigger and no merge, the request only says merged or closed: a code host that cannot be
         // read leaves that unknown rather than stopping the Jira check.
-        let requestOptional = !merges && [.jira, .operator].contains(record.current.configuration.done.source)
+        let requestOptional = !merges && [.jira, .operator, .person].contains(record.current.configuration.done.source)
         if requestReadable(task, links: links) {
             // A changed repository is refused whatever the Done source; only reading the host may fail quietly.
             let (current, host) = try await binding(task, links: links)
@@ -201,7 +225,10 @@ import AiTermCore
             }
         }
         // Merged or closed is done whatever the Done query says, so a Done query that cannot be read does not hide it.
-        do { snapshot.facts.doneMatches = try await doneMatches(task, request: found, origin: origin, links: links) }
+        do {
+            snapshot.facts.doneMatches = try await doneMatches(task, done: record.current.configuration.done, item: record.current.item,
+                                                               request: found, origin: origin, links: links)
+        }
         catch { guard snapshot.facts.merged || snapshot.facts.closed else { throw error } }
         return snapshot
     }

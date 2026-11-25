@@ -37,6 +37,31 @@ import Testing
         #expect(model.doneKind == .operatorDecides)
     }
 
+    /// A project signal has no Operator to decide: a new schedule opens on You decide, an item on A query matches, and a
+    /// run's Done cannot read Jira either.
+    @Test func aScheduledProjectSignalOpensOnYouDecideAndRefusesAJiraDone() async throws {
+        let world = SignalWorld()
+        var saved: [Signal] = []
+        let model = SignalModel(kind: .project, projects: world.state.projects, context: context, save: { saved.append($0) })
+        model.calendar = Self.brussels
+        #expect(model.startKind == .item && model.doneKind == .query)
+        model.startKind = .schedule
+        #expect(model.doneKind == .youDecide && model.done.source == .person)
+        model.startKind = .item
+        #expect(model.doneKind == .query)
+        model.startKind = .schedule
+        model.doneKind = .query
+        #expect(model.done.source == .gitLab, "a run has no ticket for a Jira query")
+        model.done = SignalTrigger(source: .jira, query: "status = Done")
+        model.name = "Weekly dependency update"; model.start.query = "0 9 * * 1"; model.prompt = "Update the dependencies."
+        #expect(model.canAdvance(step: SignalModel.promptStep) && !model.canAdvance(step: SignalModel.doneStep))
+        model.doneKind = .youDecide
+        #expect(model.canAdvance(step: SignalModel.doneStep))
+        #expect(await model.create())
+        let signal = try #require(saved.first)
+        #expect(signal.kind == .project && signal.isScheduled && signal.done.source == .person && signal.isValid)
+    }
+
     @Test func switchingBackRestoresWhatWasTyped() {
         let (model, _) = model()
         model.start.query = "labels = ready"

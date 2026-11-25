@@ -465,7 +465,8 @@ public final class DaemonClient: Sendable {
     struct CreateTabResult: Decodable { var sessionId: String; var commandError: String? }
     struct ChangedResult: Decodable { var changed: Int }
     struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool }
-    struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
+    /// `guardInput` is sent only when set, so an unguarded request reads as before.
+    struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var guardInput: Bool?; var worktree: String? }
     struct SessionParams: Encodable { var sessionId: String }
     struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
     struct RegisterParams: Encodable { var operatorId, token: String; var generation: Int }
@@ -500,6 +501,7 @@ public final class DaemonClient: Sendable {
         }
     }
     struct AcceptedResult: Decodable { var accepted: Bool }
+    struct InputStateResult: Decodable { var input: InputState }
 
     /// The daemon's state, which is also yielded as `.snapshot` in the event stream: the daemon
     /// writes it with no pause after reading its state, so it is a barrier between the events
@@ -558,13 +560,16 @@ public final class DaemonClient: Sendable {
     public func setMatchItermBackground(_ enabled: Bool) async throws {
         _ = try await request(.interfaceSetMatchItermBackground, params: InterfaceParams(matchItermBackground: enabled), as: Empty.self)
     }
-    public func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery {
+    public func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, guardInput: Bool, worktree: String?) async throws -> Delivery {
         try await request(.sessionDeliver, params: DeliverParams(sessionId: sessionId, text: text, ownership: ownership, wake: wake,
-                                                                 worktree: worktree), as: Delivery.self)
+                                                                 guardInput: guardInput ? true : nil, worktree: worktree), as: Delivery.self)
     }
     public func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery {
         struct Params: Encodable { var sessionId: String; var ownership: Int; var conversation: String }
         return try await request(.sessionCloseIdle, params: Params(sessionId: sessionId, ownership: ownership, conversation: conversation), as: Delivery.self)
+    }
+    public func inputState(sessionId: String) async throws -> InputState {
+        try await request(.sessionInputState, params: SessionParams(sessionId: sessionId), as: InputStateResult.self).input
     }
     /// Each agent's delivery verdict; a harness this app does not know is left out.
     public func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict] {

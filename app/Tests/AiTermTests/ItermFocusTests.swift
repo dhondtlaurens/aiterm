@@ -10,6 +10,39 @@ import Testing
 @MainActor @Suite(.blocking) struct ItermFocusControllerTests {
     enum TakenOverWindow: CaseIterable { case notStarted, queued, shell, conversations }
 
+    /// A project signal's task still owing its first prompt, chosen: its launch opens the window at once with the prompt,
+    /// the choosing waits for it and raises that window, iTerm2 brought forward, in one click.
+    @Test func choosingAProjectSignalsTaskOwingItsLaunchOpensAndRaisesItsWindow() async throws {
+        let focus = ControllerItermFocus()
+        let fixture = try await RaceFixture(activateIterm: { focus.activate() })
+        let server = RecordingDaemon()
+        focus.server = server
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller, signals = controller.signalController
+        controller.helper.setDaemonClient(server)
+        controller.helper.handle(.snapshot(ControllerSnapshots.empty))
+        let signal = Signal.project()
+        controller.workspace.mutate { $0.signals = [signal] }
+        signals.sourceRegistrations = { _ in [] }; signals.tabsKnown = true
+        signals.start(); await signals.ports.work.settled()
+        // Added once the runtime runs, so only the choosing launches it.
+        let task = try await fixture.addTask(windowId: nil)
+        controller.workspace.mutate { state in
+            state.tasks[0].signalOrigin = SignalOrigin(signal: signal.id, name: signal.name, item: .ticket(site: "https://jira.example", key: "PAY-1"),
+                                                       startedAt: Date(), owed: OwedPrompt(text: "Go on", at: Date(), kind: .launch))
+        }
+        #expect(controller.workspace.flush())
+
+        await controller.choose(task: task.id)?.value
+
+        let opened = try #require(server.requests("window.createTask").first)
+        #expect((opened.params["agentCommand"] as? String)?.hasSuffix("'Go on'") == true)
+        let current = try #require(controller.state.task(id: task.id))
+        #expect(current.windowId == "reopened" && current.signalOrigin?.owed == nil)
+        #expect(server.requests("window.activate").last?.params["windowId"] as? String == "reopened")
+        #expect(focus.seen.count == 1 && controller.focus.selectedTaskId == task.id)
+    }
+
     /// Take Over makes an ordinary task: one whose worker never started gets its worktree on its branch at once,
     /// and choosing it opens its window like any task's, its conversations resumed plainly, outside any branch guard.
     @Test(arguments: TakenOverWindow.allCases)

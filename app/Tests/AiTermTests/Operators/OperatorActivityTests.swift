@@ -47,6 +47,37 @@ import Testing
         #expect(changes == 6, "Each begin and end redraws the rows.")
     }
 
+    /// A wake starts a pulse on its task, which ends by itself after `pulseLength`; a second wake restarts it.
+    @Test func aWakesPulseStartsAndEndsByItself() async {
+        let tracker = OperatorActivityTracker(), task = UUID()
+        #expect(tracker.pulseLength == .seconds(1), "Motion.pulse, a second")
+        tracker.pulseLength = .milliseconds(30)
+        var changes = 0
+        tracker.changed = { changes += 1 }
+        tracker.woke(task: task)
+        #expect(tracker.waking == [task] && changes == 1)
+        await eventually(describing: "the pulse to end") { tracker.waking.isEmpty }
+        #expect(changes == 2, "its end redraws the rows once")
+    }
+
+    /// A task's worker ending its turn or its stage blocking wakes the Operator with a pulse on that task; a question
+    /// or a settings change wakes it with none.
+    @Test func theWakerPulsesForATasksWakeOnly() throws {
+        var world = SignalWorld(); let signal = world.signal(); let id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let activity = OperatorActivityTracker()
+        let log = ActivityWriter(folder: h.folder.appendingPathComponent("log"), work: OperatorWork(), now: { world.now }, activity: activity)
+        let waker = OperatorWaker(workspace: h.workspace, daemon: { nil }, activity: activity, log: log, tab: { nil }, running: { true })
+        waker.wake(.questionWaiting, id: id)
+        waker.wake(.settingsChanged, id: id)
+        #expect(activity.waking.isEmpty)
+        waker.wake(.workerEnded, id: id)
+        #expect(activity.waking == [id])
+        let other = UUID()
+        waker.wake(.taskBlocked, id: other)
+        #expect(activity.waking == [id, other])
+    }
+
     /// A launch shows "starting its worker" on the task's row while it runs and nothing once it ended. The act is
     /// not saved: a relaunch from what was saved mid-launch shows the launching stage, not an act.
     @Test func aLaunchesActIsGoneWhenItEndsAndAfterARelaunch() async throws {
@@ -56,7 +87,7 @@ import Testing
         let activity = OperatorActivityTracker()
         func line(_ state: AppState, acts: [UUID: String]) throws -> OperatorLine? {
             let entries = SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
-            return try #require(SignalSidebar(state: state, entries: entries, acts: acts).signals.first?.tasks.first).operatorLine
+            return try #require(SignalSidebar(state: state, entries: entries, acts: acts).operatorSections.first?.tasks.first).operatorLine
         }
         var during: OperatorLine?, relaunched: OperatorLine?
         let runner = StageRunner(workspace: h.workspace, journal: h.journal, now: { world.now },

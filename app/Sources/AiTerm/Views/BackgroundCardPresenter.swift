@@ -4,26 +4,43 @@ import SwiftUI
 import AiTermCore
 import AiTermUI
 
-/// One native floating card per sidebar. Source identity and geometry live here; the jobs remain
-/// in the existing projection. A child window isolates the List's independent tracking/tooltips.
+/// One native floating card per sidebar: a trailing mark's background-work card or a signals disc's signal card,
+/// one at a time, so presenting one closes the other. Source identity and geometry live here; the jobs and the signal
+/// card remain in the existing projection. A child window isolates the List's independent tracking/tooltips.
 @MainActor final class BackgroundCardPresenter {
+    /// Which card a source's anchor opens: the trailing mark's jobs, or the avatar disc's signal card.
+    enum Kind: Equatable { case jobs, signal }
     private(set) var panel: BackgroundCardPanel?
     private weak var controller: AppController?
     private weak var viewport: NSView?
     private weak var anchor: NSView?
     private var source: RowSelection?
+    private(set) var kind = Kind.jobs
     private var hover: BackgroundCardHover?
     private var observation = 0
 
     static func eligible(_ jobs: [BackgroundJob], source: RowSelection, controller: AppController) -> [BackgroundJob] {
-        if case .task(let id) = source, controller.teardown.state(of: id)?.inProgress == true { return [] }
+        if leaving(source, controller: controller) { return [] }
         return jobs
     }
 
+    /// A row on its way out offers no card.
+    static func leaving(_ source: RowSelection, controller: AppController) -> Bool {
+        if case .task(let id) = source { return controller.teardown.state(of: id)?.inProgress == true }
+        return false
+    }
+
+    /// The open background-work card; nil while a signal card is open.
     var card: BackgroundCard? {
-        guard let source, let controller, let jobs = controller.rows.backgroundJobs(for: source) else { return nil }
+        guard kind == .jobs, let source, let controller, let jobs = controller.rows.backgroundJobs(for: source) else { return nil }
         let eligible = Self.eligible(jobs, source: source, controller: controller)
         return eligible.isEmpty ? nil : BackgroundCard(jobs: eligible)
+    }
+
+    /// The open signal card, as the projection has it now; nil while a background-work card is open.
+    var signalCard: SignalCard? {
+        guard kind == .signal, let source, let controller, !Self.leaving(source, controller: controller) else { return nil }
+        return controller.rows.signalCard(for: source)
     }
 
     func connect(viewport: NSView, controller: AppController) {
@@ -31,10 +48,10 @@ import AiTermUI
         refresh()
     }
 
-    func present(source: RowSelection, anchor: NSView, hover: BackgroundCardHover) {
-        guard self.source != source || self.anchor !== anchor || self.hover !== hover else { refresh(); return }
+    func present(source: RowSelection, anchor: NSView, hover: BackgroundCardHover, kind: Kind = .jobs) {
+        guard self.source != source || self.anchor !== anchor || self.hover !== hover || self.kind != kind else { refresh(); return }
         close()
-        self.source = source; self.anchor = anchor; self.hover = hover
+        self.source = source; self.anchor = anchor; self.hover = hover; self.kind = kind
         observeSource()
     }
 
@@ -45,7 +62,7 @@ import AiTermUI
     func close() {
         observation += 1
         let oldHover = hover
-        hover = nil; source = nil; anchor = nil
+        hover = nil; source = nil; anchor = nil; kind = .jobs
         if let panel {
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
@@ -68,26 +85,61 @@ import AiTermUI
         }
     }
 
+    /// Where the open card goes, in screen points, and what it draws, or nil when its source can show none: its source
+    /// mark out of the viewport, no room, nothing to say.
+    private func placement(row: NSRect, available: NSRect, scale: InterfaceScale) -> (frame: NSRect, content: AnyView)? {
+        guard available.height > 0 else { return nil }
+        // The same vertical rule for both: the card's top on the pill's, moved up to stay inside the viewport.
+        func top(_ height: CGFloat) -> CGFloat {
+            max(available.minY, min(row.maxY + scale(Space.base) - height, available.maxY - height))
+        }
+        switch kind {
+        case .jobs:
+            guard let card else { return nil }
+            let mark = NSPoint(x: row.maxX - SidebarRowLayout.trailingSlot(scale) / 2, y: row.midY)
+            guard available.contains(mark) else { return nil }
+            let width = min(available.width, row.width + scale(Space.base)
+                            - SidebarRowLayout.trailingSlot(scale) - scale(Space.tight))
+            guard width > 0 else { return nil }
+            let visibleJobs = BackgroundCardView.visibleJobs(total: card.jobs.count, availableHeight: available.height, scale: scale)
+            guard visibleJobs > 0 else { return nil }
+            let height = BackgroundCardView.height(jobs: visibleJobs, scale: scale)
+            let frame = NSRect(x: max(available.minX, min(row.minX - scale(Space.base), available.maxX - width)),
+                               y: top(height), width: width, height: height)
+            return (frame, AnyView(BackgroundCardView(card: card, visibleJobs: visibleJobs)))
+        case .signal:
+            guard let card = signalCard else { return nil }
+            // The disc, on the avatar column's first mark, has to be in view; the card starts after the column, so it
+            // stays so, and reaches the pill's trailing edge.
+            let disc = AvatarGroupView.discCentre(scale)
+            guard available.contains(NSPoint(x: row.minX + disc, y: row.midY)) else { return nil }
+            let leading = Self.signalCardLeading(row: row, scale: scale)
+            let width = min(available.maxX, row.maxX + SidebarRowLayout.trailingInset(scale)) - leading
+            guard width > 0 else { return nil }
+            let steps = SignalCardView.visibleSteps(total: card.steps.count, availableHeight: available.height, scale: scale)
+            guard SignalCardView.height(lines: 1, scale: scale) <= available.height else { return nil }
+            let height = SignalCardView.height(lines: steps + 1, scale: scale)
+            return (NSRect(x: leading, y: top(height), width: width, height: height),
+                    AnyView(SignalCardView(card: card, visibleSteps: steps)))
+        }
+    }
+
+    /// The signal card's leading edge, "after the avatar": the avatar column's trailing edge plus `Space.tight`, from
+    /// the row content's leading edge (`row`, inside SelectableRow's padding).
+    static func signalCardLeading(row: NSRect, scale: InterfaceScale) -> CGFloat {
+        row.minX + AvatarGroupView.columnWidth(scale) + scale(Space.tight)
+    }
+
     func refresh() {
         guard source != nil else { return }
-        guard hover?.isOpen == true, let card, let controller, let viewport, let anchor, let window = viewport.window,
+        guard hover?.isOpen == true, let controller, let viewport, let anchor, let window = viewport.window,
               anchor.window === window, !viewport.isHiddenOrHasHiddenAncestor,
               !anchor.isHiddenOrHasHiddenAncestor, window.isVisible, !window.isMiniaturized else { close(); return }
         let scale = controller.preferences.interfaceSize.scale
         let available = window.convertToScreen(viewport.convert(viewport.bounds, to: nil))
         let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        let mark = NSPoint(x: row.maxX - SidebarRowLayout.trailingSlot(scale) / 2, y: row.midY)
-        guard available.contains(mark), available.height > 0 else { close(); return }
-        let width = min(available.width, row.width + scale(Space.base)
-                        - SidebarRowLayout.trailingSlot(scale) - scale(Space.tight))
-        guard width > 0 else { close(); return }
-        let visibleJobs = BackgroundCardView.visibleJobs(total: card.jobs.count, availableHeight: available.height, scale: scale)
-        guard visibleJobs > 0 else { close(); return }
-        let height = BackgroundCardView.height(jobs: visibleJobs, scale: scale)
-        let frame = NSRect(x: max(available.minX, min(row.minX - scale(Space.base), available.maxX - width)),
-                           y: max(available.minY, min(row.maxY + scale(Space.base) - height, available.maxY - height)),
-                           width: width, height: height)
-        let content = AnyView(BackgroundCardView(card: card, visibleJobs: visibleJobs)
+        guard let (frame, card) = placement(row: row, available: available, scale: scale) else { close(); return }
+        let content = AnyView(card
             .onTapGesture { [weak anchor] in (anchor as? BackgroundCardAnchor.Probe)?.activate() }
             .allowsWindowActivationEvents()
             .modifier(RowCommandContextMenu(groups: (anchor as? BackgroundCardAnchor.Probe)?.commands ?? []))
@@ -162,9 +214,11 @@ struct BackgroundCardAnchor: NSViewRepresentable {
     let hover: BackgroundCardHover
     let activate: () -> Void
     let commands: [[RowCommand]]
+    var kind = BackgroundCardPresenter.Kind.jobs
 
     final class Probe: NSView {
         var source: RowSelection = .operatorChat
+        private(set) var kind = BackgroundCardPresenter.Kind.jobs
         private(set) weak var presenter: BackgroundCardPresenter?
         private(set) var hover: BackgroundCardHover?
         var activate: () -> Void = {}
@@ -172,12 +226,12 @@ struct BackgroundCardAnchor: NSViewRepresentable {
         private var observation = 0
 
         func configure(source: RowSelection, presenter: BackgroundCardPresenter, hover: BackgroundCardHover,
-                       activate: @escaping () -> Void, commands: [[RowCommand]]) {
+                       activate: @escaping () -> Void, commands: [[RowCommand]], kind: BackgroundCardPresenter.Kind = .jobs) {
             self.activate = activate; self.commands = commands
             defer { if hover.isOpen { presenter.refresh() } }
-            guard self.source != source || self.presenter !== presenter || self.hover !== hover else { return }
+            guard self.source != source || self.presenter !== presenter || self.hover !== hover || self.kind != kind else { return }
             self.presenter?.dismiss(anchor: self)
-            self.source = source; self.presenter = presenter; self.hover = hover
+            self.source = source; self.presenter = presenter; self.hover = hover; self.kind = kind
             observeHover()
         }
 
@@ -193,7 +247,7 @@ struct BackgroundCardAnchor: NSViewRepresentable {
                     }
                 }
             }
-            if opened, window != nil { presenter?.present(source: source, anchor: self, hover: hover) }
+            if opened, window != nil { presenter?.present(source: source, anchor: self, hover: hover, kind: kind) }
             else { presenter?.dismiss(anchor: self) }
         }
 
@@ -208,7 +262,7 @@ struct BackgroundCardAnchor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> Probe { Probe(frame: .zero) }
     func updateNSView(_ view: Probe, context: Context) {
-        view.configure(source: source, presenter: presenter, hover: hover, activate: activate, commands: commands)
+        view.configure(source: source, presenter: presenter, hover: hover, activate: activate, commands: commands, kind: kind)
     }
     static func dismantleNSView(_ view: Probe, coordinator: ()) { view.presenter?.dismiss(anchor: view) }
 }

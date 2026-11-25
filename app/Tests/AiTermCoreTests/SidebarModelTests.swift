@@ -264,6 +264,32 @@ import Synchronization
                 == [SessionTitle(sessionId: "a", title: "feat/t")])
     }
 
+    /// A task a signal started draws one faded mark of its agent while no agent of its is listed, so its disc rests on an
+    /// avatar: its first saved conversation's agent, else its own agent row. A live agent, or a task you made, draws as
+    /// it always has.
+    @Test func aSignalTaskWithNoAgentListedDrawsItsAgentMuted() throws {
+        var world = SignalWorld()
+        let signal = world.signal()
+        let marked = world.markedTask(signal: signal), held = world.workingTask(signal: signal)
+        let mine = TaskItem.make(project: world.project.id, agent: .codex)
+        world.state.tasks.append(mine)
+        let markedIndex = try #require(world.state.tasks.firstIndex { $0.id == marked })
+        world.state.tasks[markedIndex].agent = .pi
+        world.state.tasks[markedIndex].conversations = [TaskConversation(agent: .codex, id: "c1")]
+        let heldIndex = try #require(world.state.tasks.firstIndex { $0.id == held })
+        world.state.tasks[heldIndex].agent = .pi
+        func rows(_ sessions: [SessionInfo] = []) -> [UUID: TaskRow] {
+            let all = SidebarModel.sections(state: world.state, sessions: sessions, branchByCwd: [:], projectBranch: [:])[0].tasks
+            return Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+        }
+        let idle = rows()
+        #expect(idle[marked]?.avatars == AvatarGroup(marks: [.codex], overflow: 0, muted: true), "its conversation's agent")
+        #expect(idle[held]?.avatars == AvatarGroup(marks: [.pi], overflow: 0, muted: true), "its own agent row")
+        #expect(idle[mine.id]?.avatars == AvatarGroup(marks: [], overflow: 0), "a task you made draws none")
+        let live = rows([session("a", task: marked.uuidString, agent: .claude, state: .idle, tab: 0)])
+        #expect(live[marked]?.avatars == AvatarGroup(marks: [.claude], overflow: 0), "a listed agent draws live")
+    }
+
     @Test func testSectionsPutTasksBeforeReviewsWithoutReorderingEitherLane() {
         var state = AppState.empty
         let project = Project.make(name: "p", path: "/p", addedAt: Date())

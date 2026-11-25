@@ -3,7 +3,9 @@ import AiTermCore
 
 extension AppController {
     var canPresentNewSignal: Bool { canUseFileMenu }
-    func presentNewSignal(editing signal: Signal? = nil) {
+    /// New Signal… makes the kind of the place it was chosen in (an Operator signal from the Operator's heading and
+    /// sheet, a project signal from the projects'); Edit Signal… keeps the signal's own kind.
+    func presentNewSignal(kind: Signal.Kind = .operator, editing signal: Signal? = nil) {
         guard canPresentNewSignal else { return }
         let controller = signalController, ports = controller.ports
         let installed = ports.installedAgents(), models = ports.agentModels, remembered = state.lastModelByAgent
@@ -14,14 +16,15 @@ extension AppController {
                 SignalContext.read(installed: installed, models: models, remembered: remembered, preferences: defaults)
             }
             guard let self, self.canPresentNewSignal else { return }
-            let model = SignalModel(signal: signal, projects: self.state.projects, context: context, seen: self.state.signalSeen,
+            let model = SignalModel(signal: signal, kind: kind, projects: self.state.projects, context: context, seen: self.state.signalSeen,
                 at: ports.now(), preview: { trigger in
                     let links = await controller.connections()
                     return try await links.reader(for: trigger).poll(since: nil, full: true)
                 }, save: { [weak self] value in
                     try await controller.save(value)
-                    // A new signal opens the Operator's section, where its tasks will be.
-                    if signal == nil { self?.setOperatorOpen(true) }
+                    // A new Operator signal opens the Operator's section, where its tasks will be; a project signal's start
+                    // in their projects.
+                    if signal == nil, !value.isProject { self?.setOperatorOpen(true) }
                 })
             // What the query writer is told, read once as the sheet opens; a part that cannot be read is left out.
             let projects = self.state.projects, readProfile = ports.profile, headless = ports.queryWriter
@@ -49,6 +52,50 @@ extension AppController {
             self.sheets.present(signal: model)
         }
     }
+    // -- the signals sheet ------------------------------------------------------------------------
+    /// `section`'s signals sheet (the heading's signals icon): its rows read the workspace and the failing reads
+    /// whenever it draws. Edit Signal… and New Signal… take its place in the one sheet slot, and it does not reopen.
+    func presentSignals(_ section: SidebarSection) {
+        let controller = signalController
+        sheets.presentSignals(SignalsSheetModel(section: section, rows: { [weak self] in
+            guard let self else { return [] }
+            let issues = controller.readIssues
+            return SignalsSheetModel.rows(state: self.state, section: section, failure: { issues.issue(for: $0) },
+                                          now: controller.ports.now())
+        }, actions: .init(
+            edit: { [weak self] id in
+                guard let self, let current = self.state.signal(id: id) else { return }
+                self.replaceSignalsSheet { $0.presentNewSignal(editing: current) }
+            },
+            switchOnOff: { [weak self] id in if let self, let current = self.state.signal(id: id) { self.toggleEnabled(current) } },
+            move: { [weak self] id, step in self?.moveSignalPriority(id, step) },
+            remove: { [weak self] id in if let self, let current = self.state.signal(id: id) { self.removeSignal(current) } },
+            new: { [weak self] in self?.replaceSignalsSheet { $0.presentNewSignal(kind: section.signalKind) } },
+            canChange: { [weak self] in self?.canChangeWorkspace ?? false },
+            canEdit: { [weak self] in self?.canChangeWorkspace ?? false })))
+    }
+
+    /// Empties the slot the signals sheet holds and opens `next` in it (O8: one sheet slot; the list does not reopen).
+    private func replaceSignalsSheet(_ next: (AppController) -> Void) {
+        guard canChangeWorkspace, case .signals = sheet else { return }
+        sheet = nil
+        next(self)
+    }
+
+    /// Moves a signal one place in its kind's priority, past any divider on the way: what the signals sheet's Move Up and
+    /// Move Down do, where dividers are not drawn. Nothing when no signal of its kind lies that way.
+    @discardableResult
+    func moveSignalPriority(_ id: UUID, _ step: MoveStep) -> Bool {
+        guard canChangeWorkspace, let signal = state.signal(id: id) else { return false }
+        func kin(_ state: AppState) -> [UUID] { state.signals.filter { $0.isProject == signal.isProject }.map(\.id) }
+        let before = kin(state)
+        guard let index = before.firstIndex(of: id), before.indices.contains(index + (step == .up ? -1 : 1)) else { return false }
+        return workspace.mutate { state in
+            while kin(state) == before, state.move(signalId: id, step) {}
+            return kin(state) != before
+        }
+    }
+
     /// The person's Take Over of a driven task (`TaskLauncher.takeOver`), said in a toast once it is theirs.
     func takeOver(_ id: UUID) async {
         guard let task = state.task(id: id), task.isUnderOperator else { return }
@@ -57,24 +104,6 @@ extension AppController {
             notices.showToast((task.jira?.key ?? task.title) + " is yours. The Operator let go of it.")
         }
     }
-    func toggleCollapsed(_ signal: Signal) {
-        guard canChangeWorkspace else { return }
-        if let index = state.signals.firstIndex(where: { $0.id == signal.id }) {
-            workspace.mutate { $0.signals[index].collapsed.toggle() }
-        } else {
-            rows.toggleRemovedSignal(signal.id)
-            refreshRows()
-        }
-    }
-
-    /// Moves a signal's heading one place among the live signals, which also changes its priority for
-    /// items several signals match. The neighbour is the current one, so a stale menu at a new edge does nothing.
-    @discardableResult
-    func moveSignal(_ id: UUID, _ step: MoveStep) -> Bool {
-        guard canChangeWorkspace else { return false }
-        return workspace.mutate { $0.move(signalId: id, step) }
-    }
-
     func toggleEnabled(_ signal: Signal) {
         guard canChangeWorkspace, var current = state.signal(id: signal.id) else { return }
         current.enabled.toggle()
@@ -90,39 +119,11 @@ extension AppController {
         }
     }
 
-    // -- dividers among the signals ---------------------------------------------------------
-    /// A label only, as a project divider is: workspace state, no daemon call, and no change to priority.
-    func addSignalDivider(name: String) {
-        guard canChangeWorkspace, !state.signals.isEmpty else { return }
-        let divider = SignalDivider(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines))
-        workspace.mutate { $0.append(signalDivider: divider) }
-    }
+    /// File › New Signal… (⌘S): the open section's kind (O4).
+    func presentNewSignalInOpenSection() { presentNewSignal(kind: rows.operatorOpen ? .operator : .project) }
+}
 
-    /// An empty name is a real choice: the row draws a plain rule.
-    func renameSignalDivider(_ id: UUID, to name: String) {
-        guard canChangeWorkspace else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        workspace.mutate { $0.renameSignalDivider(id: id, to: trimmed) }
-    }
-
-    /// The neighbour is the current one, so a stale menu at a new edge does nothing.
-    @discardableResult
-    func moveSignalDivider(_ id: UUID, _ step: MoveStep) -> Bool {
-        guard canChangeWorkspace else { return false }
-        return workspace.mutate { $0.move(signalDividerId: id, step) }
-    }
-
-    func removeSignalDivider(_ id: UUID) {
-        guard canChangeWorkspace else { return }
-        workspace.mutate { $0.removeSignalDivider(id: id) }
-    }
-
-    /// File ▸ Add Divider… (⌘D): into the open section. With the Operator's open and no signal to stand between, nothing.
-    func presentNewDividerInOpenSection() {
-        guard rows.operatorOpen else { return sheets.presentNewDivider(in: .projects) }
-        if canAddSignalDivider { sheets.presentNewDivider(in: .operator) }
-    }
-
-    /// Whether Add Divider… can add one among the signals: a divider with no signal to stand between draws nothing.
-    var canAddSignalDivider: Bool { canChangeWorkspace && !state.signals.isEmpty }
+extension SidebarSection {
+    /// The kind of signal New Signal… makes in this section.
+    var signalKind: Signal.Kind { self == .operator ? .operator : .project }
 }

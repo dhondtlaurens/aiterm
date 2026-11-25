@@ -172,6 +172,10 @@ final class AppController {
                                                         daemon: daemon, frame: { tiling.taskFrame() })
         self.signalController = signalController
         signalController.readConnections = { SignalConnections(jira: jiraSettings(), gitLab: gitLabSettings(), gitHub: gitHubSettings()) }
+        // A source failing three reads in a row raises the banner in the background: it waits behind a question.
+        signalController.readIssueBanner = .init(raise: { [weak notices] in notices?.report($0, background: true) },
+                                                 refresh: { [weak notices] in notices?.refresh($0) },
+                                                 drop: { [weak notices] in notices?.dropIssue(aboutSignal: $0) })
         signalController.archive = { [teardown] task, allowed in try await teardown.archive(task, consent: .refuse(stillAllowed: allowed)) }
         signalController.remove = { [teardown] task, allowed in try await teardown.remove(task, consent: .refuse(stillAllowed: allowed)) }
         signalController.restore = { [launcher] id in
@@ -179,6 +183,19 @@ final class AppController {
             return restored
         }
         signalController.checkout = { [launcher] task, allowed in try await launcher.checkOutWorker(task, stillAllowed: allowed).task }
+        // A project signal's pick-ups are made and opened as the person's tasks are, without the person.
+        signalController.projectSignals.ports = .init(
+            create: { [launcher] request in try await launcher.createUnattended(request) },
+            open: { [launcher] id, prompt, mayOpen, saving in try await launcher.openUnattended(id, prompt: prompt, saving: saving, mayOpen: mayOpen) },
+            restore: { [launcher] id in
+                guard try await launcher.restore(id) != nil else { throw ActionUnavailable("The task is busy.") }
+            },
+            // Guarded, with ownership 0: a project signal's task is the person's, and its prompt waits for their keys.
+            deliver: { session, text, worktree in
+                guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
+                return try await daemon.deliver(sessionId: session, text: text, ownership: 0, wake: false, guardInput: true, worktree: worktree)
+            },
+            defaultBranch: { [git] project in await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() } })
         launcher.connections = { [weak signalController] in await signalController?.connections() ?? SignalConnections() }
         // After the operators, whose openers it calls; its event hook right after the live sessions' own.
         windows = RowWindows(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
@@ -238,6 +255,10 @@ final class AppController {
             case .task(let id): self.choose(.task(id))
             }
         }
+        // A task's row chosen, by a click, a key or the note itself, takes back the note its signal's turn posted.
+        focus.onSelectionChanged { [weak signalController] selection in
+            if case .task(let id)? = selection { signalController?.projectSignals.rowChosen(id) }
+        }
         // A row chosen while iTerm2 was away is chosen again once it is synced, if it is still selected.
         windows.onPendingOpen { [weak self] row in
             guard let self else { return }
@@ -246,12 +267,14 @@ final class AppController {
         }
         // Rows read the Operator's current activity and issues from its controller; a change derives the rows again.
         rows.operatorIssue = { [weak self] in self?.signalController.statusIssue }
+        rows.readIssues = { [weak self] in self?.signalController.readIssues ?? SignalReadIssues() }
         rows.leaving = { [weak teardown] in teardown?.leaving ?? [] }
         rows.operatorActivity = { [weak self] in self?.signalController.activity.event }
         rows.operatorActs = { [weak self] in
             guard let activity = self?.signalController.activity else { return ([:], nil) }
             return (activity.actsByTask, activity.latestAct)
         }
+        rows.operatorWaking = { [weak self] in self?.signalController.activity.waking ?? [] }
         signalController.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
     }
@@ -342,7 +365,7 @@ final class AppController {
     /// Whether List View would open any project with rows. A sheet keeps the command disabled.
     var canShowListView: Bool { canApplyView(rows.viewLayout(focus: false)) }
 
-    /// ⌘F: opens projects and signals with a row needing attention, folds the rest in one save, then peeks
+    /// ⌘F: opens projects, in both sections, with a row needing attention, folds the rest in one save, then peeks
     /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
     /// and a task still unseen. A selected row hidden by a fold hands selection to its visible heading.
     /// The peek is returned, when there is one.
@@ -354,20 +377,19 @@ final class AppController {
         guard let first = rows.projectsNeedingAttention.first else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
-    /// ⌘L: opens every project with rows in one save.
+    /// ⌘L: opens every project with rows, in both sections, in one save.
     func showListView() { applyView(rows.viewLayout(focus: false)) }
 
-    private func canApplyView(_ layout: [UUID: Bool]) -> Bool {
+    private func canApplyView(_ layout: ViewLayout) -> Bool {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
     }
 
-    /// Whether the layout was stored. A locked workspace stores nothing, a removed signal's fold
-    /// included; `canApplyView` asks it too, but only to grey the menus. A removed signal's heading
-    /// folds in the rows' own set, as its toggle does.
+    /// Whether the layout was stored. A locked workspace stores nothing; `canApplyView` asks it too,
+    /// but only to grey the menus.
     @discardableResult
-    private func applyView(_ layout: [UUID: Bool]) -> Bool {
+    private func applyView(_ layout: ViewLayout) -> Bool {
         guard sheet == nil, !layout.isEmpty, canChangeWorkspace else { return false }
-        guard projects.setCollapsed(rows.foldRemovedSignals(in: layout)) else { return false }
+        guard projects.setCollapsed(layout) else { return false }
         refreshRows()
         return true
     }
@@ -415,26 +437,32 @@ final class AppController {
     var toastState: ToastState { notices.toastState }
 
     /// Answers the banner. Rebasing rewrites only local commits and aborts on a conflict, so it
-    /// does not ask. Returns once the action has ended, or at once when nothing started: the
+    /// does not ask. A failing source's Open Signals opens its section's signals sheet and Settings… the
+    /// Integrations tab; the banner stays until a good read or Dismiss. Returns once the action has ended, or at once when nothing started: the
     /// project is gone or busy.
     func perform(_ action: OperationIssue.Action) async {
         switch action {
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return }
             await projects.rebaseDefault(project: project)?.value
+        case .openSignals(let id):
+            guard let signal = state.signal(id: id) else { return }
+            presentSignals(signal.isProject ? .projects : .operator)
+        case .openSettings:
+            sheets.presentSettings(tab: .integrations)
         }
     }
 
     // -- the File menu -----------------------------------------------------------------
     /// The project File › New Task, New Review and New Terminal act on: the selected project header,
-    /// or the project of the selected task, review or terminal row. `nil` with nothing selected, and
-    /// the three items are off.
+    /// in either section, or the project of the selected task, review or terminal row. `nil` with
+    /// nothing selected, and the three items are off.
     var targetProject: Project? {
         switch focus.selection {
-        case .project(let id): state.project(id: id)
+        case .project(let id), .operatorProject(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .operatorChat, .signal, nil: nil
+        case .operatorChat, nil: nil
         }
     }
 
@@ -447,13 +475,13 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// Return folds a populated heading; an empty heading opens its main creation or edit sheet.
+    /// Return folds a populated heading; an empty project heading opens its main creation sheet. A
+    /// project's heading in the Operator's section is never empty: Return folds it there.
     /// Other rows open their window through the managed focus path.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
-        if case .signal(let id) = focus.selection, let section = rows.signalSections.first(where: { $0.id == id }) {
-            if !section.tasks.isEmpty { toggleCollapsed(section.signal) }
-            else if let signal = state.signal(id: id) { presentNewSignal(editing: signal) }
+        if case .operatorProject(let id) = focus.selection {
+            if let project = state.project(id: id) { toggleOperatorFold(project) }
             return nil
         }
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
@@ -481,7 +509,7 @@ final class AppController {
     @discardableResult
     func choose(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
-        case .project, .signal:
+        case .project, .operatorProject:
             focus.browse(row)
             return nil
         case .task(let id):

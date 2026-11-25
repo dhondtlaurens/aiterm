@@ -9,6 +9,9 @@ import AiTermCore
     /// completions follow a choice already made.
     static let nameStep = 1, startStep = 2, agentsStep = 3, promptStep = 4, doneStep = 5
     let projects: [Project], context: SignalContext
+    /// Who runs its tasks: set by where New Signal… was chosen for a new signal, read from the signal when editing. A
+    /// project signal has one agent row, You decide in place of the Operator, keeps or archives its task and merges nothing.
+    let kind: Signal.Kind
     private let original: Signal?, createdAt: Date
     private let seen: [SignalSeen]
     var name = ""
@@ -54,15 +57,21 @@ import AiTermCore
     @ObservationIgnored private var parkedSchedule = SignalTrigger(source: .schedule, query: "")
     @ObservationIgnored private var parkedQueryDone = SignalTrigger(source: .jira, query: "")
     @ObservationIgnored private var parkedOperatorDone = SignalTrigger(source: .operator, query: "")
+    @ObservationIgnored private var parkedPersonDone = SignalTrigger(source: .person, query: "")
     /// Whether the person chose Done when themselves; until then a new signal's Done follows its Starts on.
     @ObservationIgnored private var doneChosen = false
 
-    init(signal: Signal? = nil, projects: [Project], context: SignalContext, seen: [SignalSeen] = [], at: Date = Date(),
+    init(signal: Signal? = nil, kind: Signal.Kind = .operator, projects: [Project], context: SignalContext, seen: [SignalSeen] = [],
+         at: Date = Date(),
          preview: @escaping @MainActor (SignalTrigger) async throws -> SignalRead = { _ in SignalRead(items: [], complete: true) },
          save: @escaping @MainActor (Signal) async throws -> Void) {
         self.original = signal; self.createdAt = signal?.createdAt ?? at; self.projects = projects; self.context = context; self.seen = seen
         self.readPreview = preview; self.save = save
-        agentRows = (signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }).map { choice in
+        let kind = signal.map { $0.kind ?? .operator } ?? kind
+        self.kind = kind
+        // A project signal runs one agent: the first row.
+        let choices = signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }
+        agentRows = (kind == .project ? Array(choices.prefix(1)) : choices).map { choice in
             var choice = choice
             if let model = context.models[choice.agent]?.first(where: { $0.id == choice.model }) {
                 var preference = ModelPreference(model: choice.model, reasoning: choice.reasoning)
@@ -78,19 +87,33 @@ import AiTermCore
     }
     /// Whether the sheet edits a saved signal rather than making a new one.
     var isEditing: Bool { original != nil }
+    /// Whether it starts ordinary tasks in their projects rather than handing them to the Operator.
+    var isProject: Bool { kind == .project }
 
     /// Starts on: an item a query finds, or a schedule.
     enum StartKind: Hashable { case item, schedule }
-    /// Done when: a query matches, or the Operator decides.
-    enum DoneKind: Hashable { case query, operatorDecides }
+    /// Done when: a query matches, or the Operator decides (an Operator signal) or you do (a project signal).
+    enum DoneKind: Hashable { case query, operatorDecides, youDecide }
     var startKind: StartKind {
         get { start.source == .schedule ? .schedule : .item }
         set { setStartKind(newValue) }
     }
     var doneKind: DoneKind {
-        get { done.source == .operator ? .operatorDecides : .query }
+        get {
+            switch done.source {
+            case .operator: .operatorDecides
+            case .person: .youDecide
+            default: .query
+            }
+        }
         set { doneChosen = true; setDoneKind(newValue) }
     }
+    /// The Done when choices its kind offers: a query, then who decides without one.
+    var doneKinds: [DoneKind] { [.query, decides] }
+    /// Who decides Done without a query: the Operator, or, on a project signal, you.
+    private var decides: DoneKind { isProject ? .youDecide : .operatorDecides }
+    /// The Then choices its kind offers: a project signal keeps or archives its task.
+    var thenValues: [SignalFinish.Then] { isProject ? [.keep, .archive] : SignalFinish.Then.allCases }
     var isScheduled: Bool { startKind == .schedule }
     private func setStartKind(_ kind: StartKind) {
         guard kind != startKind else { return }
@@ -103,17 +126,23 @@ import AiTermCore
         case .item:
             parkedSchedule = start; start = parkedItemStart
         }
-        // A new signal's Done follows: a schedule opens on The Operator decides, an item on A query matches.
-        if !isEditing && !doneChosen { setDoneKind(kind == .schedule ? .operatorDecides : .query) }
+        // A new signal's Done follows: a schedule opens on The Operator decides (You decide on a project signal), an item
+        // on A query matches.
+        if !isEditing && !doneChosen { setDoneKind(kind == .schedule ? decides : .query) }
         // A run has no ticket for a Jira Done query.
         if kind == .schedule, done.source == .jira { done = SignalTrigger(source: .gitLab, description: done.description, query: "") }
     }
     private func setDoneKind(_ kind: DoneKind) {
-        guard kind != doneKind else { return }
+        guard kind != doneKind, doneKinds.contains(kind) else { return }
+        switch doneKind {
+        case .query: parkedQueryDone = done
+        case .operatorDecides: parkedOperatorDone = done
+        case .youDecide: parkedPersonDone = done
+        }
         switch kind {
-        case .operatorDecides: parkedQueryDone = done; done = parkedOperatorDone
+        case .operatorDecides: done = parkedOperatorDone
+        case .youDecide: done = parkedPersonDone
         case .query:
-            parkedOperatorDone = done
             var query = parkedQueryDone
             if isScheduled, query.source == .jira { query = SignalTrigger(source: .gitLab, description: query.description, query: "") }
             done = query
@@ -128,7 +157,14 @@ import AiTermCore
     }
     /// The project a schedule's runs start in, once chosen.
     var scheduleProject: Project? { start.project.flatMap { id in projects.first { $0.id == id } } }
-    var title: String { isEditing ? "Edit signal" : "New signal" }
+    /// "New Operator signal", "Edit project signal".
+    var title: String { (isEditing ? "Edit " : "New ") + (isProject ? "project" : "Operator") + " signal" }
+    /// The steps' names: a project signal's third step chooses its one agent.
+    var stepNames: [String] {
+        var names = Self.stepNames
+        if isProject { names[Self.agentsStep - 1] = "Agent" }
+        return names
+    }
     var createLabel: String { isEditing ? "Save" : "Create Signal" }
     /// What the match preview reads: the Start trigger's source and query.
     var startKey: String { start.source.rawValue + "\n" + start.query }
@@ -141,10 +177,11 @@ import AiTermCore
         if trigger.source == .schedule { do { _ = try Cron(trigger.query); return nil } catch { return error } }
         return trigger.refusal(start: start)
     }
-    /// Merge when ready is offered where the Start trigger's merge requests are the person's own.
-    var offersMerge: Bool { start.offersMerge }
+    /// Merge when ready is offered where the Start trigger's merge requests are the person's own, on an Operator signal.
+    var offersMerge: Bool { !isProject && start.offersMerge }
     var finish: SignalFinish {
-        SignalFinish(then: then, mergesWhenReady: offersMerge && mergeWhenReady, deletesMergedBranch: then == .remove && deleteMergedBranch)
+        SignalFinish(then: then, mergesWhenReady: offersMerge && mergeWhenReady,
+                     deletesMergedBranch: !isProject && then == .remove && deleteMergedBranch)
     }
     private var signal: Signal {
         func trimmed(_ trigger: SignalTrigger) -> SignalTrigger {
@@ -157,17 +194,18 @@ import AiTermCore
                       enabled: original?.enabled ?? true, collapsed: original?.collapsed ?? false, start: trimmed(start), done: trimmed(done),
                       work: SignalWork(prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                                        ticketDescription: ticketDescription && !isScheduled, requestDescription: requestDescription && !isScheduled),
-                      agents: agents, finish: finish, scheduledFrom: original?.scheduledFrom)
+                      agents: agents, finish: finish, scheduledFrom: original?.scheduledFrom, kind: kind)
     }
     var offeredAgents: [AgentKind] { ModelChoice.pair.filter { context.defaults[$0] != nil } }
     func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
     var agents: [AgentChoice] { var found = Set<AgentChoice>(); return agentRows.map(\.choice).filter { found.insert($0).inserted } }
     var agentsWhyNot: String? {
-        guard !agentRows.isEmpty else { return "Add an agent." }
+        // A project signal's one row has no Add: with no agent installed, its step says where to install one.
+        guard !agentRows.isEmpty else { return isProject ? "Install an agent in Settings › Agents." : "Add an agent." }
         for row in agentRows {
             let choice = row.choice
             if !offeredAgents.contains(choice.agent) {
-                return "\(choice.agent.displayName) isn’t installed. Choose another agent for its row, or remove it."
+                return "\(choice.agent.displayName) isn’t installed. " + (isProject ? "Choose another agent." : "Choose another agent for its row, or remove it.")
             }
             if !models(for: choice.agent).contains(where: { $0.id == choice.model }) {
                 return ModelReasoningFields.unavailableHelp
@@ -176,7 +214,7 @@ import AiTermCore
         return nil
     }
     func addAgent() {
-        guard let agent = offeredAgents.first(where: { agent in !agentRows.contains { $0.choice.agent == agent } }) ?? offeredAgents.first,
+        guard !isProject || agentRows.isEmpty, let agent = offeredAgents.first(where: { agent in !agentRows.contains { $0.choice.agent == agent } }) ?? offeredAgents.first,
               let choice = context.defaults[agent] else { return }
         agentRows.append(AgentChoiceRow(choice: choice))
     }
@@ -243,7 +281,7 @@ import AiTermCore
     func canWrite(start: Bool) -> Bool {
         let trigger = start ? self.start : done
         if case .unknown = trigger.source { return false }
-        if trigger.source == .operator { return false }
+        if trigger.source == .operator || trigger.source == .person { return false }
         return !trigger.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     /// Asks Claude for the trigger's query from its description and puts the answer in the query field, keeping the

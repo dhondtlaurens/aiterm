@@ -119,12 +119,7 @@ struct BackgroundCardView: View {
                 .clipped()
             }
         }
-        .padding(.vertical, scale(Space.base)).padding(.horizontal, scale(Space.gap))
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .frame(height: Self.height(jobs: rows, scale: scale))
-        .menuChrome(cornerRadius: scale(Radius.control))
-        .surface(.sheet)
-        .accessibilityHidden(true)
+        .modifier(FloatingCardChrome(height: Self.height(jobs: rows, scale: scale)))
     }
 
     private var lines: some View {
@@ -144,6 +139,23 @@ struct BackgroundCardView: View {
     }
 }
 
+/// The chrome a floating sidebar card is drawn in, the background-work card's and the signal card's: its padding, at
+/// `height`, in `menuChrome` on the sheet's surface. Hidden from VoiceOver: the row's value says what the card does.
+struct FloatingCardChrome: ViewModifier {
+    let height: CGFloat
+    @Environment(\.interfaceScale) private var scale
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.vertical, scale(Space.base)).padding(.horizontal, scale(Space.gap))
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: height)
+            .menuChrome(cornerRadius: scale(Radius.control))
+            .surface(.sheet)
+            .accessibilityHidden(true)
+    }
+}
+
 extension View {
     /// A source row's hover and native anchor, applied inside SelectableRow's padding. The sidebar
     /// presenter floats the card; standalone debug fixtures draw its content directly.
@@ -154,14 +166,31 @@ extension View {
 
     /// A row's trailing mark as the hover target that opens its card: the whole `Size.slot` square.
     func opensBackgroundCard(slot: CGFloat) -> some View { modifier(OpensBackgroundCard(slot: slot)) }
+
+    /// A task row's signal card: the hover its avatar's disc opens, on the same delays as the background card's, and
+    /// its native anchor, applied inside SelectableRow's padding. `card` is nil for a row with no disc; the sidebar
+    /// presenter resolves the open card from the projection, and only standalone debug fixtures call `card`.
+    func signalCard(_ card: (() -> SignalCard?)?, source: RowSelection,
+                    activate: @escaping () -> Void, commands: [[RowCommand]]) -> some View {
+        modifier(SignalCardOverlay(card: card, source: source, activate: activate, commands: commands))
+    }
+
+    /// The signals disc as the hover target that opens its card: a `square` centred on it.
+    func opensSignalCard(square: CGFloat) -> some View { modifier(OpensSignalCard(square: square)) }
 }
 
 private struct BackgroundCardHoverKey: EnvironmentKey { static let defaultValue: BackgroundCardHover? = nil }
+private struct SignalCardHoverKey: EnvironmentKey { static let defaultValue: BackgroundCardHover? = nil }
 
 private extension EnvironmentValues {
     var backgroundCardHover: BackgroundCardHover? {
         get { self[BackgroundCardHoverKey.self] }
         set { self[BackgroundCardHoverKey.self] = newValue }
+    }
+    /// The disc's card's hover, a second `BackgroundCardHover` beside the trailing mark's: the two open and close apart.
+    var signalCardHover: BackgroundCardHover? {
+        get { self[SignalCardHoverKey.self] }
+        set { self[SignalCardHoverKey.self] = newValue }
     }
 }
 
@@ -218,5 +247,75 @@ private struct OpensBackgroundCard: ViewModifier {
 
     func body(content: Content) -> some View {
         content.frame(width: slot, height: slot).contentShape(Rectangle()).onHover { hover?.mark($0) }
+    }
+}
+
+/// The signal card's hover and anchor, as `BackgroundCardOverlay` holds the background card's.
+private struct SignalCardOverlay: ViewModifier {
+    let card: (() -> SignalCard?)?
+    let source: RowSelection
+    let activate: () -> Void
+    let commands: [[RowCommand]]
+    @Environment(\.backgroundCardPresenter) private var presenter
+    @Environment(\.interfaceScale) private var scale
+    #if DEBUG
+    @Environment(\.seededHover) private var seededHover
+    #endif
+    @State private var own = BackgroundCardHover()
+
+    private var hover: BackgroundCardHover {
+        #if DEBUG
+        if let hover = seededHover?.signalCard { return hover }
+        #endif
+        return own
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.signalCardHover, card == nil ? nil : hover)
+            .background {
+                if let presenter, card != nil {
+                    BackgroundCardAnchor(source: source, presenter: presenter, hover: hover,
+                                         activate: activate, commands: commands, kind: .signal)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                // As the background card's: standalone debug fixtures draw the card here, after the avatar, from the
+                // row's top to the pill's trailing edge.
+                #if DEBUG
+                if presenter == nil, hover.isOpen, let card {
+                    SignalCardFallback(card: card, hover: hover)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(EdgeInsets(top: -scale(Space.base),
+                                            leading: AvatarGroupView.columnWidth(scale) + scale(Space.tight),
+                                            bottom: -scale(Space.base), trailing: -SidebarRowLayout.trailingInset(scale)))
+                }
+                #endif
+            }
+    }
+}
+
+#if DEBUG
+/// Reads the card only while it is open, so a row with a closed card observes nothing of it.
+private struct SignalCardFallback: View {
+    let card: () -> SignalCard?
+    let hover: BackgroundCardHover
+
+    var body: some View {
+        if let card = card() {
+            SignalCardView(card: card)
+                .onHover { hover.card($0) }
+                .onDisappear { hover.card(false) }
+        }
+    }
+}
+#endif
+
+private struct OpensSignalCard: ViewModifier {
+    let square: CGFloat
+    @Environment(\.signalCardHover) private var hover
+
+    func body(content: Content) -> some View {
+        content.frame(width: square, height: square).contentShape(Rectangle()).onHover { hover?.mark($0) }
     }
 }

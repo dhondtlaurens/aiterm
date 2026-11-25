@@ -389,47 +389,6 @@ import Testing
         #expect(controller.state == locked)
     }
 
-    /// A signal heading's Move Up and Move Down reorder the headings and save the order; a command kept
-    /// from an earlier menu rechecks the current edge, and a locked workspace refuses.
-    @Test func movingASignalThroughItsHeadingCommandReordersAndSavesTheHeadings() throws {
-        var world = SignalWorld()
-        let first = world.signal(name: "First"), second = world.signal(name: "Second"), third = world.signal(name: "Third")
-        let gone = world.signal(name: "Gone")
-        world.workingTask(signal: gone)
-        world.state.signals.removeAll { $0.id == gone }
-        let controller = AppController(preferences: .scratch())
-        try controller.workspace.load()
-        defer { controller.shutdown() }
-        controller.workspace.mutate { $0 = world.state; $0.operatorOpen = true }
-        func command(_ id: UUID, _ title: String) throws -> RowCommand {
-            let section = try #require(controller.rows.signalSections.first { $0.id == id })
-            return try #require(HeadingRow(value: HeadingValue(section), controller: controller).commands()
-                .flatMap { $0 }.first { $0.title == title })
-        }
-        #expect(try !command(first, "Move Up").enabled && !command(third, "Move Down").enabled)
-        let down = try command(first, "Move Down")
-        #expect(down.enabled)
-        down.action()
-        let up = try command(third, "Move Up")
-        #expect(up.enabled)
-        up.action()
-        #expect(controller.state.signals.map(\.id) == [second, third, first])
-        #expect(controller.rows.signalSections.map(\.id) == [second, third, first, gone])
-        let reordered = controller.state
-        down.action()
-        #expect(controller.state == reordered, "a retained command rechecks the new edge")
-        #expect(controller.state.tasks == world.state.tasks && controller.state.items == world.state.items)
-        let saved = try controller.savedWorkspace()
-        #expect(saved.signals.map(\.id) == [second, third, first])
-        #expect(saved == controller.state)
-
-        try controller.breakSaving()
-        let locked = controller.state
-        #expect(!controller.moveSignal(second, .down))
-        try command(second, "Move Down").action()
-        #expect(controller.state == locked)
-    }
-
     @Test func aProjectKeepsTheJiraProjectsItIsGivenOnceEach() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -543,42 +502,6 @@ import Testing
         #expect(controller.state.items.last?.divider?.name == "Work")
         #expect(controller.persistenceError == nil)
         #expect(try controller.savedWorkspace().items.count == 2)
-    }
-
-    /// Add Divider… among the signals needs a signal to stand beside, trims its name, saves, and leaves the signals'
-    /// priority alone; ⌘D asks for one in whichever section is open.
-    @Test func aSignalDividerNeedsASignalAndLeavesPriorityAlone() throws {
-        let (controller, dir) = try loadedController()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        controller.addSignalDivider(name: "Alone")
-        #expect(controller.state.signalDividers.isEmpty && !controller.canAddSignalDivider)
-
-        var world = SignalWorld()
-        let a = world.signal(name: "A"), b = world.signal(name: "B")
-        controller.workspace.mutate { $0.signals = world.state.signals }
-        controller.addSignalDivider(name: "  Reviews  ")
-        let divider = try #require(controller.state.signalDividers.first)
-        #expect(divider.name == "Reviews")
-        #expect(controller.moveSignalDivider(divider.id, .up))
-        #expect(controller.state.operatorSlots.map(\.id) == [a, divider.id, b])
-        #expect(controller.state.signals.map(\.id) == [a, b])
-        controller.renameSignalDivider(divider.id, to: " ")
-        #expect(controller.state.signalDividers.first?.name == "")
-        #expect(try controller.savedWorkspace().signalDividers.map(\.id) == [divider.id])
-
-        controller.presentNewDividerInOpenSection()
-        #expect(controller.sheet?.id == AppController.SheetKind.newDivider(.projects).id)
-        controller.sheet = nil
-        controller.workspace.mutate { $0.operatorOpen = true }
-        controller.presentNewDividerInOpenSection()
-        #expect(controller.sheet?.id == AppController.SheetKind.newDivider(.operator).id)
-        controller.sheet = nil
-
-        controller.removeSignalDivider(divider.id)
-        #expect(controller.state.signalDividers.isEmpty)
-        try controller.breakSaving()
-        controller.addSignalDivider(name: "Locked")
-        #expect(controller.state.signalDividers.isEmpty)
     }
 
     @Test func renamingADividerTrimsAndRenamingATaskChangesOnlyTheTitle() throws {
@@ -1398,8 +1321,9 @@ import Testing
                 "the folded projects")
 
         controller.showFocusView()
-        #expect(controller.state.signal(id: signal)?.collapsed == true, "Focus View folds the signal")
-        #expect(controller.state.project(id: project.id)?.collapsed == false, "and opens the project")
+        #expect(controller.state.operatorFolded == [project.id], "Focus View folds the project in the Operator's section")
+        #expect(controller.state.project(id: project.id)?.collapsed == false, "and opens it in the projects")
+        #expect(try controller.savedWorkspace().operatorFolded == [project.id], "both in one save")
     }
 
     /// A task on its way out counts as no row in either view: its finished agent opens nothing, and a project holding
@@ -1422,9 +1346,9 @@ import Testing
         #expect(controller.state.projects.map(\.collapsed) == [true, false])
     }
 
-    /// A removed signal's heading folds and opens with the views as a live signal's does, in the rows' own fold, and a
-    /// task of it on its way out counts as no row there either.
-    @Test func theViewsFoldAndOpenARemovedSignalsHeading() throws {
+    /// A project's heading in the Operator's section folds and opens with the views in that section's own fold, its
+    /// signal removed or not, apart from the project's fold; a task of it on its way out counts as no row there either.
+    @Test func theViewsFoldAndOpenAnOperatorProjectHeading() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
@@ -1434,16 +1358,16 @@ import Testing
         world.state.signals.removeAll()
         controller.workspace.mutate { $0 = world.state }
         controller.live.sessions = [SessionInfo.make("worker", window: "worker-window", task: driven, state: .working)]
-        func folded() -> Bool? { controller.rows.signalSections.first { $0.id == signal }?.collapsed }
-        try #require(controller.rows.signalSections.first { $0.id == signal }?.removed == true)
-        #expect(folded() == false)
+        func folded() -> Bool? { controller.rows.operatorSections.first { $0.project.id == world.project.id }?.collapsed }
+        #expect(folded() == false, "a removed signal's task stays under its project")
 
         controller.showFocusView()
         #expect(folded() == true, "nothing of it waits on you")
+        #expect(controller.state.project(id: world.project.id)?.collapsed == false, "the project's own fold is apart")
         controller.showListView()
         #expect(folded() == false)
 
-        controller.toggleCollapsed(try #require(controller.rows.signalSections.first { $0.id == signal }?.signal))
+        controller.toggleOperatorFold(world.project)
         let token = try #require(controller.work.begin(.removing, onTask: driven))
         defer { controller.work.end(token) }
         controller.showListView()

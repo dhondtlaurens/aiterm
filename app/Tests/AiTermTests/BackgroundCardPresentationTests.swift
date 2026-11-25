@@ -309,4 +309,50 @@ import AiTermUI
         let resizedAvailable = window.convertToScreen(viewport.convert(viewport.bounds, to: nil))
         #expect(resizedAvailable.contains(resized.frame))
     }
+
+    /// The disc's card opens "after the avatar": its leading edge at the avatar column's trailing edge plus
+    /// `Space.tight`, so the disc stays in view, its top on the pill's as the work card's is, at every interface size.
+    /// One card at a time: opening the disc's closes the trailing mark's, and the other way round.
+    @Test(arguments: InterfaceSize.allCases)
+    func theSignalCardOpensAfterTheAvatarAndReplacesTheWorkCard(size: InterfaceSize) async throws {
+        let (controller, task, _) = try fixture()
+        defer { controller.shutdown() }
+        controller.preferences.interfaceSize = size
+        let signal = Signal.project(name: "Reviews for me")
+        controller.workspace.mutate { state in
+            state.signals = [signal]
+            state.tasks[0].signalOrigin = SignalOrigin(signal: signal.id, name: signal.name,
+                                                       item: .request(remote: "git.example/shop/web", number: 7), startedAt: Date())
+        }
+        let (host, window) = HostedSidebar.make(controller, size: CGSize(width: 500, height: 600))
+        defer { window.close() }
+        settle(host) { host.descendants(BackgroundCardAnchor.Probe.self).contains { $0.kind == .signal } }
+        let anchors = host.descendants(BackgroundCardAnchor.Probe.self).filter { $0.source == .task(task.id) }
+        let jobs = try #require(anchors.first { $0.kind == .jobs }), disc = try #require(anchors.first { $0.kind == .signal })
+        let presenter = try #require(disc.presenter)
+
+        let jobsHover = try await open(jobs, in: host)
+        let jobsPanel = try #require(presenter.panel)
+        let discHover = try await open(disc, in: host)
+        #expect(!jobsHover.isOpen && jobsPanel.parent == nil, "the disc's card replaces the work card")
+        #expect(presenter.kind == .signal && presenter.card == nil)
+        #expect(presenter.signalCard?.heading == "Reviews for me")
+        let panel = try #require(presenter.panel)
+        let scale = size.scale
+        let row = window.convertToScreen(disc.convert(disc.bounds, to: nil))
+        // Within a point: the row's frame lands on half points at the large size.
+        #expect(abs(panel.frame.minX - (row.minX + AvatarGroupView.columnWidth(scale) + scale(Space.tight))) <= 1,
+                "after the avatar: \(panel.frame.minX) for a row at \(row.minX)")
+        #expect(panel.frame.minX > row.minX + AvatarGroupView.discCentre(scale) + scale(Size.cornerBadge) / 2, "the disc stays in view")
+        let viewport = try #require(host.firstDescendant(BackgroundCardViewport.Probe.self))
+        let available = window.convertToScreen(viewport.convert(viewport.bounds, to: nil))
+        #expect(abs(panel.frame.maxY - min(row.maxY + scale(Space.base), available.maxY)) <= 1,
+                "its top on the pill's, inside the viewport: \(panel.frame) for \(row) in \(available)")
+        #expect(abs(panel.frame.maxX - (row.maxX + SidebarRowLayout.trailingInset(scale))) <= 1, "to the pill's trailing edge")
+        #expect(abs(panel.frame.height - SignalCardView.height(lines: 2, scale: scale)) <= 1)
+
+        try await open(jobs, in: host)
+        #expect(!discHover.isOpen && presenter.kind == .jobs, "the work card replaces the disc's")
+        #expect(presenter.card != nil && presenter.signalCard == nil)
+    }
 }

@@ -37,10 +37,14 @@ the unreadable bytes available. A backup must itself decode to be usable. Switch
 whose Operator records differ follows the release procedure's
 [Operator format](workflow/release.md#operator-format).
 
-`AppState` stores projects, tasks, terminals, the archive, signals, seen items and one Operator
-session. Unknown keys round-trip. Runtime jobs and sessions stay separate. `LiveSessions`, `PerRow`
-and `SidebarProjection` scope observation to drawn facts. Project and signal headings compare
-`HeadingValue`; menus resolve saved tasks at action time. Journals, reply markers and launch history
+`AppState` stores projects, tasks (each with an optional `signalTask`, the Operator's record, or
+`signalOrigin`, the mark of the signal that started it), terminals, the archive, signals of both
+kinds, seen items, the projects folded in the Operator's section (`operatorFolded`) and one Operator
+session. Unknown keys round-trip, the retired `signalDividers` among them. Runtime jobs and sessions
+stay separate. `LiveSessions`, `PerRow` and `SidebarProjection` scope observation to drawn facts;
+a row's piece of the Operator's status line and an open signal card are cells of their own, so an
+exchange redraws no row body. Project headings, in either section, compare `HeadingValue`; menus
+resolve saved tasks at action time. Journals, reply markers and launch history
 do not redraw rows. `CheckoutMonitor` samples Git off the main actor and coalesces title updates. No
 leaf `body` performs I/O or reads the whole workspace.
 
@@ -67,7 +71,12 @@ claim validation and uncertainty belong to their callers.
 
 `TaskLauncher` starts manual tasks, restores archived rows, makes a worker's checkout and opens a
 task's window with what its owner resumes; the Operator reaches its restore and checkout through
-ports the app sets. `SignalWorkerIO` owns guarded CLI launch, extra tabs, delivery and conversation
+ports the app sets. For a project signal it creates unattended (`createUnattended`: the checkout on
+the repository's lane, then the row, its `signalOrigin` and the item's started record in one change,
+selecting nothing and opening no window) and opens unattended (`openUnattended`: the window behind,
+or a background tab, resuming the first conversation with the prompt; the caller holds the pause
+and the window turn). Both kinds of create share one slot per project and throw `CreationBusy`
+while it is taken; an unattended review never opens another row's checkout. `SignalWorkerIO` owns guarded CLI launch, extra tabs, delivery and conversation
 recovery. A launch interrupted after its saved intent adopts a tagged tab running the planned agent,
 without repeating its prompt, and otherwise blocks for inspection. Durable reply fingerprints
 distinguish a newly sent turn from the previous transcript. An accepted launch with no worker
@@ -81,24 +90,32 @@ kind. `AppController.choose` decides what choosing a row does, and `RowFocus` ra
 removing an archived row and the closing of a task whose worktree went: one prepare (one
 `TaskWorkflow.preflight` listing, the unlisted-folder and unsaved-work decisions) and one run
 (git's removal, asking again about work written while the window closed), each asking the person
-or refusing for the Operator's Then by its `Consent`. A failed removal retains a recoverable task.
+or refusing for a signal's Then by its `Consent`. A failed removal retains a recoverable task.
 `TaskLauncher.restore` restores. See [windows](windows.md).
 
 ## Operator ownership
 
-Signals have one runtime and one Operator chat. A saved `SignalTask` holds its current stage whole
+Signals have one runtime and one Operator chat. The poller, scheduler and router serve both kinds;
+`MatchDecision` ranks project signals first, and a project signal's match takes the ordinary route:
+`ItemRouter` hands a pick-up to `ProjectSignals`, which creates an ordinary task through
+`TaskLauncher` and launches it with the ordinary agent command, no worker guard and no Operator
+chat, Oracle or stage. Its read failures stay in `SignalReadIssues`, never in the Operator's
+session, activity log or wake. A saved `SignalTask` holds its current stage whole
 (`SignalStage`: signal, item, the signal's configuration as it matched, prompt) and an ordered
-pending-stage list. Take Over removes the record (`AppState.takeOver`): the task is an ordinary one
-that no later match continues. Item identity joins tickets, requests and branches to existing tasks.
+pending-stage list. Take Over removes the record (`AppState.takeOver`) and keeps its chain in the task's `signalOrigin`:
+the task is an ordinary one that no later match continues. Item identity joins tickets, requests and branches to existing tasks.
 Associated enum kinds use inert unknown fallbacks rather than losing the workspace.
 
 | Owner | Decisions/effects |
 | --- | --- |
 | `MatchDecision`, `SignalTransitions`, `DoneCheck`, `FreshStartPolicy` | Pure identity/routing, the stage machine (`SignalTransitions.apply` of a `SignalAction` to the phases launching, choosing, working, watching, blocked, done and archived), the done edge (the Done query starting to match, or a merge or close) and idle fresh-start decisions. Pending stages outrank Then. |
 | `SignalPoller`, source readers | Shared complete reads, minute polling, ten-minute Jira sweeps and failure backoff. Partial reads cannot start tasks. |
-| `ItemRouter` | Map matches to existing tasks/projects, persist skipped reasons, choose the higher signal in a shared pass, make a merge request a review task unless the account authored it or is an assignee. No clone or pick-up writes. |
+| `ItemRouter` | Map matches to existing tasks/projects, persist skipped reasons, choose the higher signal in a shared pass, make a merge request a review task unless the account authored it or is an assignee; hand a project signal's new match to `ProjectSignals` as a pick-up (writing nothing for it) and write a re-match's owed prompt on its task. No clone or host writes. |
 | `StageRunner` | Persist launch intent, prepare/restore the same task, store the Done baseline before launch, launch one worker, advance or block its stage; a stage with a row or project left to choose waits in `choosing` until a decided choice is applied. |
 | `SignalWorkerIO` | Native guarded workers, delivery checks, reply intents, transcript questions and failed-launch detection. Watching tasks do not read transcripts. |
+| `ProjectSignals` | A project signal's pick-ups: one queue and runner per project, the re-check before the create, the Done baseline before any prompt, the window in the person's pause and the shared window turn, guarded delivery of a re-match's prompt (restoring an archived task first), launch recovery and the first-turn notification. Nothing is saved for a pick-up until its task is. |
+| `ProjectSignalWatch` | A project signal's Done edge and Then for the tasks it marked, each reconcile, whatever the Operator's pause: a `doneKey` that changed reads a new baseline; Archive goes through `TaskTeardown` refusing rather than asking; a refusal for good is kept in `thenNote`. |
+| `SignalReadIssues` | Failed reads per signal, in memory: the section icon turns amber at the first, the banner rises once per streak at the third, a good read clears both. |
 | `RequestWatch`, `SignalHostIO` | Find the branch's request, read the chosen condition from one `RequestStatus` read per pass and Core's pure `MergeReadiness`, recheck merge floors/head/authority around Oracle and host effects, require host merge confirmation. Cache only read-only details. |
 | `ThenRunner`, `TaskTeardown` | Keep/archive/remove only with no pending work; preserve dirty worktrees. Exact merged-tip proof gates optional branch deletion. |
 | `OperatorSessionKeeper` | Persist workload-driven chat lifetime as one saved lifecycle, `OperatorSession.Lifecycle` (idle, opening, open, closing and revoking before a renewal or a retirement): close/revoke/idle retirement, generation/token handover and context renewal. Close the old window before revoking its token. |

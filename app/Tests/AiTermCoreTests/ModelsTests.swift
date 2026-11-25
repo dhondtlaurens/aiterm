@@ -537,97 +537,70 @@ import Foundation
         #expect(world.state.signalSeen == original.signalSeen && world.state.operatorSession == original.operatorSession)
     }
 
-    /// A signal divider is a label among the signal headings: it moves past one neighbour at a time, a signal moves past
-    /// it without changing priority (`signals`' order), and only a signal moving past a signal swaps them.
-    @Test func signalDividersMoveAmongSignalsWithoutChangingPriority() throws {
+    /// Each kind orders its own signals: Move Up and Down step over a signal of the other kind, which keeps its place.
+    @Test func signalsMovePastSignalsOfTheOtherKind() {
         var world = SignalWorld()
-        let a = world.signal(name: "A"), b = world.signal(name: "B"), c = world.signal(name: "C")
-        let divider = UUID()
-        world.state.append(signalDivider: SignalDivider(id: divider, name: "Reviews"))
-        #expect(world.state.operatorSlots.map(\.id) == [a, b, c, divider])
-        #expect(!world.state.canMove(signalDividerId: divider, .down) && world.state.canMove(signalDividerId: divider, .up))
-        let tasks = world.state.tasks, items = world.state.items
-
-        let upOnce = world.state.move(signalDividerId: divider, .up), upTwice = world.state.move(signalDividerId: divider, .up)
-        #expect(upOnce && upTwice)
-        #expect(world.state.operatorSlots.map(\.id) == [a, divider, b, c])
-        #expect(world.state.signals.map(\.id) == [a, b, c])
-
-        // B sits directly under the divider: one press puts it above, the priority untouched.
-        let pastDivider = world.state.move(signalId: b, .up)
-        #expect(pastDivider)
-        #expect(world.state.operatorSlots.map(\.id) == [a, b, divider, c])
-        #expect(world.state.signals.map(\.id) == [a, b, c])
-        // Then B passes A: two signals swap, as before.
-        let pastSignal = world.state.move(signalId: b, .up)
-        #expect(pastSignal)
-        #expect(world.state.operatorSlots.map(\.id) == [b, a, divider, c])
-        #expect(world.state.signals.map(\.id) == [b, a, c])
-        // C under the divider can move up although it is the last signal; the first slot cannot.
-        #expect(world.state.canMove(signalId: c, .up) && !world.state.canMove(signalId: b, .up))
-        #expect(world.state.tasks == tasks && world.state.items == items)
-
-        // Two dividers side by side trade places without moving a signal.
-        let second = UUID()
-        world.state.append(signalDivider: SignalDivider(id: second, name: ""))
-        let pastC = world.state.move(signalDividerId: second, .up), pastFirst = world.state.move(signalDividerId: second, .up)
-        #expect(pastC && pastFirst)
-        #expect(world.state.operatorSlots.map(\.id) == [b, a, second, divider, c])
-        #expect(world.state.signals.map(\.id) == [b, a, c])
-        let missing = world.state.move(signalDividerId: UUID(), .up)
-        #expect(!missing)
+        let firstProject = world.projectSignal(name: "Reviews"), operatorSignal = world.signal(name: "Plan tickets")
+        let secondProject = world.projectSignal(name: "Fixes")
+        #expect(!world.state.canMove(signalId: firstProject, .up) && !world.state.canMove(signalId: secondProject, .down))
+        #expect(!world.state.canMove(signalId: operatorSignal, .up) && !world.state.canMove(signalId: operatorSignal, .down))
+        let up = world.state.move(signalId: secondProject, .up)
+        #expect(up)
+        #expect(world.state.signals.map(\.id) == [secondProject, operatorSignal, firstProject])
+        let down = world.state.move(signalId: secondProject, .down)
+        #expect(down)
+        #expect(world.state.signals.map(\.id) == [firstProject, operatorSignal, secondProject])
     }
 
-    /// Renaming and removing a signal divider touch only it; removing a signal keeps every divider where it was drawn.
-    @Test func signalDividersKeepTheirPlaceWhenASignalGoes() throws {
-        var world = SignalWorld()
-        let a = world.signal(name: "A"), b = world.signal(name: "B"), c = world.signal(name: "C")
-        let top = UUID(), middle = UUID()
-        world.state.append(signalDivider: SignalDivider(id: top, name: "Top"))
-        world.state.append(signalDivider: SignalDivider(id: middle, name: "Middle"))
-        for _ in 0..<3 { world.state.move(signalDividerId: top, .up) }
-        for _ in 0..<2 { world.state.move(signalDividerId: middle, .up) }
-        #expect(world.state.operatorSlots.map(\.id) == [top, a, middle, b, c])
-
-        world.state.removeSignal(id: a)
-        #expect(world.state.operatorSlots.map(\.id) == [top, middle, b, c])
-        world.state.removeSignal(id: c)
-        #expect(world.state.operatorSlots.map(\.id) == [top, middle, b])
-        world.state.removeSignal(id: UUID())
-        #expect(world.state.operatorSlots.map(\.id) == [top, middle, b])
-
-        world.state.renameSignalDivider(id: middle, to: "Later")
-        #expect(world.state.signalDividers.map(\.name) == ["Top", "Later"])
-        world.state.removeSignalDivider(id: top)
-        #expect(world.state.operatorSlots.map(\.id) == [middle, b])
-        // A new signal goes last, under a trailing divider as a new project goes under one.
-        world.state.removeSignal(id: b)
-        let d = world.signal(name: "D")
-        #expect(world.state.operatorSlots.map(\.id) == [middle, d])
-    }
-
-    /// Signal dividers are left out of the file while there are none, round-trip when there are, and a position past
-    /// either end, from a hand edit or an older build that removed a signal, is drawn at that end.
-    @Test func signalDividersAreSavedOnlyWhenThereAreSome() throws {
+    /// Dividers an earlier build saved among the signals are no longer read, drawn or edited, but the file keeps them: a
+    /// workspace saved with them loads, and saves the same `signalDividers` value as it came (order, out-of-range
+    /// positions and fields this build never knew included), also after a signal is removed. One saved without them
+    /// gains none.
+    @Test func savedSignalDividersRoundTripUntouched() throws {
         var world = SignalWorld()
         let a = world.signal(name: "A"), b = world.signal(name: "B")
-        let without = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(world.state))
-        #expect(without["signalDividers"] == nil)
-
-        let divider = UUID()
-        world.state.append(signalDivider: SignalDivider(id: divider, name: "Reviews"))
-        world.state.move(signalDividerId: divider, .up)
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let back = try decoder.decode(AppState.self, from: encoder.encode(world.state))
-        #expect(back == world.state)
-        #expect(back.operatorSlots.map(\.id) == [a, divider, b])
+        #expect(try decoder.decode(JSONValue.self, from: encoder.encode(world.state))["signalDividers"] == nil)
 
-        let past = UUID(), before = UUID()
-        let data = Data(#"{"items":[],"tasks":[],"terminals":[],"signalDividers":[{"id":"\#(past)","name":"Past","position":9},{"id":"\#(before)","name":"Before","position":-2}]}"#.utf8)
-        let clamped = try JSONDecoder().decode(AppState.self, from: data)
-        #expect(clamped.signalDividers.map(\.position) == [0, 0])
-        #expect(clamped.operatorSlots.map(\.id) == [past, before])
+        let dividers: JSONValue = [
+            ["id": .string(UUID().uuidString), "name": "Past", "position": 9],
+            ["id": .string(UUID().uuidString), "name": "", "position": -2, "colour": "amber"],
+            ["id": .string(UUID().uuidString), "name": "Reviews", "position": 1]
+        ]
+        guard case .object(var saved) = try decoder.decode(JSONValue.self, from: encoder.encode(world.state)) else {
+            Issue.record("a workspace is a JSON object"); return
+        }
+        saved["signalDividers"] = dividers
+        var state = try decoder.decode(AppState.self, from: encoder.encode(JSONValue.object(saved)))
+        #expect(state.signals.map(\.id) == [a, b])
+        #expect(try decoder.decode(JSONValue.self, from: encoder.encode(state))["signalDividers"] == dividers)
+
+        state.removeSignal(id: a)
+        #expect(state.signals.map(\.id) == [b])
+        let resaved = try decoder.decode(JSONValue.self, from: encoder.encode(state))
+        #expect(resaved["signalDividers"] == dividers)
+        #expect(try decoder.decode(AppState.self, from: encoder.encode(resaved)) == state)
+    }
+
+    @Test func theOperatorsFoldedProjectsAreSavedSortedAndOnlyWhenThereAreSome() throws {
+        var state = AppState.empty
+        #expect(try JSONValue(encoding: state)["operatorFolded"] == nil)
+        let a = UUID(uuidString: "00000000-0000-4000-8000-00000000000A")!, b = UUID(uuidString: "00000000-0000-4000-8000-00000000000B")!
+        state.operatorFolded = [b, a]
+        #expect(try JSONValue(encoding: state)["operatorFolded"] == [.string(a.uuidString), .string(b.uuidString)])
+        #expect(try JSONDecoder().decode(AppState.self, from: JSONEncoder().encode(state)) == state)
+    }
+
+    /// A project's heading in the Operator's section has an id of its own, which turns back into the project's.
+    @Test func anOperatorProjectRowIDRoundTripsAndDiffersFromTheProjects() {
+        for project in [UUID(), UUID(uuidString: "00000000-0000-4000-8000-00000000000A")!] {
+            let row = OperatorSession.projectRowID(project)
+            #expect(row != project && row != OperatorSession.rowID)
+            #expect(OperatorSession.projectRowID(row) == project)
+        }
+        let a = UUID(), b = UUID()
+        #expect(OperatorSession.projectRowID(a) != OperatorSession.projectRowID(b))
     }
 
     @Test func testStateWithDividersRoundTripsThroughJSON() throws {

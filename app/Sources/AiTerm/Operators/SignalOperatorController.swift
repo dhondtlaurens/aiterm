@@ -17,6 +17,20 @@ import AiTermCore
     /// The tasks an Operator effect runs on, one effect per task, shared by every owner that acts on a task.
     let effects: OperatorInFlight
     var tabsKnown = false
+    /// Each signal's failing source reads, the person's: an icon's issue and, at the third in a row, the banner.
+    private(set) var readIssues = SignalReadIssues()
+    /// Where a failing source's banner goes: the app's `Notices`, as a background report.
+    struct ReadIssueBanner {
+        /// The third failure in a row of a streak: shown, or held behind a question.
+        var raise: @MainActor (OperationIssue) -> Void = { _ in }
+        /// A later failure of a raised streak: the banner, if it is still up or held, says the newer error and retry time.
+        var refresh: @MainActor (OperationIssue) -> Void = { _ in }
+        /// A good read, or the signal no longer read: its banner goes, shown or held.
+        var drop: @MainActor (UUID) -> Void = { _ in }
+    }
+    @ObservationIgnored var readIssueBanner = ReadIssueBanner()
+    /// The calendar the banner's retry time is said on.
+    @ObservationIgnored var calendar: Calendar = .autoupdatingCurrent
     private(set) var profile = OperatorProfile(model: "", reasoning: nil)
     /// What the Operator row shows as "needs you": an issue that needs the person, then the session's own.
     var statusIssue: String? {
@@ -41,6 +55,9 @@ import AiTermCore
     @ObservationIgnored private var hostDue = Date.distantPast
     /// The host watch's pass still running; the next starts only once it ended.
     @ObservationIgnored private var hostPass: Task<Void, Never>?
+    @ObservationIgnored private var projectWatchDue = Date.distantPast
+    /// The project signals' Done watch pass still running; the next starts only once it ended.
+    @ObservationIgnored private var projectWatchPass: Task<Void, Never>?
     @ObservationIgnored private var settingsDue = Date.distantPast
     @ObservationIgnored private var hooks: [() -> Void] = []
     @ObservationIgnored private var savedObserver: (any NSObjectProtocol)?
@@ -71,11 +88,41 @@ import AiTermCore
         workerIsWorking: { [native, effects] id in native.busy(id) || effects.holds(id) })
     @ObservationIgnored lazy var scheduler: SignalScheduler = {
         let scheduler = SignalScheduler(workspace: workspace, router: router, now: ports.now)
-        scheduler.canSchedule = { [weak self] in
-            self.map { !$0.isStopped && $0.workspace.state.operatorSession?.paused != true } ?? false
+        // A project signal's schedule runs whatever the Operator's pause; an Operator signal's waits for Resume.
+        scheduler.canSchedule = { [weak self] signal in
+            self.map { !$0.isStopped && (signal.isProject || $0.workspace.state.operatorSession?.paused != true) } ?? false
         }
+        scheduler.pending = { [weak self] in self?.projectSignals.pendingRuns ?? [] }
         return scheduler
     }()
+    /// A project signal's pick-ups, from the decided match to the task's first window. Its ports are the app's.
+    @ObservationIgnored lazy var projectSignals: ProjectSignals = {
+        let signals = ProjectSignals(workspace: workspace, live: live, work: ports.work, pause: ports.pause,
+            now: ports.now, context: .init(running: { [weak self] in self?.isStopped == false },
+                                           ready: { [weak self] in self.map { $0.tabsKnown && $0.daemon() != nil } ?? false }))
+        signals.readDone = { [weak self] task, done, item in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.doneFacts(task, done, item)
+        }
+        signals.notifications = ports.notifications
+        return signals
+    }()
+    /// A project signal's Done read for a task, from the connected host.
+    @ObservationIgnored lazy var doneFacts: @MainActor (TaskItem, SignalTrigger, ItemRef) async throws -> DoneCheck.Facts = { [host] task, done, item in
+        try await host.doneFacts(for: task, done: done, item: item)
+    }
+    /// A project signal's Done edge and Then for the tasks it marked, whatever the Operator's pause.
+    @ObservationIgnored lazy var projectWatch = ProjectSignalWatch(workspace: workspace, live: live, now: ports.now, ports: .init(
+        facts: { [weak self] task, done, item in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            return try await self.doneFacts(task, done, item)
+        }, archive: { [weak self] task, allowed in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            try await self.archive(task, allowed)
+        }, inputHeld: { [weak self] task in
+            guard let self else { return true }
+            return await ProjectSignalWatch.inputHeld(task, sessions: self.live.sessions, daemon: self.daemon())
+        }))
     @ObservationIgnored lazy var stages = StageRunner(workspace: workspace, journal: journal, now: ports.now,
         ports: .init(workerIsWorking: native.busy, prepare: { [weak self] task, signal in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
@@ -199,9 +246,8 @@ import AiTermCore
         host = SignalHostIO(workspace: workspace, git: ports.git, connections: { SignalConnections() })
         journal = SignalJournal(workspace: workspace, folder: OperatorLaunch.folder(home: ports.home).appendingPathComponent("journals"), now: ports.now)
         poller = SignalPoller(work: ports.work, now: ports.now)
-        poller.canPoll = { [weak self] in
-            self.map { !$0.isStopped && $0.workspace.canChangeWorkspace && $0.workspace.state.operatorSession?.paused != true } ?? false
-        }
+        poller.canPoll = { [weak self] in self.map { !$0.isStopped && $0.workspace.canChangeWorkspace } ?? false }
+        poller.mayRead = { [weak self] id in self?.mayRead(id) ?? false }
         native.enabled = { [weak self] in self?.isStopped == false }
         native.additionalContext = { [weak self] task in try await self?.host.additionalContext(task) ?? "" }
         host.connections = { [weak self] in await self?.connections() ?? SignalConnections() }
@@ -222,6 +268,7 @@ import AiTermCore
             self.log.succeed(.wake); self.log.succeed(.reply)
             self.activity.pulse()
         }
+        router.claimed = { [weak self] in self?.projectSignals.claimed ?? [] }
         router.changed = { [weak self] id, event in
             guard let self else { return }
             self.log.record(tool: "signal_match", task: self.workspace.state.signalItem(id: id)?.id,
@@ -249,19 +296,42 @@ import AiTermCore
                             line: request.tool + (task.map { " " + $0.uuidString } ?? ""))
         }
         poller.onPass = { [weak self] observations in
-            guard let self, !self.isStopped, self.workspace.state.operatorSession?.paused != true else { return }
+            guard let self, !self.isStopped else { return }
+            // Each signal as it may read now: an Operator signal paused since its read hears nothing of it.
+            let observations = observations.compactMap { observation -> SignalObservation? in
+                let signals = observation.signals.filter(self.mayRead)
+                return signals.isEmpty ? nil : SignalObservation(signals: signals, read: observation.read)
+            }
+            var cleared = false
             for observation in observations { for id in observation.signals {
+                if self.readIssues.issue(for: id) != nil {
+                    self.readIssues.succeed(id); self.readIssueBanner.drop(id); cleared = true
+                }
                 if self.workspace.state.operatorSession?.sourceFailures?[id.uuidString] != nil {
                     self.workspace.mutate { $0.operatorSession?.sourceFailures?[id.uuidString] = nil }
                 }
             } }
-            let ids = self.router.apply(observations: observations)
-            for id in ids { self.schedule { await self.stages.run(id) } }
-            if !ids.isEmpty { self.schedule { await self.reconcile() } }
+            if cleared { self.changed() }
+            guard !observations.isEmpty else { return }
+            let routed = self.router.route(observations: observations)
+            self.projectSignals.drop(notListed: observations)
+            for pickup in routed.pickups { self.projectSignals.enqueue(pickup) }
+            for id in routed.rematches { self.projectSignals.deliverSoon(id) }
+            for id in routed.launches { self.schedule { await self.stages.run(id) } }
+            if !routed.launches.isEmpty { self.schedule { await self.reconcile() } }
         }
         poller.onFailure = { [weak self] ids, reason in
             guard let self, !self.isStopped else { return }
-            for id in ids where self.workspace.state.operatorSession?.sourceFailures?[id.uuidString] != reason {
+            let at = self.ports.now()
+            for id in ids {
+                let raises = self.readIssues.fail(id, reason, at: at)
+                guard self.readIssues.issue(for: id)?.raised == true, let banner = self.readBanner(id) else { continue }
+                if raises { self.readIssueBanner.raise(banner) } else { self.readIssueBanner.refresh(banner) }
+            }
+            self.changed()
+            // A project signal's failure is the person's alone: no saved session, no activity record, no wake.
+            let operatorSignals = ids.filter { self.workspace.state.signal(id: $0)?.isProject != true }
+            for id in operatorSignals where self.workspace.state.operatorSession?.sourceFailures?[id.uuidString] != reason {
                 self.workspace.mutate { state in
                     if state.operatorSession == nil { state.operatorSession = OperatorSession(createdAt: self.ports.now()) }
                     if state.operatorSession?.sourceFailures == nil { state.operatorSession?.sourceFailures = [:] }
@@ -280,6 +350,17 @@ import AiTermCore
         }
     }
     func onChange(_ hook: @escaping () -> Void) { hooks.append(hook) }
+    /// The banner for `id`'s failing source: its name, the source, the latest error and when the poller reads it again.
+    func readBanner(_ id: UUID) -> OperationIssue? {
+        guard let issue = readIssues.issue(for: id), let signal = workspace.state.signal(id: id) else { return nil }
+        return .signalRead(signal: id, name: signal.name, source: signal.start.source.label, reason: issue.text,
+                           retry: SignalReadIssues.retry(after: issue, backOff: SignalPoller.failureBackOff, calendar: calendar))
+    }
+    /// Whether `id`'s source may be read now: a project signal's whatever the Operator's pause, an Operator signal's only
+    /// while it is not paused.
+    private func mayRead(_ id: UUID) -> Bool {
+        workspace.state.signal(id: id)?.isProject == true || workspace.state.operatorSession?.paused != true
+    }
     private func changed() {
         if !isStopped {
             let note = SignalQuestionNotification.make(state: workspace.state)
@@ -319,6 +400,8 @@ import AiTermCore
     }
     func stop() {
         isStopped = true; configuration = UUID(); loop?.cancel(); loop = nil; poller.stop(); stages.stop(); chat.stop(); hostPass?.cancel()
+        projectWatchPass?.cancel()
+        projectSignals.stop()
         for job in jobs.values { job.cancel() }; jobs.removeAll()
         if let savedObserver { NotificationCenter.default.removeObserver(savedObserver); self.savedObserver = nil }
         stopNetworkWatch?(); stopNetworkWatch = nil
@@ -342,6 +425,12 @@ import AiTermCore
         let keys = registrations.map { $0.id.uuidString + ":" + $0.sourceHost + ":" + $0.readKey }.sorted()
         if keys != registrationKeys || !edited.isEmpty { poller.replace(registrations, refresh: edited); registrationKeys = keys }
         lastSignals = expected
+        // A signal removed or switched off is read no more: its failing reads, and their banner, go with it.
+        let read = Set(expected.filter(\.isRunnable).map(\.id))
+        if readIssues.current.contains(where: { !read.contains($0.signal) }) {
+            for issue in readIssues.prune(keeping: read) { readIssueBanner.drop(issue.signal) }
+            changed()
+        }
     }
     func save(_ signal: Signal) async throws {
         guard workspace.canChangeWorkspace, signal.isValid else { throw ActionUnavailable("This signal cannot be saved.") }
@@ -420,11 +509,20 @@ import AiTermCore
             workspace.mutate { $0.pruneOperator(at: ports.now()) }
             await loadProfile(); await configure()
         }
-        // Polling and schedules need no iTerm2. Both skip while paused or stopped.
+        // Polling and schedules need no iTerm2. Both skip while stopped; an Operator signal's schedule and reads also while
+        // paused.
         poller.tick()
         let runs = scheduler.tick()
-        for id in runs { schedule { await self.stages.run(id) } }
+        for id in runs.launches { schedule { await self.stages.run(id) } }
+        for pickup in runs.pickups { projectSignals.enqueue(pickup) }
+        // Project pick-ups carry on while the Operator is paused; their runners wait for the helper and the tabs.
+        projectSignals.tick()
         guard !isStopped, tabsKnown else { return }
+        // A project signal's Done and Then, each reconcile interval, whatever the Operator's pause.
+        if now >= projectWatchDue, projectWatchPass == nil {
+            projectWatchDue = now.addingTimeInterval(OperatorTiming.reconcileInterval)
+            projectWatchPass = ports.work.start { [weak self] in await self?.projectWatch.pass(); self?.projectWatchPass = nil }
+        }
         if workspace.mutate({ $0.withdrawObsoleteQuestions(at: ports.now()) }) { workspace.flush() }
         // A durable retirement must complete before a new generation can serve a later match, and a
         // renewal whose work ended retires.

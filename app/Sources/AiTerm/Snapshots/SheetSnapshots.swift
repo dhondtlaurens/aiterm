@@ -92,7 +92,7 @@ enum SheetSnapshots {
                 NameSheet.newTerminal(project: Fixture().project, suggestedName: "shell 2", branch: "main", canCreate: true,
                                       createTerminal: { _ in })
             },
-        ] + nameSheets + backpackSheets + archiveSheets
+        ] + nameSheets + backpackSheets + archiveSheets + signalsSheets
     }
 
     /// Appended after the existing regression set so its images keep their render order.
@@ -120,6 +120,95 @@ enum SheetSnapshots {
             Snapshot("archive-no-match.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "refund")) },
 
         ]
+    }
+
+    /// The Operator's signals sheet: a query signal, one with a failing read and a skipped item, a schedule with its
+    /// next run, and one switched off; and the sheet with no signal.
+    private static var signalsSheets: [Snapshot] {
+        [
+            Snapshot("signals-sheet-operator.png") { SignalsSheet(model: signalsModel()) },
+            Snapshot("signals-sheet-empty.png") { SignalsSheet(model: SignalsSheetModel(section: .operator, rows: { [] })) },
+        ]
+    }
+
+    /// The projects' signals sheet: a review signal done on approval, and a weekly schedule you decide on. Drawn last
+    /// with the project signals' sheets, so no earlier image moves.
+    static var projectSignalsSheets: [Snapshot] {
+        [Snapshot("signals-sheet-projects.png") { SignalsSheet(model: projectSignalsModel()) }]
+    }
+
+    /// The projects' signals sheet with two sources failing, each with when AiTerm tries again, and a scheduled run skipped.
+    static func signalIssuesModel() -> SignalsSheetModel {
+        let at = Snapshots.clock.now, project = Fixture().project
+        let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")]
+        let reviews = Signal(name: "Reviews for me", createdAt: at,
+                             start: SignalTrigger(source: .gitLab, query: "reviewer:@me review-state:unreviewed draft:no"),
+                             done: SignalTrigger(source: .gitLab, query: "reviewer:@me review-state:approved"),
+                             work: SignalWork(prompt: "/psg:peer-review"), agents: agents, finish: SignalFinish(then: .archive), kind: .project)
+        let tickets = Signal(name: "Tickets for me", createdAt: at,
+                             start: SignalTrigger(source: .jira, query: "assignee = currentUser() AND status = \"To Do\""),
+                             done: SignalTrigger(source: .person, query: ""), work: SignalWork(prompt: "/psg:plan"),
+                             agents: agents, finish: SignalFinish(then: .keep), kind: .project)
+        let weekly = Signal(name: "Weekly dependency update", createdAt: at,
+                            start: SignalTrigger(source: .schedule, query: "0 9 * * 1", project: project.id),
+                            done: SignalTrigger(source: .person, query: ""), work: SignalWork(prompt: "Update the dependencies."),
+                            agents: agents, finish: SignalFinish(then: .keep), scheduledFrom: at, kind: .project)
+        var state = AppState.empty
+        state.append(project: project)
+        state.signals = [reviews, tickets, weekly]
+        state.signalSeen = [SignalSeen(signal: weekly.id, item: .run(SignalRunRef(signal: weekly.id, at: at - 86_400 * 2)), disposition: .skipped,
+                                       at: at, reason: "The last run is still unfinished.")]
+        let failing = [reviews.id: SignalReadIssues.Issue(signal: reviews.id, text: "The server answered 401 Unauthorized.", since: at - 900,
+                                                          attempts: 4, raised: true, last: at - 60),
+                       tickets.id: SignalReadIssues.Issue(signal: tickets.id, text: "The request timed out.", since: at, attempts: 1)]
+        let rows = SignalsSheetModel.rows(state: state, section: .projects, failure: { failing[$0] }, now: at,
+                                          calendar: Snapshots.clock.calendar)
+        return SignalsSheetModel(section: .projects, rows: { rows })
+    }
+
+    private static func projectSignalsModel() -> SignalsSheetModel {
+        let at = Snapshots.clock.now, project = Fixture().project
+        let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")]
+        let reviews = Signal(name: "Reviews for me", createdAt: at,
+                             start: SignalTrigger(source: .gitLab, query: "reviewer:@me review-state:unreviewed draft:no"),
+                             done: SignalTrigger(source: .gitLab, query: "reviewer:@me review-state:approved"),
+                             work: SignalWork(prompt: "/psg:peer-review"), agents: agents, finish: SignalFinish(then: .archive), kind: .project)
+        let weekly = Signal(name: "Weekly dependency update", createdAt: at,
+                            start: SignalTrigger(source: .schedule, query: "0 9 * * 1", project: project.id),
+                            done: SignalTrigger(source: .person, query: ""), work: SignalWork(prompt: "Update the dependencies."),
+                            agents: agents, finish: SignalFinish(then: .keep), scheduledFrom: at, kind: .project)
+        var state = AppState.empty
+        state.append(project: project)
+        state.signals = [reviews, weekly]
+        let rows = SignalsSheetModel.rows(state: state, section: .projects, failure: { _ in nil }, now: at, calendar: Snapshots.clock.calendar)
+        return SignalsSheetModel(section: .projects, rows: { rows })
+    }
+
+    private static func signalsModel() -> SignalsSheetModel {
+        let at = Snapshots.clock.now, project = Fixture().project
+        let agents = [AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")]
+        func signal(_ name: String, start: SignalTrigger, done: SignalTrigger, enabled: Bool = true) -> Signal {
+            Signal(name: name, createdAt: at, enabled: enabled, start: start, done: done, work: SignalWork(prompt: "/psg:plan"),
+                   agents: agents, finish: SignalFinish(then: .keep), scheduledFrom: start.source == .schedule ? at : nil)
+        }
+        let planned = signal("Plan labelled tickets", start: SignalTrigger(source: .jira, query: "labels = operator AND status = \"To Do\""),
+                             done: SignalTrigger(source: .gitLab, query: "reviewer:any"))
+        let reviews = signal("Review requests", start: SignalTrigger(source: .gitLab, query: "reviewer:@me state:opened"),
+                             done: SignalTrigger(source: .operator, description: "When every thread is answered", query: ""))
+        let weekly = signal("Weekly dependency bumps", start: SignalTrigger(source: .schedule, query: "0 9 * * 1", project: project.id),
+                            done: SignalTrigger(source: .gitLab, query: "state:merged"))
+        let stale = signal("Stale pull requests", start: SignalTrigger(source: .gitHub, query: "is:pr is:open updated:<2026-02-01"),
+                           done: SignalTrigger(source: .gitHub, query: "is:merged"), enabled: false)
+        var state = AppState.empty
+        state.append(project: project)
+        state.signals = [planned, reviews, weekly, stale]
+        state.signalSeen = [SignalSeen(signal: reviews.id, item: .ticket(site: "https://jira.example", key: "PAY-151"), disposition: .skipped,
+                                       at: at, reason: "No project")]
+        let rows = SignalsSheetModel.rows(state: state, section: .operator,
+                                          failure: { $0 == reviews.id ? SignalReadIssues.Issue(signal: reviews.id, text: "The server answered 401 Unauthorized.",
+                                                                                                since: at, attempts: 1) : nil },
+                                          now: at, calendar: Snapshots.clock.calendar)
+        return SignalsSheetModel(section: .operator, rows: { rows })
     }
 
     static let tickets = [

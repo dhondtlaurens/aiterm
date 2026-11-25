@@ -1,15 +1,18 @@
 import Foundation
 import AiTermCore
 
-/// The selected sidebar row: a project header, a signal header, a task (or review), a terminal, or the Operator's chat.
-/// A header has no window: selecting it shows nothing and raises nothing.
+/// The selected sidebar row: a project header, a project's header in the Operator's section, a task (or review), a
+/// terminal, or the Operator's chat. A header has no window: selecting it shows nothing and raises nothing.
 enum RowSelection: Equatable {
-    case project(UUID), signal(UUID), task(UUID), terminal(UUID), operatorChat
+    /// `operatorProject` carries the project's id; its row has an id of its own (`id`).
+    case project(UUID), operatorProject(UUID), task(UUID), terminal(UUID), operatorChat
 
-    /// The row's UUID in the list. The Operator uses `OperatorSession.rowID`, independent of its session id.
+    /// The row's UUID in the list. The Operator uses `OperatorSession.rowID`, independent of its session id, and a
+    /// project's heading in its section `OperatorSession.projectRowID`, apart from the project's own heading.
     var id: UUID {
         switch self {
-        case .project(let id), .signal(let id), .task(let id), .terminal(let id): return id
+        case .project(let id), .task(let id), .terminal(let id): return id
+        case .operatorProject(let project): return OperatorSession.projectRowID(project)
         case .operatorChat: return OperatorSession.rowID
         }
     }
@@ -133,15 +136,19 @@ final class RowFocus {
         return nil
     }
 
-    /// The row with this id, whichever kind it is. The Operator's chat has the fixed `OperatorSession.rowID`.
-    /// Tasks under the Operator keep their signal's heading after the signal is removed.
+    /// The row with this id, whichever kind it is. The Operator's chat has the fixed `OperatorSession.rowID`. A
+    /// project's heading in the Operator's section (`OperatorSession.projectRowID`) is a row while the Operator runs a
+    /// task of the project.
     func row(id: UUID) -> RowSelection? {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
-        if state.signals.contains(where: { $0.id == id }) || state.tasks.filter(\.isUnderOperator).contains(where: { $0.signalTask?.current.signal == id }) { return .signal(id) }
         if state.project(id: id) != nil { return .project(id) }
         if OperatorSession.rowID == id { return .operatorChat }
+        let project = OperatorSession.projectRowID(id)
+        if state.project(id: project) != nil, state.tasks.contains(where: { $0.projectId == project && $0.isUnderOperator }) {
+            return .operatorProject(project)
+        }
         return nil
     }
 
@@ -165,11 +172,11 @@ final class RowFocus {
     /// A click or Return, as `AppController.choose` decides it: selects the row and brings its window
     /// forward, iTerm2 with it, once `opening` (an open of the row's window under way) has ended, unless
     /// the selection has moved on by then. A task raised with no open before it is marked seen. A row
-    /// with no window to raise is only selected; so is a project's or a signal's heading.
+    /// with no window to raise is only selected; so is a project's heading, in either section.
     @discardableResult
     func select(_ row: RowSelection, after opening: Task<Void, Never>? = nil) -> Task<Void, Never>? {
         switch row {
-        case .project, .signal:
+        case .project, .operatorProject:
             browse(row)
             return nil
         case .task(let id) where opening == nil && window(for: row) != nil:
@@ -278,7 +285,7 @@ final class RowFocus {
     private func window(for row: RowSelection) -> String? {
         let state = workspace.state
         return switch row {
-        case .project, .signal: nil
+        case .project, .operatorProject: nil
         case .task(let id): state.task(id: id)?.windowId
         case .terminal(let id): state.terminal(id: id)?.windowId
         case .operatorChat: state.operatorSession?.window

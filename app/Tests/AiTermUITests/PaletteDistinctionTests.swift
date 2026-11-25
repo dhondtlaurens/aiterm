@@ -76,6 +76,7 @@ struct PaletteDistinctionTests {
         ("statusChipFinishedFill", Palette.statusChipFinishedFill),
         ("statusChipFinishedStroke", Palette.statusChipFinishedStroke),
         ("idleRing", Palette.idleRing),
+        ("statusLine", Palette.statusLine),
         ("spinnerTrack", Palette.spinnerTrack),
         ("spinner", Palette.spinner),
         ("done", Palette.done),

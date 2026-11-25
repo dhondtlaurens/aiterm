@@ -166,6 +166,9 @@ final class RowWindows {
             guard let task = state.task(id: id), !checkouts.isMissing(id) else { return nil }
             // Nothing to open yet: the Operator has not made its checkout.
             if task.signalTask?.phase == .launching, !task.hasCheckout { return nil }
+            // A project signal's task still owing its first prompt opens through its pick-up, at once and with the prompt;
+            // the chooser waits for it and raises the window it opened, as for any open.
+            if let launching = signalController.projectSignals.choose(id) { return run(row) { await launching.value } }
             guard work.operation(onTask: id) == nil else { return nil }
             return run(row) { [launcher, notices] in
                 do { try await launcher.open(id) }

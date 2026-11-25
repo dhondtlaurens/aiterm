@@ -44,3 +44,8 @@ raw `text` and `holdsTurn`; only `reply.workspace.snapshot.json` changes. Re-cap
 same synthetic Service/FakeIterm producer with `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest
 tests/test_wire_contract.py`; native-reader enrichment is covered separately. No compatibility
 capture or Operator contract golden was regenerated.
+
+On 25 Nov 2026 the project signals' Archive added `session.inputState`, a read-only answer of what a
+session's input holds (`empty`, `unsent`, `unknown`). Only its reply frame (the last request, so no
+earlier request id moved) and the manifest's method list were captured, with the same scripted run;
+every other frame kept its bytes.

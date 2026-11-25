@@ -27,6 +27,9 @@ Building without launching is fine: `scripts/make-app.sh` writes `build/AiTerm.a
   `build/snapshots-after` on the branch, then read both sets of PNGs yourself and compare. A visual
   check is never handed to the maintainer. Native AppKit materials need
   `AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_NATIVE_CAPTURE=1` and screen-recording permission.
+- **Anything drawn across list rows** (the Operator's status line, say): only hosted captures
+  (`AITERM_SNAPSHOT_HOSTED=1`) and pixel tests in a hosted `List` prove it. The stacked snapshots draw
+  rows without the list's 8 pt gaps, so a line can look whole there and break between real rows.
 - **Packaging** (bundle, daemon vendoring, signing): `scripts/make-app.sh` then
   `scripts/test-app-bundle.sh build/AiTerm.app`.
 - **Live boundaries** stay opt-in and out of the gate, run only when asked: `AITERMD_LIVE=1`

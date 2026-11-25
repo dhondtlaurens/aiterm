@@ -9,7 +9,7 @@ import Testing
 @Suite @MainActor struct SignalSidebarPresentTests {
     private func row(_ world: SignalWorld, sessions: [SessionInfo] = [], acts: [UUID: String] = [:]) throws -> TaskRow {
         let entries = SidebarModel.entries(state: world.state, sessions: sessions, branchByCwd: [:], projectBranch: [:])
-        return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).signals.first?.tasks.first)
+        return try #require(SignalSidebar(state: world.state, entries: entries, acts: acts).operatorSections.first?.tasks.first)
     }
     private func tab(_ id: UUID, _ state: SessionState) -> SessionInfo {
         SessionInfo.make("worker", window: "worker-window", task: id, state: state)
@@ -130,10 +130,10 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(done: Self.approved)
         let first = world.workingTask(signal: signal), second = world.workingTask(signal: signal)
         world.state.updateSignalTask(second) { $0.phase = .watching }
-        world.state.signals[0].collapsed = true
+        world.state.operatorFolded = [world.project.id]
         let entries = SidebarModel.entries(state: world.state, sessions: [tab(first, .idle)], branchByCwd: [:], projectBranch: [:])
-        let section = try #require(SignalSidebar(state: world.state, entries: entries).signals.first)
-        let heading = HeadingValue(section)
+        let section = try #require(SignalSidebar(state: world.state, entries: entries).operatorSections.first)
+        let heading = HeadingValue(operatorSection: section)
         #expect(heading.counts == [StatusCount(status: .waiting, count: 2)])
         #expect(SidebarModel.statusCountsLabel(heading.counts) == "2 waiting")
     }
@@ -145,13 +145,13 @@ import Testing
         #expect(operatorRow.line.text == "watching")
         let entries = SidebarModel.entries(state: world.state, sessions: [worker], branchByCwd: [:], projectBranch: [:])
         let sidebar = SignalSidebar(state: world.state, entries: entries)
-        #expect(sidebar.signals[0].tasks[0].status == .waiting)
+        #expect(sidebar.operatorSections[0].tasks[0].status == .waiting)
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
         controller.workspace.mutate { $0 = world.state }
         controller.live.handle(.sessionOpened(worker))
         #expect(controller.rows.projectsNeedingAttention.isEmpty)
-        #expect(!sidebar.signals[0].tasks.contains { $0.needsYou })
+        #expect(!sidebar.operatorSections[0].tasks.contains { $0.needsYou })
     }
 }

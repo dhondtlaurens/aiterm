@@ -47,4 +47,13 @@ struct MetricsTests {
     @Test func aDisabledControlsOpacity() {
         #expect(Opacity.disabled == 0.4)
     }
+
+    /// The Operator's status line as picked (25 Nov 2026, D2 and O7): a 5 pt stop on a folded heading, dots marching at
+    /// 24 pt a second, one dot and its gap each quarter second, and a wake's march up lasting a second.
+    @Test func theStatusLine() {
+        #expect(Size.statusStop == 5)
+        #expect(Motion.march == 24)
+        #expect((Space.hairline + Space.tight) / Motion.march == 0.25)
+        #expect(Motion.pulse == 1)
+    }
 }

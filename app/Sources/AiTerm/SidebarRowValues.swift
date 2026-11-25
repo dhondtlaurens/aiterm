@@ -30,16 +30,22 @@ struct ProjectJiraBadge: Equatable {
     }
 }
 
-/// A task row's spoken label, hint and help, including what choosing its window does.
+/// A task row's spoken label, value, hint and help, including what choosing its window does.
 struct TaskRowAccessibility: Equatable {
     var label: String
+    /// Its status, the detail its line or caption says, its background work, and the signal that started it:
+    /// "Working. Background work: Run the gate. Started by Reviews for me".
+    var value: String
     var hint: String
     var help: String
 
-    /// From the row's title, saved branch, kind and window, and what the view observes of it.
-    init(row: TaskRow, missing: Bool, removing: Bool = false) {
+    /// From the row's title, saved branch, kind, window and signal, and what the view observes of it: its card's `jobs`
+    /// and `detail`, its caption's or its Operator line's sentence.
+    init(row: TaskRow, missing: Bool, removing: Bool = false, jobs: [BackgroundJob] = [], detail: String? = nil) {
         let branch = row.savedBranch
         label = branch.isEmpty ? row.title : "\(row.title), \(branch)"
+        let status = BackgroundCard(jobs: jobs).accessibilityValue(status: row.status, detail: detail)
+        value = row.startedBySignal.map { status + ". Started by " + $0 } ?? status
         let kindName = row.kindName
         let words: (hint: String, help: String) =
             removing ? ("", "")

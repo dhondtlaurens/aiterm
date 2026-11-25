@@ -1,6 +1,14 @@
 import Foundation
 import AiTermCore
 
+/// A project already busy creating a task or review. A sheet says it as before; a signal's pick-up waits for its next
+/// turn without counting a failure.
+struct CreationBusy: LocalizedError, CustomStringConvertible {
+    let project: String
+    var errorDescription: String? { description }
+    var description: String { "A task or review is already being created in \(project). Try again once it is." }
+}
+
 /// Tasks and reviews started, restored and opened: a task or review created from its sheet, a review
 /// opened in the task that already has its branch, an archived row restored, a worker's checkout made,
 /// a driven task taken over by the person, and a task's window opened with its conversations resumed.
@@ -66,9 +74,7 @@ final class TaskLauncher {
         case .rebase(let branch): _ = try await workflow.rebaseOntoOrigin(branch, in: project)
         case .initializeRepository(let branch):
             guard canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before initializing a repository.") }
-            guard let creating = work.begin(.creatingTask, onProject: project.id) else {
-                throw ActionUnavailable("A task or review is already being created in \(project.name). Try again once it is.")
-            }
+            guard let creating = work.begin(.creatingTask, onProject: project.id) else { throw CreationBusy(project: project.name) }
             defer { work.end(creating) }
             try await workflow.initializeRepository(project, on: branch)
         }
@@ -138,12 +144,7 @@ final class TaskLauncher {
     private func create(_ draft: some AgentDraft, kind: TaskKind, in project: Project,
                         checkout: () async throws -> TaskWorkflow.Created) async throws {
         let noun = kind == .review ? "Review" : "Task"
-        guard canChangeWorkspace else {
-            throw ActionUnavailable("Save or recover the workspace before creating a \(noun.lowercased()).")
-        }
-        guard let creating = work.begin(.creatingTask, onProject: project.id) else {
-            throw ActionUnavailable("A task or review is already being created in \(project.name). Try again once it is.")
-        }
+        let creating = try beginCreating(noun, in: project)
         defer { work.end(creating) }
         let result = try await checkout()
         let task = result.task
@@ -158,21 +159,7 @@ final class TaskLauncher {
         checkouts.refresh()
         focus.browse(.task(task.id))
         // A row that could not be saved gets no window: a relaunch would not know the window was its.
-        guard workspace.flush() else { return }
-        // Said once, about the new row, whatever then happens to the window: the files are missing
-        // from the worktree either way. The banner holds one report, so a window report that
-        // replaces it carries the sentence on (`say`).
-        let copyNote = Self.report(result.worktreeInclude, of: task, to: notices)
-        func say(_ issue: OperationIssue) {
-            var issue = issue
-            if let copyNote { issue.reason = [issue.reason, copyNote].compactMap { $0 }.joined(separator: " ") }
-            notices.report(issue)
-        }
-        if let warning = result.launchWarning {
-            say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Start it manually in its window.",
-                               reason: warning))
-            return
-        }
+        guard workspace.flush(), let say = reportMade(result, noun: noun) else { return }
         guard let daemon = daemon() else {
             say(OperationIssue(title: "\(noun) created. Choose it to open its window once AiTerm reconnects, then start the agent there."))
             return
@@ -186,6 +173,192 @@ final class TaskLauncher {
             say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened; if it isn’t there once AiTerm reconnects, choose the task to open it.",
                                error: error))
         }
+    }
+
+    /// The project's one creation slot, taken: refused while the workspace cannot change, and `CreationBusy` while another
+    /// task or review is being created in the project.
+    private func beginCreating(_ noun: String, in project: Project) throws -> WorkInFlight.Token {
+        guard canChangeWorkspace else {
+            throw ActionUnavailable("Save or recover the workspace before creating a \(noun.lowercased()).")
+        }
+        guard let creating = work.begin(.creatingTask, onProject: project.id) else { throw CreationBusy(project: project.name) }
+        return creating
+    }
+
+    /// Says once, about the new row, what its worktree's `.worktreeinclude` copy left out, whatever then happens to its
+    /// window: the files are missing from the worktree either way; and, when its agent command could not be built, that
+    /// the agent must be started by hand. Returns how a later report carries the copy's sentence on, as the banner holds
+    /// one report and a window report replaces it; nil once the launch warning was said. `subject` is the row the
+    /// warning is said on: none for a sheet's create, whose row is the selection.
+    private func reportMade(_ result: TaskWorkflow.Created, noun: String, subject: UUID? = nil) -> ((OperationIssue) -> Void)? {
+        let copyNote = Self.report(result.worktreeInclude, of: result.task, to: notices)
+        let notices = notices
+        let say = { (issue: OperationIssue) in
+            var issue = issue
+            if let copyNote { issue.reason = [issue.reason, copyNote].compactMap { $0 }.joined(separator: " ") }
+            notices.report(issue)
+        }
+        guard let warning = result.launchWarning else { return say }
+        say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Start it manually in its window.",
+                           reason: warning, subject: subject))
+        return nil
+    }
+
+    // -- an unattended create -----------------------------------------------------------
+    /// A task a project signal makes on its own: what to create, in which project, and what to save with the row.
+    struct UnattendedCreate {
+        enum Kind {
+            /// A ticket's task, on a new branch.
+            case task(TaskDraft)
+            /// A scheduled run's task, on a new run branch.
+            case run(TaskDraft)
+            /// A merge request someone else asked the account to review.
+            case review(ReviewDraft)
+            /// A merge request of the account's own: its source branch checked out as a `.task` (`TaskWorkflow.createOnRequest`).
+            case ownRequest(ReviewDraft)
+
+            /// The prompt its draft composes: its text with the descriptions its switches add. A re-match composes one too,
+            /// for the task's existing conversation.
+            var prompt: String? {
+                switch self {
+                case .task(let draft), .run(let draft): TaskWorkflow.prompt(of: draft)
+                case .review(let draft), .ownRequest(let draft): TaskWorkflow.prompt(of: draft)
+                }
+            }
+        }
+        let project: Project
+        let kind: Kind
+        /// Run inside the workspace change that appends the row, given the row's id: the signal's origin, its seen record.
+        let saving: @MainActor (inout AppState, UUID) -> Void
+
+        /// The first prompt the create composes for the row's agent, the one `openUnattended` is to be given: the draft's
+        /// text with the descriptions its switches add, composed here and never again.
+        var prompt: String? { kind.prompt }
+    }
+
+    /// `request`'s row made without the person: the checkout (git, on the repository's lane), then the row appended in
+    /// one workspace change with what `request.saving` writes, and saved. Unlike a sheet's create it selects nothing,
+    /// opens no window and remembers no agent choice (a signal's agent is not the person's last one); what its
+    /// `.worktreeinclude` copy left out, and a launch warning, are said on the row. The window is `openUnattended`'s.
+    ///
+    /// Throws `CreationBusy` while the project creates another task or review; the checkout's own failure, with git's
+    /// reason; for a review or an own request whose branch another row has checked out, that row's title (a sheet's
+    /// review would open in that row's window: this never opens a tab or brings anything forward); and when the row
+    /// could not be saved, which leaves it in the workspace, unsaved, with what `saving` wrote.
+    func createUnattended(_ request: UnattendedCreate) async throws -> UUID {
+        let project = request.project
+        let branch: String? = switch request.kind {
+        case .task, .run: nil
+        case .review(let draft): draft.branch
+        case .ownRequest(let draft): draft.mr?.sourceBranch ?? draft.branch
+        }
+        if let branch, let owner = try await checkoutOwner(of: branch, in: project) {
+            throw ActionUnavailable("“\(owner.title)” has \(branch) checked out.")
+        }
+        let reserved = state.reservedWorktreeSlugs(projectId: project.id)
+        let workflow = workflow
+        switch request.kind {
+        case .task(let draft), .run(let draft):
+            return try await createUnattended(noun: "Task", in: project, saving: request.saving) {
+                try await workflow.create(draft: draft, project: project, reserved: reserved)
+            }
+        case .review(let draft):
+            return try await createUnattended(noun: "Review", in: project, saving: request.saving) {
+                try await workflow.createReview(draft: draft, project: project, reserved: reserved)
+            }
+        case .ownRequest(let draft):
+            guard let mr = draft.mr else { throw ActionUnavailable("The merge request to check out is missing.") }
+            return try await createUnattended(noun: "Task", in: project, saving: request.saving) {
+                try await workflow.createOnRequest(draft: draft, project: project, source: mr.sourceBranch, target: mr.targetBranch,
+                                                   reserved: reserved)
+            }
+        }
+    }
+
+    /// `create`'s order without the person's part: no selection, no window, no remembered choice.
+    private func createUnattended(noun: String, in project: Project, saving: (inout AppState, UUID) -> Void,
+                                  checkout: () async throws -> TaskWorkflow.Created) async throws -> UUID {
+        let creating = try beginCreating(noun, in: project)
+        defer { work.end(creating) }
+        let result = try await checkout()
+        let task = result.task
+        // As a sheet's create: the row is this work's until it is saved, so choosing it meanwhile opens no window.
+        let opening = work.begin(.opening, onTask: task.id)
+        defer { if let opening { work.end(opening) } }
+        workspace.mutate { state in
+            state.tasks.append(task)
+            saving(&state, task.id)
+        }
+        checkouts.refresh()
+        guard workspace.flush() else {
+            throw ActionUnavailable("\(noun) created, but the workspace couldn’t be saved. Recover it before its window opens.")
+        }
+        _ = reportMade(result, noun: noun, subject: task.id)
+        return task.id
+    }
+
+    /// Signal task `id`'s agent started on `prompt`, behind whatever the person is doing: the caller holds the person's
+    /// pause and the window turn. A task with no window gets one opened behind (`createTaskWindow(background: true)`)
+    /// with the ordinary agent command (`TaskWorkflow.command`), resuming the task's first conversation of its own agent
+    /// when there is one, and every other conversation resumed in a background tab; a task whose window is open, which
+    /// the caller found running no agent, gets the command in a background tab there. `saving` runs in the change that
+    /// records the window, or right after the tab opened, and only once the command was typed: a window or tab that did
+    /// not open, or whose command could not be typed, is thrown without it. A conversation that did not resume in its
+    /// own tab is said on the row. `mayOpen` is the caller's last look (the person's pause), taken after the folder check,
+    /// the command and every other await, with none between it and the request for the window or tab: false opens
+    /// nothing and returns false, for the caller to wait and ask again.
+    @discardableResult
+    func openUnattended(_ id: UUID, prompt: String, saving: @escaping @MainActor (inout AppState) -> Void = { _ in },
+                        mayOpen: @MainActor () -> Bool = { true }) async throws -> Bool {
+        let removed = ActionUnavailable("The task was removed.")
+        guard canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before opening a task’s window.") }
+        guard let task = state.task(id: id) else { throw removed }
+        guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
+        guard let token = work.begin(.reopening, onTask: id) else { throw ActionUnavailable("“\(task.title)” is busy. Try again in a moment.") }
+        defer { work.end(token) }
+        guard await FolderCheck.exists(task.worktreePath) else {
+            // The checkout monitor's pass, asked for now, says so on the row.
+            checkouts.refresh()
+            throw ActionUnavailable("“\(task.title)” has no worktree at \(task.worktreePath).")
+        }
+        guard let current = state.task(id: id) else { throw removed }
+        let resumed = current.unrecognizedAgent != nil ? nil
+            : current.conversations.first { $0.agent == current.agent && TaskConversation.isResumable($0.id) }
+        let command = try await workflow.command(for: current, prompt: prompt, resuming: resumed?.id)
+        guard let ready = state.task(id: id) else { throw removed }
+        guard mayOpen() else { return false }
+        if let windowId = ready.windowId {
+            do {
+                let tab = try await daemon.createTab(windowId: windowId, cwd: ready.worktreePath, agentCommand: command, tabKey: nil, background: true)
+                if let failure = tab.commandError { throw ActionUnavailable("Opened a tab, but its agent didn’t start: \(failure)") }
+                guard state.task(id: id) != nil else { throw removed }
+                workspace.mutate(saving)
+                return true
+            }
+            // Closed since the last poll: opened below, as a task with no window is.
+            catch let error as DaemonError where error.isNotFound {}
+            guard mayOpen() else { return false }
+        }
+        guard let opened = try await openWindow(for: ready, command: command, with: daemon, background: true,
+                                                saving: { state, opened in if opened.commandError == nil { saving(&state) } }) else {
+            throw removed
+        }
+        if let failure = opened.commandError { throw ActionUnavailable("Opened the window, but its agent didn’t start: \(failure)") }
+        var others = ready
+        if let resumed { others.conversations.removeAll { $0 == resumed } }
+        for resume in others.resumeCommands {
+            do {
+                let tab = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: resume, tabKey: nil, background: true)
+                if let failure = tab.commandError {
+                    notices.report(OperationIssue(title: "Opened the window, but not every conversation.", reason: failure, subject: id))
+                    break
+                }
+            } catch {
+                notices.report(OperationIssue(title: "Opened the window, but not every conversation.", error: error, subject: id))
+                break
+            }
+        }
+        return true
     }
 
     /// Says, about `task`, what its new worktree's `.worktreeinclude` copy left out, if anything did:
@@ -400,18 +573,23 @@ final class TaskLauncher {
     /// the window is closed rather than left behind with nothing to show it. `command` is what the
     /// window's first tab runs: the agent at creation, a resumed conversation when a chosen row opens its
     /// window again, or nothing — the first prompt is never replayed. `open(_:)` opens a chosen task's
-    /// window through it too.
+    /// window through it too. `background` opens it behind the person's windows (a signal's task);
+    /// `saving` runs in the change that records the window.
     @discardableResult
-    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> Opening? {
+    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands, background: Bool = false,
+                    saving: (inout AppState, Opening) -> Void = { _, _ in }) async throws -> Opening? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
         defer { if let opening { work.end(opening) } }
         let opened = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
-                                                       agentCommand: command, frame: tiling.taskFrame(), background: false)
+                                                       agentCommand: command, frame: tiling.taskFrame(), background: background)
         guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
             try? await daemon.closeWindowIfOpen(opened.id)
             return nil
         }
-        workspace.mutate { $0.tasks[i].windowId = opened.id }
+        workspace.mutate { state in
+            state.tasks[i].windowId = opened.id
+            saving(&state, opened)
+        }
         return opened
     }
 }

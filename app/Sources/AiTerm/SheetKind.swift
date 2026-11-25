@@ -6,31 +6,31 @@ extension AppController {
     /// What a rename sheet is pointed at. Each case carries its own copy so the sheet keeps showing
     /// the name it opened with while the workspace changes underneath it.
     enum RenameTarget: Identifiable, Equatable {
-        case divider(SidebarDivider), signalDivider(SidebarDivider), task(TaskItem), terminal(TerminalItem)
+        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem)
         var id: UUID {
             switch self {
-            case .divider(let d), .signalDivider(let d): return d.id
+            case .divider(let d): return d.id
             case .task(let t): return t.id
             case .terminal(let t): return t.id
             }
         }
         var name: String {
             switch self {
-            case .divider(let d), .signalDivider(let d): return d.name
+            case .divider(let d): return d.name
             case .task(let t): return t.title
             case .terminal(let t): return t.name
             }
         }
         var title: String {
             switch self {
-            case .divider, .signalDivider: return "Rename divider"
+            case .divider: return "Rename divider"
             case .task: return "Rename task"
             case .terminal: return "Rename terminal"
             }
         }
         var fieldLabel: String {
             switch self {
-            case .divider, .signalDivider: return "Divider name"
+            case .divider: return "Divider name"
             case .task: return "Task name"
             case .terminal: return "Terminal name"
             }
@@ -39,7 +39,6 @@ extension AppController {
         var subtitle: String {
             switch self {
             case .divider: return "Changes the heading over the projects under it."
-            case .signalDivider: return "Changes the heading over the signals under it."
             case .task: return "The branch and worktree keep their names."
             // The row's name only: a tab is titled with its branch (`sessions.setTitles`), and
             // the window's profile name is set once, when it opens.
@@ -57,8 +56,8 @@ extension AppController {
         case project(ProjectSheetModel)
         case newTask(TaskCreationModel), newReview(ReviewCreationModel)
         case newTerminal(Project, name: String, branch: String)
-        /// Add Divider…, into the Projects or the Operator's section.
-        case newDivider(SidebarSection), rename(RenameTarget)
+        /// Add Divider…, between projects.
+        case newDivider, rename(RenameTarget)
         /// Settings opens on the saved credentials, read from the Keychain once when it is presented;
         /// on `tab`, or at `agent`'s card on Agents.
         case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, tab: SettingsTab?, agent: AgentKind?)
@@ -66,6 +65,8 @@ extension AppController {
         case backpack(BackpackSheetModel)
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
         case archive(ArchiveSheetModel)
+        /// A section's signals sheet: its model reads the rows whenever it draws, as the Archive's does.
+        case signals(SignalsSheetModel)
         var id: String {
             switch self {
             case .signal(let model): return "signal-\(model.id)"
@@ -73,11 +74,12 @@ extension AppController {
             case .newTask(let model): return "task-\(model.id)"
             case .newReview(let model): return "review-\(model.id)"
             case .newTerminal(let p, _, _): return "terminal-\(p.id)"
-            case .newDivider(let section): return section == .operator ? "divider-new-operator" : "divider-new"
+            case .newDivider: return "divider-new"
             case .rename(let target): return "rename-\(target.id)"
             case .settings: return "settings"
             case .backpack: return "backpack"
             case .archive: return "archive"
+            case .signals(let model): return model.section == .operator ? "signals-operator" : "signals-projects"
             }
         }
     }

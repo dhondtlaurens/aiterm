@@ -26,6 +26,8 @@ import AiTermCore
 
     func wake(_ event: OperatorWakeEvent, id: UUID) {
         guard workspace.state.operatorHasWork else { return }
+        // A task waking it marches up its stretch of the status line, once.
+        if event == .workerEnded || event == .taskBlocked { activity.woke(task: id) }
         activity.pulse()
         if state == .none { state = .pending(event, id) }
     }

@@ -10,11 +10,11 @@ import AiTermCore
 /// gives way when the sidebar narrows, exactly as it does for the branch line's `+n`.
 ///
 /// A folded OPERATOR heading leads with the Operator's own chip (`lead`): its most urgent state as a row's mark
-/// draws it, and its unfinished tasks. A folded OPERATOR or signal heading ends with the finished chip: the
+/// draws it, and its unfinished tasks. A folded OPERATOR heading or project header ends with the finished chip: the
 /// finished disc and how many tasks are really done, on the green wash, apart from done's blue.
 ///
 /// With `open`, as on a folded OPERATOR or PROJECTS heading, each chip is its own button, named for its own count,
-/// and its click is `open(target)`. Without, as on a project or signal header, the strip is one label.
+/// and its click is `open(target)`. Without, as on a project header, the strip is one label.
 struct StatusCountChips: View {
     let counts: [StatusCount]
     var lead: OperatorChip? = nil

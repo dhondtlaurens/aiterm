@@ -30,6 +30,24 @@ import Testing
     }
 
 
+    /// The row's value says its status, its detail and work, and the signal that started it, which its disc shows.
+    @Test func aTaskRowsValueSaysTheSignalThatStartedIt() {
+        var started = row(windowId: "w")
+        #expect(TaskRowAccessibility(row: started, missing: false).value == "Idle")
+        started.startedBySignal = "Reviews for me"
+        #expect(TaskRowAccessibility(row: started, missing: false).value == "Idle. Started by Reviews for me")
+        // The faded mark under its disc is no running agent, so it says nothing more.
+        var closed = started
+        closed.windowOpen = false; closed.avatars = AvatarGroup(marks: [.claude], overflow: 0, muted: true)
+        #expect(TaskRowAccessibility(row: closed, missing: false).value == "Idle. Started by Reviews for me")
+        started.status = .working
+        #expect(TaskRowAccessibility(row: started, missing: false, jobs: [BackgroundJob(kind: .shell, text: "make test")],
+                                     detail: "Operator answering its worker").value
+                == "Working. Operator answering its worker. Background work: make test. Started by Reviews for me")
+        started.startedBySignal = "Nightly bumps (removed)"
+        #expect(TaskRowAccessibility(row: started, missing: false).value == "Working. Started by Nightly bumps (removed)")
+    }
+
     /// While the workspace cannot change a row with a window still focuses it.
     @Test func aLockedWorkspacesRowWithAWindowStillSaysItFocusesIt() {
         let open = TaskRowAccessibility(row: row(windowId: "w"), missing: false)
@@ -195,37 +213,26 @@ import Testing
         }
     }
 
-    @Test func signalCommandsSwitchAndOmitRemovedSignals() throws {
+    /// A project's heading in the Operator's section and its dividers are labels: no menu and no "+", locked or not.
+    @Test func operatorProjectHeadingsAndDividersHaveNoCommands() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
         for unlocked in [false, true] {
             if unlocked { try controller.workspace.load() }
-            for enabled in [false, true] {
-                for (up, down) in [(false, true), (true, true), (true, false), (false, false)] {
-                    var signal = Signal.make()
-                    signal.enabled = enabled
-                    var section = SignalSection(signal: signal, tasks: [])
-                    section.canMoveUp = up; section.canMoveDown = down
-                    let value = HeadingValue(section)
-                    let view = HeadingRow(value: value, controller: controller)
-                    let toggle = enabled ? "Switch Off" : "Switch On"
-                    expectCommands(view.commands(), titles: [["Edit Signal…", toggle], ["Move Up", "Move Down"], ["Remove Signal…"]],
-                        disabled: unlocked ? (up ? [] : ["Move Up"]) + (down ? [] : ["Move Down"])
-                            : ["Edit Signal…", toggle, "Move Up", "Move Down", "Remove Signal…"],
-                        destructive: ["Remove Signal…"])
-                    var removed = value
-                    removed.kind = .signal(source: signal.start.source, removed: true, paused: false, canMoveUp: up, canMoveDown: down)
-                    expectCommands(HeadingRow(value: removed, controller: controller).commands(), titles: [])
-                }
-            }
+            let project = Project.make(provider: .gitlab)
+            let value = HeadingValue(operatorSection: ProjectSection(project: project, tasks: [], terminals: []))
+            #expect(value.id == OperatorSession.projectRowID(project.id) && value.kind == .operatorProject(project))
+            expectCommands(HeadingRow(value: value, controller: controller).commands(), titles: [])
+            let divider = DividerEntry(divider: SidebarDivider(id: UUID(), name: "Later"), canMoveUp: false, canMoveDown: false)
+            expectCommands(DividerRow(label: divider, rows: controller.rows).commands(), titles: [])
         }
     }
 
-    /// The Operator heading's + adds a signal or a divider; a divider needs a signal to stand beside.
-    @Test func operatorHeadingOwnsPauseEvenWithoutSignalsOrChatAndAddsSignalsAndDividers() throws {
+    /// The Operator heading's + adds a signal; its section has no dividers of its own.
+    @Test func operatorHeadingOwnsPauseEvenWithoutSignalsOrChatAndAddsSignals() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        let add = [["New Signal…", "Add Divider…"]]
+        let add = [["New Signal…"]]
         for unlocked in [false, true] {
             if unlocked { try controller.workspace.load() }
             for paused in [false, true] {
@@ -234,8 +241,12 @@ import Testing
                     titles: [[title]], disabled: unlocked ? [] : [title])
             }
             expectCommands(SectionHeading(controller: controller, kind: .operator).addCommands(),
-                titles: add, disabled: unlocked ? ["Add Divider…"] : ["New Signal…", "Add Divider…"])
+                titles: add, disabled: unlocked ? [] : ["New Signal…"])
             expectCommands(SectionHeading.commands(kind: .projects, paused: false, controller: controller), titles: [])
+            // The Projects' + makes a project signal beside its project and divider.
+            expectCommands(SectionHeading(controller: controller, kind: .projects).addCommands(),
+                titles: [["Add Project…", "New Signal…", "Add Divider…"]],
+                disabled: unlocked ? [] : ["Add Project…", "New Signal…", "Add Divider…"])
         }
         var world = SignalWorld(); world.signal()
         controller.workspace.mutate { $0.signals = world.state.signals }

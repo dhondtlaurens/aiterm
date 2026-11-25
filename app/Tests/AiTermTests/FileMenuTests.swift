@@ -37,20 +37,26 @@ import Testing
                                             "Add Project…": true, "Add Divider…": true, "New Signal…": true])
     }
 
-    /// ⌘D adds to the open section, so with the Operator's open it follows whether a divider can go among the signals:
-    /// off once its last signal is gone and only a divider is left.
-    @Test func addDividerFollowsTheOpenSection() throws {
+    /// A task the Operator runs in `git`, which opens its section.
+    private func held(by signal: Signal) -> TaskItem {
+        var task = TaskItem.make(project: git.id, worktreePath: "/repo/held")
+        task.signalTask = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"))
+        return task
+    }
+
+    /// ⌘D always adds between projects: with the Operator's section open, and its last signal gone, it is still on and
+    /// asks for a projects' divider.
+    @Test func addDividerAlwaysAddsBetweenProjects() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
         var world = SignalWorld(); let signal = world.signal()
-        controller.workspace.mutate { $0.signals = world.state.signals; $0.operatorOpen = true }
-        #expect(try enabled(controller)["Add Divider…"] == true)
-        controller.addSignalDivider(name: "Reviews")
+        let task = held(by: world.state.signals[0])
+        controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks = [task]; $0.operatorOpen = true }
         controller.workspace.mutate { $0.removeSignal(id: signal) }
         #expect(controller.rows.operatorOpen)
-        #expect(try enabled(controller)["Add Divider…"] == false)
-        controller.workspace.mutate { $0.operatorOpen = false }
         #expect(try enabled(controller)["Add Divider…"] == true)
+        AiTermApp(controller: controller).addDivider()
+        #expect(controller.sheet?.id == AppController.SheetKind.newDivider.id)
     }
 
     @Test func commandSOpensNewSignalWithoutASelectedProject() async throws {
@@ -70,6 +76,31 @@ import Testing
         #expect(await eventually(describing: "⌘S opens New Signal") { controller.sheet != nil })
         guard case .signal(let sheet)? = controller.sheet else { Issue.record("no New Signal sheet"); return }
         #expect(sheet.projects == [git, folder])
+    }
+
+    /// ⌘S makes the open section's kind (O4): a project signal with Projects open, the default; an Operator signal with
+    /// the Operator's open.
+    @Test func newSignalMakesTheOpenSectionsKind() async throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = try controller()
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        let app = AiTermApp(controller: controller)
+        app.buildMenu()
+        #expect(!controller.rows.operatorOpen)
+        app.newSignal()
+        #expect(await eventually(describing: "New Signal opens") { controller.sheet != nil })
+        guard case .signal(let project)? = controller.sheet else { Issue.record("no New Signal sheet"); return }
+        #expect(project.kind == .project && project.title == "New project signal")
+        controller.sheet = nil
+        var world = SignalWorld(); world.signal()
+        let task = held(by: world.state.signals[0])
+        controller.workspace.mutate { $0.signals = world.state.signals; $0.tasks = [task]; $0.operatorOpen = true }
+        #expect(controller.rows.operatorOpen)
+        app.newSignal()
+        #expect(await eventually(describing: "New Signal opens") { controller.sheet != nil })
+        guard case .signal(let operatorSignal)? = controller.sheet else { Issue.record("no New Signal sheet"); return }
+        #expect(operatorSignal.kind == .operator && operatorSignal.title == "New Operator signal")
     }
 
     @Test func signalsCanBeAddedWhileAnotherSignalExists() throws {
@@ -123,7 +154,7 @@ import Testing
         let work = TaskItem.make(project: git.id, worktreePath: "/wt", model: "sonnet", createdAt: Date())
         controller.workspace.mutate { $0.tasks = [work] }
         controller.focus.browse(.task(work.id))
-        controller.sheet = .newDivider(.projects)
+        controller.sheet = .newDivider
         #expect(try enabled(controller).values.allSatisfy { !$0 })
     }
 

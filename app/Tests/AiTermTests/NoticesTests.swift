@@ -15,7 +15,9 @@ struct NoticesTests {
     }
 
     private func notices(_ rows: Rows, toastLifetime: Duration = .seconds(10)) -> Notices {
-        let notices = Notices(toastLifetime: toastLifetime, isStale: { issue in issue.subject.map(rows.gone.contains) ?? false })
+        let notices = Notices(toastLifetime: toastLifetime, isStale: { issue in
+            (issue.subject ?? issue.signal).map(rows.gone.contains) ?? false
+        })
         notices.onWithdrawn { rows.withdrawn.append($0) }
         return notices
     }
@@ -107,6 +109,84 @@ struct NoticesTests {
         notices.dropIssues(about: task)
         #expect(notices.issue == nil)
         #expect(rows.withdrawn.isEmpty, "answered, not withdrawn")
+    }
+
+    /// A failing source's banner, as the controller raises it: Open Signals and Settings….
+    private func sourceFails(_ signal: UUID, _ name: String = "Reviews for me") -> OperationIssue {
+        .signalRead(signal: signal, name: name, source: "GitLab", reason: "Timed out.", retry: "AiTerm tries again at 14:05.")
+    }
+
+    /// A background report waits behind a question though it has actions, and takes the banner once the question is
+    /// answered; with no question up it shows at once, over a plain report.
+    @Test func aBackgroundReportWaitsBehindAQuestion() {
+        let rows = Rows(), notices = notices(rows), signal = UUID()
+        notices.report(question)
+        notices.report(sourceFails(signal), background: true)
+        #expect(notices.issue == question)
+        notices.clearIssue()
+        #expect(notices.issue == sourceFails(signal))
+
+        notices.report("The helper restarted.")
+        notices.report(sourceFails(signal), background: true)
+        #expect(notices.issue == sourceFails(signal), "a plain report is no question")
+    }
+
+    /// The newest failing source wins the one place, shown or held; a question or a plain report that takes a source's
+    /// place puts it back behind, so it returns once the banner is free; a dismissed one does not return.
+    @Test func theNewestSourceWinsAndOneDisplacedComesBack() {
+        let rows = Rows(), notices = notices(rows), first = UUID(), second = UUID()
+        notices.report(sourceFails(first), background: true)
+        notices.report(sourceFails(second, "Tickets for me"), background: true)
+        #expect(notices.issue == sourceFails(second, "Tickets for me"))
+        notices.report(question)
+        #expect(notices.issue == question)
+        notices.clearIssue()
+        #expect(notices.issue == sourceFails(second, "Tickets for me"), "the displaced source returns, the older one is gone")
+        notices.dismissIssue()
+        #expect(notices.issue == nil)
+
+        notices.report(question)
+        notices.report(sourceFails(first), background: true)
+        notices.report(sourceFails(second), background: true)
+        notices.clearIssue()
+        #expect(notices.issue == sourceFails(second), "the newest held wins")
+    }
+
+    /// A plain report no longer waits behind a failing source's banner: Open Signals asks nothing.
+    @Test func aPlainReportReplacesASourcesBanner() {
+        let rows = Rows(), notices = notices(rows), signal = UUID()
+        notices.report(sourceFails(signal), background: true)
+        notices.report("Couldn’t show the window.")
+        #expect(notices.issue?.title == "Couldn’t show the window.")
+    }
+
+    /// A good read drops the signal's banner, shown or held, and leaves another signal's; a refresh rewrites only a
+    /// banner still up or held; a removed signal's banner is stale.
+    @Test func dropIssueAboutASignalAndItsRefresh() {
+        let rows = Rows(), notices = notices(rows), signal = UUID(), other = UUID()
+        notices.report(question)
+        notices.report(sourceFails(signal), background: true)
+        notices.dropIssue(aboutSignal: signal)
+        notices.clearIssue()
+        #expect(notices.issue == nil, "the held one went")
+
+        notices.report(sourceFails(signal), background: true)
+        notices.dropIssue(aboutSignal: other)
+        #expect(notices.issue == sourceFails(signal))
+        var newer = sourceFails(signal); newer.reason = "Refused. AiTerm tries again at 14:10."
+        notices.refresh(newer)
+        #expect(notices.issue == newer)
+        notices.dropIssue(aboutSignal: signal)
+        #expect(notices.issue == nil)
+        notices.refresh(newer)
+        #expect(notices.issue == nil, "a refresh raises nothing")
+
+        notices.report(sourceFails(signal), background: true)
+        rows.gone.insert(signal)
+        notices.dropStale()
+        #expect(notices.issue == nil)
+        notices.report(sourceFails(signal), background: true)
+        #expect(notices.issue == nil, "a removed signal's banner is never shown")
     }
 
     /// The toast goes on its own once its time is up.

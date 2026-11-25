@@ -237,6 +237,13 @@ public struct Delivery: Codable, Equatable, Sendable {
     }
 }
 
+/// What a session's input holds, read without typing (`session.inputState`): nothing, text not yet sent, or nothing
+/// tells. A value a newer daemon names that this app does not know reads as `unknown`.
+public enum InputState: String, Codable, LenientRawDecodable, CaseIterable, Sendable {
+    case empty, unsent, unknown
+    static var unrecognized: Self { .unknown }
+}
+
 /// How AiTerm may type into one agent CLI, from the delivery check it last passed (the daemon's
 /// `delivery.load_policy`): `auto` pastes and presses Enter, `pasteOnly` pastes and leaves the Enter to
 /// the person, `off` types nothing. A policy a newer daemon names that this app does not know reads as

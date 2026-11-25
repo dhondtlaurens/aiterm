@@ -62,29 +62,23 @@ extension DividerRow {
 }
 
 extension DividerRow {
-    /// A divider among the signal headings, wired to the Operator's section of the workspace.
-    init(signalEntry entry: DividerEntry, controller: AppController) {
-        let id = entry.divider.id
-        self.init(entry: entry,
-                  enabled: controller.canChangeWorkspace,
-                  rename: {
-                      if let current = controller.state.signalDividers.first(where: { $0.id == id }) {
-                          controller.sheets.presentRename(signalDivider: SidebarDivider(id: current.id, name: current.name))
-                      }
-                  },
-                  move: { controller.moveSignalDivider(id, $0) },
-                  delete: { controller.removeSignalDivider(id) })
+    /// A projects' divider in the Operator's section: the label alone, with no menu, carrying the status line in its
+    /// trailing slot.
+    init(label entry: DividerEntry, rows: SidebarProjection) {
+        self.init(entry: entry, enabled: false, rename: {}, move: { _ in }, delete: {}, commandsShown: false, statusLine: rows)
     }
 }
 
 /// The pill a selectable row — a task, a terminal or the Operator's — is drawn in: its hover wash, its
 /// selection fill, and the click that activates it. The hover lives here, in the row, so moving the
 /// pointer redraws that row rather than the whole sidebar. `washed` is the Operator's row: its wash at
-/// rest (`RowPill`).
+/// rest (`RowPill`). With `statusLine`, its piece of the Operator's status line runs down its trailing slot to the
+/// row's edges, over the pill.
 struct SelectableRow<Content: View>: View {
     let id: UUID
     let selected: Bool
     var washed = false
+    var statusLine: SidebarProjection? = nil
     let activate: () -> Void
     @ViewBuilder let content: () -> Content
     @Environment(\.interfaceScale) private var scale
@@ -93,8 +87,10 @@ struct SelectableRow<Content: View>: View {
     @Environment(\.seededHover) private var seededHover
     #endif
 
-    init(id: UUID, selected: Bool, washed: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
-        self.id = id; self.selected = selected; self.washed = washed; self.activate = activate; self.content = content
+    init(id: UUID, selected: Bool, washed: Bool = false, statusLine: SidebarProjection? = nil, activate: @escaping () -> Void,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.id = id; self.selected = selected; self.washed = washed; self.statusLine = statusLine; self.activate = activate
+        self.content = content
     }
 
     /// The pointer's hover, or in a debug build a test's.
@@ -116,6 +112,8 @@ struct SelectableRow<Content: View>: View {
             .padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
             .padding(.vertical, scale(Space.base))
             .frame(minHeight: scale(Size.row))
+            .modifier(StatusLineOverlay(id: id, rows: statusLine, reach: StatusLineReach.halfGap,
+                                        trailing: SidebarRowLayout.trailingInset(scale)))
             .modifier(RowPill(selected: selected, hovered: drawsHover, washed: washed))
             // The pill is inset from the project row, so the indent goes *outside* the background —
             // painting it inside made the blue run all the way to the sidebar's edge. Selection is drawn
@@ -239,17 +237,23 @@ struct TaskRowView: View {
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id),
                                    ticketDone: controller.ticketsDone.isDone(row.id))
-        let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing)
         let commands = commands(removing: removing)
         // Removing or archiving spins, whatever the row's own mark.
         let mark = removing ? TaskRowMark.status(.working) : row.mark
         // The same work card is inspectable while the agent works or asks for input, including
         // driven rows. A removal spinner offers no card.
         let jobs = BackgroundCardPresenter.eligible(row.background, source: .task(row.id), controller: controller)
+        let voiceOver = TaskRowAccessibility(row: row, missing: missing, removing: removing, jobs: jobs,
+                                             detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip)
+        // A task a signal started wears the disc, whose card the projection resolves only while it is open; a row on
+        // its way out keeps the disc and offers no card, as it offers no jobs.
+        let signalCard: (() -> SignalCard?)? = row.startedBySignal == nil || removing ? nil : { [rows = controller.rows, id = row.id] in
+            rows.signalCard(for: .task(id))
+        }
         // A row being removed is not activated: its window is closing, or gone.
         let activate: () -> Void = { if !removing { controller.choose(task: row.id) } }
-        SelectableRow(id: row.id, selected: selected, activate: activate) {
-            SidebarRowContent(avatars: row.avatars) {
+        SelectableRow(id: row.id, selected: selected, statusLine: controller.rows, activate: activate) {
+            SidebarRowContent(avatars: row.avatars, signalDisc: row.startedBySignal != nil) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.title, dimmed: removing)
                     if let progress = caption.progress {
@@ -284,10 +288,10 @@ struct TaskRowView: View {
                     .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
             .backgroundCard(jobs, source: .task(row.id), activate: activate, commands: commands)
+            .signalCard(signalCard, source: .task(row.id), activate: activate, commands: commands)
         }
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(BackgroundCard(jobs: jobs).accessibilityValue(status: row.status,
-                            detail: caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip))
+        .accessibilityValue(voiceOver.value)
         .modifier(RowCommandActions(groups: commands))
         .accessibilityHint(Text(voiceOver.hint))
         .modifier(RowHelp(text: voiceOver.help))
@@ -436,9 +440,12 @@ struct TerminalRowView: View {
 final class RowBodyCounter {
     private(set) var counts: [UUID: Int] = [:]
     private(set) var headings: [String: Int] = [:]
+    /// The status line's cells (`StatusLineCell`), by row id.
+    private(set) var lines: [UUID: Int] = [:]
     func count(_ id: UUID) { counts[id, default: 0] += 1 }
     func countHeading(_ name: String) { headings[name, default: 0] += 1 }
-    func reset() { counts = [:]; headings = [:] }
+    func countLine(_ id: UUID) { lines[id, default: 0] += 1 }
+    func reset() { counts = [:]; headings = [:]; lines = [:] }
 }
 
 private struct RowBodyCounterKey: EnvironmentKey { static let defaultValue: RowBodyCounter? = nil }
@@ -450,11 +457,12 @@ extension EnvironmentValues {
     }
 }
 
-/// A debug fixture can paint a row's hover by identity, or pass the real background-card hover
-/// state to a directly hosted row. Seeding the pill alone never opens the card.
+/// A debug fixture can paint a row's hover by identity, or pass the real background-card or signal-card hover
+/// state to a directly hosted row. Seeding the pill alone never opens a card.
 struct SeededHover {
     var row: UUID? = nil
     var backgroundCard: BackgroundCardHover? = nil
+    var signalCard: BackgroundCardHover? = nil
 }
 
 private struct SeededHoverKey: EnvironmentKey { static let defaultValue: SeededHover? = nil }
