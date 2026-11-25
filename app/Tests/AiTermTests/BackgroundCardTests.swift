@@ -167,6 +167,30 @@ struct BackgroundCardTests {
         #expect(TaskRowMark(status: .done, line: ended) == .ended)
     }
 
+    @Test(arguments: InterfaceScale.all)
+    func jobLabelsLineUpAfterDifferentGlyphs(scale: InterfaceScale) throws {
+        let jobs = [BackgroundJob.Kind.shell, .monitor, .subagent].map {
+            BackgroundJob(kind: $0, text: "work", displayLabel: "Check the results")
+        }
+        let renderer = ImageRenderer(content: BackgroundCardView(card: BackgroundCard(jobs: jobs))
+            .interfaceScale(scale).frame(width: 300).environment(\.colorScheme, .dark))
+        renderer.scale = 2
+        let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        let stride = Int((scale(Size.chip) + scale(Space.tight)) * renderer.scale)
+        let top = Int(scale(Space.base) * renderer.scale) + stride
+        let labelStarts = try jobs.indices.map { index in
+            let y = top + index * stride
+            return try #require((0..<bitmap.pixelsWide).first { x in
+                (y..<(y + Int(scale(Size.chip) * renderer.scale))).contains { row in
+                    // Only label ink is this bright; the glyphs use the muted ink.
+                    guard let pixel = bitmap.colorAt(x: x, y: row)?.usingColorSpace(.sRGB) else { return false }
+                    return pixel.redComponent > 0.83
+                }
+            })
+        }
+        #expect(Set(labelStarts).count == 1, "label ink starts at \(labelStarts)")
+    }
+
     @Test(arguments: [1, 3, 5, 7], InterfaceScale.all)
     func itGrowsToFiveSingleLineJobsBeforeScrolling(count: Int, scale: InterfaceScale) {
         let jobs = (0..<count).map { BackgroundJob(kind: .shell, text: "command-\($0)") }
