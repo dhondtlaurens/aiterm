@@ -169,7 +169,7 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
     write(path, launch())
     await svc.tick()
     assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).stop_work == ()
-    assert events[-1][1]["work"] == [{"kind": "shell", "text": "npm run test", "holdsTurn": False}]
+    assert events[-1][1]["work"] == [{"kind": "shell", "text": "npm run test", "holdsTurn": False, "idle": False}]
     with path.open("a") as f:
         f.write(json.dumps(completed()) + "\n")
     await svc.tick()
@@ -191,8 +191,8 @@ async def test_native_descriptions_are_published_for_existing_children_and_shell
     write_transcript(path, child_launch() + shell_launch(at=104, description="Run validation"))
     await svc.tick()
     assert published[-1]["work"] == [
-        {"kind": "subagent", "text": "general-purpose", "holdsTurn": False, "displayLabel": "Review checkout"},
-        {"kind": "shell", "text": "npm run test", "holdsTurn": False, "displayLabel": "Run validation"}]
+        {"kind": "subagent", "text": "general-purpose", "holdsTurn": False, "idle": False, "displayLabel": "Review checkout"},
+        {"kind": "shell", "text": "npm run test", "holdsTurn": False, "idle": False, "displayLabel": "Run validation"}]
     svc.status.apply_event(sid, HookEvent("claude", "subagentStop", None, None, subagent_id="child"))
     await svc.tick()
     assert all(item["kind"] != "subagent" for item in svc.registry.get(sid).to_json()["work"])
@@ -1588,7 +1588,8 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     session = svc.registry.get(sid)
     assert (session.state, session.stop_work) == (
         "done", (BackgroundJob("shell", "npm run test:run", task_id="b1", display_label="the gate"),))
-    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True, "displayLabel": "the gate"}]
+    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True, "idle": False,
+                                          "displayLabel": "the gate"}]
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     assert svc.registry.get(sid).stop_work == ()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})

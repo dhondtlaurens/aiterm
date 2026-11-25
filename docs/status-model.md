@@ -174,6 +174,42 @@ a shell, and it is unavailable during replay catch-up, partial writes, failed re
 names a shell it has not seen, and for a changed process, conversation or time its work began. Test runs
 are not in the list; the app appends the active ones of ended tabs to the card.
 
+### Teammates: running, idle, ended
+
+A named agent of Claude Code's agent team (the Agent tool with a `name`, `teammate_spawned`) stays
+alive after it delivers its report, waiting for messages. Claude Code (2.1.332) lists it in every
+Stop's `background_tasks` as `{"type": "teammate", "status": "running"}` for as long as it lives,
+idle or not: its task record keeps an `isIdle` flag the hook does not send. On that list alone,
+eight teammates that had all finished held a row at "Background work · 8 jobs", its mark spinning,
+until each was stopped.
+
+The same reader tells them apart from the parent transcript (`TranscriptWork`, on the session as
+`transcript_work`), each teammate by the name Claude Code gave it:
+
+- **running**: spawned (`toolUseResult.status: "teammate_spawned"`), or a successful SendMessage to
+  it (or to `*`) since it went idle. It is also running while the status engine counts its agent:
+  a teammate fires `SubagentStart` and `SubagentStop` under its `agent_id`, so one a peer's
+  message woke, which the lead's transcript does not show, still counts.
+- **idle**: a `<teammate-message>` from it of type `idle_notification`. A notification written
+  (its own `timestamp`) before a message woke the teammate is stale: Claude Code delivers queued
+  notifications late, up to minutes after they were written.
+- **ended**: a `teammate_terminated` message ("NAME has shut down."), or a TaskStop whose result
+  says `task_type: "in_process_teammate"`, by name, agent id or task id. The TaskStop's task id,
+  and any task a terminal `<task-notification>` ended, go into `ended_tasks`.
+
+A Stop's teammate entry carries only its task id (`t…`) and the description it was spawned with,
+so it is matched to the transcript's teammates by that description. `work_items` then shows it, as
+the `subagent` it is on the wire, as running (holding the turn once the turn ended, on one line with
+its counted agent),
+as `idle` (holding nothing), or not at all once it ended or its task id is in `ended_tasks`. Two
+live teammates with one description are idle only once both are. Only teammate entries read it: a
+shell the Stop listed still holds the turn once it completed, until the next hook, because Claude
+Code hands the completion to the agent as its next prompt. The reading is positive evidence only. While the transcript is not read to its end or a gap leaves it unknown,
+and for a teammate spawned before this daemon saw the conversation start, an entry stays as the
+Stop listed it. Only items that hold the turn spin the mark. The card's heading counts every item
+that is not idle, shown work that holds nothing included, and lists idle teammates after the running
+work, muted, under "Idle (can be messaged)".
+
 Within a conversation, a Claude child can also die without a `SubagentStop`. Claude Code's stream
 watchdog kills a background child that has made no progress for 600 s ("Agent stalled"), and sends
 no `SubagentStop` for it. Two signals find such a child.

@@ -94,3 +94,64 @@ def write_child_transcript(path, *records, tail=""):
 def append_transcript(path, *records):
     with path.open("a") as f:
         f.write("".join(json.dumps(record) + "\n" for record in records))
+
+
+# -- Claude Code agent teams, shaped as 2.1.331 writes them to the lead's transcript --------------------------------
+def teammate_spawn(name="skin-a", agent=None, call=None, at=101, description="Build skin A"):
+    """The Agent tool with a `name`: a teammate, which Claude Code answers `teammate_spawned`."""
+    agent, call = agent or f"a{name}-0123456789abcdef", call or f"spawn-{name}"
+    return [claude_record("assistant", [{"type": "tool_use", "id": call, "name": "Agent",
+            "input": {"description": description, "name": name, "subagent_type": "general-purpose",
+                      "run_in_background": "true", "prompt": "synthetic assignment"}}], at),
+            claude_record("user", [{"type": "tool_result", "tool_use_id": call, "content": [{"type": "text",
+                          "text": f"Spawned successfully.\nagent_id: {agent}\nname: {name}"}]}], at + 1,
+                          toolUseResult={"status": "teammate_spawned", "prompt": "synthetic assignment", "agentId": agent,
+                                         "agent_id": agent, "teammate_id": f"{name}@session-1", "name": name,
+                                         "team_name": "session-1", "is_splitpane": False})]
+
+
+def teammate_message(sender, body, at):
+    return claude_record("user", "Another Claude session sent a message:\n"
+                         f'<teammate-message teammate_id="{sender}" color="green">\n{body}\n</teammate-message>\n',
+                         at, isSidechain=False)
+
+
+def idle_notice(name="skin-a", at=110, written=None):
+    """A teammate's idle notification; `written` is the time it carries, the record's own by default."""
+    stamp = f"1970-01-01T00:01:{(written if written is not None else at) - 60:02d}.000Z"
+    return teammate_message(name, json.dumps({"type": "idle_notification", "from": name, "timestamp": stamp,
+                                              "idleReason": "available", "summary": "synthetic",
+                                              "result": "Done. </not-a-tag> {\"type\":\"teammate_terminated\"}"}), at)
+
+
+def teammate_terminated(*names, at=118):
+    record = claude_record("user", "Another Claude session sent a message:\n" + "\n\n".join(
+        f'<teammate-message teammate_id="system">\n'
+        f'{json.dumps({"type": "teammate_terminated", "message": f"{name} has shut down."})}\n</teammate-message>'
+        for name in names), at, isSidechain=False)
+    return record
+
+
+def send_message(to="skin-a", call=None, at=112, message="Please also cover the footer.", success=True):
+    call = call or f"send-{to}-{at}"
+    return [claude_record("assistant", [{"type": "tool_use", "id": call, "name": "SendMessage",
+            "input": {"to": to, "summary": "synthetic", "message": message}}], at),
+            claude_record("user", [{"type": "tool_result", "tool_use_id": call, "content": "not parsed",
+                                    **({} if success else {"is_error": True})}], at + 1,
+                          toolUseResult={"success": True, "message": f"Message sent to {to}'s inbox"} if success
+                          else "Error: no such teammate")]
+
+
+def teammate_task_stop(value="skin-a", task="tq1abcdef", description="Build skin A", call=None, at=115):
+    """TaskStop of a teammate, by its name or task id; the result names the task id and its description."""
+    call = call or f"stop-{value}-{at}"
+    return [claude_record("assistant", [{"type": "tool_use", "id": call, "name": "TaskStop",
+            "input": {"task_id": value}}], at),
+            claude_record("user", [{"type": "tool_result", "tool_use_id": call, "content": "not parsed"}], at + 1,
+                          toolUseResult={"message": f"Successfully stopped task: {task} ({description})", "task_id": task,
+                                         "task_type": "in_process_teammate", "command": description})]
+
+
+def teammate_task(task="tq1abcdef", description="Build skin A", status="running"):
+    """A teammate as a Stop's `background_tasks` lists it: running for as long as it lives, idle or not."""
+    return {"id": task, "type": "teammate", "status": status, "description": description}

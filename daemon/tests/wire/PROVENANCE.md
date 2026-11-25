@@ -44,3 +44,12 @@ raw `text` and `holdsTurn`; only `reply.workspace.snapshot.json` changes. Re-cap
 same synthetic Service/FakeIterm producer with `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest
 tests/test_wire_contract.py`; native-reader enrichment is covered separately. No compatibility
 capture or Operator contract golden was regenerated.
+
+On 25 Nov 2026, the idle-teammate change deliberately added `idle` to every work item: true for a
+Claude Code teammate that finished its turn and waits for a message, which never holds the turn.
+It is always sent, as `holdsTurn` is, so the app's stored fields match every item; the app reads a
+missing `idle` as false for an older daemon. Only `reply.workspace.snapshot.json` changes, its one
+work item gaining `"idle": false`. Re-captured through the same synthetic Service/FakeIterm producer
+with `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py`; the reader's
+teammate states are covered by `tests/test_claude_teammates.py`. No compatibility capture or
+Operator contract golden was regenerated.

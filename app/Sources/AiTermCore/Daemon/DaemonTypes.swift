@@ -107,11 +107,22 @@ public struct WorkItem: Codable, Equatable, Sendable {
     /// Its agent's last Stop listed it: the agent takes the turn up again once it ends. The row's status and the
     /// Operator read only these; the card draws every item.
     public var holdsTurn: Bool
-    public init(kind: BackgroundJob.Kind, text: String, holdsTurn: Bool, displayLabel: String? = nil) {
-        self.kind = kind; self.text = text; self.holdsTurn = holdsTurn; self.displayLabel = displayLabel
+    /// A Claude Code teammate that finished its turn and waits for a message: alive, but running nothing, so it never
+    /// holds the turn. The daemon always sends it; one too old to send it is read as false.
+    public var idle: Bool
+    public init(kind: BackgroundJob.Kind, text: String, holdsTurn: Bool, displayLabel: String? = nil, idle: Bool = false) {
+        self.kind = kind; self.text = text; self.holdsTurn = holdsTurn; self.displayLabel = displayLabel; self.idle = idle
+    }
+    private enum CodingKeys: String, CodingKey { case kind, text, displayLabel, holdsTurn, idle }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try c.decode(BackgroundJob.Kind.self, forKey: .kind), text: try c.decode(String.self, forKey: .text),
+                  holdsTurn: try c.decode(Bool.self, forKey: .holdsTurn),
+                  displayLabel: try c.decodeIfPresent(String.self, forKey: .displayLabel),
+                  idle: try c.decodeIfPresent(Bool.self, forKey: .idle) ?? false)
     }
     public var job: BackgroundJob { BackgroundJob(kind: kind, text: text) }
-    public var displayJob: BackgroundJob { BackgroundJob(kind: kind, text: text, displayLabel: displayLabel) }
+    public var displayJob: BackgroundJob { BackgroundJob(kind: kind, text: text, displayLabel: displayLabel, idle: idle) }
 }
 
 /// A shell by its command, a monitor, a subagent or any other task by its description.
@@ -123,8 +134,11 @@ public struct BackgroundJob: Equatable, Hashable, Sendable {
     }
     public var kind: Kind, text: String
     public var displayLabel: String?
-    public init(kind: Kind, text: String, displayLabel: String? = nil) {
-        self.kind = kind; self.text = text; self.displayLabel = displayLabel
+    /// A teammate that finished its turn and waits for a message (`WorkItem.idle`): the card lists it apart, and it
+    /// counts as no running work.
+    public var idle: Bool
+    public init(kind: Kind, text: String, displayLabel: String? = nil, idle: Bool = false) {
+        self.kind = kind; self.text = text; self.displayLabel = displayLabel; self.idle = idle
     }
     public var label: String {
         guard let displayLabel, !displayLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return text }

@@ -4,17 +4,43 @@ import AiTermCore
 
 /// The existing ordered work list, with native short descriptions when available. Raw commands
 /// remain on each job for fallback/help; the visual and spoken descriptions use the same label.
+/// Idle teammates (`BackgroundJob.idle`) are alive but run nothing: they follow the running work under their own
+/// heading, and the count in the card's heading leaves them out.
 struct BackgroundCard: Equatable {
     let jobs: [BackgroundJob]
 
+    static let idleHeading = "Idle (can be messaged)"
+
+    var running: [BackgroundJob] { jobs.filter { !$0.idle } }
+    var idle: [BackgroundJob] { jobs.filter(\.idle) }
+
     var heading: String {
-        jobs.count > 1 ? "Background work · \(jobs.count) jobs" : "Background work"
+        switch running.count {
+        case 0 where !idle.isEmpty: "Background work · none running"
+        case 0, 1: "Background work"
+        case let count: "Background work · \(count) jobs"
+        }
+    }
+
+    /// One line of the card under its heading: a job, or the heading of the idle ones.
+    enum Line: Equatable {
+        case job(BackgroundJob)
+        case idleHeading
+    }
+
+    /// The running jobs, then the idle ones under their heading.
+    var lines: [Line] {
+        running.map(Line.job) + (idle.isEmpty ? [] : [.idleHeading] + idle.map(Line.job))
     }
 
     /// The card in words, the row's value for VoiceOver: every job, which the card may scroll or cut short.
     var spoken: String {
-        let what = jobs.map(\.label).joined(separator: ", ")
-        return what.isEmpty ? TaskStatus.background.label : "Background work: " + what
+        let what = running.map(\.label).joined(separator: ", ")
+        let waiting = idle.map(\.label).joined(separator: ", ")
+        var parts: [String] = []
+        if !what.isEmpty { parts.append("Background work: " + what) }
+        if !waiting.isEmpty { parts.append("Idle, can be messaged: " + waiting) }
+        return parts.isEmpty ? TaskStatus.background.label : parts.joined(separator: ". ")
     }
 
     /// Preserve the turn/input status and the row's other detail, without repeating jobs its
@@ -27,7 +53,17 @@ struct BackgroundCard: Equatable {
         return parts.joined(separator: ". ")
     }
 
-    static func glyph(_ kind: BackgroundJob.Kind) -> String { kind == .shell ? "apple.terminal" : "eye" }
+    /// What each line is at a glance: a shell's command, an agent at work, an idle agent asleep until it is messaged, and
+    /// anything else that follows a live signal and reports back (a monitor, a workflow, an MCP task). Not `eye`: on
+    /// macOS that is the show/hide mark, a control rather than work.
+    static func glyph(_ job: BackgroundJob) -> String {
+        if job.idle { return "zzz" }
+        switch job.kind {
+        case .shell: return "apple.terminal"
+        case .subagent: return "sparkle"
+        case .monitor, .task: return "waveform.path.ecg"
+        }
+    }
 }
 
 /// Whether a background mark's card is open. It opens once the pointer has rested on the mark for `openDelay`, so a
@@ -101,7 +137,7 @@ struct BackgroundCardView: View {
     }
 
     var body: some View {
-        let rows = min(card.jobs.count, max(0, visibleJobs), Self.maximumVisibleJobs)
+        let rows = min(card.lines.count, max(0, visibleJobs), Self.maximumVisibleJobs)
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
             HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
                 .frame(height: scale(Size.chip))
@@ -110,7 +146,7 @@ struct BackgroundCardView: View {
                     // ImageRenderer does not materialise native scroll views. Static fixtures
                     // draw these same lines clipped; hosted tests exercise the actual scroller.
                     if snapshotDrawing { lines }
-                    else if card.jobs.count > rows {
+                    else if card.lines.count > rows {
                         ScrollView(.vertical) { lines }
                     } else { lines }
                 }
@@ -129,12 +165,20 @@ struct BackgroundCardView: View {
 
     private var lines: some View {
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            ForEach(Array(card.jobs.enumerated()), id: \.offset) { _, job in
-                HStack(alignment: .center, spacing: scale(Space.tight)) {
-                    Icon(.symbol(BackgroundCard.glyph(job.kind)), size: scale(Size.inlineMark), tint: Palette.muted)
-                    Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
-                        .foregroundStyle(Palette.text).lineLimit(1).truncationMode(.tail)
-                        .help(job.kind == .shell && !job.isCommand ? job.text : "")
+            ForEach(Array(card.lines.enumerated()), id: \.offset) { _, line in
+                Group {
+                    switch line {
+                    case .idleHeading:
+                        Text(BackgroundCard.idleHeading).font(Typography.help)
+                            .foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
+                    case .job(let job):
+                        HStack(alignment: .center, spacing: scale(Space.tight)) {
+                            Icon(.symbol(BackgroundCard.glyph(job)), size: scale(Size.inlineMark), tint: Palette.muted)
+                            Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
+                                .foregroundStyle(job.idle ? Palette.muted : Palette.text).lineLimit(1).truncationMode(.tail)
+                                .help(job.kind == .shell && !job.isCommand ? job.text : "")
+                        }
+                    }
                 }
                 .frame(height: scale(Size.chip))
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -81,7 +81,7 @@ import AiTermUI
         let width = min(available.width, row.width + scale(Space.base)
                         - SidebarRowLayout.trailingSlot(scale) - scale(Space.tight))
         guard width > 0 else { close(); return }
-        let visibleJobs = BackgroundCardView.visibleJobs(total: card.jobs.count, availableHeight: available.height, scale: scale)
+        let visibleJobs = BackgroundCardView.visibleJobs(total: card.lines.count, availableHeight: available.height, scale: scale)
         guard visibleJobs > 0 else { close(); return }
         let height = BackgroundCardView.height(jobs: visibleJobs, scale: scale)
         let frame = NSRect(x: max(available.minX, min(row.minX - scale(Space.base), available.maxX - width)),
