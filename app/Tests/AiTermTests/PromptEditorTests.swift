@@ -347,7 +347,7 @@ import AiTermTestSupport
     }
 
     /// ⇥ in an empty editor that has a fill writes the fill in, as typing would: to the binding, with the caret after
-    /// it, and undone by ⌘Z.
+    /// it, in the editor's own mono font and text colour, and undone by ⌘Z.
     @Test func tabInAnEmptyEditorWritesItsFill() throws {
         let text = TextBox()
         let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
@@ -363,6 +363,11 @@ import AiTermTestSupport
         #expect(textView.delegate?.textView?(textView, doCommandBy: #selector(NSResponder.insertTab(_:))) == true)
         #expect(text.value == "status = Done" && textView.string == "status = Done")
         #expect(textView.selectedRange() == NSRange(location: ("status = Done" as NSString).length, length: 0))
+        // An empty text storage has no character to borrow attributes from: a bare string lands in AppKit's default
+        // Helvetica and black, unlike what the person types.
+        let written = try #require(textView.textStorage?.attributes(at: 0, effectiveRange: nil))
+        #expect(written[.font] as? NSFont == Typography.promptMono.nsFont)
+        #expect(written[.foregroundColor] as? NSColor == textView.textColor)
 
         let undo = try #require(textView.undoManager)
         #expect(undo.canUndo)

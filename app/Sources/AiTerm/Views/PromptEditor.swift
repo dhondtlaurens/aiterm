@@ -194,12 +194,14 @@ struct PromptEditor: NSViewRepresentable {
             if item.kind == .folder { refresh() } else { parent.completions.close() }
         }
 
-        /// Writes `replacement` over `range` as an edit the text view can undo, leaves the caret after it, and hands the
-        /// text to the binding.
+        /// Writes `replacement` over `range` as an edit the text view can undo, in the attributes a typed key gets,
+        /// leaves the caret after it, and hands the text to the binding. A bare string would take its attributes from
+        /// the text beside it, and an empty editor has none: AppKit's default Helvetica in black.
         private func insert(_ replacement: String, replacing range: NSRange) {
             guard let textView else { return }
             if textView.shouldChangeText(in: range, replacementString: replacement) {
-                textView.textStorage?.replaceCharacters(in: range, with: replacement)
+                let styled = NSAttributedString(string: replacement, attributes: textView.typingAttributes)
+                textView.textStorage?.replaceCharacters(in: range, with: styled)
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: range.location + (replacement as NSString).length, length: 0))
             }
