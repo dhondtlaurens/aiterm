@@ -51,6 +51,7 @@
           {
             "displayLabel": "Review checkout changes",
             "holdsTurn": true,
+            "idle": false,
             "kind": "subagent",
             "text": "Review the fix"
           }

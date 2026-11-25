@@ -11,12 +11,12 @@ import time
 from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .. import corroboration
 from ..hook_events import SIMPLE_EVENTS, HookEvent, StatusLine, session_start, subagent_event, submitted_prompt
 from ..jsonl import JsonlCursor, records_newest_first
-from ..models import ITERM_SESSION_FIELD, BackgroundJob, SessionInfo, Usage
+from ..models import ITERM_SESSION_FIELD, BackgroundJob, SessionInfo, Teammate, TranscriptWork, Usage
 from ..sessions import SessionRegistry
 from ..status import Evidence, EvidenceState, StatusEngine
 from ..text import iso_seconds, nonempty_string
@@ -46,6 +46,9 @@ def _claude_subagent_transcript(p: dict[str, Any], child: str) -> str | None:
 # agent_id, and shells, monitors and MCP tasks run no agent. A teammate's task id is not the agent_id
 # its hooks carry, and a workflow's agents sit behind the workflow's own id.
 CLAUDE_MATCHABLE_TASK_TYPES = frozenset({"subagent", "shell", "monitor", "MCP task"})
+# A named agent of the session's agent team (the Agent tool with a `name`). Claude Code lists one as `running` for as long
+# as it lives, idle and waiting for a message or not (2.1.332 sends no idle flag): the transcript tells them apart.
+CLAUDE_TEAMMATE_TASK_TYPE = "teammate"
 # The statuses Claude Code lists a task under while it is in flight.
 CLAUDE_IN_FLIGHT_TASK_STATUSES = frozenset({"running", "pending"})
 # How Claude Code describes the watch it keeps on an artifact it published or was asked to watch: a monitor with no
@@ -75,7 +78,8 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
             work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said,
                                       task_id=nonempty_string(task.get("id")),
                                       display_label=label if label and (label != said or (
-                                          kind == "shell" and not nonempty_string(task.get("command")))) else None))
+                                          kind == "shell" and not nonempty_string(task.get("command")))) else None,
+                                      teammate=kind == CLAUDE_TEAMMATE_TASK_TYPE))
         # Only a subagent named by its agent_id is a child the status engine can count.
         elif (child := nonempty_string(task.get("id"))) is not None:
             work.append(BackgroundJob("subagent", said, child))
@@ -456,6 +460,13 @@ MAX_TRACKED = 4096
 MAX_LABELS = 4096
 _TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 _STATUS = re.compile(r"<status>([^<]+)</status>")
+# A message from a teammate, or from Claude Code's team bookkeeping (`teammate_id="system"`), as the lead's transcript
+# holds it: `<teammate-message teammate_id="NAME" ...>{"type":"idle_notification","from":"NAME","timestamp":...}`.
+_TEAMMATE_MESSAGE = re.compile(r'<teammate-message\s+teammate_id="([^"]+)"[^>]*>(.*?)</teammate-message>', re.DOTALL)
+_MESSAGE_TYPE = re.compile(r'\A\s*\{\s*"type"\s*:\s*"([^"]+)"')
+_MESSAGE_TIME = re.compile(r'"timestamp"\s*:\s*"([^"]+)"')
+# How Claude Code words a teammate_terminated message (2.1.331): "NAME has shut down."
+_SHUT_DOWN = re.compile(r"\A(.+?) has shut down\.?\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +485,17 @@ class ShellReading:
 class BackgroundReading:
     shells: ShellReading | None
     child_labels: tuple[tuple[str, str], ...] = ()
+    # What it says of the Stop's work, None while the transcript is not read to its end or a gap leaves it unknown.
+    transcript_work: TranscriptWork | None = None
+
+
+@dataclass(slots=True)
+class _Member:
+    agent_id: str
+    description: str
+    state: Literal["running", "idle", "ended"]
+    # When it last changed: an idle notice written before a message woke it says nothing of it now.
+    at: float
 
 
 @dataclass(slots=True)
@@ -488,6 +510,16 @@ class _Transcript:
     ended: set[str] = field(default_factory=set)
     uncertain: dict[str, float] = field(default_factory=dict)
     gap_at: float | None = None
+    # The agent team: the Agent calls that name a teammate (by description), the SendMessage calls (by recipient), each
+    # with when it was made; each teammate by name; and the task ids a TaskStop of a teammate reported.
+    team_calls: dict[str, tuple[str, float]] = field(default_factory=dict)
+    message_calls: dict[str, tuple[str, float]] = field(default_factory=dict)
+    team: dict[str, _Member] = field(default_factory=dict)
+    stopped_teammates: set[str] = field(default_factory=set)
+    caught_up: bool = False
+    # A gap a Stop's shell list recovered: the shells are known again, but nothing a Stop says restores an idle
+    # notification or a wake the gap may have swallowed, so the team stays unknown for the rest of the conversation.
+    team_gap: bool = False
 
     def consume(self, line: bytes, observed_at: float) -> None:
         try:
@@ -525,11 +557,17 @@ class _Transcript:
                     label = args.get("description")
                     if isinstance(label, str) and (label := " ".join(label.split())):
                         self.agent_calls[call] = label
+                        if nonempty_string(args.get("name")):
+                            self.team_calls[call] = (label, at)
+                elif call and isinstance(args, dict) and name == "SendMessage":
+                    if (to := nonempty_string(args.get("to"))) is not None:
+                        self.message_calls[call] = (to, at)
         elif record.get("type") == "user":
             results = [block for block in blocks if isinstance(block, dict) and block.get("type") == "tool_result"]
             native = record.get("toolUseResult")
             for block in results:
                 call = str(block.get("tool_use_id"))
+                self.team_result(call, block, native if len(results) == 1 else None, at)
                 label = self.agent_calls.pop(call, None)
                 if (label and len(results) == 1 and not block.get("is_error") and isinstance(native, dict)
                         and native.get("isAsync") is True and native.get("status") == "async_launched"
@@ -556,21 +594,89 @@ class _Transcript:
                             display_label=label if label != value else None), at))
                 elif name == "TaskStop" and native.get("task_id") == value and native.get("task_type") == "local_bash":
                     self.finish(value)
+                elif name == "TaskStop" and native.get("task_type") == "in_process_teammate":
+                    self.teammate_stopped(value, native, at)
                 elif name == "TaskStop" and value in self.tasks:
                     self.uncertain[value] = at
             for block in blocks:
                 if not isinstance(block, dict) or block.get("type") != "text":
                     continue
                 self.notice(block.get("text"), at)
+                self.team_notice(block.get("text"), at)
         if len(self.calls) > MAX_TRACKED or len(self.tasks) + len(self.ended) > MAX_TRACKED:
             self.gap_at = observed_at
             self.calls.clear()
             self.tasks.clear()
             self.ended.clear()
             self.uncertain.clear()
-        for cache in (self.agent_calls, self.child_labels):
+        for cache in (self.agent_calls, self.child_labels, self.team_calls, self.message_calls, self.team):
             while len(cache) > MAX_LABELS:
                 del cache[next(iter(cache))]
+        while len(self.stopped_teammates) > MAX_LABELS:
+            self.stopped_teammates.pop()
+
+    def team_result(self, call: str, block: dict[str, Any], native: Any, at: float) -> None:
+        """An Agent call's result that spawned a teammate (`teammate_spawned`, by the name Claude Code gave it), or a
+        SendMessage's that reached one: a message wakes an idle teammate. A result that failed, or shares its record
+        with another, proves neither. Each counts from when the call was made: a teammate can answer and go idle before
+        the result is written, and its notification then says so."""
+        spawned, sent = self.team_calls.pop(call, None), self.message_calls.pop(call, None)
+        if block.get("is_error") is True or not isinstance(native, dict):
+            return
+        if spawned is not None and native.get("status") == "teammate_spawned":
+            name, agent = nonempty_string(native.get("name")), nonempty_string(native.get("agent_id"))
+            if name is not None and agent is not None:
+                self.team[name] = _Member(agent, spawned[0], "running", spawned[1])
+                self.child_labels[agent] = spawned[0]
+        if sent is not None and native.get("success") is True:
+            to, when = sent
+            for name, member in self.team.items():
+                if member.state != "ended" and to in ("*", name):
+                    member.state, member.at = "running", when
+
+    def teammate_stopped(self, value: str, native: dict[str, Any], at: float) -> None:
+        """A TaskStop that stopped a teammate, by its name, its agent id or its task id. Its result names the task id,
+        which is all its Stop entry carries, and the description as its `command`."""
+        if (task := nonempty_string(native.get("task_id"))) is not None:
+            self.stopped_teammates.add(task)
+        named = [m for name, m in self.team.items() if m.state != "ended" and value in (name, m.agent_id)]
+        if not named and (said := nonempty_string(native.get("command"))) is not None:
+            said = " ".join(said.split())
+            named = [m for m in self.team.values() if m.state != "ended" and m.description == said]
+        if len(named) == 1:
+            named[0].state, named[0].at = "ended", at
+
+    def team_notice(self, value: object, at: float) -> None:
+        """The teammate messages a user record delivers: an idle notification makes its sender idle unless a message
+        woke it after the notification was written; a teammate_terminated ends the teammate it names."""
+        if not isinstance(value, str) or "<teammate-message" not in value:
+            return
+        for match in _TEAMMATE_MESSAGE.finditer(value):
+            sender, body = match[1], match[2]
+            kind = _MESSAGE_TYPE.match(body)
+            if kind is None:
+                continue
+            if kind[1] == "idle_notification" and (member := self.team.get(sender)) is not None:
+                written = _MESSAGE_TIME.search(body)
+                when = iso_seconds(written[1]) if written is not None else None
+                if member.state == "running" and (when if when is not None else at) >= member.at:
+                    member.state, member.at = "idle", at
+            elif kind[1] == "teammate_terminated":
+                try:
+                    said = json.loads(body).get("message")
+                except (ValueError, AttributeError):
+                    continue
+                gone = _SHUT_DOWN.match(said.strip()) if isinstance(said, str) else None
+                if gone is not None and (member := self.team.get(gone[1])) is not None:
+                    member.state, member.at = "ended", at
+
+    def work(self) -> TranscriptWork | None:
+        """The team and the tasks seen ended, once the transcript is read to its end without a gap. Unlike the shell
+        reading, a TaskStop or notice it could not place does not withhold it: ended tasks are positive evidence."""
+        if self.gap_at is not None or self.team_gap or not self.caught_up:
+            return None
+        return TranscriptWork(tuple(Teammate(name, m.agent_id, m.description, m.state)
+                                    for name, m in self.team.items()), frozenset(self.ended | self.stopped_teammates))
 
     def notice(self, value: object, at: float) -> None:
         if not isinstance(value, str) or not value.lstrip().startswith("<task-notification>"):
@@ -606,7 +712,8 @@ class BackgroundTranscripts:
     def read_with_labels(self, requests: Mapping[str, tuple[str, float]],
                          recoveries: Mapping[str, float] | None = None) -> dict[str, BackgroundReading]:
         shells = self.read_all(requests, recoveries)
-        return {sid: BackgroundReading(shells.get(sid), tuple(value.child_labels.items()) if value else ())
+        return {sid: BackgroundReading(shells.get(sid), tuple(value.child_labels.items()) if value else (),
+                                       value.work() if value else None)
                 for sid in requests for value in [self._read.get(sid)]}
 
     def _one(self, sid: str, path: str, since: float, recovery_at: float | None) -> ShellReading | None:
@@ -619,6 +726,7 @@ class BackgroundTranscripts:
         if (value is None or value.path != path or value.since != since
                 or value.cursor.rewritten(stat.st_ino, stat.st_size)):
             value = self._read[sid] = _Transcript(path, since, JsonlCursor(stat.st_ino))
+        value.caught_up = False
         try:
             lines = value.cursor.read_lines(Path(path), min(stat.st_size, value.cursor.offset + self.read_bytes))
         except OSError:
@@ -631,8 +739,9 @@ class BackgroundTranscripts:
         if recovery_at is not None:
             value.uncertain = {task: at for task, at in value.uncertain.items() if at > recovery_at}
             if value.gap_at is not None and recovery_at >= value.gap_at:
-                value.gap_at = None
-        if value.gap_at is not None or value.uncertain or value.cursor.offset < stat.st_size or value.cursor.partial:
+                value.gap_at, value.team_gap = None, True
+        value.caught_up = value.cursor.offset >= stat.st_size and not value.cursor.partial
+        if value.gap_at is not None or value.uncertain or not value.caught_up:
             return None
         return ShellReading(tuple(value.tasks.values()), frozenset(value.ended))
 
@@ -789,6 +898,7 @@ def background_plan(status: StatusEngine, reader: BackgroundTranscripts,
         changed: list[str] = []
         for sid, reading in readings.items():
             changed += status.apply_shell_reading(sid, reading.shells if reading else None)
+            changed += status.apply_transcript_work(sid, reading.transcript_work if reading else None)
             if reading is not None:
                 changed += status.apply_child_labels(sid, reading.child_labels, generations[sid])
         return changed
