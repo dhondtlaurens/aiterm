@@ -9,7 +9,7 @@ mkdir -p "$repo/app/.build/"{debug,release} "$repo/app/Sources/AiTerm/Resources"
 cp -R "$ROOT/scripts" "$repo/"
 cp "$ROOT/app/Sources/AiTerm/Resources/Info.plist" "$repo/app/Sources/AiTerm/Resources/"
 touch "$repo/app/Sources/AiTerm/Resources/AiTerm.icns" "$repo/LICENSE"
-for file in __init__.py delivery_check.py wire_frames.py; do touch "$repo/daemon/tools/$file"; done
+for file in __init__.py delivery_check.py compat_preflight.py wire_frames.py; do touch "$repo/daemon/tools/$file"; done
 for file in claude-statusline-shim.sh pi-aiterm-status.ts; do touch "$repo/hooks/$file"; done
 touch "$repo/compat/verified.json"
 cat >"$repo/scripts/swift.sh" <<'SWIFT'
@@ -47,7 +47,7 @@ done
 print -rl -- '#!/bin/zsh' 'exit 0' >"$repo/scripts/test-app-bundle.sh"
 PATH="$fixture_dir/bin:$PATH" PYTHON="$fixture_dir/bin/python" SIGN_IDENTITY=- "$repo/scripts/make-app.sh" >"$fixture_dir/output" 2>&1
 bundled="$repo/build/AiTerm.app/Contents/Resources/daemon/tools"
-[[ -f "$bundled/__init__.py" && -f "$bundled/delivery_check.py" && ! -e "$bundled/wire_frames.py" ]] || fail 'bundle must contain only the delivery check tools'
+[[ -f "$bundled/__init__.py" && -f "$bundled/delivery_check.py" && -f "$bundled/compat_preflight.py" && ! -e "$bundled/wire_frames.py" ]] || fail 'bundle must contain only the delivery check tools'
 
 # An old Python must be rejected before creating a venv, not by pip afterwards.
 cat >"$fixture_dir/bin/python" <<'PYTHON'
