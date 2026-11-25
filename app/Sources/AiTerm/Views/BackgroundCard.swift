@@ -124,6 +124,11 @@ struct BackgroundCardView: View {
 
     /// A local item-count policy, not a new shared measurement token.
     static let maximumVisibleJobs = 5
+    static let cornerRadius = Radius.control
+
+    /// SF Symbols can be wider than their point size. Allow a third more width for the terminal
+    /// glyph; narrower symbols share the column. This allowance follows the mark, not the row gap.
+    private static let glyphColumnWidth = Size.inlineMark * 4 / 3
 
     static func height(jobs: Int, scale: InterfaceScale) -> CGFloat {
         2 * scale(Space.base) + scale(Size.chip)
@@ -158,7 +163,7 @@ struct BackgroundCardView: View {
         .padding(.vertical, scale(Space.base)).padding(.horizontal, scale(Space.gap))
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: Self.height(jobs: rows, scale: scale))
-        .menuChrome(cornerRadius: scale(Radius.control))
+        .menuChrome(cornerRadius: scale(Self.cornerRadius))
         .surface(.sheet)
         .accessibilityHidden(true)
     }
@@ -174,6 +179,7 @@ struct BackgroundCardView: View {
                     case .job(let job):
                         HStack(alignment: .center, spacing: scale(Space.tight)) {
                             Icon(.symbol(BackgroundCard.glyph(job)), size: scale(Size.inlineMark), tint: Palette.muted)
+                                .frame(width: scale(Self.glyphColumnWidth))
                             Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
                                 .foregroundStyle(job.idle ? Palette.muted : Palette.text).lineLimit(1).truncationMode(.tail)
                                 .help(job.kind == .shell && !job.isCommand ? job.text : "")

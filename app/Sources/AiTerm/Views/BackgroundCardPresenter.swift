@@ -88,13 +88,18 @@ import AiTermUI
                            y: max(available.minY, min(row.maxY + scale(Space.base) - height, available.maxY - height)),
                            width: width, height: height)
         let content = AnyView(BackgroundCardView(card: card, visibleJobs: visibleJobs)
+            // The SwiftUI shadow would get cut off at the panel's rectangular bounds. Clip to
+            // the card itself and let AppKit cast a shadow outside the window instead.
+            .clipShape(RoundedRectangle(cornerRadius: scale(BackgroundCardView.cornerRadius)))
             .onTapGesture { [weak anchor] in (anchor as? BackgroundCardAnchor.Probe)?.activate() }
             .allowsWindowActivationEvents()
             .modifier(RowCommandContextMenu(groups: (anchor as? BackgroundCardAnchor.Probe)?.commands ?? []))
             .interfaceScale(scale).preferredColorScheme(.dark))
         if let panel, let host = panel.contentView as? BackgroundCardHostingView {
             host.rootView = content
+            let resized = panel.frame.size != frame.size
             panel.setFrame(frame, display: true)
+            if resized { panel.invalidateShadow() }
         } else {
             let host = BackgroundCardHostingView(rootView: content)
             host.safeAreaRegions = []; host.sizingOptions = []
@@ -108,6 +113,7 @@ import AiTermUI
             panel.animationBehavior = .none
             panel.isFloatingPanel = false; panel.hidesOnDeactivate = false
             panel.isOpaque = false; panel.backgroundColor = .clear
+            panel.hasShadow = true
             panel.appearance = NSAppearance(named: .darkAqua)
             panel.level = window.level
             panel.contentView = host
@@ -117,6 +123,7 @@ import AiTermUI
             // Attaching the hosting view may adjust the initial content size to its backing
             // grid; finish with the same explicit frame used for every later update.
             panel.setFrame(frame, display: true)
+            panel.invalidateShadow()
         }
     }
 

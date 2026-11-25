@@ -72,6 +72,17 @@ import AiTermUI
         let content = try #require(panel.contentView as? BackgroundCardHostingView)
         content.layoutSubtreeIfNeeded()
         #expect(isSeparateChild(content, above: anchor))
+        #expect(!panel.isOpaque && panel.backgroundColor == .clear && panel.hasShadow)
+        let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
+        content.cacheDisplay(in: content.bounds, to: bitmap)
+        for x in [0, bitmap.pixelsWide - 1] {
+            for y in [0, bitmap.pixelsHigh - 1] {
+                let corner = try #require(bitmap.colorAt(x: x, y: y))
+                #expect(corner.alphaComponent == 0, "the rounded corner must reveal the sidebar")
+            }
+        }
+        let fill = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+        #expect(fill.alphaComponent == 1, "the card itself must remain opaque")
         let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         let covered = NSPoint(x: panel.frame.midX, y: row.midY)
         let uncovered = NSPoint(x: row.maxX - SidebarRowLayout.trailingSlot(.standard) / 2, y: row.midY)
