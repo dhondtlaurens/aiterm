@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from . import protocol
-from .agents import claude, codex
+from .agents import claude, codex, pi
 from .agents.claude import BackgroundTranscripts, ClaudeSessionFiles, StopTranscripts, SubagentTranscripts
 from .agents.codex import CODEX_READ, CodexSessionFiles, CodexThreads
 from .connection import ItermSupervisor
@@ -347,6 +347,7 @@ class Service:
         threads = codex.tab_threads(self.codex_threads, sessions)
         screens: list[str] = []
         changed += await self.observe(claude.session_file_plan(self.registry, self.status, self.claude_files, sessions, screens))
+        screens += pi.trust_screens(self.status, sessions)
         # Fixed order: hooks arriving during a read supersede the request that reader captured.
         observations: tuple[tuple[str, Callable[[], Awaitable[list[str]]]], ...] = (
             ("reading the screens for trust prompts", lambda: self.readers.trust_prompts(screens)),

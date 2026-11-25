@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .agents import HOOK_PARSERS, STATUSLINE_PARSERS
+from .agents import HOOK_PARSERS, STATUSLINE_PARSERS, USAGE_PARSERS
 from .agents.codex import CodexThreads
 from .hook_events import HookEvent
 from .models import AgentKind
@@ -19,6 +19,10 @@ log = logging.getLogger(__name__)
 # (another terminal, an editor) never places however often it is retried, so without a floor each
 # of its posts would cost a tick.
 RETICK_SECONDS = 1.0
+# How long a post that names its own tab keeps retrying against ticks while that tab is not yet
+# classified as its agent. iTerm2 can take a few polls to name the job a launch typed: PI runs its
+# launch prompt the moment it starts, and its `agent_start` would otherwise be lost for the turn.
+PLACE_SECONDS = 5.0
 
 
 def _first_line(prompt: str | None) -> str:
@@ -34,12 +38,13 @@ class HookRouter:
 
     def __init__(self, resolver: SessionResolver, codex_threads: CodexThreads, status: StatusEngine, usage: UsageStore,
                  clock: Callable[[], float], publisher: Publisher,
-                 tick: Callable[[], Awaitable[None]] | None = None, retick_seconds: float = RETICK_SECONDS):
+                 tick: Callable[[], Awaitable[None]] | None = None, retick_seconds: float = RETICK_SECONDS,
+                 place_seconds: float = PLACE_SECONDS):
         self.resolver, self.codex_threads = resolver, codex_threads
         self.status, self.usage, self.clock, self.publisher = status, usage, clock, publisher
         # `tick` re-reads iTerm2 into the registry: the service's own, which already shares one pass
         # between callers that ask together.
-        self._tick, self._retick_seconds = tick, retick_seconds
+        self._tick, self._retick_seconds, self._place_seconds = tick, retick_seconds, place_seconds
         # The tick the next unplaced hook will wait for, until it starts reading; and when the last began.
         self._pending_tick: asyncio.Task[bool] | None = None
         self._last_tick_start = float("-inf")
@@ -54,6 +59,11 @@ class HookRouter:
         # prompt. Placing one can wait on a scan of Claude's session files, so each holds this, FIFO,
         # from placing to applying. Uncontended, taking it does not yield.
         self._in_order = asyncio.Lock()
+        # Per source -- one agent's tab or conversation (`_source`) -- the last post to arrive, done once
+        # it is placed or dropped. A post waits for the one before it from its source: one waiting for a
+        # tick would otherwise let a newer post land first once the tick names the tab, and then land
+        # over it -- a launch's agent_start over a quick Escape's settle.
+        self._sources: dict[tuple[str, str], asyncio.Future[None]] = {}
 
     async def stop(self) -> None:
         """End shared retry ticks, including those shielded from a cancelled HTTP caller."""
@@ -80,22 +90,66 @@ class HookRouter:
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
+        if (usage_parser := USAGE_PARSERS.get(path)) is not None and (reading := usage_parser(body, int(self.clock()))):
+            vendor, usage = reading
+            if self.usage.set(vendor, usage):
+                await self.publisher.usage_changed()
+            return None
         # Hooks report the agent's state; checkout removal belongs to the app.
         parser = HOOK_PARSERS.get(path)
         ev = parser(body) if parser else None
         if ev is None:
             return None
-        async with self._in_order:
-            changed = await self._place_and_apply(ev, body)
-        # An unplaced post waits for a tick without holding up the posts behind it, then tries once more.
-        if changed is None and await self._tick_for_unplaced():
-            async with self._in_order:
-                changed = await self._place_and_apply(ev, body)
+        loop = asyncio.get_running_loop()
+        source, done = self._source(ev), loop.create_future()
+        previous = self._sources.get(source) if source else None
+        if source:
+            self._sources[source] = done
+        try:
+            if previous is not None:
+                await asyncio.shield(previous)
+            changed = await self._place_in_order(ev, body)
+        finally:
+            done.set_result(None)
+            if source and self._sources.get(source) is done:
+                del self._sources[source]
         if changed is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
             return None
         await self.publisher.session_changed(changed)
         return None
+
+    async def _place_in_order(self, ev: HookEvent, body: dict[str, Any]) -> list[str] | None:
+        """Places and applies `ev`. An unplaced post waits for a tick without holding up other sources'
+        posts, then tries once more; one from a tab still read as a shell keeps trying for
+        `place_seconds`, while iTerm2 names its job."""
+        async with self._in_order:
+            changed = await self._place_and_apply(ev, body)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (self._place_seconds if self._from_unnamed_tab(ev) else 0.0)
+        while changed is None and await self._tick_for_unplaced():
+            async with self._in_order:
+                changed = await self._place_and_apply(ev, body)
+            if loop.time() >= deadline:
+                break
+        return changed
+
+    @staticmethod
+    def _source(ev: HookEvent) -> tuple[str, str] | None:
+        """Where a post comes from, as far as its order matters: the tab it names, else its agent's
+        conversation. None when it names neither, and its order is the arrival order alone."""
+        if ev.iterm_session_id:
+            return ev.agent, "tab:" + ev.iterm_session_id.rpartition(":")[2]
+        return (ev.agent, "conversation:" + ev.session_id) if ev.session_id else None
+
+    def _from_unnamed_tab(self, ev: HookEvent) -> bool:
+        """Whether the post carries the id of a tab the registry still reads as a plain shell: the agent
+        runs there and only the tab's classification is behind. A tab that runs another agent is not
+        waited on: an agent nested in it (a review a Claude runs) never becomes the tab's."""
+        if ev.iterm_session_id is None:
+            return False
+        tab = self.status.reg.get(ev.iterm_session_id.rpartition(":")[2])
+        return tab is not None and tab.agent == "shell"
 
     async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any], *, statusline: bool = False) -> list[str] | None:
         """The sessions `ev` changed, once placed on its tab; None when it places on none."""

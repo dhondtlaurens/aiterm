@@ -54,6 +54,9 @@ class Harness:
 
 
 CLAUDE_TRUST_PROMPT = ("Yes, I trust this folder", "Do you trust the files in this folder?")
+# PI 1.6's project-trust select (core/project-trust.js, formatProjectTrustPrompt): its title, and the
+# line under the folder that says what trusting allows.
+PI_TRUST_PROMPT = ("Trust project folder?", "This allows pi to load .pi settings and resources")
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
@@ -76,8 +79,9 @@ HARNESSES: tuple[Harness, ...] = (
             startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
             update_prompt=("Update now", "Skip until next version"),
             input_box=("›",)),
-    # An in-process extension.
-    Harness("pi", "/hook/pi"),
+    # An in-process extension. Its folder-trust dialog comes before the extension's first post, so
+    # the screen is the only sign of it, as for Claude.
+    Harness("pi", "/hook/pi", trust_prompt=PI_TRUST_PROMPT),
 )
 
 HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}

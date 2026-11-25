@@ -1,7 +1,7 @@
 """The extension installed into PI, run under Node against a fake PI (`pi_extension_driver.mjs`).
 
-pi-subagents runs background agents that outlive the turn which started them, and loads every
-extension into each child session — in PI's own process, with the tab's `ITERM_SESSION_ID`.
+A session another extension runs inside PI's process loads every extension too, with the tab's
+`ITERM_SESSION_ID` but no UI: only the session the user drives reports.
 """
 import json
 import re
@@ -46,18 +46,19 @@ def test_a_child_session_reports_nothing(phases):
     assert _events(phases["startup"]) == [("session_start", "root", None), ("agent_start", "root", None)]
 
 
-def test_background_subagents_are_relayed_once_against_the_root_session(phases):
-    assert _events(phases["background"]) == [
-        ("subagent_start", "root", "a1"), ("subagent_start", "root", "a2"),
-        ("agent_settled", "root", None),
-        ("subagent_stop", "root", "a1"), ("subagent_stop", "root", "a2"),
-    ]
+def test_a_subagent_packages_bus_announcements_are_not_relayed(phases):
+    assert phases["bus"] == []
 
 
-def test_a_relayed_subagent_carries_the_sessions_metadata(phases):
-    first = phases["background"][0]
+def test_a_post_carries_the_sessions_metadata(phases):
+    first = phases["startup"][0]
     assert (first["cwd"], first["model"], first["reasoning"], first["context_percent"]) == (
         "/wt", "openai/model-x", "high", 12)
+
+
+def test_the_codex_providers_rate_limits_are_relayed_for_codex_and_nothing_else_of_the_stream(phases):
+    assert [(p["hook_event_name"], p["vendor"], p["rate_limits"]["primary"]["used_percent"]) for p in phases["stream"]] == [
+        ("rate_limits", "codex", 12)]
 
 
 def test_turn_end_refreshes_the_roots_context_without_reporting_children(phases):
@@ -65,17 +66,14 @@ def test_turn_end_refreshes_the_roots_context_without_reporting_children(phases)
     assert phases["turn_end"][0]["context_percent"] == 37
 
 
+def test_posts_leave_in_the_order_pi_raised_them_however_slow_one_is(phases):
+    # Sent at once, the settle would reach the daemon first and leave the row spinning.
+    assert _events(phases["in_order"]) == [("turn_start", "root", None), ("agent_settled", "root", None)]
+
+
 def test_session_start_forwards_why_the_session_started(phases):
     assert phases["startup"][0]["reason"] == "startup"
     assert all("reason" not in post for post in phases["startup"][1:])
-
-
-def test_a_subagent_ending_after_its_session_shut_down_is_still_reported(phases):
-    assert _events(phases["after_shutdown"]) == [("subagent_stop", "root", "a5")]
-
-
-def test_nothing_is_reported_once_the_sessions_ctx_has_gone_stale(phases):
-    assert phases["shutdown"] == []
 
 
 def test_a_stale_context_is_dropped_rather_than_thrown(phases):
@@ -83,7 +81,7 @@ def test_a_stale_context_is_dropped_rather_than_thrown(phases):
 
 
 def test_every_report_goes_to_the_port_the_driver_wrote(phases):
-    urls = {post["_url"] for phase in ("startup", "background", "after_shutdown") for post in phases[phase]}
+    urls = {post["_url"] for phase in ("startup", "turn_end", "stream") for post in phases[phase]}
     assert urls == {f"http://127.0.0.1:{PORT}/hook/pi"}
 
 
@@ -93,8 +91,8 @@ def test_the_bundled_extension_names_the_port_only_as_the_placeholder():
 
 
 def test_handlers_do_not_hand_pi_the_network_promise(phases):
-    # Against a daemon that never answers, each of the eight handlers returned at once.
-    assert phases["returned"] == ["nothing"] * 8
+    # Against a daemon that never answers, each of the ten handlers returned at once.
+    assert phases["returned"] == ["nothing"] * 10
 
 
 def test_the_driver_test_still_gets_the_promise_it_waits_on(phases):
