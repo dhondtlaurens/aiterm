@@ -9,8 +9,26 @@ public enum ClaudeSettings {
     static let events = ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "StopFailure",
                          "Notification", "PermissionRequest"]
     static let marker = "_aiterm"
+    static let header = "X-AiTerm-Hook"
 
-    static func isOurHook(_ hook: [String: Any]) -> Bool { hook[marker] as? Bool == true }
+    /// Ours by the marker, or by what a rewrite leaves of it. A tool that re-saves `settings.json` through its own
+    /// schema, as Claude Code does, drops keys it does not know: `_aiterm`, and an http hook's `async`. The header and
+    /// the loopback hook URL survive, and a copy recognised by them is folded into the one current hook rather than
+    /// kept as a foreign one, with a new hook added beside it on every repair.
+    static func isOurHook(_ hook: [String: Any]) -> Bool {
+        if hook[marker] as? Bool == true { return true }
+        let endpoint = "http://127.0.0.1:"
+        switch hook["type"] as? String {
+        case "http":
+            guard (hook["headers"] as? [String: Any])?[header] as? String == "1", let url = hook["url"] as? String else { return false }
+            return url.hasPrefix(endpoint) && url.hasSuffix(Harness.claude.hookEndpoint)
+        case "command":
+            guard let command = hook["command"] as? String else { return false }
+            return command.hasPrefix("curl ") && command.contains("-H '\(header): 1'")
+                && command.contains(" " + endpoint) && command.hasSuffix(Harness.claude.hookEndpoint)
+        default: return false
+        }
+    }
     static func holdsOurHook(_ entry: [String: Any]) -> Bool {
         (entry["hooks"] as? [[String: Any]])?.contains(where: isOurHook) == true
     }
@@ -23,10 +41,10 @@ public enum ClaudeSettings {
 
     private static func hook(_ event: String, hookURL: String) -> [String: Any] {
         guard commandEvents.contains(event) else {
-            return ["type": "http", "url": hookURL, "headers": ["X-AiTerm-Hook": "1"],
+            return ["type": "http", "url": hookURL, "headers": [header: "1"],
                     "timeout": 3, "async": true, marker: true]
         }
-        let command = "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H 'Expect:' --data-binary @- "
+        let command = "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H '\(header): 1' -H 'Expect:' --data-binary @- "
             + hookURL
         return ["type": "command", "command": command, "timeout": 3, "async": true, marker: true]
     }
@@ -109,6 +127,17 @@ public enum ClaudeSettings {
             }
             if !inserted { entries.append(entry(event, hookURL: hookURL)) }
             hooks[event] = entries
+        }
+        // An event AiTerm no longer manages, `PostModelSwitch` from an older build, keeps only its foreign hooks.
+        for (event, value) in hooks where !events.contains(event) {
+            guard let existing = value as? [[String: Any]], existing.contains(where: holdsOurHook) else { continue }
+            let kept: [[String: Any]] = existing.compactMap { entry in
+                guard let installed = entry["hooks"] as? [[String: Any]], installed.contains(where: isOurHook) else { return entry }
+                let foreign = installed.filter { !isOurHook($0) }
+                guard !foreign.isEmpty else { return nil }
+                var entry = entry; entry["hooks"] = foreign; return entry
+            }
+            hooks[event] = kept.isEmpty ? nil : kept
         }
         obj["hooks"] = hooks
         var original: [String: Any]? = nil
