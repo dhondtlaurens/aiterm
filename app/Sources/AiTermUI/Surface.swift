@@ -29,6 +29,9 @@ public enum Surface: Equatable, Sendable {
     case accent
     /// A sheet or any other surface away from the sidebar. The default.
     case sheet
+    /// A popover's ground (`menuChrome`): the background-work card. Inked as `sheet`; only the ground beneath, and so
+    /// `occludingBackground`, differs.
+    case menu
 
     public var isOnAccent: Bool { self == .accent }
     /// A selected row, on the sidebar or on a sheet.
@@ -53,6 +56,7 @@ public enum Surface: Equatable, Sendable {
         case .selectedOnSheet: Palette.selectedOnSheetSolid
         case .accent: Palette.accent
         case .sheet: Palette.surface
+        case .menu: Palette.menu
         }
     }
 }
