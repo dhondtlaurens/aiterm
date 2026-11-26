@@ -23,8 +23,8 @@ AiTerm supports each agent at one of two levels:
 | Operator workers: the Operator gives it tasks, guards its branch and reads its replies | | ✓ |
 
 Claude Code, Codex and Antigravity CLI have full support; PI has basic support. Other providers,
-such as Grok, run through PI. Account usage and background work show for the agents that report
-them: Claude Code and Codex.
+such as Grok, run through PI. Account usage shows for the agents that report it: Claude Code and
+Codex. Background work shows for Claude Code, Codex and Antigravity CLI.
 
 Settings tests each agent when it opens. On the agent's card:
 

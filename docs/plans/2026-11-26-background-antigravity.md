@@ -27,6 +27,8 @@ ended turn has work, and `WorkerTabs` reads `holdsTurn`.
 
 1. **Subagent posts are a child's, never the tab's.** In `agents/agy.py` an agy post becomes a child event of
    its tab in two cases:
+   - It carries an empty `lastUserInput`, even in a tab whose conversation a restarted daemon does not know
+     yet: every post of the tab's own conversation carries its prompt.
    - It is a SessionStart naming a conversation other than the tab's own, with an empty `lastUserInput`. The
      tab's own conversation always starts with the prompt that started it, `/clear` included, since agy's
      hooks only speak with the next prompt. A subagent starts from a system message.
@@ -49,22 +51,26 @@ ended turn has work, and `WorkerTabs` reads `holdsTurn`.
    - each task started (`GENERIC` `RUNNING` "running as a background task with task id: X" + "Task
      Description") and not finished (no `SYSTEM_MESSAGE` from `sender=X`), as a `shell` job with `task_id`
      X and its command;
-   - each subagent created ("Created the following subagent" + the `invoke_subagent` prompt) and not yet
-     heard from (no `SYSTEM_MESSAGE` from `sender=<child>`), as a `subagent` job with `agent_id` = its
-     conversation.
+   - each subagent created ("Created the following subagent" + the `invoke_subagent` prompt and role), as a
+     `subagent` job with `agent_id` = its conversation. Whether it still runs is its own hooks' to say: the
+     status engine keeps a Stop's subagent only while it counts that child, so no message is matched.
 
    These flow through the existing path unchanged: `stop_work`, `work_items` (holdsTurn), and a counted
    subagent's removal when it ends (`status._show_children`). If the read fails, it lists nothing.
    `fullyIdle: true` lists nothing either.
 3. **The status line closes what no hook closes.** `parse_agy_statusline` reads `task_count` (absent = 0). An
-   agy status line from the tab's own conversation with no `task_count` drops the `shell` items from that
-   tab's `stop_work` and clears its `shown_shells`. That covers a killed task, and a task whose end did not start a turn. Subagents are
+   agy status line from the tab's own conversation with no `task_count` ends every command the daemon first
+   read in the transcript more than five seconds before it: had it still run, the count would include it.
+   Those leave `stop_work` and `shown_shells`, and the transcript cannot bring them back. agy writes a
+   command's record as it goes to the background, and the count lags that by about two seconds (seen in the
+   probe), so a command seen since stays. That covers a killed task, and a task whose end did not start a turn. Subagents are
    ended by their own Stop (1). The next turn's `working` clears everything as it does today.
 4. **Live, and closed when done.** The same transcript reading runs on every tick, like
    `claude.background_plan`, for each agy tab with a transcript, working or ended. It sets `shown_shells` to
    the tasks started and not yet ended. The card then lists a background command while the turn still
    works, as Claude's does, and drops it once its end is in the transcript, even if no working tick came
-   between. Counted children already show through `shown_subagents`.
+   between. A command whose end the reading shows also leaves the Stop's work, in case the turn its end
+   starts is never reported. Counted children already show through `shown_subagents`.
 5. **The compat capture keeps the contract.** `capture_agy` dismisses agy's announcement banner (`esc to
    dismiss`) on start and adds three turns: a backgrounded `sleep`, one subagent (waiting for the parent's
    final idle), and `/clear` followed by a prompt. That last one checks the assumption in (1) that the tab's
@@ -84,7 +90,8 @@ ended turn has work, and `WorkerTabs` reads `holdsTurn`.
   task count.
 - modify `daemon/aitermd/service.py`: the agy tick read beside "reading Claude background shells".
 - modify `daemon/aitermd/models.py`: docstrings that say "a Claude turn" (`BackgroundJob`, `stop_work`).
-- modify `daemon/tools/compat_capture.py`: the banner and the two turns; recapture
+- modify `daemon/tools/compat_capture.py`: the banner and the three turns, and a CLI start budget of its own
+  once the tab runs it (on a loaded machine the shell alone used up the 45 s); recapture
   `daemon/tests/fixtures/compat/agy/` (posts, transcripts, capture note).
 - modify `daemon/tests/test_agy.py`, `daemon/tests/test_compat_captures.py`, and a router or status test for
   the child routing.
@@ -96,7 +103,8 @@ ended turn has work, and `WorkerTabs` reads `holdsTurn`.
 
 - **Tests first**, from the probe's scrubbed posts and transcripts:
   - a `fullyIdle: false` Stop lists the running command and the subagent, and a `true` one lists nothing;
-  - a finished task's or subagent's message drops it;
+  - a finished command's message drops it, and a subagent ends with its own final Stop (`fullyIdle: true`),
+    not with its answer;
   - a child's SessionStart, PreInvocation and Stop never change the tab's conversation or state, and do
     count and end the child;
   - the parent's late `fullyIdle: false` Stop followed by the child's final Stop leaves the tab done with no

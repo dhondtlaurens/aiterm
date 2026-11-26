@@ -61,8 +61,23 @@ its status line:
 |---|---|---|
 | `SessionStart` hook | metadata | Fires with the first prompt, not at launch: until then a tab says nothing, and its folder-trust dialog is read from the screen, as PI's is. |
 | `PreInvocation` hook | working | Before each model call of a turn. |
-| `Stop` hook | done | However the turn ended: finished, cancelled or failed. |
+| `Stop` hook | done | However the turn ended: finished, cancelled or failed. `fullyIdle: false` says a background command or subagent still runs: the transcript then says which (below). |
+| subagent's hooks | subagentStart / subagentStop | A subagent runs as a conversation of its own whose hooks fire from its parent's tab. A post with an empty `lastUserInput` is a subagent's, even in a tab whose conversation a restarted daemon does not know yet: every post of the tab's own conversation carries its prompt. Any other post naming a conversation other than the tab's is a subagent's too, except a `SessionStart` that carries a prompt: the tab's own new conversation, its first or one after `/clear`. Its `SessionStart` or a model call counts it, its `Stop` with `fullyIdle: true` ends it. It never takes the tab's conversation or moves its state. |
+| status line `task_count` | work | How many background commands run (absent when none). A reading without it ends every command the daemon read in the transcript more than five seconds before it, a killed one included: had it still run, the count would include it. The count lags a command going to the background by about two seconds, so a command seen since stays. |
 | status line `agent_state` | tick evidence | `working`, `tool_use` and `reviewing` say working, `idle` says done, and `tool_confirmation_pending` says needs input: the one sign Antigravity gives that a tool waits for approval. It moves working to needs input and back, ends a turn whose Stop was missed, and brings an idle row back to working or needs input, as a restarted daemon finds every tab idle. A working or done reading within a second of a hook is held, not believed: it may describe the moment before. A hook or a newer reading replaces it; otherwise the tick applies it once the second has passed, so a lost Stop cannot leave the row working. |
+
+Antigravity names its background work only in the conversation's transcript (the hooks'
+`transcriptPath`, read from where the last read stopped). A command that outlasts its
+`WaitMsBeforeAsync` is a `RUNNING` record, "running as a background task with task id: X", with its
+`Task Description`, and ends with a message from `sender=X` that says it finished. That message
+starts a turn of its own. A subagent is an `invoke_subagent` call and the "Created the following
+subagent" record that names its conversation. A Stop with `fullyIdle: false` lists the running
+commands and the subagents as its work, as a Claude Stop's `background_tasks` does. A subagent
+holds the turn while it is counted, so the parent stays working until its last subagent ends: agy
+1.5.18 can end the parent's last turn just before the subagent's last Stop and send nothing after
+it. The tick reads the same transcript for every Antigravity tab, working or ended: it lists the
+commands still running among the shown shells, and takes one whose end it reads out of the Stop's
+work, should the turn that end starts never report.
 
 These extension events use the existing urgency and unread rules; PI does not introduce a fifth
 state. In particular, `agent_settled` stays Done until the row is seen, just like Claude Code and
@@ -181,8 +196,8 @@ older than the hook, and it is ignored until the next hook.
 Subagent tracking cannot outlive its conversation: a new `SessionStart`, or a different process id
 in the tab, forgets every child still counted. One lost `SubagentStop` would otherwise hold the row at working for good.
 
-Each session carries one ordered `work` list (`work_items`). First comes what the last Claude Stop
-listed and still stands, each item marked `holdsTurn`: a subagent always, a shell once the turn has
+Each session carries one ordered `work` list (`work_items`). First comes what the last Claude or
+Antigravity Stop listed and still stands, each item marked `holdsTurn`: a subagent always, a shell once the turn has
 ended or while the background-shell reader lists it (with the reader's text), a monitor or task
 once the turn has ended. Agent work that is no counted child (a `workflow`, a `cloud session`, a `dream`) goes out as
 `agent` so the card can show it by its vendor, and holds the turn exactly as a task does. Then come the counted subagents of the tab's current conversation and the

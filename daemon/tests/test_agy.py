@@ -271,3 +271,313 @@ async def test_a_held_reading_never_revives_a_turn_the_person_has_since_seen(agy
     agy_hooks.clock.now += 2
     assert agy_hooks.status.settle_held_ticks() == []
     assert agy_hooks.state(sid) == "idle"
+
+
+# -- background work: commands and subagents --------------------------------------------------------
+import json  # noqa: E402
+
+from aitermd.agents.agy import AgyTranscripts, background_plan, is_subagent_post  # noqa: E402
+from aitermd.hook_events import HookEvent  # noqa: E402
+from aitermd.models import work_items  # noqa: E402
+
+PARENT, CHILD = "dbc4da62-8b3e-4062-b9fb-043c40e7a74f", "2e0afd67-5d5a-45f0-a777-e6f3547e9e25"
+TASK = f"{PARENT}/task-2"
+LOGS = f"file:///Users/me/.gemini/antigravity-cli/brain/{PARENT}/.system_generated"
+
+# The records agy 1.5.18 wrote for a backgrounded command, its end, a subagent's creation and its answer
+# (docs/research/2026-11-26-antigravity-background-work.md), trimmed.
+COMMAND_CALL = {"step_index": 1, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE",
+                "created_at": "2026-11-26T13:51:30Z",
+                "tool_calls": [{"name": "run_command", "args": {"CommandLine": "sleep 40; echo CHARLIE", "WaitMsBeforeAsync": 2000}}]}
+COMMAND_RUNNING = {"step_index": 2, "source": "MODEL", "type": "GENERIC", "status": "RUNNING", "created_at": "2026-11-26T13:51:33Z",
+                   "content": f"Created At: 2026-11-26T14:51:33+01:00\nTool is running as a background task with task id: {TASK}\n"
+                              f"Task Description: sleep 40; echo CHARLIE\nTask logs are available at: {LOGS}/tasks/task-2.log"}
+COMMAND_ENDED = {"step_index": 4, "source": "SYSTEM", "type": "SYSTEM_MESSAGE", "status": "DONE", "created_at": "2026-11-26T13:52:14Z",
+                 "content": "The following is a <SYSTEM_MESSAGE> not actually sent by the user.\n\n<SYSTEM_MESSAGE>\n"
+                            f"[Message] timestamp=2026-11-26T13:52:14Z sender={TASK} priority=MESSAGE_PRIORITY_HIGH "
+                            f"content=Task id \"{TASK}\" finished with result:\nCommand exited with code 0.\n\nCommand output:\n"
+                            f"CHARLIE\r\n\nLog: {LOGS}/tasks/task-2.log\n</SYSTEM_MESSAGE>"}
+SUBAGENT_CALL = {"step_index": 7, "source": "MODEL", "type": "PLANNER_RESPONSE", "status": "DONE", "created_at": "2026-11-26T13:52:21Z",
+                 "tool_calls": [{"name": "invoke_subagent", "args": {
+                     "Prompt": "Run `sleep 30` using run_command, wait for it to finish, and then reply with the single word DELTA.",
+                     "Role": "Sleep Worker", "TypeName": "self"}}]}
+SUBAGENT_CREATED = {"step_index": 8, "source": "MODEL", "type": "GENERIC", "status": "DONE", "created_at": "2026-11-26T13:52:25Z",
+                    "content": "Created At: 2026-11-26T14:52:25+01:00\nCompleted At: 2026-11-26T14:52:27+01:00\n"
+                               "Created the following subagent:\n" + json.dumps({
+                                   "conversationId": CHILD,
+                                   "logAbsoluteUri": f"file:///Users/me/.gemini/antigravity-cli/brain/{CHILD}/.system_generated/logs/transcript.jsonl",
+                                   "workspaceUris": ["file:///repo/wt"]}, indent=2)
+                               + "\nThe subagent will send you a message when it has completed its task or requires guidance."}
+SUBAGENT_ANSWERED = {"step_index": 4, "source": "SYSTEM", "type": "SYSTEM_MESSAGE", "status": "DONE", "created_at": "2026-11-26T13:55:05Z",
+                     "content": "<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-26T13:55:05Z "
+                                f"sender={CHILD} priority=MESSAGE_PRIORITY_HIGH content=DELTA\n</SYSTEM_MESSAGE>"}
+
+
+def _write(path, *records, mode="a"):
+    with open(path, mode, encoding="utf-8") as f:
+        f.writelines(json.dumps(record) + "\n" for record in records)
+
+
+def test_a_stop_says_whether_work_still_runs_and_each_post_carries_its_prompt():
+    running = parse_agy_hook({**BASE, "hookEventName": "Stop", "fullyIdle": False})
+    finished = parse_agy_hook({**BASE, "hookEventName": "Stop", "fullyIdle": True})
+    assert (running.fully_idle, finished.fully_idle) == (False, True)
+    assert parse_agy_hook({**BASE, "hookEventName": "PreInvocation"}).fully_idle is None
+    assert parse_agy_hook({**BASE, "hookEventName": "SessionStart", "lastUserInput": ""}).user_input == ""
+
+
+@pytest.mark.parametrize("event,tab,child", [
+    # A subagent's conversation speaks from its parent's tab, its start carrying no prompt.
+    (("sessionStart", CHILD, ""), PARENT, True),
+    (("working", CHILD, ""), PARENT, True),
+    (("done", CHILD, ""), PARENT, True),
+    # The tab's own conversation, and a new one of its own (its first, or after /clear) that starts with a prompt.
+    (("working", PARENT, "Invoke one subagent"), PARENT, False),
+    (("sessionStart", CHILD, "Fix the build"), PARENT, False),
+    (("sessionStart", PARENT, "Fix the build"), None, False),
+    (("working", PARENT, "Fix the build"), None, False),
+    # A daemon restarted while a subagent works knows no conversation for the tab yet: the child's posts carry no
+    # prompt, the parent's always do.
+    (("working", CHILD, ""), None, True),
+])
+def test_a_post_of_another_conversation_is_a_subagents_unless_it_starts_one_with_a_prompt(event, tab, child):
+    kind, conversation, said = event
+    assert is_subagent_post(HookEvent("agy", kind, conversation, "/repo/wt", user_input=said), tab) is child
+    assert not is_subagent_post(HookEvent("claude", kind, conversation, "/repo/wt"), tab)
+
+
+def test_the_status_line_counts_the_background_commands():
+    # agy leaves the count out when it is zero.
+    assert parse_agy_statusline(TICK, 1000).task_count == 0
+    assert parse_agy_statusline({**TICK, "task_count": 2}, 1000).task_count == 2
+
+
+def test_the_transcript_says_which_commands_run_and_which_subagents_were_created(tmp_path):
+    path = tmp_path / "transcript_full.jsonl"
+    _write(path, COMMAND_CALL, COMMAND_RUNNING)
+    clock = _Clock()
+    reader = AgyTranscripts(clock)
+    reading = reader.read(str(path))
+    # Each by when it was first read: agy writes the record as the command goes to the background.
+    assert [(t.task_id, t.command, t.seen_at) for t in reading.tasks] == [(TASK, "sleep 40; echo CHARLIE", 1000.0)]
+    clock.now += 30
+    assert reader.read(str(path)).tasks[0].seen_at == 1000.0
+    # Read on from where it stopped: the command's end, then a subagent.
+    _write(path, COMMAND_ENDED, SUBAGENT_CALL, SUBAGENT_CREATED)
+    reading = reader.read(str(path))
+    assert reading.tasks == ()
+    assert [(s.conversation, s.role) for s in reading.subagents] == [(CHILD, "Sleep Worker")]
+    assert reading.subagents[0].prompt.startswith("Run `sleep 30` using run_command")
+    # A line still being written waits for its end.
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(COMMAND_RUNNING)[:40])
+    assert reader.read(str(path)).tasks == ()
+    # A file written anew is read from its start.
+    _write(path, COMMAND_RUNNING, mode="w")
+    assert [t.task_id for t in reader.read(str(path)).tasks] == [TASK]
+    assert reader.read(str(tmp_path / "missing.jsonl")) is None
+
+
+def _post(sid, name, conversation=PARENT, transcript=None, said="Run it in the background", **fields):
+    return {**BASE, "hookEventName": name, ITERM_SESSION_FIELD: sid, "conversationId": conversation,
+            "lastUserInput": said, "transcriptPath": str(transcript or "/nowhere.jsonl"), **fields}
+
+
+def _work(hooks, sid):
+    return [(item.kind, item.text, item.holds_turn) for item in work_items(hooks.registry.get(sid))]
+
+
+async def test_a_command_left_running_in_the_background_holds_the_turn_until_its_end_wakes_the_tab(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy --model gemini-4-neon-high", 140))
+    await agy_hooks.post("/hook/agy", _post(sid, "SessionStart", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    _write(transcript, COMMAND_CALL, COMMAND_RUNNING)
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert agy_hooks.state(sid) == "done"
+    assert _work(agy_hooks, sid) == [("shell", "sleep 40; echo CHARLIE", True)]
+    # Its end is a message to the conversation, which starts a turn of its own.
+    _write(transcript, COMMAND_ENDED)
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("working", [])
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=True))
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+
+
+async def test_a_stop_with_nothing_left_running_reads_no_work(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    _write(transcript, COMMAND_CALL, COMMAND_RUNNING)
+    [sid] = agy_hooks.tabs(("s1", "agy", 141))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=True))
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+
+
+async def test_a_subagent_is_a_child_of_its_parents_tab_and_never_takes_the_tab_over(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    child_transcript = tmp_path / "child.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 142))
+    await agy_hooks.post("/hook/agy", _post(sid, "SessionStart", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    _write(transcript, SUBAGENT_CALL, SUBAGENT_CREATED)
+
+    def child(name, **fields):
+        return _post(sid, name, conversation=CHILD, transcript=child_transcript, said="", **fields)
+
+    await agy_hooks.post("/hook/agy", child("SessionStart"))
+    await agy_hooks.post("/hook/agy", child("PreInvocation"))
+    tab = agy_hooks.registry.get(sid)
+    assert (tab.conversation_id, tab.transcript) == (PARENT, str(transcript))
+    assert agy_hooks.state(sid) == "working"
+    # The parent's turn ends while its child works: it waits on the child, as Claude's does.
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert agy_hooks.state(sid) == "working"
+    assert [(i.kind, i.display_label) for i in work_items(agy_hooks.registry.get(sid))] == [("subagent", "Sleep Worker")]
+    # The child's own command keeps it alive; its turns never move the tab's.
+    await agy_hooks.post("/hook/agy", child("Stop", fullyIdle=False))
+    await agy_hooks.post("/hook/agy", child("PreInvocation"))
+    assert agy_hooks.state(sid) == "working"
+    # Its answer wakes the parent, whose Stop comes before the child's last (agy 1.5.18 says fullyIdle false there).
+    _write(transcript, SUBAGENT_ANSWERED)
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert agy_hooks.state(sid) == "working"
+    await agy_hooks.post("/hook/agy", child("Stop", fullyIdle=True))
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+    assert agy_hooks.registry.get(sid).conversation_id == PARENT
+
+
+async def test_a_new_conversation_of_the_tabs_own_still_takes_the_tab(agy_hooks):
+    [sid] = agy_hooks.tabs(("s1", "agy", 143))
+    await agy_hooks.post("/hook/agy", _post(sid, "SessionStart"))
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", fullyIdle=True))
+    # /clear, then a prompt: agy's hooks speak with the prompt.
+    await agy_hooks.post("/hook/agy", _post(sid, "SessionStart", conversation=CHILD, said="Start over"))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", conversation=CHILD, said="Start over"))
+    assert (agy_hooks.registry.get(sid).conversation_id, agy_hooks.state(sid)) == (CHILD, "working")
+
+
+def _read(hooks, sid):
+    """The tick's Antigravity read of the tab, applied."""
+    plan = background_plan(hooks.status, hooks.router.agy_transcripts, [hooks.registry.get(sid)])
+    return plan.apply(plan.read())
+
+
+async def test_a_status_line_that_stops_counting_ends_the_commands_it_counted(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 144))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    # It counts a command seconds after the command went to the background: none counted yet ends nothing.
+    _write(transcript, COMMAND_CALL, COMMAND_RUNNING)
+    _read(agy_hooks, sid)
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working", conversation_id=PARENT))
+    agy_hooks.clock.now += 6
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working", conversation_id=PARENT, task_count=1))
+    agy_hooks.clock.now += 5
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert _work(agy_hooks, sid) == [("shell", "sleep 40; echo CHARLIE", True)]
+    # Killed, say: no message ends it in the transcript, but the count does.
+    agy_hooks.clock.now += 5
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="idle", conversation_id=PARENT))
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+    # And the transcript, read again, does not bring it back.
+    _read(agy_hooks, sid)
+    assert _work(agy_hooks, sid) == []
+
+
+async def test_a_command_that_went_to_the_background_after_the_last_count_outlives_a_zero_count(agy_hooks, tmp_path):
+    """Command B starts while A runs, and goes to the background only after A's last count and A's end: the reading
+    that counts none ends A, never B."""
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 146))
+    await agy_hooks.post("/hook/agy", _post(sid, "SessionStart", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    first = {**COMMAND_RUNNING, "content": COMMAND_RUNNING["content"].replace(TASK, f"{PARENT}/task-1")}
+    _write(transcript, first)
+    _read(agy_hooks, sid)
+    agy_hooks.clock.now += 10
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working", conversation_id=PARENT, task_count=1))
+    agy_hooks.clock.now += 1
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working", conversation_id=PARENT))
+    agy_hooks.clock.now += 3
+    _write(transcript, COMMAND_RUNNING)
+    _read(agy_hooks, sid)
+    agy_hooks.clock.now += 1
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert _work(agy_hooks, sid) == [("shell", "sleep 40; echo CHARLIE", True)]
+    assert [job.task_id for job in agy_hooks.registry.get(sid).stop_work] == [TASK]
+
+
+async def test_a_daemon_restarted_while_a_subagent_works_binds_the_tab_to_the_parent(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 147))
+    assert agy_hooks.registry.get(sid).conversation_id is None
+    child = {"conversation": CHILD, "transcript": tmp_path / "child.jsonl", "said": ""}
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", **child))
+    assert agy_hooks.registry.get(sid).conversation_id is None
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    assert agy_hooks.registry.get(sid).conversation_id == PARENT
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert agy_hooks.state(sid) == "working"
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", fullyIdle=True, **child))
+    assert (agy_hooks.state(sid), agy_hooks.registry.get(sid).conversation_id) == ("done", PARENT)
+
+
+async def test_a_command_shows_while_the_turn_works_and_leaves_once_it_ended(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 145))
+    await agy_hooks.post("/hook/agy", _post(sid, "SessionStart", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    _write(transcript, COMMAND_CALL, COMMAND_RUNNING)
+
+    def tick():
+        return _read(agy_hooks, sid)
+
+    assert tick() == [sid]
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("working", [("shell", "sleep 40; echo CHARLIE", False)])
+    # The turn stops, the command ends, its message wakes the tab and the tab stops again, all between two ticks.
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    _write(transcript, COMMAND_ENDED)
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=True))
+    tick()
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+
+
+async def test_a_command_counted_soon_after_it_was_seen_still_ends_with_a_later_zero_count(agy_hooks, tmp_path):
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 148))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    _write(transcript, COMMAND_RUNNING)
+    _read(agy_hooks, sid)
+    agy_hooks.clock.now += 3
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working", conversation_id=PARENT, task_count=1))
+    agy_hooks.clock.now += 1
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert _work(agy_hooks, sid) == [("shell", "sleep 40; echo CHARLIE", True)]
+    agy_hooks.clock.now += 60
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="idle", conversation_id=PARENT))
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+
+
+async def test_a_listed_command_whose_end_is_in_the_transcript_leaves_the_stops_work_on_the_tick(agy_hooks, tmp_path):
+    # Its end normally starts a turn; should that turn's hook be lost, the tick still ends it.
+    transcript = tmp_path / "transcript_full.jsonl"
+    [sid] = agy_hooks.tabs(("s1", "agy", 149))
+    await agy_hooks.post("/hook/agy", _post(sid, "PreInvocation", transcript=transcript))
+    _write(transcript, COMMAND_RUNNING)
+    await agy_hooks.post("/hook/agy", _post(sid, "Stop", transcript=transcript, fullyIdle=False))
+    assert _work(agy_hooks, sid) == [("shell", "sleep 40; echo CHARLIE", True)]
+    _write(transcript, COMMAND_ENDED)
+    _read(agy_hooks, sid)
+    assert (agy_hooks.state(sid), _work(agy_hooks, sid)) == ("done", [])
+
+
+def test_a_subagent_launch_that_failed_never_names_the_next_one(tmp_path):
+    path = tmp_path / "transcript_full.jsonl"
+    failed = {**SUBAGENT_CALL, "step_index": 5, "tool_calls": [{"name": "invoke_subagent", "args": {
+        "Prompt": "Review the API changes.", "Role": "Reviewer", "TypeName": "self"}}]}
+    _write(path, failed, {"step_index": 6, "source": "MODEL", "type": "GENERIC", "status": "ERROR",
+                          "content": "invoke_subagent failed"}, SUBAGENT_CALL, SUBAGENT_CREATED)
+    [child] = AgyTranscripts().read(str(path)).subagents
+    assert (child.conversation, child.role) == (CHILD, "Sleep Worker")

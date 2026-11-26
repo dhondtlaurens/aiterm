@@ -360,6 +360,8 @@ class Service:
             ("reading the Codex rollouts", lambda: self.observe_codex(threads)),
             ("releasing dead subagents", lambda: self.observe(claude.subagent_plan(self.status, self.subagent_transcripts))),
             ("reading Claude background shells", lambda: self.observe_background(sessions)),
+            ("reading Antigravity background work",
+             lambda: self.observe(agy.background_plan(self.status, self.hook_router.agy_transcripts, sessions))),
             ("reading stopped workers' recovery and usage resets",
              lambda: self.observe(claude.stop_plan(self.registry, self.status, self.stop_transcripts, self.clock))),
             ("reading worktree test activity", lambda: self.observe(self.readers.tests(self.test_activity, sessions))),

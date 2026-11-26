@@ -17,7 +17,7 @@ from aitermd.agents.claude import (
     FILE_STATUS, BackgroundTranscripts, ClaudeSessionFiles, SubagentTranscripts, parse_claude_hook, parse_claude_statusline,
 )
 from aitermd.agents.codex import CodexSessionFiles, has_spinner, parse_codex_hook, parse_codex_rate_limits
-from aitermd.agents.agy import parse_agy_hook, parse_agy_statusline
+from aitermd.agents.agy import AgyTranscripts, is_subagent_post, parse_agy_hook, parse_agy_statusline
 from aitermd.agents.pi import parse_pi_hook
 
 CAPTURES = Path(__file__).parent / "fixtures" / "compat"
@@ -239,12 +239,66 @@ def test_agy_hooks_post_every_event_the_capture_raised():
     assert not missing, f"Antigravity no longer runs AiTerm's hook for {sorted(missing)}"
 
 
+def agy_conversations() -> tuple[list[str], set[str]]:
+    """The tab's own conversations, in the order they took it, and its subagents', as the daemon tells them apart
+    (agents.agy.is_subagent_post): each post either is a subagent's or names the tab's conversation, a new one
+    taking the tab only with a SessionStart."""
+    own: list[str] = []
+    children: set[str] = set()
+    for body in hooks("agy"):
+        event = parse_agy_hook(body)
+        assert event is not None and event.session_id, body
+        if is_subagent_post(event, own[-1] if own else None):
+            children.add(event.session_id)
+        elif not own or event.session_id != own[-1]:
+            assert event.kind == "sessionStart", f"a conversation took the tab without its SessionStart: {body}"
+            own.append(event.session_id)
+    return own, children
+
+
 def test_agy_hook_posts_read_as_turns_on_its_conversation():
     events = [parse_agy_hook(body) for body in hooks("agy")]
     assert all(event is not None and event.session_id and event.cwd and event.transcript for event in events), hooks("agy")
     kinds = [event.kind for event in events if event is not None and event.kind]
     assert kinds[0] == "sessionStart" and "working" in kinds and kinds[-1] == "done", kinds
-    assert len({event.session_id for event in events if event is not None}) == 1
+
+
+def test_agy_tells_a_subagents_posts_from_a_conversation_of_the_tabs_own():
+    """A subagent's hooks fire from its parent's tab with its own conversation and no prompt; the tab's own new
+    conversation, after /clear, starts with the prompt that started it."""
+    own, children = agy_conversations()
+    assert len(own) == 2, f"expected the first conversation and the one after /clear, got {own}"
+    assert children and not children & set(own), (own, children)
+
+
+def test_agy_stop_says_whether_work_is_left_running():
+    own, children = agy_conversations()
+    stops = [parse_agy_hook(body) for body in hooks("agy") if body.get("hookEventName") == "Stop"]
+    assert stops and all(stop is not None and stop.fully_idle is not None for stop in stops), stops
+    assert any(stop.session_id == own[0] and stop.fully_idle is False for stop in stops if stop), "no Stop left work running"
+    assert any(stop.session_id in children and stop.fully_idle is True for stop in stops if stop), "no subagent ended"
+
+
+def test_agy_transcript_names_its_background_command_its_end_and_its_subagent(tmp_path):
+    """Read line by line as it was written: the backgrounded command shows, then its end takes it off; the
+    subagent it created is the conversation whose posts came from the tab."""
+    _, children = agy_conversations()
+    path, reader, seen = tmp_path / "transcript.jsonl", AgyTranscripts(), set()
+    for line in (CAPTURES / "agy" / "transcript.jsonl").read_text(encoding="utf-8").splitlines(keepends=True):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+        reading = reader.read(str(path))
+        assert reading is not None
+        seen |= {task.command for task in reading.tasks}
+    assert any("sleep 20" in command for command in seen), seen
+    assert reading.tasks == (), "the command's end no longer reads as its end"
+    assert {child.conversation for child in reading.subagents} == children
+
+
+def test_agy_status_line_counts_background_commands():
+    counts = [parse_agy_statusline(body, 0).task_count for route, body in posts("agy") if route == "/statusline/agy"]
+    assert any(counts), "Antigravity's status line no longer counts background commands"
+    assert 0 in counts
 
 
 def test_agy_status_line_reads_its_state_context_and_version():

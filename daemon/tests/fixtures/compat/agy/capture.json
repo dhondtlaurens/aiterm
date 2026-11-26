@@ -7,13 +7,16 @@
     "--model",
     "gemini-3.8-flash-low",
     "--settings",
-    "{\"statusLine\": {\"command\": \"curl -s -m 1 -o /dev/null -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H \\\"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\\\" -H 'Expect:' --data-binary @- http://127.0.0.1:55084/statusline/agy\", \"type\": \"command\"}, \"trustedWorkspaces\": [\"/SCRATCH/work\"]}"
+    "{\"statusLine\": {\"command\": \"curl -s -m 1 -o /dev/null -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H \\\"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\\\" -H 'Expect:' --data-binary @- http://127.0.0.1:63752/statusline/agy\", \"type\": \"command\"}, \"trustedWorkspaces\": [\"/SCRATCH/work\"]}"
   ],
   "model": "gemini-3.8-flash",
   "reasoning": "low",
   "turns": [
     "plain",
-    "shellCommand"
+    "shellCommand",
+    "backgroundCommand",
+    "subagent",
+    "clear"
   ],
   "version": "1.5.18"
 }
