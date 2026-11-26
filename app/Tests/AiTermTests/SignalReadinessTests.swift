@@ -95,7 +95,31 @@ import Testing
         #expect(await service.probed.sorted { $0.rawValue < $1.rawValue } == [.claude, .codex], "PI is never planned on")
     }
 
+    @Test func antigravityIsCheckedInOrderAndReadyWhenItsCardAndMessagingPass() async throws {
+        let agyReady = DeliveryReadiness.ready("Messaging ready for 1.5")
+        let allCards: [AgentKind: HarnessSnapshot] = [.claude: card(.claude), .codex: card(.codex), .agy: card(.agy)]
+        #expect(readiness(agents: [.agy], installed: [.claude, .agy], cards: allCards,
+                          messaging: [.agy: agyReady]) == .ready)
+        #expect(readiness(agents: [.agy], installed: [.claude, .agy], cards: [:],
+                          messaging: [.agy: agyReady]) == .checking)
+        #expect(readiness(agents: [.agy, .claude], installed: [.claude, .agy], cards: allCards,
+                          messaging: [.claude: .needsAttention("Messaging not checked for 2.1"),
+                                      .agy: .needsAttention("Messaging not checked for 1.5")])
+                == .notReady(["Claude Code: Messaging not checked for 2.1", "Antigravity: Messaging not checked for 1.5"]))
 
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-readiness-agy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let controller = AppController(store: StateStore(url: home.appendingPathComponent("state.json")), preferences: .scratch(), harnessHome: home)
+        controller.agents.availableAgents = [.claude, .codex, .agy, .pi]
+        let service = ReadyHarnesses(snapshots: allCards)
+        let harness = controller.agents.harnessSettingsModel(service: service)
+        let checking = Task { await controller.checkSignalReadiness() }
+        defer { checking.cancel() }
+        #expect(await eventually(describing: "every installed worker card probed") {
+            Set(harness.snapshots.keys) == [.claude, .codex, .agy]
+        })
+        #expect(await service.probed.sorted { $0.rawValue < $1.rawValue } == [.agy, .claude, .codex], "PI is never probed")
+    }
 }
 
 /// Every probe answered from `snapshots`, and which agents were probed.

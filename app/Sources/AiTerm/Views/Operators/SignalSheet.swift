@@ -12,7 +12,7 @@ struct SignalSheet: View {
             content
         } notices: {
             if let error = model.error { Notice(title: error) }
-            switch model.readiness(ModelChoice.pair.filter { agent in model.agents.contains { $0.agent == agent } }) {
+            switch model.readiness(AgentCommand.workerAgents.filter { agent in model.agents.contains { $0.agent == agent } }) {
             case .checking: Notice(title: SignalReadiness.checkingTitle)
             case .notReady(let lines): Notice(title: SignalReadiness.title, description: lines.joined(separator: "\n"))
             case .ready: EmptyView()

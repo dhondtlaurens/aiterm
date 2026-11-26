@@ -127,7 +127,8 @@ import AiTermUI
             }, complete: true, accountUser: "alex")
         }
         let context = SignalContext(models: models, defaults: [.claude: .init(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
-                                                              .codex: .init(agent: .codex, model: "gpt-6-astra", reasoning: "medium")])
+                                                              .codex: .init(agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
+                                                              .agy: .init(agent: .agy, model: "gemini-4-neon", reasoning: "medium")])
         let model = SignalModel(kind: kind, projects: [project], context: context, at: Snapshots.clock.now, preview: { _ in read }, save: { _ in })
         if source == .jira {
             model.name = "Sprint tickets"
@@ -141,7 +142,7 @@ import AiTermUI
                                         query: "reviewer:@me review-state:unreviewed draft:no")
             model.done = SignalTrigger(source: .gitLab, description: "When I’ve approved it", query: "reviewer:@me review-state:approved")
             model.prompt = "/psg:peer-review"
-            if let row = model.agentRows.first(where: { $0.choice.agent == .codex }) { model.removeAgent(row.id) }
+            for row in model.agentRows where row.choice.agent != .claude { model.removeAgent(row.id) }
         }
         model.seed(writing: QueryWriting(written: true), start: true); model.seed(writing: QueryWriting(written: true), start: false)
         if matched { try! model.received(preview: read) }
@@ -150,6 +151,7 @@ import AiTermUI
     private static let models: [AgentKind: [AgentModel]] = [
         .claude: [AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "high")],
         .codex: [AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "medium")],
+        .agy: [AgentModel(id: "gemini-4-neon", label: "Gemini 4 Neon", detail: nil, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium")],
     ]
 }
 #endif

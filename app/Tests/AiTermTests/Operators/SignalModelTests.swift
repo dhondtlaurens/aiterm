@@ -312,4 +312,40 @@ import Testing
         let edited = SignalModel(signal: signal, kind: .project, projects: [], context: pair, save: { _ in })
         #expect(!edited.isProject && edited.title == "Edit Operator signal")
     }
+
+    @Test func antigravityIsOfferedWhenInstalledWithADefaultModel() async throws {
+        let agyModel = AgentModel(id: "gemini-4-neon", label: "Gemini 4 Neon", detail: nil, efforts: ["medium", "high"], defaultEffort: "medium")
+        let catalog: [AgentKind: [AgentModel]] = [
+            .claude: [AgentModel(id: choice.model, label: "Opus", detail: nil, efforts: ["medium", "high"], defaultEffort: "high")],
+            .codex: [AgentModel(id: "gpt-6-astra", label: "gpt-6-astra", detail: nil, efforts: ["medium"], defaultEffort: "medium")],
+            .agy: [agyModel],
+            .pi: [AgentModel(id: "pi-model", label: "PI", detail: nil, efforts: [], defaultEffort: nil)],
+        ]
+        let read = SignalContext.read(installed: [.claude, .codex, .agy, .pi], models: { catalog[$0] ?? [] },
+                                      remembered: [:], preferences: ScratchDefaults.make())
+        #expect(Set(read.defaults.keys) == [.claude, .codex, .agy], "every full-support worker with a model is read, never PI")
+        var saved: [Signal] = []
+        let model = SignalModel(projects: [], context: read, save: { saved.append($0) })
+        #expect(model.offeredAgents == [.claude, .codex, .agy])
+        #expect(model.agentRows.map(\.choice.agent) == [.claude, .codex, .agy])
+        #expect(model.agentsWhyNot == nil)
+        let agyRow = try #require(model.agentRows.first { $0.choice.agent == .agy })
+        model.removeAgent(agyRow.id)
+        model.addAgent()
+        #expect(model.agentRows.map(\.choice.agent) == [.claude, .codex, .agy])
+        model.name = "Tickets"; model.start.query = "labels = ready"; model.done.query = "status = Done"; model.prompt = "Fix it."
+        #expect(model.canAdvance(step: SignalModel.agentsStep))
+        #expect(await model.create())
+        #expect(saved.first?.agents.map(\.agent) == [.claude, .codex, .agy])
+
+        // A project signal can also pick Antigravity as its single agent.
+        var savedProject: [Signal] = []
+        let projectModel = SignalModel(kind: .project, projects: [], context: read, save: { savedProject.append($0) })
+        #expect(projectModel.offeredAgents == [.claude, .codex, .agy])
+        projectModel.setAgent(.agy, of: projectModel.agentRows[0].id)
+        projectModel.name = "Project work"; projectModel.start.query = "labels = ready"; projectModel.done.query = "status = Done"; projectModel.prompt = "Fix it."
+        #expect(projectModel.canAdvance(step: SignalModel.agentsStep))
+        #expect(await projectModel.create())
+        #expect(savedProject.first?.agents == [AgentChoice(agent: .agy, model: "gemini-4-neon", reasoning: "medium")])
+    }
 }
