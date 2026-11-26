@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite struct SignalOperatorLifetimeTests {
-    @Test func aFreshChatNeverReceivesQuestionsFromCompletedWorkInItsFirstDigest() async throws {
+    @Test func aFreshChatNeverReadsQuestionsFromCompletedWorkInItsFirstStatus() async throws {
         var world = SignalWorld(); let signal = world.signal(), done = world.workingTask(signal: signal)
         _ = world.workingTask(signal: signal)
         world.state.updateSignalTask(done) { $0.phase = .done; $0.thenApplied = true }
@@ -16,9 +16,11 @@ import Testing
         let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(), ports: ports,
             daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
         var counts: [Int] = []
-        root.chat.keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { false }, ports: .init(
+        root.chat.keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
             canOpen: { true }, close: { _ in }, revoke: { _ in },
-            open: { _, digest in counts.append(digest.waitingOnYou); return "operator-window" }))
+            open: { _ in
+                counts.append(OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: false).waitingOnYou); return "operator-window"
+            }))
         root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
         #expect(counts == [0])
         root.stop()

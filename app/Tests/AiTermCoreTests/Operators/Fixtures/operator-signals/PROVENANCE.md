@@ -197,3 +197,28 @@ an older file forward (`AiTermCore/Updates/`). A deliberate format change, not a
   empty `operatorFolded` and `scheduleCursors` and the false `operatorOpen`, all now always written.
 - `Update2_0_0Tests.the150GoldenBecomesThe200Golden` proves the two agree: the 1.5.0 file, updated,
   loads as `SignalSavedFormatTests.state()` and saves this file's bytes.
+
+## One-line first message
+
+26 Nov 2026, `docs/plans/2026-11-26-operator-first-message.md`. A fresh chat's first message no longer
+holds the status as JSON: it is one line asking for `run_status`, which returns the same state, so the
+chat reads it once.
+
+- `brief.md`: the "Keep context durable" sentence on the first message, edited by hand to equal
+  `OperatorLaunch.brief`. The capped live evaluation was not rerun in this step.
+
+## Snags retired, workspace format 2.1.0
+
+26 Nov 2026, the same plan. `report_snag` and the saved `operatorSession.snags` are removed: nothing
+had shown snags to the person since broadcasts went, and they filled most of each status. Thirteen
+tools. A deliberate contract and format change, not a refactor.
+
+- `tools.json`: `report_snag` removed, a byte copy of `daemon/aitermd/signal_tools.json`.
+- `brief.md`: "thirteen AiTerm tools", and the two report_snag sentences removed, edited by hand to
+  equal `OperatorLaunch.brief`. The capped live evaluation was not rerun in this step.
+- `state.json`: re-recorded by `AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`.
+  It only loses the empty `snags` and is stamped `"version": "2.1.0"`, which `Update2_1_0` (the first
+  script at a minor version) brings a 2.0.0 file to.
+- `Update2_0_0Tests.the150GoldenBecomesTheCurrentGolden` proves the steps agree: the frozen 1.5.0
+  file, updated through 2.0.0 and 2.1.0, loads as `SignalSavedFormatTests.state()` and saves this
+  file's bytes.

@@ -9,8 +9,9 @@ AiTerm › Check for Updates. It runs only from the GitHub-origin main checkout,
 maintainer's yes. Releases are listed with `gh release list --repo dhondtlaurens/aiterm`.
 
 After a merge and push, ship offers one release and proposes the version, semver by what a user
-sees: major for a change to the saved workspace (with its update script) or anything the person must
-do to upgrade (with a note in `docs/release-notes/`), minor for new behaviour, patch for fixes and small tweaks only.
+sees: major for anything the person must do to upgrade (with a note in `docs/release-notes/`), minor
+for new behaviour, patch for fixes and small tweaks only. A change to the saved workspace does not by
+itself make a release major: its update script takes the version the release gets.
 
 ## Pipeline
 
@@ -43,7 +44,8 @@ script it ships (`AiTerm --workspace-format`), and stamps it on every save.
 
 - A change to anything the workspace saves (a field added, renamed, retyped or removed, a new enum
   value, a value no longer written) adds a script to `UpdateScripts.all`
-  (`app/Sources/AiTermCore/Updates/Scripts/`), versioned as the next major's `.0.0`. It edits the
+  (`app/Sources/AiTermCore/Updates/Scripts/`), versioned as the release that ships it, at any level
+  (major, minor or patch), and newer than the last released format. It edits the
   file as JSON from the previous format to the new one, and the decoders read only the new one: no
   defaults for keys an older file lacks, no unknown cases for values a newer one might hold.
 - At launch, a file in an older format goes through every script after its version, in order,
@@ -52,8 +54,8 @@ script it ships (`AiTerm --workspace-format`), and stamps it on every save.
   newer one has updated.
 - `release.sh` refuses a release older than the format it saves, and a release that brings a new
   script under any version other than that script's.
-- A release with a script is a major release, with a note in `docs/release-notes/` that says what
-  the update does and that the workspace cannot go back.
+- A release with a script has a note in `docs/release-notes/` that says what the update does and
+  that the workspace cannot go back, whatever level the release is.
 
 ## Checks
 

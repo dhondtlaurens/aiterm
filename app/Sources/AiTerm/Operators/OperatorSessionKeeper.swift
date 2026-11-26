@@ -20,12 +20,8 @@ struct OperatorOpenDeferred: Error {}
         var canOpen: @MainActor () -> Bool
         var close: @MainActor (String) async throws -> Void
         var revoke: @MainActor (UUID) async throws -> Void
-        var open: @MainActor (OperatorSession, OperatorDigest) async throws -> String
+        var open: @MainActor (OperatorSession) async throws -> String
         var existingWindow: @MainActor (OperatorSession) async throws -> String? = { _ in nil }
-        var sessions: @MainActor () -> [SessionInfo] = { [] }
-        var instructions: @MainActor () -> String? = { nil }
-        var usage: @MainActor () -> UsageSnapshot = { .empty }
-        var installedAgents: @MainActor () -> Set<AgentKind> = { [] }
         /// Holds a chat the Operator opens on its own until you pause (`PauseGate`).
         var pause: PauseGate = .never
         /// Whether the chat is still wanted, by the workload its owner keeps it for: a held chat whose workload
@@ -36,7 +32,6 @@ struct OperatorOpenDeferred: Error {}
     }
     private let workspace: WorkspaceStore
     private let now: () -> Date
-    private let oracleOn: () -> Bool
     private let ports: Ports
     private var pass: UUID? {
         didSet { if pass == nil { let ended = passEnded; passEnded = []; ended.forEach { $0.resume() } } }
@@ -51,8 +46,8 @@ struct OperatorOpenDeferred: Error {}
     var succeeded: @MainActor () -> Void = {}
     var finished: @MainActor () -> Void = {}
     var activity: OperatorActivityTracker?
-    init(workspace: WorkspaceStore, now: @escaping () -> Date, oracleOn: @escaping () -> Bool, ports: Ports) {
-        self.workspace = workspace; self.now = now; self.oracleOn = oracleOn; self.ports = ports
+    init(workspace: WorkspaceStore, now: @escaping () -> Date, ports: Ports) {
+        self.workspace = workspace; self.now = now; self.ports = ports
     }
     /// The retry that opens a chat held for your pause, while one waits.
     private(set) var pausedRetry: Task<Void, Never>?
@@ -225,8 +220,7 @@ struct OperatorOpenDeferred: Error {}
         return workspace.state.operatorSession
     }
     private func open(_ session: OperatorSession) async throws -> String {
-        let digest = OperatorDigest(state: workspace.state, at: now(), oracleOn: oracleOn(), sessions: ports.sessions(), instructions: ports.instructions(), usage: ports.usage(), installed: ports.installedAgents())
-        return try await tracked("starting its session") { try await ports.open(session, digest) }
+        try await tracked("starting its session") { try await ports.open(session) }
     }
     private func tracked<Result>(_ words: String, _ body: @MainActor () async throws -> Result) async rethrows -> Result {
         if let activity { return try await activity.during(words, body) }

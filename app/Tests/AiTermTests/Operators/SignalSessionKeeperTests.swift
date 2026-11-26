@@ -9,8 +9,8 @@ import Testing
         var world = SignalWorld(); let signal = world.signal(); _ = world.workingTask(signal: signal)
         world.state.operatorSession?.generation = 2
         let h = try SignalHarness(world); defer { h.cleanUp() }
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
-            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { session, _ in
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
+            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { session in
                 let saved = try h.file.load().operatorSession
                 #expect(session.generation == 2 && saved?.generation == 2)
                 #expect(saved?.lifecycle == .opening)
@@ -27,15 +27,15 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var lost = true, opened: [Int] = []
         let ports = OperatorSessionKeeper.Ports(canOpen: { true }, close: { _ in Issue.record("Nothing to close") },
-            revoke: { _ in Issue.record("Nothing to revoke") }, open: { session, _ in
+            revoke: { _ in Issue.record("Nothing to revoke") }, open: { session in
                 opened.append(session.generation)
                 if lost { throw ActionUnavailable("The opening reply was lost") }
                 return "chat-window"
             })
-        await OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: ports).ensure()
+        await OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: ports).ensure()
         lost = false; try h.workspace.load()
         #expect(h.workspace.state.operatorSession?.lifecycle == .opening)
-        await OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: ports).ensure()
+        await OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: ports).ensure()
         #expect(opened == [1, 1])
         let saved = try h.file.load().operatorSession
         #expect(saved?.window == "chat-window" && saved?.lifecycle == .open(since: world.now, wake: nil))
@@ -47,12 +47,12 @@ import Testing
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var events: [String] = []
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
             canOpen: { true }, close: { window in
                 let saved = try h.file.load().operatorSession
                 #expect(saved?.window == window && saved?.lifecycle == .closing(then: .retire))
                 events.append("close " + window)
-            }, revoke: { _ in events.append("revoke") }, open: { _, _ in
+            }, revoke: { _ in events.append("revoke") }, open: { _ in
                 Issue.record("Recovery must adopt and retire, not create a chat"); return "unexpected"
             }, existingWindow: { saved in
                 #expect(saved.id == session.id && saved.lifecycle == .opening)
@@ -71,9 +71,9 @@ import Testing
         world.state.operatorSession = session
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var closed = 0
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
             canOpen: { true }, close: { _ in closed += 1 }, revoke: { _ in },
-            open: { _, _ in Issue.record("No chat is needed after the answer"); return "unexpected" }))
+            open: { _ in Issue.record("No chat is needed after the answer"); return "unexpected" }))
         await keeper.finishIfIdle(idle: true)
         #expect(closed == 0 && SignalQuestionNotification.make(state: h.workspace.state) != nil)
         let answeredAt = world.now
@@ -92,13 +92,13 @@ import Testing
             close: { _ in events.append("close") }, revoke: { _ in
                 #expect(try h.file.load().operatorSession?.lifecycle == .revoking(then: .retire))
                 if fail { throw ActionUnavailable("Revoke failed") }; events.append("revoke")
-            }, open: { _, _ in Issue.record("A finished workload must not open a chat"); return "unexpected" })
-        let first = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: ports)
+            }, open: { _ in Issue.record("A finished workload must not open a chat"); return "unexpected" })
+        let first = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: ports)
         await first.finishIfIdle(idle: true)
         #expect(h.workspace.state.operatorSession?.lifecycle == .revoking(then: .retire))
         #expect(h.workspace.state.operatorSession?.window == nil)
         fail = false; try h.workspace.load()
-        let restarted = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: ports)
+        let restarted = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: ports)
         await restarted.finishIfIdle(idle: false)
         #expect(events == ["close", "revoke"])
         #expect(h.workspace.state.operatorSession?.generation == 2)
@@ -112,12 +112,14 @@ import Testing
         world.state.operatorSession?.questions = [asked]
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var events: [String] = []
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
             canOpen: { true }, close: { window in events.append("close " + window) },
-            revoke: { _ in events.append("revoke") }, open: { session, digest in
+            revoke: { _ in events.append("revoke") }, open: { session in
                 events.append("open")
                 #expect(session.generation == 2 && session.conversation == nil)
-                #expect(digest.waitingOnYou == 1 && digest.questions.first?.id == "q")
+                // What the fresh chat's first run_status reads.
+                let status = OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true)
+                #expect(status.waitingOnYou == 1 && status.questions.first?.id == "q")
                 let saved = try h.file.load()
                 #expect(saved.operatorSession?.generation == 2)
                 return "fresh-window"
@@ -140,9 +142,10 @@ import Testing
         gated.gate = GateRequest(command: "./deploy", directory: "/synthetic")
         world.state.operatorSession?.questions = [gated, .init(id: "q", task: task, text: "Choose the scope", openedAt: at)]
         let h = try SignalHarness(world); defer { h.cleanUp() }
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
-            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _, digest in
-                #expect(digest.waitingOnYou == 1 && digest.questions.map(\.id) == ["q"])
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
+            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _ in
+                let status = OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: true)
+                #expect(status.waitingOnYou == 1 && status.questions.map(\.id) == ["q"])
                 return "fresh-window"
             }))
         await keeper.freshIfDue(contextTokens: 150_000, idle: true)
@@ -159,14 +162,14 @@ import Testing
         var fail = true, revoked = 0, opened = 0
         let ports = OperatorSessionKeeper.Ports(canOpen: { true },
             close: { _ in if fail { throw ActionUnavailable("Couldn’t close") } }, revoke: { _ in revoked += 1 },
-            open: { _, _ in opened += 1; return "new-window" })
-        let first = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: ports)
+            open: { _ in opened += 1; return "new-window" })
+        let first = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: ports)
         await first.freshIfDue(contextTokens: 150_000, idle: true)
         #expect(revoked == 0 && opened == 0)
         fail = false
         try h.workspace.load()
         #expect(h.workspace.state.operatorSession?.window == "old-window" && h.workspace.state.operatorSession?.lifecycle == .closing(then: .renew))
-        let restarted = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: ports)
+        let restarted = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: ports)
         await restarted.ensure()
         #expect(revoked == 1 && opened == 1 && h.workspace.state.operatorSession?.generation == 2)
     }
@@ -179,9 +182,9 @@ import Testing
         world.state.operatorSession = .open(createdAt: world.now, window: nil, conversation: "chat-conversation")
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var opened: [OperatorSession] = [], reports: [String] = []
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
             canOpen: { true }, close: { _ in Issue.record("Nothing to close") }, revoke: { _ in Issue.record("Nothing to revoke") },
-            open: { session, _ in opened.append(session); return "chat-window" }))
+            open: { session in opened.append(session); return "chat-window" }))
         keeper.failed = { reports.append("failed " + $0) }
         keeper.succeeded = { reports.append("succeeded") }
 
@@ -203,8 +206,8 @@ import Testing
         world.state.operatorSession?.lifecycle = .opening
         let h = try SignalHarness(world); defer { h.cleanUp() }
         var opened = 0
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, oracleOn: { true }, ports: .init(
-            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _, _ in opened += 1; return "new-window" }))
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { world.now }, ports: .init(
+            canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _ in opened += 1; return "new-window" }))
         await keeper.ensure()
         #expect(opened == 1 && h.workspace.state.operatorSession?.window == "new-window")
     }

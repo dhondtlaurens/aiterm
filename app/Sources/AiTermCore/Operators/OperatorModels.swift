@@ -50,19 +50,6 @@ public struct GateRequest: Codable, Equatable, Sendable {
     public init(command: String, directory: String) { self.command = command; self.directory = directory }
 }
 
-public struct OperatorSnag: Codable, Equatable, Sendable {
-    public var key: String, title: String, showed: String, actual: String, workaround: String
-    public var evidence: String?
-    public var task: UUID?, taskKey: String?, branch: String?
-    public var appVersion: String, at: Date
-    public init(key: String, title: String, showed: String, actual: String, workaround: String, evidence: String? = nil,
-                task: UUID? = nil, taskKey: String? = nil, branch: String? = nil, appVersion: String, at: Date) {
-        self.key = key; self.title = title; self.showed = showed; self.actual = actual; self.workaround = workaround
-        self.evidence = evidence; self.task = task; self.taskKey = taskKey; self.branch = branch
-        self.appVersion = appVersion; self.at = at
-    }
-}
-
 public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
     /// Only finished rounds are saved: an agreed worker answer about to be delivered, a critique waiting for a
     /// revised proposal, or a binding that went to the person.

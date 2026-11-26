@@ -6,9 +6,9 @@ public enum UpdateScripts {
     /// workspaces carried one. A workspace from before 1.0 is not brought forward.
     public static let baseline = ReleaseVersion(major: 1, minor: 5, patch: 0)
 
-    public static let all: [UpdateScript] = [.update2_0_0]
+    public static let all: [UpdateScript] = [.update2_0_0, .update2_1_0]
 
     /// The format this build saves: the newest script's version. It is not the bundle's version —
-    /// minor and patch releases never change the format, and a development build says 0.1.0.
+    /// a release without a script keeps the format before it, and a development build says 0.1.0.
     public static var current: ReleaseVersion { all.last?.version ?? baseline }
 }

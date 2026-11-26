@@ -100,7 +100,7 @@ synthetic inputs and model proof. They are not regenerated to accommodate incide
 | Fixture | Always-on reader |
 | --- | --- |
 | `operator-signals/state.json` | `SignalSavedFormatTests`: save through `StateStore`, exact bytes and reload, pending stages, archive, reply intent, generation, the chat lifecycle, questions and idempotency. |
-| `operator-signals/brief.md`, `tools.json` | `SignalOperatorContractTests`: the stable role prompt and fourteen-tool schema contract. |
+| `operator-signals/brief.md`, `tools.json` | `SignalOperatorContractTests`: the stable role prompt and thirteen-tool schema contract. |
 | `daemon/tests/wire/` | Python producers and Swift `WireContractTests`: framing, generation, context size and field parity. |
 
 Swift paths are relative to `app/Tests/`; verify exact fixture paths from the owning test when

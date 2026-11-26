@@ -71,7 +71,7 @@ async def test_single_authority_serves_only_new_tools_and_forwards_its_generatio
     sessions.register(ID, 3, TOKEN)
     route = OperatorRoute(app.broadcast, lambda: 1, sessions)
     tools = json.loads((await route.serve("POST", AUTH, message("tools/list")))[1])["result"]["tools"]
-    assert len(tools) == 14 and "choose_agent" in {tool["name"] for tool in tools} and "answer_worker" in {tool["name"] for tool in tools}
+    assert len(tools) == 13 and "choose_agent" in {tool["name"] for tool in tools} and "answer_worker" in {tool["name"] for tool in tools}
     assert (await route.serve("POST", {"authorization": "Bearer " + OTHER}, message("tools/list")))[0] == 401
     invalid = json.loads((await route.serve("POST", AUTH, call("create_task")))[1])
     assert invalid["error"]["code"] == -32602

@@ -78,7 +78,6 @@ import AiTermCore
         activity: activity, log: log, context: .init(running: { [weak self] in self?.isStopped == false },
             tabsKnown: { [weak self] in self?.tabsKnown == true },
             profile: { [weak self] in self?.profile ?? OperatorProfile(model: "", reasoning: nil) },
-            instructions: { [weak self] in self?.currentInstructions }, oracleOn: { [weak self] in self?.oracle.isOn == true },
             wakeUnread: { [weak self] in self?.waker.unread == true }))
     @ObservationIgnored lazy var waker: OperatorWaker = OperatorWaker(workspace: workspace, daemon: daemon, activity: activity, log: log,
         tab: { [weak self] in self?.chat.operatorTab() }, running: { [weak self] in self?.isStopped == false })

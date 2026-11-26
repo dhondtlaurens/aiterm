@@ -58,7 +58,6 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     public var questions: [Question] = []
     public var oracleRounds: [OracleRound] = []
     public var ledger: [LedgerEntry] = []
-    public var snags: [OperatorSnag] = []
     public init(id: UUID = UUID(), createdAt: Date) { self.id = id; self.createdAt = createdAt }
     public var waitingOnYou: Int { questions.filter { $0.resolvedAt == nil }.count }
     /// Closes, as withdrawn, every open shell-gate question. Only the chat that tried the command can
@@ -84,7 +83,6 @@ public struct OperatorSession: Codable, Equatable, Sendable {
     }
     public mutating func prune(at now: Date = Date()) {
         ledger = Array(ledger.filter { now.timeIntervalSince($0.at) <= 7 * 86400 }.suffix(500))
-        snags = Array(snags.suffix(100))
         let closed = questions.filter { !$0.isPending }.sorted { $0.resolvedAt! > $1.resolvedAt! }.prefix(50)
         questions = questions.filter(\.isPending) + closed
     }

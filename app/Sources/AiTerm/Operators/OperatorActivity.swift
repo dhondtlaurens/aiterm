@@ -100,7 +100,6 @@ struct OperatorAct: Equatable {
         case "ask_oracle": return "consulting the Oracle"
         case "ask_you": return "asking you about \(name)"
         case "resolve_question": return request.arguments["withdraw"]?.stringValue == nil ? "recording your answer" : "withdrawing its question"
-        case "report_snag": return "recording a snag"
         case "jira_search": return "searching Jira"
         case "note": return "updating \(name)’s journal"
         case "gate_command": return "checking a shell command"

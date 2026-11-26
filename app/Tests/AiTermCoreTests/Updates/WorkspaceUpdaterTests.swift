@@ -104,11 +104,11 @@ import Foundation
         #expect(try Data(contentsOf: updater.url) == before)
     }
 
-    /// The scripts the app ships: oldest first, each a major's `.0.0`, each after the baseline.
-    @Test func theShippedScriptsAreMajorsInOrder() {
+    /// The scripts the app ships: oldest first, each its own version at any level, each after the baseline.
+    @Test func theShippedScriptsAreInOrder() {
         let versions = UpdateScripts.all.map(\.version)
         #expect(versions == versions.sorted() && Set(versions).count == versions.count)
-        #expect(versions.allSatisfy { $0.minor == 0 && $0.patch == 0 && $0 > UpdateScripts.baseline })
+        #expect(versions.allSatisfy { $0 > UpdateScripts.baseline })
         #expect(UpdateScripts.current == versions.last ?? UpdateScripts.baseline)
     }
 }

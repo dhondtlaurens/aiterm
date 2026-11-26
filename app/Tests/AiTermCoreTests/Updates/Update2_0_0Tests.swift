@@ -65,16 +65,18 @@ import Foundation
         #expect(loaded.scheduleCursors.isEmpty && loaded.operatorFolded.isEmpty && !loaded.operatorOpen)
     }
 
-    /// The proof the step is whole: 1.5.0's own file of `SignalSavedFormatTests`' workspace, updated
-    /// the way a launch does it, reads as that workspace, and a save writes 2.0.0's golden byte for byte.
-    @Test func the150GoldenBecomesThe200Golden() throws {
+    /// The proof the steps are whole: 1.5.0's own file of `SignalSavedFormatTests`' workspace, updated
+    /// the way a launch does it (2.0.0, then 2.1.0), reads as that workspace, and a save writes the
+    /// current golden byte for byte.
+    @Test func the150GoldenBecomesTheCurrentGolden() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("state.json")
         try FileManager.default.copyItem(at: Self.saved150, to: url)
         let updater = WorkspaceUpdater(url: url)
-        #expect(try updater.plan() == .update(from: ReleaseVersion(major: 1, minor: 5, patch: 0), steps: [ReleaseVersion(major: 2, minor: 0, patch: 0)]))
+        #expect(try updater.plan() == .update(from: ReleaseVersion(major: 1, minor: 5, patch: 0),
+                                              steps: [ReleaseVersion(major: 2, minor: 0, patch: 0), ReleaseVersion(major: 2, minor: 1, patch: 0)]))
 
         try updater.run(defaults: ScratchDefaults.make(), home: dir)
 
