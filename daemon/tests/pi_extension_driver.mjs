@@ -5,8 +5,13 @@ import { EventEmitter } from "node:events";
 
 let posts = [];
 let stalled = false;
+// How long the fake daemon takes to answer each post, by event: a slow one must not be overtaken.
+let delays = {};
 globalThis.fetch = async (url, init) => {
-	posts.push({ ...JSON.parse(init.body), _url: url });
+	const body = JSON.parse(init.body);
+	// Recorded as the daemon reads it: a post on a slow connection arrives late.
+	if (delays[body.hook_event_name]) await new Promise((resolve) => setTimeout(resolve, delays[body.hook_event_name]));
+	posts.push({ ...body, _url: url });
 	// A daemon that accepts the connection and never answers.
 	if (stalled) await new Promise(() => {});
 	return { json: async () => ({}) };
@@ -62,14 +67,10 @@ await phase("startup", async () => {
 	await child("session_start", childCtx, { reason: "startup" });
 	await child("agent_start", childCtx);
 });
-await phase("background", async () => {
+// A subagent package's announcements on the shared bus: AiTerm follows PI's own events only.
+await phase("bus", async () => {
 	bus.emit("subagents:started", { id: "a1", type: "Explore", description: "x" });
-	bus.emit("subagents:started", { id: "a2", type: "Explore", description: "y" });
-	bus.emit("subagents:started", { type: "Explore" });
-	await child("agent_settled", childCtx);
-	await root("agent_settled", rootCtx);
 	bus.emit("subagents:completed", { id: "a1" });
-	bus.emit("subagents:failed", { id: "a2" });
 });
 await phase("turn_end", async () => {
 	const nextTurn = context("root", true);
@@ -77,21 +78,28 @@ await phase("turn_end", async () => {
 	await child("turn_end", childCtx);
 	await root("turn_end", nextTurn);
 });
-// A child that outlives its session's shutdown (a reload, say) still reports while PI keeps the ctx.
-await phase("after_shutdown", async () => {
-	await root("session_shutdown", rootCtx, { reason: "reload" });
-	bus.emit("subagents:completed", { id: "a5" });
+// PI's Codex provider receives the account's limits beside every other stream event.
+await phase("stream", async () => {
+	const limits = { primary: { used_percent: 12, window_minutes: 10080, reset_at: 1796200613 }, secondary: null };
+	await root("provider_stream_event", rootCtx, { provider: "openai-codex", data: { type: "response.created" } });
+	await root("provider_stream_event", rootCtx, { provider: "openai-codex", data: { type: "codex.rate_limits", rate_limits: limits } });
+	await root("provider_stream_event", rootCtx, { provider: "anthropic", data: { type: "codex.rate_limits", rate_limits: limits } });
+	await child("provider_stream_event", childCtx, { provider: "openai-codex", data: { type: "codex.rate_limits", rate_limits: limits } });
 });
-await phase("shutdown", async () => {
-	await root("session_shutdown", rootCtx, { reason: "quit" });
-	rootCtx.invalidate();
-	bus.emit("subagents:completed", { id: "a3" });
+// An Escape right after a turn starts: the turn's post is slow, and the settle must not overtake it.
+await phase("in_order", async () => {
+	delays = { turn_start: 60 };
+	await child("turn_start", childCtx);
+	await root("turn_start", rootCtx);
+	await root("agent_settled", rootCtx, { aborted: true });
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	delays = {};
 });
-const staleCtx = context("stale", true);
-await root("session_start", staleCtx);
-staleCtx.invalidate();
+// PI throws from every getter of a ctx it has invalidated: the post is dropped, and nothing throws.
 await phase("stale", async () => {
-	bus.emit("subagents:started", { id: "a4" });
+	const staleCtx = context("stale", true);
+	staleCtx.invalidate();
+	await root("agent_settled", staleCtx);
 });
 
 // What a handler hands back to PI, which may wait on it: nothing, unless the driver test asked for
@@ -108,9 +116,10 @@ const returned = async (steps) => {
 };
 stalled = true;
 const handlerCtx = context("root", true);
-const handlers = ["session_start", "agent_start", "agent_settled", "ui_prompt_start", "ui_prompt_end", "turn_end"];
+const handlers = ["session_start", "agent_start", "agent_settled", "ui_prompt_start", "ui_prompt_end", "turn_start", "turn_end"];
 phases.returned = await returned(handlers.map((name) => () => root(name, handlerCtx, { reason: "startup" })));
 phases.returned.push(...await returned([
+	() => root("provider_stream_event", handlerCtx, { provider: "openai-codex", data: { type: "codex.rate_limits", rate_limits: {} } }),
 	() => root("model_select", handlerCtx, { model: { provider: "p", id: "m" } }),
 	() => root("thinking_level_select", handlerCtx, { level: "low" }),
 ]));

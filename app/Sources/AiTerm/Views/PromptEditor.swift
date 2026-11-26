@@ -53,6 +53,9 @@ struct PromptEditor: NSViewRepresentable {
     /// Takes the keyboard as soon as the editor is in a window, so arriving on the prompt step
     /// puts the caret in the field without a click.
     var focusOnAppear = false
+    /// What ⇥ writes into the editor while it is empty, usually the example its placeholder shows. Nil: ⇥ is the
+    /// text view's, as in every other field.
+    var tabFill: String? = nil
 
     /// Where the text sits inside the field's box: `Space.snug` in from the side, `Space.base` down
     /// from the top. `PromptStep` lays its placeholder on the same inset.
@@ -163,9 +166,14 @@ struct PromptEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) { refresh() }
 
-        /// The keys the popup owns while it is open. Everything else, and every key when it is
-        /// closed, goes to the text view as usual — ↩ still inserts a newline in a plain prompt.
+        /// The keys the popup owns while it is open, and ⇥ in an empty editor with a fill. Everything
+        /// else, and every key when the popup is closed, goes to the text view as usual — ↩ still
+        /// inserts a newline in a plain prompt.
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.insertTab(_:)), textView.string.isEmpty, let fill = parent.tabFill, !fill.isEmpty {
+                insert(fill, replacing: NSRange(location: 0, length: 0))
+                return true
+            }
             let model = parent.completions
             switch DropdownKeys.handle(selector: selector, count: model.visible.count, index: model.index, open: model.isOpen) {
             case .moved(let index): model.index = index; return true
@@ -180,15 +188,24 @@ struct PromptEditor: NSViewRepresentable {
         /// becomes `@README.md`. A folder is written without the space after it, and the popup
         /// stays open on what is inside it.
         func accept(_ item: AgentCompletion) {
-            guard let textView, let range = currentToken()?.range else { return }
+            guard let range = currentToken()?.range else { return }
             let replacement = SkillCatalog.invocation(of: item, for: parent.agent) + (item.kind == .folder ? "" : " ")
+            insert(replacement, replacing: range)
+            if item.kind == .folder { refresh() } else { parent.completions.close() }
+        }
+
+        /// Writes `replacement` over `range` as an edit the text view can undo, in the attributes a typed key gets,
+        /// leaves the caret after it, and hands the text to the binding. A bare string would take its attributes from
+        /// the text beside it, and an empty editor has none: AppKit's default Helvetica in black.
+        private func insert(_ replacement: String, replacing range: NSRange) {
+            guard let textView else { return }
             if textView.shouldChangeText(in: range, replacementString: replacement) {
-                textView.textStorage?.replaceCharacters(in: range, with: replacement)
+                let styled = NSAttributedString(string: replacement, attributes: textView.typingAttributes)
+                textView.textStorage?.replaceCharacters(in: range, with: styled)
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: range.location + (replacement as NSString).length, length: 0))
             }
             write(textView.string)
-            if item.kind == .folder { refresh() } else { parent.completions.close() }
         }
 
         /// The token the caret ends — `/bra`, `@read` — and where it sits, in the text view's own

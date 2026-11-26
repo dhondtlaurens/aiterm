@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from .hook_events import HookEvent
-from .models import BackgroundJob, State, StoppedOn
+from .models import BackgroundJob, State, StoppedOn, TranscriptWork
 from .screens import shows_trust_prompt as shows_trust_prompt
 from .sessions import SessionRegistry
 
@@ -275,8 +275,9 @@ class StatusEngine:
         self._hide_work(session_id)
 
     def _hide_work(self, session_id: str) -> bool:
-        """Marks both live sources of the session's work unavailable; says whether that changed it."""
+        """Marks the live sources of the session's work unavailable; says whether that changed it."""
         hidden = self.reg.set_shown_subagents(session_id, None)
+        hidden = self.reg.set_transcript_work(session_id, None) or hidden
         return self.reg.set_shown_shells(session_id, None) or hidden
 
     def _prompt_started(self, session_id: str) -> list[str]:
@@ -420,6 +421,14 @@ class StatusEngine:
                                or task.job.task_id in expected)
         changed = self.reg.set_shown_shells(session_id, shells) or changed
         return [session_id] if changed else []
+
+    def apply_transcript_work(self, session_id: str, work: TranscriptWork | None) -> list[str]:
+        """Refreshes what the transcript says of the Stop's work (SessionInfo.transcript_work), None while the reading
+        cannot be trusted. Neither the turn's state nor its Stop's work changes: work_items reads it to tell an idle
+        teammate from a running one, and to leave out what ended."""
+        if self.reg.get(session_id) is None or self._turns.get(session_id) is None:
+            return []
+        return [session_id] if self.reg.set_transcript_work(session_id, work) else []
 
     def release_dead_subagents(self, tails: Mapping[str, TranscriptTail | None]) -> list[str]:
         """Drops each child whose transcript ends in an interruption or a SubagentStop that left

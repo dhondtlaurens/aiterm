@@ -4,7 +4,7 @@ from bisect import insort
 from dataclasses import dataclass, field, fields
 
 from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession,
-                     SessionInfo, State, StoppedOn, classify_agent)
+                     SessionInfo, State, StoppedOn, TranscriptWork, classify_agent)
 
 
 @dataclass(slots=True)
@@ -154,6 +154,10 @@ class SessionRegistry:
     def set_shown_shells(self, session_id: str, shells: tuple[BackgroundJob, ...] | None) -> bool:
         """The shells the background-shell reader lists (SessionInfo.shown_shells); None while unavailable."""
         return self._set(session_id, "shown_shells", shells)
+
+    def set_transcript_work(self, session_id: str, work: TranscriptWork | None) -> bool:
+        """What the tab's transcript says of its Stop's work (SessionInfo.transcript_work); None while unavailable."""
+        return self._set(session_id, "transcript_work", work)
 
     def set_context(self, session_id: str, percent: int | None) -> bool:
         return self._set(session_id, "context_percent", percent)

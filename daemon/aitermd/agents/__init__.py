@@ -18,3 +18,6 @@ HOOK_PARSERS: dict[str, HookParser] = {h.hook_route: _HOOK_PARSER[h.agent] for h
 # Each status-line shim's route, with the agent it reports on and the parser for its payload.
 STATUSLINE_PARSERS: dict[str, tuple[AgentKind, StatusLineParser]] = {
     h.statusline_route: (h.agent, _STATUSLINE_PARSER[h.agent]) for h in HARNESSES if h.statusline_route}
+# Account usage a hook post carries, by route: PI's extension relays the rate limits its providers
+# receive. Each parser returns the vendor whose footer the post fills, and its usage.
+USAGE_PARSERS = {"/hook/pi": pi.parse_pi_usage}

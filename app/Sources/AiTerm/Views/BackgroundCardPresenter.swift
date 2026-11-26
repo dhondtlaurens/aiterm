@@ -101,7 +101,7 @@ import AiTermUI
             let width = min(available.width, row.width + scale(Space.base)
                             - SidebarRowLayout.trailingSlot(scale) - scale(Space.tight))
             guard width > 0 else { return nil }
-            let visibleJobs = BackgroundCardView.visibleJobs(total: card.jobs.count, availableHeight: available.height, scale: scale)
+            let visibleJobs = BackgroundCardView.visibleJobs(total: card.lines.count, availableHeight: available.height, scale: scale)
             guard visibleJobs > 0 else { return nil }
             let height = BackgroundCardView.height(jobs: visibleJobs, scale: scale)
             let frame = NSRect(x: max(available.minX, min(row.minX - scale(Space.base), available.maxX - width)),
@@ -140,13 +140,18 @@ import AiTermUI
         let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         guard let (frame, card) = placement(row: row, available: available, scale: scale) else { close(); return }
         let content = AnyView(card
+            // The SwiftUI shadow would get cut off at the panel's rectangular bounds. Clip to
+            // the card itself and let AppKit cast a shadow outside the window instead.
+            .clipShape(RoundedRectangle(cornerRadius: scale(BackgroundCardView.cornerRadius)))
             .onTapGesture { [weak anchor] in (anchor as? BackgroundCardAnchor.Probe)?.activate() }
             .allowsWindowActivationEvents()
             .modifier(RowCommandContextMenu(groups: (anchor as? BackgroundCardAnchor.Probe)?.commands ?? []))
             .interfaceScale(scale).preferredColorScheme(.dark))
         if let panel, let host = panel.contentView as? BackgroundCardHostingView {
             host.rootView = content
+            let resized = panel.frame.size != frame.size
             panel.setFrame(frame, display: true)
+            if resized { panel.invalidateShadow() }
         } else {
             let host = BackgroundCardHostingView(rootView: content)
             host.safeAreaRegions = []; host.sizingOptions = []
@@ -160,6 +165,7 @@ import AiTermUI
             panel.animationBehavior = .none
             panel.isFloatingPanel = false; panel.hidesOnDeactivate = false
             panel.isOpaque = false; panel.backgroundColor = .clear
+            panel.hasShadow = true
             panel.appearance = NSAppearance(named: .darkAqua)
             panel.level = window.level
             panel.contentView = host
@@ -169,6 +175,7 @@ import AiTermUI
             // Attaching the hosting view may adjust the initial content size to its backing
             // grid; finish with the same explicit frame used for every later update.
             panel.setFrame(frame, display: true)
+            panel.invalidateShadow()
         }
     }
 

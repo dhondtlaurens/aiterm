@@ -54,6 +54,9 @@ class Harness:
 
 
 CLAUDE_TRUST_PROMPT = ("Yes, I trust this folder", "Do you trust the files in this folder?")
+# PI 1.6's project-trust select (core/project-trust.js, formatProjectTrustPrompt): its title, and the
+# line under the folder that says what trusting allows.
+PI_TRUST_PROMPT = ("Trust project folder?", "This allows pi to load .pi settings and resources")
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
@@ -76,8 +79,9 @@ HARNESSES: tuple[Harness, ...] = (
             startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
             update_prompt=("Update now", "Skip until next version"),
             input_box=("›",)),
-    # An in-process extension.
-    Harness("pi", "/hook/pi"),
+    # An in-process extension. Its folder-trust dialog comes before the extension's first post, so
+    # the screen is the only sign of it, as for Claude.
+    Harness("pi", "/hook/pi", trust_prompt=PI_TRUST_PROMPT),
 )
 
 HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}
@@ -175,12 +179,14 @@ class RawSession:
 class BackgroundJob:
     """One piece of work running beside a Claude turn: a `shell` by its command, a `monitor`, a `subagent` or any other
     `task` by its description. A subagent's `agent_id` names the child the status engine counts, any other job's
-    `task_id` Claude Code's id for it; neither is sent."""
+    `task_id` Claude Code's id for it; neither is sent. `teammate`: a named agent of Claude Code's agent team, which a
+    Stop lists as running for as long as it lives, idle or not; its `text` is the description it was spawned with."""
     kind: Literal["shell", "monitor", "task", "subagent"]
     text: str
     agent_id: str | None = None
     task_id: str | None = None
     display_label: str | None = None
+    teammate: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {"kind": self.kind, "text": self.text} | ({"displayLabel": self.display_label} if self.display_label else {})
@@ -189,30 +195,96 @@ class BackgroundJob:
 @dataclass(frozen=True, slots=True)
 class WorkItem:
     """One line of a session's work list (work_items). `holds_turn`: the last Stop listed it, so the agent takes the
-    turn up again once it ends."""
+    turn up again once it ends. `idle`: a teammate that finished its turn and waits for a message; it holds nothing."""
     kind: Literal["shell", "monitor", "task", "subagent"]
     text: str
     holds_turn: bool
     display_label: str | None = None
+    idle: bool = False
 
     def to_json(self) -> dict[str, Any]:
-        return {"kind": self.kind, "text": self.text, "holdsTurn": self.holds_turn} | (
+        return {"kind": self.kind, "text": self.text, "holdsTurn": self.holds_turn, "idle": self.idle} | (
             {"displayLabel": self.display_label} if self.display_label else {})
+
+
+@dataclass(frozen=True, slots=True)
+class Teammate:
+    """One named agent of the conversation's agent team, as its parent's transcript tells it (agents.claude): spawned
+    (`running`), its idle notification (`idle`), a message sent to it (`running` again), its termination or a TaskStop
+    of it (`ended`). `description` is what it was spawned with, the text its Stop entry carries."""
+    name: str
+    agent_id: str
+    description: str
+    state: Literal["running", "idle", "ended"]
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptWork:
+    """What a conversation's transcript, read to its end since its work began, says of the teammates its Stop listed:
+    the agent team's members, and the task ids it shows ended (a terminal task notification, or a TaskStop that stopped
+    one), by the only id a Stop's entry carries. Positive evidence only: a task it does not name is not known ended.
+    Only teammate entries read it. A shell the Stop listed holds the turn until the next hook even once it ended: Claude
+    Code hands its completion to the agent as its next prompt, so the agent takes the turn up again."""
+    teammates: tuple[Teammate, ...] = ()
+    ended_tasks: frozenset[str] = frozenset()
+
+
+def _same_text(a: str, b: str) -> bool:
+    return " ".join(a.split()) == " ".join(b.split())
+
+
+def teammate_fate(job: BackgroundJob, session: SessionInfo) -> tuple[Literal["running", "idle", "ended"], str | None]:
+    """What a teammate the Stop listed is now, and its agent id when only one live teammate answers to its description.
+    Claude Code lists every live teammate as running; the transcript tells an idle one apart. It is running while its
+    transcript says so or the status engine counts its agent (it woke and fired SubagentStart); idle once every live
+    teammate spawned with its description is idle and not counted; ended once a TaskStop named its task or every such
+    teammate ended. With no reading, or none the reading knows by that description, it stays running, as before."""
+    team = session.transcript_work
+    if team is None:
+        return "running", None
+    if job.task_id is not None and job.task_id in team.ended_tasks:
+        return "ended", None
+    same = [t for t in team.teammates if _same_text(t.description, job.text)]
+    if not same:
+        return "running", None
+    live = [t for t in same if t.state != "ended"]
+    if not live:
+        return "ended", None
+    counted = {child.agent_id for child in session.shown_subagents or () if child.agent_id is not None}
+    agent = live[0].agent_id if len(live) == 1 else None
+    if all(t.state == "idle" and t.agent_id not in counted for t in live):
+        return "idle", agent
+    return "running", agent
 
 
 def work_items(session: SessionInfo) -> tuple[WorkItem, ...]:
     """The session's work, in order: what its last Stop listed and still stands, each holding the turn (a subagent
     always; a shell once the turn ended, or while the shell reader lists it, by the reader's text; a monitor or task
-    once the turn ended); then the counted subagents and the reader's shells that Stop did not list, holding nothing."""
+    once the turn ended; a teammate as the agent it is, a `subagent` on the wire, once the turn ended while it runs,
+    as `idle` and holding nothing while it waits for a message, and not at all once the transcript shows it ended:
+    teammate_fate); then the counted subagents and the reader's shells that Stop did not list, holding nothing."""
     ended = session.state in ("idle", "done")
     shells = {job.task_id: job for job in session.shown_shells or () if job.task_id is not None}
     items: list[WorkItem] = []
+    listed_agents = {job.agent_id for job in session.stop_work if job.agent_id is not None}
     for job in session.stop_work:
+        if job.teammate:
+            fate, agent = teammate_fate(job, session)
+            if fate == "ended":
+                continue
+            if fate == "idle":
+                items.append(WorkItem("subagent", job.text, False, job.display_label, idle=True))
+                continue
+            # A running teammate is a counted subagent too: one line for it, where its Stop entry stands.
+            if ended and agent is not None:
+                listed_agents.add(agent)
+            if ended:
+                items.append(WorkItem("subagent", job.text, True, job.display_label))
+            continue
         shown = shells.get(job.task_id) if job.kind == "shell" and job.task_id is not None else None
         if job.kind == "subagent" or ended or shown is not None:
             items.append(WorkItem(job.kind, shown.text if shown is not None else job.text, True,
                                   job.display_label or (shown.display_label if shown is not None else None)))
-    listed_agents = {job.agent_id for job in session.stop_work if job.agent_id is not None}
     listed_tasks = {job.task_id for job in session.stop_work if job.task_id is not None}
     items += [WorkItem(job.kind, job.text, False, job.display_label)
               for job in session.shown_subagents or () if job.agent_id not in listed_agents]
@@ -300,6 +372,10 @@ class SessionInfo:
     # shells the background-shell reader lists. None while that source is unavailable. Neither decides the status.
     shown_subagents: tuple[BackgroundJob, ...] | None = field(default=None, metadata={"process": True})
     shown_shells: tuple[BackgroundJob, ...] | None = field(default=None, metadata={"process": True})
+    # What the tab's transcript says of the teammates its Stop listed (TranscriptWork): an idle one apart from a running
+    # one, and those it shows ended. None while that reading is unavailable. It decides only how work_items shows them
+    # and whether they hold the turn, never the state.
+    transcript_work: TranscriptWork | None = field(default=None, metadata={"process": True})
     # The first line of the prompt you typed into this tab yourself, for the turn it started: AiTerm neither launched
     # the agent with it nor delivered it (HookRouter). None once that turn ends, and for every other prompt.
     your_prompt: str | None = field(default=None, metadata={"process": True})

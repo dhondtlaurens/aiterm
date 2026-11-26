@@ -2,7 +2,7 @@ import pytest
 from aitermd.models import BackgroundJob, UsageWindow
 from aitermd.agents.claude import parse_claude_hook, parse_claude_statusline
 from aitermd.agents.codex import parse_codex_hook
-from aitermd.agents.pi import parse_pi_hook
+from aitermd.agents.pi import parse_pi_hook, parse_pi_usage
 
 BASE = {"session_id": "abc", "cwd": "/repo/.worktrees/x", "transcript_path": "/t.jsonl", "permission_mode": "default"}
 PI_BASE = {"session_id": "pi-session", "cwd": "/repo/.worktrees/x",
@@ -58,6 +58,7 @@ def test_codex_hook_mapping():
     ("ui_prompt_end", "promptEnd"),
     ("agent_settled", "done"),
     ("thinking_level_select", None),
+    ("turn_start", "working"),
     ("turn_end", None),
 ])
 def test_pi_hook_mapping(name, kind):
@@ -206,18 +207,10 @@ def test_only_a_claude_stop_lists_running_subagents():
     assert parse_codex_hook({**BASE, "hook_event_name": "Stop", **tasks}).running_subagents is None
 
 
-def test_pi_subagent_lifecycle_identifies_the_parent_session_and_child():
-    start = parse_pi_hook({**PI_BASE, "hook_event_name": "subagent_start", "agent_id": "child-1"})
-    stop = parse_pi_hook({**PI_BASE, "hook_event_name": "subagent_stop", "agent_id": "child-1"})
-    assert (start.agent, start.kind, start.session_id, start.subagent_id) == ("pi", "subagentStart", "pi-session", "child-1")
-    assert (stop.agent, stop.kind, stop.session_id, stop.subagent_id) == ("pi", "subagentStop", "pi-session", "child-1")
-    assert start.iterm_session_id == "w0t0p0:pi-tab"
-
-
 @pytest.mark.parametrize("name", ["subagent_start", "subagent_stop"])
-def test_pi_subagent_event_without_a_child_id_is_ignored(name):
-    assert parse_pi_hook({**PI_BASE, "hook_event_name": name}) is None
-    assert parse_pi_hook({**PI_BASE, "hook_event_name": name, "agent_id": 7}) is None
+def test_an_older_pi_extensions_subagent_relay_is_no_event(name):
+    # Schema 6 relayed a third-party package's subagents; AiTerm now follows PI's own events only.
+    assert parse_pi_hook({**PI_BASE, "hook_event_name": name, "agent_id": "child-1"}) is None
 
 
 def test_statusline_usage():
@@ -358,3 +351,35 @@ def test_claude_route_drops_payloads_from_another_cli_running_claudes_hooks():
     # Another CLI that loads ~/.claude/settings.json hooks sends `hookEventName`, a key Claude
     # never sends; were it to reach the Claude route, it must not count as Claude.
     assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "hookEventName": "stop"}) is None
+
+
+# What PI 1.6's Codex provider received on 2026-11-25: a weekly-only plan's `codex.rate_limits`.
+PI_CODEX_LIMITS = {"allowed": True, "limit_reached": False, "secondary": None,
+                   "primary": {"used_percent": 1, "window_minutes": 10080, "reset_after_seconds": 581869,
+                               "reset_at": 1796200613}}
+
+
+def test_pi_relayed_codex_limits_fill_codexs_footer():
+    vendor, usage = parse_pi_usage({"hook_event_name": "rate_limits", "vendor": "codex",
+                                    "rate_limits": PI_CODEX_LIMITS}, 1000)
+    assert vendor == "codex"
+    assert (usage.five_hour, usage.seven_day, usage.updated_at) == (None, UsageWindow(1, 1796200613), 1000)
+
+
+def test_pi_limits_with_both_windows_are_told_apart_by_their_length():
+    limits = {"primary": {"used_percent": 40.4, "window_minutes": 300, "reset_at": 5},
+              "secondary": {"used_percent": 7, "window_minutes": 10080, "reset_at": 9}}
+    _, usage = parse_pi_usage({"hook_event_name": "rate_limits", "vendor": "codex", "rate_limits": limits}, 1)
+    assert (usage.five_hour, usage.seven_day) == (UsageWindow(40, 5), UsageWindow(7, 9))
+
+
+@pytest.mark.parametrize("post", [
+    {"hook_event_name": "agent_start", "vendor": "codex", "rate_limits": PI_CODEX_LIMITS},
+    {"hook_event_name": "rate_limits", "vendor": "pi", "rate_limits": PI_CODEX_LIMITS},
+    {"hook_event_name": "rate_limits", "vendor": "codex", "rate_limits": "full"},
+    {"hook_event_name": "rate_limits", "vendor": "codex", "rate_limits": {"primary": None, "secondary": None}},
+    {"hook_event_name": "rate_limits", "vendor": "codex", "rate_limits": {"primary": {"used_percent": "1"}}},
+    ["rate_limits"],
+])
+def test_anything_else_is_no_usage(post):
+    assert parse_pi_usage(post, 1) is None

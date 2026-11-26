@@ -169,7 +169,7 @@ async def test_background_shell_lifecycle_is_published_without_changing_state(ma
     write(path, launch())
     await svc.tick()
     assert svc.registry.get(sid).state == "working" and svc.registry.get(sid).stop_work == ()
-    assert events[-1][1]["work"] == [{"kind": "shell", "text": "npm run test", "holdsTurn": False}]
+    assert events[-1][1]["work"] == [{"kind": "shell", "text": "npm run test", "holdsTurn": False, "idle": False}]
     with path.open("a") as f:
         f.write(json.dumps(completed()) + "\n")
     await svc.tick()
@@ -191,8 +191,8 @@ async def test_native_descriptions_are_published_for_existing_children_and_shell
     write_transcript(path, child_launch() + shell_launch(at=104, description="Run validation"))
     await svc.tick()
     assert published[-1]["work"] == [
-        {"kind": "subagent", "text": "general-purpose", "holdsTurn": False, "displayLabel": "Review checkout"},
-        {"kind": "shell", "text": "npm run test", "holdsTurn": False, "displayLabel": "Run validation"}]
+        {"kind": "subagent", "text": "general-purpose", "holdsTurn": False, "idle": False, "displayLabel": "Review checkout"},
+        {"kind": "shell", "text": "npm run test", "holdsTurn": False, "idle": False, "displayLabel": "Run validation"}]
     svc.status.apply_event(sid, HookEvent("claude", "subagentStop", None, None, subagent_id="child"))
     await svc.tick()
     assert all(item["kind"] != "subagent" for item in svc.registry.get(sid).to_json()["work"])
@@ -680,6 +680,39 @@ async def test_a_claude_trust_prompt_dismissed_without_a_file_goes_back_to_idle(
     wid, sid = await task_tab(svc, r, w)
     await it.user_runs(sid, "claude", job_pid=780)
     it.screens[sid] = "Do you trust the files in this folder?"
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+    it.screens[sid] = ""
+    await svc.tick()
+    assert svc.registry.get(sid).state == "idle"
+
+
+async def test_a_pi_trust_prompt_needs_input_until_its_session_starts(stack):
+    """PI asks whether to trust a folder with project resources before its extension's first post,
+    so the screen is all that shows it -- read only until that post names the conversation."""
+    svc, it, files, r, w = stack
+    wid, sid = await task_tab(svc, r, w)
+    await it.user_runs(sid, "pi", job_pid=790)
+    it.screens[sid] = ("Trust project folder?\n/repo/.worktrees/x\n\nThis allows pi to load .pi settings and "
+                       "resources, install missing project packages, and execute project extensions.\n"
+                       "→ Trust\n  Trust for this session\n  Do not trust")
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+    # Trusted: PI starts its session, and the row was never in a turn.
+    it.screens[sid] = ""
+    await svc.hook_router.handle_hook("/hook/pi", {"hook_event_name": "session_start", "reason": "startup",
+                                                   "session_id": "p1", "cwd": "/wt", "_aiterm_iterm_session_id": sid})
+    assert svc.registry.get(sid).state == "idle"
+    reads = len(it.screen_reads)
+    await svc.tick()
+    assert len(it.screen_reads) == reads, "a PI tab that posted its session is past the dialog: its screen is not read"
+
+
+async def test_a_pi_trust_prompt_dismissed_before_any_post_goes_back_to_idle(stack):
+    svc, it, files, r, w = stack
+    wid, sid = await task_tab(svc, r, w)
+    await it.user_runs(sid, "pi", job_pid=791)
+    it.screens[sid] = "Trust project folder?"
     await svc.tick()
     assert svc.registry.get(sid).state == "needsInput"
     it.screens[sid] = ""
@@ -1588,7 +1621,8 @@ async def test_a_turn_that_ends_with_background_work_says_what_still_runs(stack,
     session = svc.registry.get(sid)
     assert (session.state, session.stop_work) == (
         "done", (BackgroundJob("shell", "npm run test:run", task_id="b1", display_label="the gate"),))
-    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True, "displayLabel": "the gate"}]
+    assert session.to_json()["work"] == [{"kind": "shell", "text": "npm run test:run", "holdsTurn": True, "idle": False,
+                                          "displayLabel": "the gate"}]
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "UserPromptSubmit"})
     assert svc.registry.get(sid).stop_work == ()
     await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": "Stop", "background_tasks": []})

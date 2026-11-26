@@ -9,7 +9,7 @@ mkdir -p "$app/Contents/Resources/hooks" "$app/Contents/Resources/daemon/tools" 
 cp "$ROOT/app/Sources/AiTerm/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$ROOT/app/Sources/AiTerm/Resources/AiTerm.icns" "$app/Contents/Resources/"
 cp "$ROOT/hooks/"* "$app/Contents/Resources/hooks/"
-cp "$ROOT/daemon/tools/delivery_check.py" "$app/Contents/Resources/daemon/tools/"
+cp "$ROOT/daemon/tools/"{__init__.py,delivery_check.py,compat_preflight.py} "$app/Contents/Resources/daemon/tools/"
 cp "$ROOT/compat/verified.json" "$app/Contents/Resources/compat/"
 touch "$app/Contents/MacOS/AiTerm"
 chmod +x "$app/Contents/MacOS/AiTerm"
@@ -70,6 +70,17 @@ chmod +x "$fixture_dir/codesign"
 rc=0
 PATH="$fixture_dir:$PATH" "$ROOT/scripts/test-app-bundle.sh" "$app" >"$fixture_dir/output" 2>&1 || rc=$?
 [[ "$rc" == 73 ]] || { print -u2 "bundle verifier rejected valid dependency metadata (status $rc)"; cat "$fixture_dir/output" >&2; exit 1; }
+# Settings › Agents' Run check imports the delivery check's own tools modules from the bundle too.
+preflight="$daemon_dir/tools/compat_preflight.py"
+rm "$preflight"
+rc=0
+PATH="$fixture_dir:$PATH" "$ROOT/scripts/test-app-bundle.sh" "$app" >"$fixture_dir/output" 2>&1 || rc=$?
+[[ "$rc" == 1 ]] && grep -Fq "tools/compat_preflight.py" "$fixture_dir/output" || {
+    print -u2 "bundle verifier missed a tools module the delivery check imports (status $rc)"
+    cat "$fixture_dir/output" >&2
+    exit 1
+}
+cp "$ROOT/daemon/tools/compat_preflight.py" "$preflight"
 for metadata in "$daemon_dir/"*.dist-info/METADATA; do
     cp "$metadata" "$fixture_dir/metadata"
     sed -i '' 's/^Version: .*/Version: 0/' "$metadata"

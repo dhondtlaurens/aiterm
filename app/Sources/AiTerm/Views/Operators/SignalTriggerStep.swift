@@ -6,8 +6,8 @@ import AiTermUI
 /// matches · The Operator decides, or You decide on a project signal). An item's or a query's trigger is the source it
 /// reads, the person's description with its Write button on the label's row, and the query that runs, in short mono
 /// editors; a schedule's is the description, its cron, its project and its next runs; the Operator's Done is an optional
-/// description of done, You decide a line of help. The help under a query names the syntax, says Claude wrote it, or, in
-/// warning ink, why the write failed or why AiTerm refuses it.
+/// description of done, You decide a line of help. ⇥ in an empty query writes its example in. The help under a query
+/// names the syntax, says Claude wrote it, or, in warning ink, why the write failed or why AiTerm refuses it.
 struct SignalTriggerStep: View {
     @Bindable var model: SignalModel
     let start: Bool
@@ -96,7 +96,8 @@ struct SignalTriggerStep: View {
         let help = queryHelp(source)
         return PromptStep(text: trigger.query, agent: .claude, completions: start ? model.startCompletions : model.doneCompletions,
                           label: label, placeholder: Self.queryPlaceholder(source, start: start),
-                          help: help.text, helpTone: help.tone, editorHeight: Sheet.queryEditorHeight, focusOnAppear: false)
+                          help: help.text, helpTone: help.tone, editorHeight: Sheet.queryEditorHeight, focusOnAppear: false,
+                          tabFillsPlaceholder: true)
     }
     private func writeButton(_ source: SignalTrigger.Source) -> some View {
         let busy = model.writing(start: start).busy

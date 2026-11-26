@@ -19,8 +19,47 @@ struct BackgroundCardTests {
         #expect(BackgroundCard(jobs: [tests, server, ci]).heading == "Background work · 3 jobs")
         #expect(BackgroundCard(jobs: [tests, ci]).spoken
                 == "Background work: scripts/test.sh all, Watch CI on !45 until the pipeline ends")
-        #expect(BackgroundCard.glyph(.shell) == "apple.terminal")
-        #expect(BackgroundCard.glyph(.monitor) == "eye" && BackgroundCard.glyph(.task) == "eye")
+        #expect(BackgroundCard.glyph(tests) == "apple.terminal")
+        #expect(BackgroundCard.glyph(ci) == "waveform.path.ecg"
+                && BackgroundCard.glyph(BackgroundJob(kind: .task, text: "Workflow")) == "waveform.path.ecg")
+        #expect(BackgroundCard.glyph(BackgroundJob(kind: .subagent, text: "Review the fix")) == "sparkle")
+        // An idle teammate sleeps until it is messaged, whatever kind it was sent as.
+        #expect(BackgroundCard.glyph(BackgroundJob(kind: .subagent, text: "Build skin A", idle: true)) == "zzz")
+    }
+
+    /// Eight named teammates that delivered their reports and wait for messages: the daemon sends them idle, holding
+    /// nothing. The row is done, its mark does not spin, and the card counts no running job but still lists them.
+    @Test func onlyIdleTeammatesSpinNothingAndCountNoJob() throws {
+        let items = (1...8).map { #"{"kind":"subagent","text":"Build skin \#($0)","holdsTurn":false,"idle":true}"# }
+        var session = SessionInfo.make("s", state: .done)
+        session.work = try JSONDecoder().decode([WorkItem].self, from: Data(("[" + items.joined(separator: ",") + "]").utf8))
+        #expect(session.work.allSatisfy { $0.idle && !$0.holdsTurn })
+        #expect(SidebarModel.backgroundJobs(of: [session]).isEmpty)
+        #expect(SidebarModel.aggregate(tabs: [session]) == .done)
+        let card = BackgroundCard(jobs: SidebarModel.displayJobs(of: [session]))
+        #expect(card.running.isEmpty && card.idle.count == 8)
+        #expect(card.heading == "Background work · none running")
+        #expect(card.lines.first == .idleHeading && card.lines.count == 9)
+    }
+
+    /// Running work keeps its count and comes first; idle teammates follow under their own heading.
+    @Test func idleTeammatesFollowTheRunningWorkWithoutCounting() {
+        let reviewer = BackgroundJob(kind: .task, text: "Review the fix", idle: true)
+        let card = BackgroundCard(jobs: [reviewer, tests, server])
+        #expect(card.heading == "Background work · 2 jobs")
+        #expect(card.lines == [.job(tests), .job(server), .idleHeading, .job(reviewer)])
+        #expect(card.spoken == "Background work: scripts/test.sh all, npm run dev. Idle, can be messaged: Review the fix")
+        #expect(BackgroundCard(jobs: [tests, reviewer]).heading == "Background work")
+    }
+
+    /// A teammate a message woke holds the turn again: the row is back in the background, its card counts it.
+    @Test func aWokenTeammateRunsAgain() throws {
+        var session = SessionInfo.make("s", state: .done)
+        session.work = try JSONDecoder().decode([WorkItem].self, from: Data(
+            #"[{"kind":"subagent","text":"Build skin A","holdsTurn":true},{"kind":"subagent","text":"Build skin B","holdsTurn":false,"idle":true}]"#.utf8))
+        #expect(SidebarModel.aggregate(tabs: [session]) == .background)
+        #expect(SidebarModel.backgroundJobs(of: [session]) == [BackgroundJob(kind: .subagent, text: "Build skin A")])
+        #expect(BackgroundCard(jobs: SidebarModel.displayJobs(of: [session])).heading == "Background work")
     }
 
     @Test func nativeDisplayLabelsLeaveWorkerTextAndReadinessAlone() throws {
@@ -126,6 +165,30 @@ struct BackgroundCardTests {
         let ended = OperatorLine("done", look: .ended)
         #expect(TaskRowMark(status: .background, line: ended) == .status(.background))
         #expect(TaskRowMark(status: .done, line: ended) == .ended)
+    }
+
+    @Test(arguments: InterfaceScale.all)
+    func jobLabelsLineUpAfterDifferentGlyphs(scale: InterfaceScale) throws {
+        let jobs = [BackgroundJob.Kind.shell, .monitor, .subagent].map {
+            BackgroundJob(kind: $0, text: "work", displayLabel: "Check the results")
+        }
+        let renderer = ImageRenderer(content: BackgroundCardView(card: BackgroundCard(jobs: jobs))
+            .interfaceScale(scale).frame(width: 300).environment(\.colorScheme, .dark))
+        renderer.scale = 2
+        let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        let stride = Int((scale(Size.chip) + scale(Space.tight)) * renderer.scale)
+        let top = Int(scale(Space.base) * renderer.scale) + stride
+        let labelStarts = try jobs.indices.map { index in
+            let y = top + index * stride
+            return try #require((0..<bitmap.pixelsWide).first { x in
+                (y..<(y + Int(scale(Size.chip) * renderer.scale))).contains { row in
+                    // Only label ink is this bright; the glyphs use the muted ink.
+                    guard let pixel = bitmap.colorAt(x: x, y: row)?.usingColorSpace(.sRGB) else { return false }
+                    return pixel.redComponent > 0.83
+                }
+            })
+        }
+        #expect(Set(labelStarts).count == 1, "label ink starts at \(labelStarts)")
     }
 
     @Test(arguments: [1, 3, 5, 7], InterfaceScale.all)
