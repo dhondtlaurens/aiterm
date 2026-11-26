@@ -191,11 +191,15 @@ enum SheetSnapshots {
             Signal(name: name, createdAt: at, enabled: enabled, start: start, done: done, work: SignalWork(prompt: "/psg:plan"),
                    agents: agents, finish: SignalFinish(then: .keep), scheduledFrom: start.source == .schedule ? at : nil)
         }
-        let planned = signal("Plan labelled tickets", start: SignalTrigger(source: .jira, query: "labels = operator AND status = \"To Do\""),
+        let planned = signal("Plan labelled tickets", start: SignalTrigger(source: .jira, description: "My tickets labelled operator that nobody started yet",
+                                                                          query: "labels = operator AND status = \"To Do\""),
                              done: SignalTrigger(source: .gitLab, query: "reviewer:any"))
-        let reviews = signal("Review requests", start: SignalTrigger(source: .gitLab, query: "reviewer:@me state:opened"),
+        let reviews = signal("Review requests", start: SignalTrigger(source: .gitLab,
+                                                                      description: "Merge requests where I’m a reviewer, open, with a thread waiting on me and nobody’s approval yet",
+                                                                      query: "reviewer:@me state:opened"),
                              done: SignalTrigger(source: .operator, description: "When every thread is answered", query: ""))
-        let weekly = signal("Weekly dependency bumps", start: SignalTrigger(source: .schedule, query: "0 9 * * 1", project: project.id),
+        let weekly = signal("Weekly dependency bumps", start: SignalTrigger(source: .schedule, description: "Every Monday at 9am", query: "0 9 * * 1",
+                                                                             project: project.id),
                             done: SignalTrigger(source: .gitLab, query: "state:merged"))
         let stale = signal("Stale pull requests", start: SignalTrigger(source: .gitHub, query: "is:pr is:open updated:<2026-02-01"),
                            done: SignalTrigger(source: .gitHub, query: "is:merged"), enabled: false)

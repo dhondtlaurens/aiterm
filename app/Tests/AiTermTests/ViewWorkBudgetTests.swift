@@ -69,7 +69,8 @@ import AiTermUI
         settle(host, describing: "the Archive rows") { !counter.counts.isEmpty }
         let initial = counter.counts.count
         print("Archive initial materialized rows: \(initial) of 100")
-        #expect(initial == 8, "baseline 100; final 8 Archive rows in its sheet viewport")
+        // The first date heading (Today) takes the room of one row.
+        #expect(initial == 7, "baseline 100; final 7 Archive rows under their heading in its sheet viewport")
         #expect(model.projection.rows.map(\.id) == rows.map(\.id))
         let scroll = try #require(host.firstDescendant(NSScrollView.self))
         model.highlight(rows.last!.id)

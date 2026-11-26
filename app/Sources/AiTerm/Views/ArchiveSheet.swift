@@ -2,63 +2,43 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Archived tasks and reviews, newest first, searched from the navigation band. ↑ ↓ move the
-/// highlight, ⌘↩ or a double-click restores it, ⌘⌫ asks Remove's question, and ⎋ clears a search
-/// then closes. The search field keeps the keyboard throughout.
+/// Archived tasks and reviews, newest first under their dates' groups, searched from the navigation band: a
+/// `ListSheet`. ↑ ↓ move the highlight, ⌘↩ or a double-click restores it, ⌘⌫ asks Remove's question, and ⎋ clears a
+/// search then closes. The search field keeps the keyboard throughout. Each row's gear has Restore and Remove….
 struct ArchiveSheet: View {
     let model: ArchiveSheetModel
     @Environment(\.dismiss) private var dismiss
-    /// The snapshots' fixed calendar and locale, so a row's date reads the same on every machine; the
-    /// app's own otherwise.
+    /// The snapshots' fixed calendar and locale, so a row's group reads the same on every machine; the app's own
+    /// otherwise.
     @Environment(\.footerClock) private var clock
-    @State private var focused: Bool = true
 
     var body: some View {
         let archive = model.projection
-        let rows = archive.rows, highlighted = archive.highlighted?.id, total = archive.total, primary = archive.primaryTitle
-        let now = model.now(), calendar = clock?.calendar ?? .current
-        SheetLayout(title: "Archive", height: .fixed(Sheet.height), contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
-            HStack(spacing: Space.base) {
-                Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
-                SearchField(placeholder: "Search title, ticket, !MR, branch, project",
-                            text: Bindable(model).query, focused: $focused, onCommand: command)
-            }
-            .fieldChrome(focused: focused)
-            // A field, not a line of the title: `Space.base` further from it than a subtitle.
-            .padding(.top, Space.base)
-        } content: {
-            if total == 0 {
-                VStack(alignment: .leading, spacing: Space.base) {
-                    Text("Nothing on the archive yet.").font(Typography.body).foregroundStyle(Palette.text)
-                    HelpText("Archive a task from its menu to put its worktree away and keep its conversations.")
-                }
-            } else if rows.isEmpty {
-                Text("No archived task matches “\(model.query.trimmingCharacters(in: .whitespaces))”.")
-                    .font(Typography.body).foregroundStyle(Palette.text)
-            } else {
-                ScrollViewReader { scroller in
-                    LazyVStack(spacing: Space.hairline) {
-                        ForEach(rows) { row in
-                            let date = ArchiveDate.label(row.archived.archivedAt, now: now, calendar: calendar, locale: calendar.locale ?? .current)
-                            ArchiveRow(entry: row, date: date)
-                            .modifier(RowPill(selected: row.id == highlighted, ground: .sheet))
-                            .id(row.id)
-                            .onTapGesture(count: 2) { model.highlight(row.id); perform() }
-                            .onTapGesture { model.highlight(row.id) }
-                            .accessibilityAddTraits(row.id == highlighted ? .isSelected : [])
-                            .accessibilityAction(named: "Restore") { model.highlight(row.id); perform() }
-                        }
-                    }
-                    .onChange(of: highlighted) { _, id in if let id { scroller.scrollTo(id) } }
-                }
+        let calendar = clock?.calendar ?? .current
+        ListSheet(title: "Archive", placeholder: "Search title, ticket, !MR, branch, project", query: Bindable(model).query,
+                  groups: model.groups(calendar: calendar, locale: calendar.locale ?? .current), hasItems: archive.total > 0,
+                  noMatch: { "No archived task matches “\($0)”." }, highlighted: archive.highlighted?.id,
+                  highlight: model.highlight, activate: { _ in perform() }, command: command, commands: commands) { entry in
+            ArchiveRow(entry: entry, commands: commands(entry))
+        } empty: {
+            VStack(alignment: .leading, spacing: Space.base) {
+                Text("Nothing on the archive yet.").font(Typography.body).foregroundStyle(Palette.text)
+                HelpText("Archive a task from its menu to put its worktree away and keep its conversations.")
             }
         } footer: {
             // Nothing archived: no count and no Restore button.
-            SheetFooter(secondary: "Close", primary: primary, closeList: model.clearQuery,
+            SheetFooter(secondary: "Close", primary: archive.primaryTitle, closeList: model.clearQuery,
                         cancel: { dismiss.afterThisEvent() }, submit: perform) {
-                if total > 0 { HelpText(archive.status) }
+                if archive.total > 0 { HelpText(archive.status) }
             }
         }
+    }
+
+    /// A row's menu, the same behind its gear, as its context menu and as its spoken actions.
+    private func commands(_ entry: ArchiveSearch.Entry) -> [[RowCommand]] {
+        let id = entry.id
+        return [[RowCommand(title: "Restore") { model.highlight(id); perform() }],
+                [RowCommand(title: "Remove…", role: .destructive) { model.remove(id) }]]
     }
 
     private func perform() {
@@ -78,12 +58,13 @@ struct ArchiveSheet: View {
     }
 }
 
-/// One archived task or review, as its row read in the sidebar: the agent's mark, the title, then the
-/// ticket and merge request badges, the branch and the project, with when it was archived on the
-/// title's line, where the status mark sits. Inked from its `Surface`, which the pill around it declares.
+/// One archived task or review, as its row reads in the sidebar: the task row's grid with its agent's mark in the
+/// avatar column, the title, then the ticket and merge request badges, the branch and the project; the gear where the
+/// status mark sits. An archived task keeps no diff and no worktree, so its request badge carries none. Inked from its
+/// `Surface`, which the pill around it declares.
 struct ArchiveRow: View {
     let entry: ArchiveSearch.Entry
-    let date: String
+    let commands: [[RowCommand]]
     @Environment(\.surface) private var surface
 
     var badges: TaskBadges {
@@ -103,28 +84,17 @@ struct ArchiveRow: View {
         let _ = bodyCounter?.count(entry.archived.id)
         #endif
         let task = entry.archived.task
-        HStack(spacing: Space.inset) {
-            VendorMark(agent: task.agent.session, size: Size.avatar)
-            VStack(alignment: .leading, spacing: Space.tight) {
-                HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
-                    RowTitle(task.title)
-                    Spacer(minLength: Space.tight)
-                    HelpText(date, fixedVerticalSize: false).lineLimit(1).fixedSize()
-                }
-                // The sidebar's order: ticket, merge request, then the branch, which is what truncates;
-                // the project last, kept whole.
-                HStack(spacing: Space.gap) {
-                    badges
-                    Text(task.branch).font(Typography.mono).foregroundStyle(surface.secondaryInk)
-                        .lineLimit(1).truncationMode(.middle)
-                    HelpText(entry.projectName, fixedVerticalSize: false).lineLimit(1).fixedSize()
-                }
-                .frame(height: Size.chip)
+        ListSheetRow(title: task.title, commands: commands) {
+            AvatarGroupView(group: AvatarGroup(marks: [task.agent.session], overflow: 0))
+        } detail: {
+            // The sidebar's order: ticket, merge request, then the branch, which is what truncates; the project last,
+            // kept whole.
+            HStack(spacing: Space.gap) {
+                badges
+                Text(task.branch).font(Typography.mono).foregroundStyle(surface.secondaryInk)
+                    .lineLimit(1).truncationMode(.middle)
+                HelpText(entry.projectName, fixedVerticalSize: false).lineLimit(1).fixedSize()
             }
         }
-        .padding(Space.base)
-        .frame(minHeight: Size.row)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
     }
 }

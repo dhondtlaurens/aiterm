@@ -255,12 +255,28 @@ struct BackgroundCardTests {
         #expect(open == closed, "open \(open) vs closed \(closed)")
     }
 
+    /// A line says a description in the system face, its first letter raised; a raw command says its kind, "Shell",
+    /// with the command as it ran in a chip, never recased. Each line's whole text is its help: a described shell's
+    /// command, else the words.
+    @Test func aLineSaysItsDescriptionOrItsKindAndItsCommand() {
+        let command = BackgroundCard.line(BackgroundJob(kind: .shell, text: "pytest -q tests/integration"))
+        #expect(command == BackgroundCard.Line(kind: "Shell", text: "pytest -q tests/integration", isCommand: true, help: "pytest -q tests/integration"))
+        let described = BackgroundCard.line(BackgroundJob(kind: .shell, text: "scripts/test.sh all", displayLabel: "run full suite on the clean tree"))
+        #expect(described == BackgroundCard.Line(kind: nil, text: "Run full suite on the clean tree", isCommand: false, help: "scripts/test.sh all"))
+        let monitor = BackgroundJob(kind: .monitor, text: "tail -f deploy.log", displayLabel: "watching the deploy logs for errors")
+        #expect(BackgroundCard.line(monitor).text == "Watching the deploy logs for errors")
+        #expect(BackgroundCard.line(monitor).help == "Watching the deploy logs for errors")
+        #expect(BackgroundCard.line(BackgroundJob(kind: .subagent, text: "Explore the daemon’s retry path")).text == "Explore the daemon’s retry path")
+    }
+
     // -- the signal card (step 11) ---------------------------------------------------
 
     /// A row as `SidebarModel.taskRow` and `presentingOperator` would give it, its `status` and Operator `line`.
     private func row(_ id: UUID, status: TaskStatus = .working, line: OperatorLine? = nil) -> TaskRow {
-        TaskRow(id: id, title: "Work", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
-                avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, operatorLine: line)
+        var row = TaskRow(id: id, title: "Work", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
+                          avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, operatorLine: line)
+        row.mark = .status(status)
+        return row
     }
 
     private func card(_ world: SignalWorld, _ id: UUID, status: TaskStatus = .working, line: OperatorLine? = nil) throws -> SignalCard {
@@ -268,18 +284,20 @@ struct BackgroundCardTests {
         return try #require(SignalCard.make(task: task, row: row(id, status: status, line: line), state: world.state))
     }
 
-    /// The Operator's task: its heading and one step are its signal, and its last line the Operator's act, or what its
-    /// line says, with the line's whole sentence as help.
+    /// The Operator's task: its one step is its signal, and its last line the Operator's act, or what its line says,
+    /// with the line's whole sentence as help, beside the row's own mark.
     @Test func anOperatorTasksCardSaysItsActOrItsLine() throws {
         var world = SignalWorld()
         let signal = world.signal(name: "Plan tickets")
         let id = world.workingTask(signal: signal)
         let acting = try card(world, id, line: OperatorLine("Operator answering its worker", look: .acting))
-        #expect(acting.heading == "Plan tickets")
+        #expect(acting.mark == .status(.working), "the work wears the row's mark")
         #expect(acting.steps == [SignalCard.Step(name: "Plan tickets", at: world.now, isCurrent: true)])
         #expect(acting.current == SignalCard.Current(text: "Operator answering its worker"))
-        let waiting = try card(world, id, status: .waiting, line: OperatorLine("status = Done", tooltip: "Waits until: status = Done"))
-        #expect(waiting.current == SignalCard.Current(text: "status = Done", help: "Waits until: status = Done"))
+        let waiting = try card(world, id, status: .waiting, line: .waiting(for: SignalTrigger(source: .jira, query: "status = Done"), facts: nil))
+        #expect(waiting.current == SignalCard.Current(text: "status = Done", help: "Waiting for its Done trigger: status = Done"),
+                "a Done trigger's query is never recased")
+        #expect(try card(world, id, status: .idle, line: .paused).current.text == "Paused", "the card's lines start with a capital")
         #expect(try card(world, id, status: .needsInput).current.text == "Needs input", "a worker asking has no line")
         let mine = try #require(world.state.task(id: id).map { task -> TaskItem in var task = task; task.signalTask = nil; return task })
         #expect(SignalCard.make(task: mine, row: row(id), state: world.state) == nil, "a task you made has no card")
@@ -296,15 +314,15 @@ struct BackgroundCardTests {
 
         world.state.tasks[index].signalOrigin?.owed = OwedPrompt(text: "/review", at: now, kind: .launch)
         world.state.tasks[index].windowId = nil
-        #expect(try card(world, id, status: .idle).current == SignalCard.Current(text: "waiting for your pause to open its window"))
+        #expect(try card(world, id, status: .idle).current == SignalCard.Current(text: "Waiting for your pause to open its window"))
 
         world.state.tasks[index].windowId = "task-window"
         world.state.tasks[index].signalOrigin?.owed = OwedPrompt(text: "/review", at: now, kind: .delivery)
-        #expect(try card(world, id, status: .done).current == SignalCard.Current(text: "waiting for its worker to be idle"))
+        #expect(try card(world, id, status: .done).current == SignalCard.Current(text: "Waiting for its worker to be idle"))
         world.state.signalSeen = [SignalSeen(signal: signal, item: item, disposition: .skipped, at: world.now,
                                              reason: "Its prompt couldn’t be typed: the session is read-only.")]
         #expect(try card(world, id, status: .done).current
-                == SignalCard.Current(text: "waiting for its worker to be idle", help: "Its prompt couldn’t be typed: the session is read-only."))
+                == SignalCard.Current(text: "Waiting for its worker to be idle", help: "Its prompt couldn’t be typed: the session is read-only."))
 
         world.state.tasks[index].signalOrigin?.owed = nil
         #expect(try card(world, id, status: .working).current == SignalCard.Current(text: "Working"))
@@ -332,17 +350,17 @@ struct BackgroundCardTests {
                                                          SignalStep(signal: plan, name: "Plan tickets", at: now - 3600)]
         world.state.removeSignal(id: triage)
         let chain = try card(world, id)
-        #expect(chain.heading == "Reviews for me")
+        #expect(chain.steps.last?.name == "Reviews for me")
         #expect(chain.steps == [SignalCard.Step(name: "Triage then (removed)", at: world.now - 7200, isCurrent: false),
                                 SignalCard.Step(name: "Plan tickets", at: world.now - 3600, isCurrent: false),
                                 SignalCard.Step(name: "Reviews for me", at: world.now, isCurrent: true)])
         world.state.removeSignal(id: reviews)
-        #expect(try card(world, id).heading == "Reviews for me (removed)")
+        #expect(try card(world, id).steps.last?.name == "Reviews for me (removed)")
 
         let held = world.workingTask(signal: plan)
         world.state.takeOver(held)
         let takenOver = try card(world, held, status: .idle)
-        #expect(takenOver.heading == "Plan tickets" && takenOver.steps.count == 1)
+        #expect(takenOver.steps.last?.name == "Plan tickets" && takenOver.steps.count == 1)
         #expect(takenOver.current == SignalCard.Current(text: "Idle"))
     }
 

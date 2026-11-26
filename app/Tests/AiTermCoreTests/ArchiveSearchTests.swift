@@ -77,15 +77,23 @@ import Foundation
         #expect(ArchiveSearch.rank([entry("Login")], query: "zebra").isEmpty)
     }
 
-    @Test func theDateReadsRelativeTodayYesterdayThenAsADay() throws {
+    /// The Archive groups by when a row was archived: Today, Yesterday, This week, then each month, with its year once
+    /// it is another year's.
+    @Test func theGroupIsTodayYesterdayThisWeekThenTheMonth() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        calendar.firstWeekday = 2
         let locale = Locale(identifier: "en_GB")
-        let now = Date(timeIntervalSince1970: 1_791_800_000) // 12 Oct 2026, 09:33 UTC
-        #expect(ArchiveDate.label(now.addingTimeInterval(-7200), now: now, calendar: calendar, locale: locale).contains("2"))
-        #expect(ArchiveDate.label(now.addingTimeInterval(-86_400), now: now, calendar: calendar, locale: locale) == "yesterday")
-        #expect(ArchiveDate.label(now.addingTimeInterval(-3 * 86_400), now: now, calendar: calendar, locale: locale) == "9 Oct")
-        #expect(ArchiveDate.label(now.addingTimeInterval(-400 * 86_400), now: now, calendar: calendar, locale: locale) == "7 Sep 2025")
+        let now = Date(timeIntervalSince1970: 1_791_800_000 + 3 * 86_400) // Thu 15 Oct 2026, 09:33 UTC
+        func group(_ days: Double) -> String {
+            ArchiveDate.group(now.addingTimeInterval(-days * 86_400), now: now, calendar: calendar, locale: locale)
+        }
+        #expect(group(2.0 / 24) == "Today")
+        #expect(group(1) == "Yesterday")
+        #expect(group(3) == "This week")
+        #expect(group(4) == "October")
+        #expect(group(20) == "September")
+        #expect(group(400) == "September 2025")
     }
 
 }

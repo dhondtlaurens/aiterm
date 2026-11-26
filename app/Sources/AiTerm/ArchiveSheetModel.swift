@@ -11,15 +11,15 @@ final class ArchiveSheetModel: Identifiable {
     /// The row ↑ ↓ last landed on; nil follows the first row.
     private var highlightedId: UUID?
     @ObservationIgnored private let entries: @MainActor () -> [ArchiveSearch.Entry]
-    @ObservationIgnored private let restore: @MainActor (UUID) -> Void
-    @ObservationIgnored private let remove: @MainActor (UUID) -> Void
+    @ObservationIgnored private let restoreAction: @MainActor (UUID) -> Void
+    @ObservationIgnored private let removeAction: @MainActor (UUID) -> Void
     /// The clock the rows' dates are read against; the snapshots fix it.
     @ObservationIgnored var now: @MainActor () -> Date = { Date() }
 
     /// `restore` and `remove` take an archived task or review id.
     init(entries: @escaping @MainActor () -> [ArchiveSearch.Entry], restore: @escaping @MainActor (UUID) -> Void,
          remove: @escaping @MainActor (UUID) -> Void) {
-        self.entries = entries; self.restore = restore; self.remove = remove
+        self.entries = entries; restoreAction = restore; removeAction = remove
     }
 
     /// One render or command's consistent view of the Archive. Ranking is reused only while
@@ -62,6 +62,25 @@ final class ArchiveSheetModel: Identifiable {
 
     func highlight(_ id: UUID) { highlightedId = id }
 
+    /// The rows as the sheet lists them: under their dates' groups, newest first, without a search (`ArchiveDate`); a
+    /// search's matches best first, under no heading. Either way in the order ↑ ↓ walk.
+    func groups(calendar: Calendar, locale: Locale) -> [ListGroup<ArchiveSearch.Entry>] {
+        let rows = projection.rows
+        guard query.trimmingCharacters(in: .whitespaces).isEmpty else { return rows.isEmpty ? [] : [ListGroup(heading: nil, items: rows)] }
+        let now = now()
+        var groups: [ListGroup<ArchiveSearch.Entry>] = []
+        for row in rows {
+            let heading = ArchiveDate.group(row.archived.archivedAt, now: now, calendar: calendar, locale: locale)
+            if groups.last?.heading == heading { groups[groups.count - 1].items.append(row) }
+            else { groups.append(ListGroup(heading: heading, items: [row])) }
+        }
+        return groups
+    }
+
+    /// A row's menu: Restore and Remove… act on the row they were chosen on.
+    func restore(_ id: UUID) { restoreAction(id) }
+    func remove(_ id: UUID) { removeAction(id) }
+
     /// ⎋: a search is cleared first; false when there was none, and the sheet closes.
     func clearQuery() -> Bool {
         guard !query.isEmpty else { return false }
@@ -73,13 +92,13 @@ final class ArchiveSheetModel: Identifiable {
     @discardableResult
     func performHighlighted() -> Bool {
         guard let entry = projection.highlighted else { return false }
-        restore(entry.id)
+        restoreAction(entry.id)
         return true
     }
 
     func removeHighlighted() -> Bool {
         guard let row = projection.highlighted else { return false }
-        remove(row.id)
+        removeAction(row.id)
         return true
     }
 }

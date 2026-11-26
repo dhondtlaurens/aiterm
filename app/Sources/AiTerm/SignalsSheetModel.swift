@@ -14,21 +14,27 @@ final class SignalsSheetModel: Identifiable {
         /// Its Start trigger's source, as its heading marks it.
         var mark: IconSource
         var name: String
-        /// "Starts: …", with a schedule in words.
-        var starts: String
-        /// A schedule's "Next run: …"; nil for a signal that starts from items, or one that runs no more.
-        var nextRun: String?
-        /// "Done: …".
-        var done: String
-        /// What needs the person, in the warning ink: a signal this version cannot run, its source's failing read, and
-        /// each skipped item with its reason.
-        var issues: [String]
+        /// The second line: the Start's description, or its query (a schedule's cron) when it has none.
+        var detail: String
+        /// The second line is the query, drawn in the mono face.
+        var detailIsQuery: Bool
+        /// What the state column says; nil while it watches with nothing to say.
+        var state: State?
         var switchedOff: Bool
         /// Whether a signal of its kind lies above or below it: Move Up and Move Down change their priority.
         var canMoveUp: Bool, canMoveDown: Bool
+        /// What the search reads besides the name and the second line: the description, the query and the source.
+        var searched: [String] = []
+    }
 
-        /// The trigger lines under its name, in order.
-        var lines: [String] { [starts] + (nextRun.map { [$0] } ?? []) + [done] }
+    /// A row's state, one at a time: switched off, else what needs the person, else a schedule's next run.
+    enum State: Equatable {
+        /// A signal this version cannot run, its source's failing read, a skipped item: the chip's one line, the first
+        /// issue's gist with the rest counted, and `detail`, every issue whole, for the glyph's help and VoiceOver.
+        case issue(String, detail: [String])
+        case switchedOff
+        /// "Next run: 30 Nov 2026 09:00", or that none is to come.
+        case schedule(String)
     }
 
     /// What the menus do, each with the id of the row it was chosen on.
@@ -46,6 +52,9 @@ final class SignalsSheetModel: Identifiable {
 
     let id = UUID()
     let section: SidebarSection
+    var query = "" { didSet { if query != oldValue { highlightedId = nil } } }
+    /// The row ↑ ↓ or a click last landed on; none until then.
+    private var highlightedId: UUID?
     @ObservationIgnored private let source: @MainActor () -> [Row]
     @ObservationIgnored let actions: Actions
 
@@ -66,6 +75,44 @@ final class SignalsSheetModel: Identifiable {
     /// The section's signals as they are now, in priority order.
     var rows: [Row] { source() }
 
+    /// The rows the search finds, in priority order: a name, description, query or source holding the query, ignoring
+    /// case and accents. Every row without a search.
+    var visibleRows: [Row] {
+        let query = Self.folded(query.trimmingCharacters(in: .whitespaces))
+        guard !query.isEmpty else { return rows }
+        return rows.filter { row in ([row.name, row.detail] + row.searched).contains { Self.folded($0).contains(query) } }
+    }
+
+    var highlighted: Row? { visibleRows.first { $0.id == highlightedId } }
+
+    /// ↑ ↓: from nothing to the first or the last, then along, wrapping.
+    func move(by step: Int) {
+        let rows = visibleRows
+        guard !rows.isEmpty else { return }
+        guard let at = rows.firstIndex(where: { $0.id == highlightedId }) else {
+            highlightedId = (step > 0 ? rows.first : rows.last)?.id; return
+        }
+        highlightedId = rows[((at + step) % rows.count + rows.count) % rows.count].id
+    }
+
+    func highlight(_ id: UUID) { highlightedId = id }
+
+    /// ⎋: a search is cleared first; false when there was none, and the sheet closes.
+    func clearQuery() -> Bool {
+        guard !query.isEmpty else { return false }
+        query = ""
+        return true
+    }
+
+    /// ⌘⌫: Remove Signal… on the highlighted row, which asks first; false with none.
+    func removeHighlighted() -> Bool {
+        guard let row = highlighted, canChange else { return false }
+        remove(row.id)
+        return true
+    }
+
+    private static func folded(_ text: String) -> String { text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+
     // -- each row's menu and the footer --------------------------------------------------------
     func edit(_ id: UUID) { actions.edit(id) }
     func switchOnOff(_ id: UUID) { actions.switchOnOff(id) }
@@ -74,6 +121,12 @@ final class SignalsSheetModel: Identifiable {
     func new() { actions.new() }
     var canChange: Bool { actions.canChange() }
     var canEdit: Bool { actions.canEdit() }
+
+    /// The first issue as a sentence, and how many more there are: "PAY-7: No project. And 2 more."
+    static func said(_ first: String, more: Int) -> String {
+        guard more > 0 else { return first }
+        return (first.hasSuffix(".") ? first : first + ".") + " And \(more) more."
+    }
 
     /// `section`'s signals in `state` as rows, in their priority order: Operator signals in the Operator's section,
     /// project signals in the projects'. `failure` is a signal's failing read (`SignalReadIssues`), said with its source
@@ -84,17 +137,27 @@ final class SignalsSheetModel: Identifiable {
         let skipped = SignalSidebar.skipped(in: state, calendar: calendar)
         let nextRuns = SignalSidebar.nextRuns(in: state, now: now, calendar: calendar)
         return signals.enumerated().map { index, signal in
+            // Each issue whole, and its gist for the chip: a failing read's gist leaves out the server's error, which can
+            // run past the sheet, and keeps the source and when AiTerm tries again.
             var issues = signal.isValid ? [] : ["This signal can’t run as it is set up."]
+            var gists = issues
             if let failure = failure(signal.id) {
                 let retry = SignalReadIssues.retry(after: failure, backOff: SignalPoller.failureBackOff, calendar: calendar)
                 issues.append("Can’t read \(signal.start.source.label): " + SignalReadIssues.reason(failure.text, retry: retry))
+                gists.append("Can’t read \(signal.start.source.label). " + retry)
             }
             issues += skipped[signal.id] ?? []
+            gists += skipped[signal.id] ?? []
+            let description = signal.start.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let query = signal.start.query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let state: State? = if !signal.enabled { .switchedOff }
+                else if let first = gists.first { .issue(Self.said(first, more: gists.count - 1), detail: issues) }
+                else if signal.isScheduled { .schedule(SignalSummary.nextRun(nextRuns[signal.id], calendar: calendar) ?? "No run to come") }
+                else { nil }
             return Row(id: signal.id, mark: ProviderIcon.source(of: signal.start.source), name: signal.name,
-                       starts: SignalSummary.starts(signal),
-                       nextRun: signal.isScheduled ? SignalSummary.nextRun(nextRuns[signal.id], calendar: calendar) : nil,
-                       done: SignalSummary.done(signal), issues: issues, switchedOff: !signal.enabled,
-                       canMoveUp: index > 0, canMoveDown: index < signals.count - 1)
+                       detail: description.isEmpty ? query : description, detailIsQuery: description.isEmpty, state: state,
+                       switchedOff: !signal.enabled, canMoveUp: index > 0, canMoveDown: index < signals.count - 1,
+                       searched: [description, query, signal.start.source.label])
         }
     }
 }

@@ -1,22 +1,19 @@
 import Foundation
 
-/// When a row was archived, as the Archive sheet's rows say it: relative today ("2 hr ago"),
-/// "yesterday", then the day ("9 Oct"), with the year once it is another year's.
+/// When a row was archived, as the Archive sheet's group headings say it: "Today", "Yesterday", "This week", then the
+/// month ("October"), with its year once it is another year's ("September 2025"). Rows are newest first, so the groups
+/// come in this order too.
 public enum ArchiveDate {
-    public static func label(_ date: Date, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
-        if calendar.isDate(date, inSameDayAs: now) {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .short
-            formatter.calendar = calendar
-            formatter.locale = locale
-            return formatter.localizedString(for: date, relativeTo: now)
-        }
+    public static func group(_ date: Date, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
-            return "yesterday"
+            return "Yesterday"
         }
-        var style = Date.FormatStyle(date: .omitted, time: .omitted, locale: locale, calendar: calendar, timeZone: calendar.timeZone)
-            .day().month(.abbreviated)
-        if calendar.component(.year, from: date) != calendar.component(.year, from: now) { style = style.year() }
-        return date.formatted(style)
+        if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) { return "This week" }
+        let formatter = DateFormatter()
+        formatter.locale = locale; formatter.calendar = calendar; formatter.timeZone = calendar.timeZone
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        formatter.dateFormat = sameYear ? "LLLL" : "LLLL yyyy"
+        return formatter.string(from: date)
     }
 }

@@ -347,7 +347,7 @@ import AiTermUI
         let discHover = try await open(disc, in: host)
         #expect(!jobsHover.isOpen && jobsPanel.parent == nil, "the disc's card replaces the work card")
         #expect(presenter.kind == .signal && presenter.card == nil)
-        #expect(presenter.signalCard?.heading == "Reviews for me")
+        #expect(presenter.signalCard?.steps.last?.name == "Reviews for me")
         let panel = try #require(presenter.panel)
         let scale = size.scale
         let row = window.convertToScreen(disc.convert(disc.bounds, to: nil))
@@ -360,7 +360,7 @@ import AiTermUI
         #expect(abs(panel.frame.maxY - min(row.maxY + scale(Space.base), available.maxY)) <= 1,
                 "its top on the pill's, inside the viewport: \(panel.frame) for \(row) in \(available)")
         #expect(abs(panel.frame.maxX - (row.maxX + SidebarRowLayout.trailingInset(scale))) <= 1, "to the pill's trailing edge")
-        #expect(abs(panel.frame.height - SignalCardView.height(lines: 2, scale: scale)) <= 1)
+        #expect(abs(panel.frame.height - SignalCardView.height(steps: 1, scale: scale)) <= 1)
 
         try await open(jobs, in: host)
         #expect(!discHover.isOpen && presenter.kind == .jobs, "the work card replaces the disc's")

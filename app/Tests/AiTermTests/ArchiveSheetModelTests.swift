@@ -69,4 +69,28 @@ import Testing
         #expect(model.projection.highlighted == a)
     }
 
+    /// Without a search the rows fall under their dates' groups, newest first, and ↑ ↓ pass straight over a heading;
+    /// a search lists its best matches first, under no heading. A row's menu restores or removes its own row.
+    @Test func theRowsGroupByDateWithoutASearch() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let now: TimeInterval = 1_791_800_000 // Mon 12 Oct 2026, 09:33 UTC
+        let today = entry("Login", at: now - 3600), yesterday = entry("Header", at: now - 86_400),
+            october = entry("Daemon", at: now - 9 * 86_400)
+        var restored: [UUID] = [], removed: [UUID] = []
+        let model = ArchiveSheetModel(entries: { [october, today, yesterday] }, restore: { restored.append($0) },
+                                      remove: { removed.append($0) })
+        model.now = { Date(timeIntervalSince1970: now) }
+        let groups = model.groups(calendar: calendar, locale: Locale(identifier: "en_GB"))
+        #expect(groups.map(\.heading) == ["Today", "Yesterday", "October"])
+        #expect(groups.map { $0.items.map(\.id) } == [[today.id], [yesterday.id], [october.id]])
+        model.move(by: 1); #expect(model.projection.highlighted == yesterday, "past the Yesterday heading")
+        model.query = "da"
+        let found = model.groups(calendar: calendar, locale: Locale(identifier: "en_GB"))
+        #expect(found.map(\.heading) == [nil])
+        #expect(found.first?.items.map(\.id) == [october.id])
+        model.restore(today.id); model.remove(yesterday.id)
+        #expect(restored == [today.id] && removed == [yesterday.id])
+    }
+
 }

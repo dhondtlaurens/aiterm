@@ -3,9 +3,9 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// What the card a task row's signals disc opens says (design decision 6, 25 Nov 2026): its heading is the signal that
-/// runs the task now or started it; then each signal that ran the task, oldest first, with when; and last the work going
-/// on now: the Operator's act or its line's words on a task it holds, the worker's state on yours.
+/// What the card a task row's signals disc opens says (proposal “The two floating cards”, A, 26 Nov 2026): each signal
+/// that ran the task, oldest first, with when; then the work going on now beside the row's own mark: the Operator's act
+/// or its line's words on a task it holds, the worker's state on yours.
 struct SignalCard: Equatable {
     struct Step: Equatable {
         /// The signal's live name, or its saved one marked removed.
@@ -21,9 +21,10 @@ struct SignalCard: Equatable {
         var help: String? = nil
     }
 
-    var heading: String
     var steps: [Step]
     var current: Current
+    /// The row's trailing mark, which the work line wears so it reads as a state, not as another signal.
+    var mark: TaskRowMark = .status(.idle)
 
     /// The card of `task`, drawn as `row`, in `state`; nil for a task no signal started.
     static func make(task: TaskItem, row: TaskRow, state: AppState) -> SignalCard? {
@@ -41,9 +42,8 @@ struct SignalCard: Equatable {
         func step(_ step: SignalStep, current: Bool) -> Step {
             Step(name: SidebarModel.signalName(step.signal, saved: step.name, names: names), at: step.at, isCurrent: current)
         }
-        return SignalCard(heading: SidebarModel.signalName(now.signal, saved: now.name, names: names),
-                          steps: earlier.map { step($0, current: false) } + [step(now, current: true)],
-                          current: current(task: task, row: row, state: state))
+        return SignalCard(steps: earlier.map { step($0, current: false) } + [step(now, current: true)],
+                          current: current(task: task, row: row, state: state), mark: row.mark)
     }
 
     /// The work going on now. A task the Operator holds says its line, which is the Operator's act while it acts
@@ -53,7 +53,10 @@ struct SignalCard: Equatable {
     private static func current(task: TaskItem, row: TaskRow, state: AppState) -> Current {
         if task.signalTask != nil {
             guard let line = row.operatorLine else { return Current(text: row.status.label) }
-            return Current(text: line.text, help: line.tooltip == line.text ? nil : line.tooltip)
+            // The card's lines start with a capital ("Paused", "Starting its worker"), but a Done trigger's own words
+            // stay as written: they may be a query.
+            let text = line.tooltip.hasPrefix(OperatorLine.doneTriggerTooltip) ? line.text : BackgroundCard.sentence(line.text)
+            return Current(text: text, help: line.tooltip == line.text ? nil : line.tooltip)
         }
         guard let origin = task.signalOrigin else { return Current(text: row.status.label) }
         if origin.doneAt != nil {
@@ -64,7 +67,7 @@ struct SignalCard: Equatable {
             let held = state.signalSeen.first {
                 $0.signal == origin.signal && $0.item.identity == origin.item.identity && $0.disposition == .skipped
             }?.reason
-            return Current(text: task.windowId == nil ? "waiting for your pause to open its window" : "waiting for its worker to be idle",
+            return Current(text: task.windowId == nil ? "Waiting for your pause to open its window" : "Waiting for its worker to be idle",
                            help: held)
         }
         return Current(text: row.status.label)
@@ -81,24 +84,25 @@ struct SignalCard: Equatable {
     }
 }
 
-/// The signal card: the heading in the help style, one `Size.chip` line per signal that ran the task with its time (the
-/// earlier ones muted), and the line of the work going on now, in the background-work card's chrome. A long chain keeps
-/// its latest signals when the viewport is short.
+/// The signal card: one `Size.chip` line per signal that ran the task, oldest first, its name cut at the end and its time
+/// never, the earlier ones muted; a `Hairline`; then the work going on now beside the row's mark, in the secondary ink,
+/// cut at the end with its whole sentence as help. In the background-work card's chrome. A long chain keeps its latest
+/// signals when the viewport is short.
 struct SignalCardView: View {
     let card: SignalCard
     var visibleSteps = Int.max
     @Environment(\.interfaceScale) private var scale
     @Environment(\.footerClock) private var clock
 
-    /// The card's height with `lines` below its heading: its steps and the current line.
-    static func height(lines: Int, scale: InterfaceScale) -> CGFloat {
-        2 * scale(Space.base) + scale(Size.chip) + CGFloat(max(0, lines)) * (scale(Size.chip) + scale(Space.tight))
+    /// The card's height with `steps` signal lines over the rule and the work's line.
+    static func height(steps: Int, scale: InterfaceScale) -> CGFloat {
+        let steps = CGFloat(max(0, steps))
+        return 2 * scale(Space.base) + steps * scale(Size.chip) + Hairline.thickness + scale(Size.chip) + (steps + 1) * scale(Space.tight)
     }
 
-    /// How many of `total` steps fit in `availableHeight` beside the heading and the current line; none when even the
-    /// current line does not fit.
+    /// How many of `total` steps fit in `availableHeight` over the rule and the work's line; none when not even one does.
     static func visibleSteps(total: Int, availableHeight: CGFloat, scale: InterfaceScale) -> Int {
-        let room = availableHeight - height(lines: 1, scale: scale)
+        let room = availableHeight - height(steps: 0, scale: scale)
         let fits = max(0, Int(floor(room / (scale(Size.chip) + scale(Space.tight)))))
         return min(total, fits)
     }
@@ -107,8 +111,6 @@ struct SignalCardView: View {
         let steps = Array(card.steps.suffix(max(0, visibleSteps)))
         let now = clock?.now ?? Date(), calendar = clock?.calendar ?? .autoupdatingCurrent
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
-                .frame(height: scale(Size.chip))
             ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                 HStack(spacing: scale(Space.tight)) {
                     Text(step.name).font(Typography.help).foregroundStyle(step.isCurrent ? Palette.text : Palette.muted)
@@ -119,11 +121,15 @@ struct SignalCardView: View {
                 }
                 .frame(height: scale(Size.chip))
             }
-            Text(card.current.text).font(Typography.help).foregroundStyle(Palette.text)
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, minHeight: scale(Size.chip), maxHeight: scale(Size.chip), alignment: .leading)
-                .help(card.current.help ?? "")
+            Hairline()
+            HStack(spacing: scale(Space.base)) {
+                TaskRowMarkView(mark: card.mark, size: scale(Size.statusMark))
+                Text(card.current.text).font(Typography.help).foregroundStyle(Palette.muted)
+                    .lineLimit(1).truncationMode(.tail)
+                    .help(card.current.help ?? card.current.text)
+            }
+            .frame(maxWidth: .infinity, minHeight: scale(Size.chip), maxHeight: scale(Size.chip), alignment: .leading)
         }
-        .modifier(FloatingCardChrome(height: Self.height(lines: steps.count + 1, scale: scale)))
+        .modifier(FloatingCardChrome(height: Self.height(steps: steps.count, scale: scale)))
     }
 }

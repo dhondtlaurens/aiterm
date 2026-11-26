@@ -15,9 +15,12 @@ public struct Hairline: View {
 
     let weight: Weight
 
+    /// How thick it is at every size: a border does not scale.
+    public static let thickness: CGFloat = 1
+
     public init(_ weight: Weight = .soft) { self.weight = weight }
 
     public var body: some View {
-        Rectangle().fill(weight == .firm ? Palette.borderStrong : Palette.border).frame(height: 1)
+        Rectangle().fill(weight == .firm ? Palette.borderStrong : Palette.border).frame(height: Self.thickness)
     }
 }

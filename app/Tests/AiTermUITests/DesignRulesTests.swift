@@ -62,8 +62,6 @@ struct DesignRulesTests {
                   reason: "the toast's shadow, as the panel's: a shadow is not tokenised"),
         Exception(file: "AiTermUI/Metrics.swift", rule: .colour, line: "case .black: nsWeight = .black",
                   reason: "Font.Weight.black mapped to NSFont.Weight.black: a weight, not a colour"),
-        Exception(file: "AiTermUI/Hairline.swift", rule: .length, line: ".frame(height: 1)",
-                  reason: "the hairline is a one-point stroke, which does not scale, not a length on the scale"),
         Exception(file: "AiTermUI/IconSource.swift", rule: .font, line: ".font(.system(size: size))",
                   reason: "an SF Symbol drawn at the icon's size, which its caller passes from Metrics"),
         Exception(file: "AiTermUI/Logos.swift", rule: .font, line: ".font(.system(size: size * 0.9",

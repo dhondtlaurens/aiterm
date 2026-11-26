@@ -50,6 +50,32 @@ struct BackgroundCard: Equatable {
         return parts.joined(separator: ". ")
     }
 
+    /// One line as the card draws it (proposal “The two floating cards”, C, 26 Nov 2026).
+    struct Line: Equatable {
+        /// The kind in words ahead of a raw command: "Shell". Nil for a description.
+        var kind: String?
+        /// The description, its first letter raised, or the command exactly as it ran.
+        var text: String
+        /// The text is a command, drawn in a quiet mono chip.
+        var isCommand: Bool
+        /// The line's whole text: a described shell's command, else the words.
+        var help: String
+    }
+
+    /// A job's line: a raw command says "Shell" and its command; anything else says its description, its first letter
+    /// raised, as every line of a card starts with a capital.
+    static func line(_ job: BackgroundJob) -> Line {
+        if job.isCommand { return Line(kind: "Shell", text: job.text, isCommand: true, help: job.text) }
+        let text = sentence(job.label)
+        return Line(kind: nil, text: text, isCommand: false, help: job.kind == .shell ? job.text : text)
+    }
+
+    /// `text` with its first letter raised; the rest as it was written.
+    static func sentence(_ text: String) -> String {
+        guard let first = text.first, first.isLowercase else { return text }
+        return first.uppercased() + text.dropFirst()
+    }
+
     /// Whose mark leads a line (A): agent work (a subagent, a teammate, a workflow, a cloud session, a dream) wears the
     /// vendor of the tab it runs in, Claude unless the tab names another; everything else (a shell, a monitor, an MCP
     /// task, a test run) the terminal's.
@@ -161,20 +187,42 @@ struct BackgroundCardView: View {
     private var lines: some View {
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
             ForEach(Array(card.lines.enumerated()), id: \.offset) { _, job in
-                HStack(alignment: .center, spacing: scale(Space.tight)) {
+                let line = BackgroundCard.line(job)
+                // The mark `Space.inset` from its words, as the footer's lines with the same marks.
+                HStack(alignment: .center, spacing: scale(Space.inset)) {
                     VendorMark(agent: BackgroundCard.mark(job), size: scale(Self.markSize))
                         .overlay(alignment: .bottomTrailing) {
                             if job.idle { IdleCorner().offset(x: scale(Space.hairline), y: scale(Space.hairline)) }
                         }
-                    Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
-                        .foregroundStyle(job.idle ? Palette.muted : Palette.text).lineLimit(1).truncationMode(.tail)
-                        .help(job.kind == .shell && !job.isCommand ? job.text : "")
+                    HStack(spacing: scale(Space.tight)) {
+                        if let kind = line.kind { Text(kind).font(Typography.help).fixedSize() }
+                        if line.isCommand { CommandChip(text: line.text) }
+                        else { Text(line.text).font(Typography.help).lineLimit(1).truncationMode(.tail) }
+                    }
+                    .foregroundStyle(job.idle ? Palette.muted : Palette.text)
+                    .help(line.help)
                 }
                 .frame(height: scale(Size.chip))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A raw command in a background-work line: `Typography.monoChip` in the secondary ink on the badge wash, `Size.chip`
+/// tall, `Space.tight` inside, `Radius.chip`; it shrinks to the card and cuts its command at the end, never recasing it.
+private struct CommandChip: View {
+    let text: String
+    @Environment(\.interfaceScale) private var scale
+    @Environment(\.surface) private var surface
+
+    var body: some View {
+        Text(text).font(Typography.monoChip).foregroundStyle(surface.secondaryInk)
+            .lineLimit(1).truncationMode(.tail)
+            .padding(.horizontal, scale(Space.tight))
+            .frame(height: scale(Size.chip))
+            .background(RoundedRectangle(cornerRadius: scale(Radius.chip)).fill(Palette.badge))
     }
 }
 
