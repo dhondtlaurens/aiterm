@@ -12,6 +12,17 @@ import AiTermUI
             }
         }
         values += [
+            Snapshot("signal-agy-offline.png") {
+                let failure = ModelListError.failed(.agy, 1, "Sign in to read your models.")
+                var check = HarnessCheck(.models, passed: false, explanation: failure.summary)
+                check.modelListFailure = failure
+                let card = HarnessSnapshot.reduce(agent: .agy, cliAvailable: true, integrationState: .current, models: [], checks: [check])
+                let context = SignalContext(installed: { [.agy] }, harness: .preview(snapshots: [.agy: card]))
+                let signal = Signal(name: "Review fixes", createdAt: Snapshots.clock.now, start: .init(source: .gitLab, query: "reviewer:@me"),
+                    done: .init(source: .operator, query: ""), work: .init(prompt: "Review the change."),
+                    agents: [.init(agent: .agy, model: "gemini-4-neon", reasoning: "high")], finish: .init(then: .keep))
+                return SignalSheet(model: SignalModel(signal: signal, projects: [], context: context, save: { _ in })).seeded(step: SignalModel.agentsStep)
+            },
             // A Start query that names no role of the account's is refused under its field.
             Snapshot("signal-gitLab-refused.png") {
                 let model = model(.gitLab); model.start.query = "review-state:unreviewed draft:no"

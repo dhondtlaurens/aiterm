@@ -5,4 +5,6 @@ import AiTermCore
 struct AgentChoiceRow: Identifiable, Equatable {
     var id = UUID()
     var choice: AgentChoice
+    /// A new sheet seeds these before the installation probe has necessarily finished.
+    var initialDefault = false
 }

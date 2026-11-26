@@ -28,8 +28,6 @@ struct OperatorPorts {
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// The agents the login shell found, which a task may run: the app's `AgentIntegrations.availableAgents`.
     var installedAgents: @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) }
-    /// An agent's model list in Settings › Agents (`ModelCatalogue.models(for:)`). Blocking: read through `BackgroundWork`.
-    var agentModels: @Sendable (AgentKind) -> [AgentModel] = { _ in [] }
     /// The version each agent CLI installed here reports (`AgentVersions`). Blocking: read through `BackgroundWork`.
     var installedVersions: @Sendable ([AgentKind]) -> [AgentKind: String] = { _ in [:] }
     /// Settings › Operator's current profile (`OperatorProfileStore.load`). Blocking: read
@@ -51,8 +49,6 @@ struct OperatorPorts {
         ports.pause = .live
         ports.installedVersions = { AgentVersions.shared.current($0) }
         ports.installedAgents = { [weak agents] in agents?.availableAgents ?? [] }
-        let catalogue = agents.catalogue
-        ports.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
         // Read the Operator's current model, Oracle and standing instructions from its preferences.
         ports.profile = agents.operatorProfile
         ports.preferences = preferences

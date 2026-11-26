@@ -89,9 +89,8 @@ extension OperatorPorts {
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = ScratchFolder.path("aiterm-operators-")
         var ports = OperatorPorts(home: home, git: git, notifications: notifications)
-        // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
+        // The installed workers in the scratch workspace.
         ports.installedAgents = { [.claude, .codex] }
-        ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }
         // The versions the recording daemon's delivery check vouches for, never this Mac's `--version`.
         ports.installedVersions = { agents in [AgentKind: String](uniqueKeysWithValues: agents.compactMap { agent in
             ([.claude: "2.1.301", .codex: "0.160.0"] as [AgentKind: String])[agent].map { (agent, $0) } }) }

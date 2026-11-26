@@ -16,10 +16,10 @@ An Operator draft starts with one row per installed worker in the existing order
 
 - Modify `daemon/aitermd/signal_tools.json`, the Operator fixture `tools.json` and its sibling `PROVENANCE.md`. Record the deliberate tool contract change in the implementation commit. Note in provenance that the brief already instructs the Operator to choose a permitted row.
 - Modify `SignalOperatorContractTests.swift`, `daemon/tests/test_operator_surface.py` and `SignalAgentChoiceTests.swift` to cover both ends of the MCP contract, exact row selection, opening and resuming.
-- Modify `AppController+Signals.swift`, `AppController+Operators.swift`, `Operators/OperatorPorts.swift`, `Operators/SignalContext.swift` and `Operators/SignalModel.swift` for immediate presentation, discovery state and validation. Reuse the retained observable snapshots in `HarnessSettingsModel.swift` and its existing per-worker in-flight guard.
+- Modify `AppController+Signals.swift`, `AppController+Operators.swift`, `Operators/OperatorPorts.swift`, `Operators/SignalContext.swift` and `Operators/SignalModel.swift` for immediate presentation, discovery state and validation. Keep the initial defaults identifiable in `AgentChoiceRow.swift` while the installation probe finishes. Reuse the retained observable snapshots in `HarnessSettingsModel.swift` and its existing per-worker in-flight guard. Carry the typed catalogue failure on the Models check in `HarnessDiagnostics.swift` and `HarnessService.swift`. Report a timed-out request in `AgyModelCatalog.swift` and cover its explanation in `ModelFilesTests.swift`.
 - Modify `Operators/SignalReadiness.swift` and `SignalReadinessTests.swift` so the Models warning appears once on the Agents step and other readiness issues still appear in the footer.
-- Modify `Views/Operators/SignalSheet.swift` and `Views/Operators/AgentsStep.swift` to present the model state on both kinds of signal using existing UI components. Correct the weekly switch explanation in the Agents step.
-- Modify the signal model, presentation and harness tests and their fixtures (`SignalModelTests.swift`, `SheetPreparationTests.swift`, `OperatorFakes.swift`, `HarnessSettingsModelTests.swift` and the seeded context in `SignalSnapshots.swift` where needed).
+- Modify `Views/Operators/SignalSheet.swift`, `Views/Operators/AgentsStep.swift`, `Views/Steps/AgentStep.swift` and `Views/ModelReasoningFields.swift` to present the model state on both kinds of signal using existing UI components. Correct the weekly switch explanation in the Agents step.
+- Modify the signal model, presentation and harness tests and their fixtures (`SignalModelTests.swift`, `SheetPreparationTests.swift`, `OperatorFakes.swift`, `SignalSnapshots.swift` and `SignalSnapshotTests.swift`).
 - Modify `docs/operators.md` for guarded workers and the scope of the weekly switch. Correct the symbol in `docs/plans/2026-11-26-antigravity-cli.md` to `ModelChoice.weeklySwitchPair`.
 
 ## Proof
@@ -32,7 +32,13 @@ An Operator draft starts with one row per installed worker in the existing order
 
 ## To-dos
 
-- [ ] Test and repair the advertised worker contract, update fixture provenance, and verify all three handlers.
-- [ ] Test both presentation paths with a suspended runner. Present immediately and deliver each worker’s models and failure from its readiness probe.
-- [ ] Test the installed-but-failed catalogue path and implement row preservation, feedback and validation on those probe results.
-- [ ] Correct the documentation and help, inspect the sheet captures, run the gate and record the live Operator proof.
+- [x] Test and repair the advertised worker contract, update fixture provenance, and verify all three handlers.
+- [x] Test both presentation paths with a suspended runner. Present immediately and deliver each worker’s models and failure from its readiness probe.
+- [x] Test the installed-but-failed catalogue path and implement row preservation, feedback and validation on those probe results.
+- [x] Correct the documentation and help, inspect the sheet captures, run the gate and record the live Operator proof.
+
+## Verification
+
+The regressions failed on the original code. The served and checked-in schemas each omitted Antigravity on all three tools. The offline edit failed to save and the new draft omitted the installed worker. Both presentation paths returned before a sheet occupied the slot.
+
+The live run used a scratch signal with two permitted rows, the shipped Operator brief, the worktree’s MCP route and Swift handlers, and the running iTerm2 helper. The Operator called `choose_agent` for `agy`, model `gemini-4-neon`, reasoning `high`, then `open_tab` on that row with key `verify`. The helper reported distinct Antigravity sessions for the main and named tabs in the same task window. The run closed its window afterward.

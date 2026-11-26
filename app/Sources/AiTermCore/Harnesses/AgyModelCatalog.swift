@@ -72,7 +72,8 @@ public enum AgyModelCatalog {
         } catch {
             throw ModelListError.unavailable(.agy)
         }
-        guard !result.timedOut, result.status == 0 else {
+        if result.timedOut { throw ModelListError.failed(.agy, result.status, "The model request timed out.") }
+        guard result.status == 0 else {
             throw ModelListError.failed(.agy, result.status, result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return try parse(result.stdout)

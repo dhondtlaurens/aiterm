@@ -12,7 +12,7 @@ struct SignalSheet: View {
             content
         } notices: {
             if let error = model.error { Notice(title: error) }
-            switch model.readiness(AgentCommand.workerAgents.filter { agent in model.agents.contains { $0.agent == agent } }) {
+            switch model.readiness(AgentCommand.workerAgents.filter { agent in model.agents.contains { $0.agent == agent } }, step == SignalModel.agentsStep) {
             case .checking: Notice(title: SignalReadiness.checkingTitle)
             case .notReady(let lines): Notice(title: SignalReadiness.title, description: lines.joined(separator: "\n"))
             case .ready: EmptyView()
@@ -33,12 +33,16 @@ struct SignalSheet: View {
                       SignalModel.doneStep: model.doneCompletions]
         return model.stepNames.enumerated().map { index, name in
             let number = index + 1, completions = popups[number]
-            return Step(name: name, canAdvance: model.canAdvance(step: number), whyNot: number == SignalModel.agentsStep ? model.agentsWhyNot : nil,
+            return Step(name: name, canAdvance: model.canAdvance(step: number), whyNot: number == SignalModel.agentsStep ? agentsFooter : nil,
                         closeList: {
                             guard let completions, completions.isOpen else { return false }
                             completions.close(); return true
                         })
         }
+    }
+    private var agentsFooter: String? {
+        let reason = model.agentsWhyNot
+        return model.agentRows.contains { model.context.worker($0.choice.agent)?.help == reason } ? nil : reason
     }
     @ViewBuilder private var content: some View {
         switch step {
@@ -88,7 +92,9 @@ struct SignalSheet: View {
         let row = model.agentRows.first
         let agent = row?.choice.agent ?? model.offeredAgents.first ?? .claude
         let models = model.models(for: agent)
-        AgentStep(availableAgents: Set(model.offeredAgents), models: models, catalogueLoaded: true,
+        let worker = model.context.worker(agent)
+        AgentStep(availableAgents: Set(model.offeredAgents), models: models, catalogueLoaded: worker?.reading != nil,
+                  catalogueFailure: worker?.unverified == true ? worker?.help : nil,
                   agent: agent, model: row?.choice.model ?? "",
                   reasoning: Binding(get: { model.agentRows.first?.choice.reasoning },
                                      set: { value in if let id = model.agentRows.first?.id { model.setReasoning(value, of: id) } }),

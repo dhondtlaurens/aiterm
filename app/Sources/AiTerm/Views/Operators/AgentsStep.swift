@@ -13,6 +13,8 @@ struct AgentsStep: View {
     let setAgent: (AgentKind, UUID) -> Void
     let setModel: (AgentModel, UUID) -> Void
     let setReasoning: (String?, UUID) -> Void
+    let catalogueHelp: [String]
+    let unverified: (AgentKind) -> Bool
     let help: String
 
 
@@ -20,7 +22,10 @@ struct AgentsStep: View {
         rows = model.agentRows; offeredAgents = model.offeredAgents; models = model.models(for:)
         addAgent = model.addAgent; removeAgent = model.removeAgent; setAgent = model.setAgent(_:of:)
         setModel = model.setModel(_:of:); setReasoning = model.setReasoning(_:of:)
-        help = "The Operator picks one of these for each task. It moves to the next when one passes 80 % of its weekly limit."
+        catalogueHelp = AgentCommand.workerAgents.filter { agent in model.agentRows.contains { $0.choice.agent == agent } }
+            .compactMap { model.context.worker($0)?.help }
+        unverified = { model.context.worker($0)?.unverified == true }
+        help = "The Operator picks a row for each task. On fallback, AiTerm can switch between Claude and Codex at 80% weekly usage."
     }
 
     /// The Agent column, fitted to “Claude Code” beside its popup's arrows.
@@ -38,6 +43,7 @@ struct AgentsStep: View {
                 }
                 ForEach(rows) { row in agentRow(row) }
             }
+            ForEach(catalogueHelp, id: \.self) { HelpText($0, tone: .warning) }
             if !offeredAgents.isEmpty {
                 Button(action: addAgent) {
                     HStack(spacing: Space.snug) {
@@ -64,7 +70,7 @@ struct AgentsStep: View {
                 .frame(width: Self.agentWidth)
             ModelReasoningFields(models: models, model: choice.model,
                                  reasoning: Binding(get: { choice.reasoning }, set: { setReasoning($0, row.id) }),
-                                 labelled: false, selectModel: { setModel($0, row.id) })
+                                 unverified: unverified(choice.agent), labelled: false, selectModel: { setModel($0, row.id) })
             Button { removeAgent(row.id) } label: {
                 Image(systemName: "xmark").font(Typography.micro).foregroundStyle(Palette.muted)
                     .frame(width: Size.slot, height: Size.control).contentShape(Rectangle())

@@ -5,6 +5,7 @@ import asyncio
 
 import pytest
 
+from aitermd.models import FULL_SUPPORT
 from tests.conftest import operator_post, read_until, send, wait_until
 
 TOKEN = "f" * 64
@@ -27,6 +28,27 @@ async def register(r, w, request_id=1, operator_id="E7A1C0DE-0000-4000-8000-0000
 
 def tool_call(name, arguments, request_id=1):
     return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+
+
+@pytest.mark.parametrize("name", ["choose_agent", "open_tab", "resume_task"])
+async def test_every_signal_worker_is_advertised_and_its_row_reaches_the_app(app, name):
+    svc, r, w = app
+    await register(r, w)
+    _, reply = await operator_post(svc.hooks.port, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token=TOKEN)
+    tool = next(tool for tool in reply["result"]["tools"] if tool["name"] == name)
+    assert tool["inputSchema"]["properties"]["agent"]["enum"] == list(FULL_SUPPORT)
+
+    args = {"agent": "agy", "model": "gemini-4-neon", "reasoning": "high",
+            "task": "task", "stage": 1, "ownership": 0, "key": "test"}
+    if name == "choose_agent":
+        args["reason"] = "Use the signal’s Antigravity row."
+    elif name == "open_tab":
+        args.update(prompt="Review.", why="Check the work.")
+    calling = asyncio.create_task(operator_post(svc.hooks.port, tool_call(name, args), token=TOKEN))
+    request = (await read_until(r, lambda m: m.get("event") == "operator.request"))["payload"]
+    assert request["tool"] == name and request["arguments"] == args
+    await send(w, 2, "operator.reply", {"requestId": request["requestId"], "result": {"ok": True}, "error": None})
+    assert (await calling)[1]["result"]["structuredContent"] == {"ok": True}
 
 
 async def test_a_tool_call_reaches_the_app_and_its_reply_reaches_the_operator(app):

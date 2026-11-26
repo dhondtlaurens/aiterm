@@ -37,8 +37,9 @@ import Testing
             restore: { $0 }))
         /// Weekly usage per agent, in percent, as the choice reads it.
         var weekly: [AgentKind: Int] = [:]
+        var installed: Set<AgentKind> = [.claude, .codex]
         lazy var choices = AgentChoiceRounds(workspace: h.workspace, now: { [world] in world.now }, oracle: oracle.consult, ports: .init(
-            weeklyUsage: { [unowned self] in self.weekly }, installedAgents: { [.claude, .codex] }))
+            weeklyUsage: { [unowned self] in self.weekly }, installedAgents: { [unowned self] in self.installed }))
         lazy var handler: SignalOperatorToolHandler = {
             let off = ScriptedOracle(h.workspace, folder: h.folder, now: { [world] in world.now }, on: false)
             let questions = QuestionRounds(workspace: h.workspace, journal: h.journal, now: { [world] in world.now }, oracle: off.consult, ports: .init(
@@ -47,7 +48,7 @@ import Testing
                 now: { [world] in world.now }, ports: .init(oracleEnabled: { [unowned self] in self.oracleOn }, workerQuestion: { _, _ in false },
                     read: { _ in [:] }, message: { _, _, _, _ in },
                     openTab: { [unowned self] _, key, row, _, why, _ in self.tabs.append((key, row)); self.tabReasons.append(why); return ["status": "opened", "tab": .string(key)] },
-                    jiraSearch: { _ in [] }, consult: { _, _ in .agreed("", round: 1) }, installedAgents: { [.claude, .codex] }))
+                    jiraSearch: { _ in [] }, consult: { _, _ in .agreed("", round: 1) }, installedAgents: { [unowned self] in self.installed }))
         }()
         init(_ world: SignalWorld) throws { self.world = world; h = try SignalHarness(world) }
         var router: ItemRouter { ItemRouter(workspace: h.workspace, now: { [world] in world.now }) }
@@ -98,6 +99,28 @@ import Testing
         let line = try #require(status["tasks"]?.arrayValue?.first)
         #expect(line["choice"]?["row"]?["agent"] == "codex" && line["choice"]?["reason"] == "Codex has room this week.")
         #expect(status["installedAgents"] == ["claude", "codex"])
+    }
+
+    @Test func theOperatorChoosesOpensAndResumesAnAntigravityRow() async throws {
+        let row = AgentChoice(agent: .agy, model: "gemini-4-neon", reasoning: "high")
+        let (r, signal) = try rig(agents: [SignalWorld.agent, row])
+        defer { r.h.cleanUp() }
+        r.installed.insert(.agy)
+        let id = try #require(r.route(signal).first)
+        #expect(r.record(id)?.choosableRows?.contains(row) == true)
+        #expect(await r.choose(id, key: "choose", row: row, reason: "Use the signal’s Antigravity row.").value?["status"] == "chosen")
+        #expect(r.record(id)?.choice?.row == row)
+        let args: [String: JSONValue] = ["agent": "agy", "model": .string(row.model), "reasoning": "high"]
+        let open = args.merging(["prompt": "Check the result.", "why": "Verify the task."]) { _, new in new }
+        #expect(await r.call("open_tab", id, key: "check", open).value?["status"] == "opened")
+        #expect(r.tabs.first?.1 == row)
+        r.h.workspace.mutate {
+            $0.updateSignalTask(id) { $0.phase = .blocked }
+            $0.updateSignalItem(id) { $0.windowId = nil }
+        }
+        #expect(await r.call("resume_task", id, key: "resume", args).value?["status"] == "resumed")
+        #expect(r.launched.map(\.1) == [.agy, .agy])
+        #expect(r.launched.map(\.2) == [row.model, row.model])
     }
 
     @Test func aCritiqueReturnsAChallengeAndTheRevisedProposalIsAgreedInRoundTwo() async throws {

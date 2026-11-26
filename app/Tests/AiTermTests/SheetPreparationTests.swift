@@ -6,6 +6,51 @@ import Testing
 @testable import AiTermTestSupport
 
 @MainActor @Suite(.blocking) struct SheetPreparationControllerTests {
+    enum CatalogueOutcome: CaseIterable { case success, offline, dismiss }
+    @Test(arguments: [false, true], CatalogueOutcome.allCases)
+    func newAndEditSignalOpenBeforeTheAgyReadEnds(editing: Bool, outcome: CatalogueOutcome) async throws {
+        let folder = ScratchFolder.path("signal-presentation-")
+        var ports = OperatorPorts.scratch()
+        ports.installedAgents = { [.agy] }
+        let calls = Mutex(0), release = DispatchSemaphore(value: 0)
+        let runner = HarnessCommandRunner(locate: { _ in "/bin/echo" }, run: { _, arguments, _, _ in
+            #expect(arguments == ["models"])
+            calls.withLock { $0 += 1 }
+            _ = release.wait(timeout: .now() + TestDeadline.seconds)
+            if outcome == .offline { throw HarnessProcessError.launchFailed("offline") }
+            return ProcessOutput(status: 0, stdout: "model-high\tModel (High)", stderr: "", timedOut: false)
+        })
+        let controller = AppController(store: StateStore(url: folder.appendingPathComponent("state.json")),
+                                       preferences: .scratch(), harnessHome: folder, operatorPorts: ports)
+        defer { release.signal(); controller.shutdown(); try? FileManager.default.removeItem(at: folder) }
+        try controller.workspace.load()
+        controller.agents.availableAgents = [.agy]
+        let harness = controller.agents.harnessSettingsModel(service: HarnessService(home: folder, daemonPort: 0, runner: runner,
+            resources: HarnessResources([:], installationAllowed: false, unavailableReason: nil)))
+        var world = SignalWorld()
+        let signal = world.signal(agents: [.init(agent: .agy, model: "model", reasoning: "high")])
+        controller.presentNewSignal(editing: editing ? world.state.signal(id: signal) : nil)
+        guard case .signal(let model) = controller.sheet else { Issue.record("The sheet must open on the first click"); return }
+        let checking = Task { await model.checkReadiness() }
+        defer { checking.cancel() }
+        #expect(await eventually { calls.withLock { $0 } == 1 })
+        controller.presentNewSignal()
+        guard case .signal(let same) = controller.sheet else { Issue.record("Lost the open sheet"); return }
+        #expect(model === same)
+        let row = try #require(model.agentRows.first)
+        model.name = "Typed while loading"
+        if !editing { model.removeAgent(row.id) }
+        if outcome == .dismiss { controller.sheet = nil; checking.cancel() }
+        release.signal()
+        #expect(await eventually { harness.snapshots[.agy] != nil })
+        #expect(model.models(for: .agy).map(\.id) == (outcome == .offline ? [] : ["model"]))
+        if outcome == .dismiss { #expect(controller.sheet == nil) }
+        if outcome == .offline { #expect(model.context.worker(.agy)?.help?.contains("couldn’t be launched") == true) }
+        #expect(model.name == "Typed while loading")
+        #expect(model.agentRows.map(\.id) == (editing ? [row.id] : []))
+        #expect(calls.withLock { $0 } == 1)
+    }
+
     /// The footer's "not installed" is read from the harness home the controller was given — in a
     /// test a temporary one — not from the developer's own `~/.claude`. Both answers are checked, so
     /// reading the real home fails whichever state it is in.

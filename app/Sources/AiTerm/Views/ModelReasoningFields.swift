@@ -9,6 +9,7 @@ struct ModelReasoningFields: View {
     @Binding var reasoning: String?
     var prefix = ""
     var disabled = false
+    var unverified = false
     var reasoningOptions: [String]? = nil
     /// Off, the two `Select`s go without their labels: New Signal's Agents rows label their columns once.
     var labelled = true
@@ -18,7 +19,8 @@ struct ModelReasoningFields: View {
 
     var selectedModel: AgentModel? { models.first { $0.id == model } }
     private var placeholder: AgentModel {
-        AgentModel(id: "", label: model.isEmpty ? "Choose a model…" : "Unavailable: \(model)", detail: nil, efforts: [], defaultEffort: nil)
+        AgentModel(id: "", label: model.isEmpty ? "Choose a model…" : (unverified ? model : "Unavailable: \(model)"),
+                   detail: nil, efforts: unverified ? reasoning.map { [$0] } ?? [] : [], defaultEffort: nil)
     }
     var modelChoices: [AgentModel] { selectedModel == nil ? [placeholder] + models : models }
 
@@ -34,7 +36,7 @@ struct ModelReasoningFields: View {
     }
     @ViewBuilder var reasoningField: some View {
         let selected = selectedModel ?? placeholder
-        let efforts = reasoningOptions ?? selected.efforts
+        let efforts = efforts(for: selected)
         if !efforts.isEmpty {
             field(prefix.isEmpty ? "Reasoning" : prefix + "reasoning") {
                 Select(values: efforts, selection: Binding(
@@ -43,6 +45,12 @@ struct ModelReasoningFields: View {
                     .disabled(disabled).opacity(disabled ? Opacity.disabled : 1)
             }
         } else if !labelled { Color.clear.frame(maxWidth: .infinity, maxHeight: 0) }
+    }
+
+    private func efforts(for selected: AgentModel) -> [String] {
+        let offered = reasoningOptions ?? selected.efforts
+        if unverified, let reasoning, !offered.contains(reasoning) { return [reasoning] + offered }
+        return offered
     }
 
     /// A control under its label; unlabelled, the control alone, for a caller that labels its columns once above rows.

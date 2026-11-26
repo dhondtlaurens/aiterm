@@ -143,7 +143,7 @@ signal** or **New project signal**, and editing keeps the kind. Its five steps a
    agent, the installed agents and your standing instructions; an agent at 80% weekly usage is
    avoided when another permitted agent has room. The Oracle agrees or critiques, for up to three
    rounds. If the Oracle is off or unavailable the proposal applies; after three disagreeing rounds
-   the first row in your list does, and only then may AiTerm still move to the other agent at 80%.
+   the first row in your list does, and only then may AiTerm switch between permitted Claude and Codex rows at 80% weekly usage.
    The row and its reason go into the task's journal. The choice never comes to you. A later stage
    and another work tab are chosen the same way; an existing conversation keeps its agent.
 4. **Prompt:** say what each task's agent does, including its checks. For example, `/psg:plan, then
@@ -379,7 +379,7 @@ A missing or revoked Operator token always refuses the gated call.
 
 Workers run the requested skills, including their own adversarial review and publication. They
 may commit, push their own task branch, open a draft request and perform host actions authorised
-through Operator/Oracle judgment. AiTerm's worker guard, for Claude and Codex, refuses a push that
+through Operator/Oracle judgment. AiTerm's worker guard, for Claude, Codex and Antigravity, refuses a push that
 forces or replaces remote history, skips the push hook (`--no-verify`, a `core.hooksPath` override),
 pushes all branches, tags or a deletion, or pushes anything but its own task branch at its current
 commit; and a push to another repository, the default branch or a branch the host protects, or one it

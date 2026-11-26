@@ -17,6 +17,10 @@ import Testing
         for tool in tools {
             let kind = try #require(tool["name"]?.stringValue.flatMap(OperatorTool.init(rawValue:)))
             let required = tool["inputSchema"]?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            let agent = tool["inputSchema"]?["properties"]?["agent"]
+            if agent != nil || [.openTab, .resumeTask, .chooseAgent].contains(kind) {
+                #expect(agent?["enum"]?.arrayValue?.compactMap(\.stringValue) == AgentCommand.workerAgents.map(\.rawValue))
+            }
             if kind.requiresKey { #expect(required.contains("key")) }
             if kind.taskRequired { #expect(required.contains("task") && required.contains("stage") && required.contains("ownership")) }
         }

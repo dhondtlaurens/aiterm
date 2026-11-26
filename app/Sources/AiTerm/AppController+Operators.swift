@@ -76,10 +76,10 @@ extension AppController {
         workspace.mutate { $0.operatorOpen = open }
     }
 
-    func signalReadiness(for signalAgents: [AgentKind]) -> SignalReadiness {
+    func signalReadiness(for signalAgents: [AgentKind], showingModels: Bool = false) -> SignalReadiness {
         let messaging = self.messaging
         return .of(agents: signalAgents, installed: agents.availableAgents, snapshots: agents.harnessSettingsModel().snapshots,
-                   messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm)
+                   messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm, showingModels: showingModels)
     }
 
     /// A row selected through a notification, Focus View or a folded heading's chip opens its section, folding the
