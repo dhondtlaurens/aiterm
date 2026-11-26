@@ -17,10 +17,10 @@ public final class ModelCatalogue: Sendable {
         public var models: [AgentModel]
         /// `models` are the last ones read, offered because reading them again failed.
         public var stale: Bool
-        /// Why the list could not be read just now: only PI's, a launch, can fail.
-        public var failure: PiModelCatalogError?
+        /// Why the list could not be read just now: only a launched one (PI's, Antigravity's) can fail.
+        public var failure: ModelListError?
 
-        public init(models: [AgentModel], stale: Bool = false, failure: PiModelCatalogError? = nil) {
+        public init(models: [AgentModel], stale: Bool = false, failure: ModelListError? = nil) {
             self.models = models; self.stale = stale; self.failure = failure
         }
 
@@ -28,7 +28,7 @@ public final class ModelCatalogue: Sendable {
         public var explanation: String? {
             guard let failure else { return nil }
             if case .unavailable = failure { return failure.summary }
-            return stale ? "The PI model catalogue couldn’t be refreshed." : failure.summary
+            return stale ? "The \(failure.agent.displayName) model catalogue couldn’t be refreshed." : failure.summary
         }
     }
 
@@ -55,7 +55,7 @@ public final class ModelCatalogue: Sendable {
     public func read(_ agent: AgentKind, executable: String? = nil, refreshing: Bool = false) -> Reading {
         let harness = agent.harness(claudeConfig: claudeConfig), listing = harness.models
         let cli = listing.launchesCLI ? executable ?? runner.locate(harness.executable) : nil
-        if listing.launchesCLI, cli == nil { return fallback(agent, failure: .unavailable) }
+        if listing.launchesCLI, cli == nil { return fallback(agent, failure: .unavailable(agent)) }
         // Stamped before the read, so a file that changes while it runs is read again next time.
         let stamps = FileStamps(listing.sources(home: home, executable: cli), followingSymlinks: true)
         let (cached, read) = state.withLock { state -> ([AgentModel]?, Int) in
@@ -65,14 +65,14 @@ public final class ModelCatalogue: Sendable {
         }
         if let cached { return Reading(models: cached) }
         do {
-            let models = try listing.read(home: home, executable: cli, runner: runner)
+            let models = try listing.read(agent, home: home, executable: cli, runner: runner)
             state.withLock { state in
                 guard read > state.entries[agent]?.read ?? 0 else { return }
                 state.entries[agent] = Entry(stamps: stamps, models: models, read: read)
             }
             return Reading(models: models)
         } catch {
-            return fallback(agent, failure: error as? PiModelCatalogError ?? .unavailable)
+            return fallback(agent, failure: error as? ModelListError ?? .unavailable(agent))
         }
     }
 
@@ -84,7 +84,7 @@ public final class ModelCatalogue: Sendable {
         return reading.models
     }
 
-    private func fallback(_ agent: AgentKind, failure: PiModelCatalogError) -> Reading {
+    private func fallback(_ agent: AgentKind, failure: ModelListError) -> Reading {
         let last = state.withLock { $0.entries[agent]?.models } ?? []
         return Reading(models: last, stale: !last.isEmpty, failure: failure)
     }

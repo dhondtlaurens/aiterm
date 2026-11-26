@@ -1,4 +1,33 @@
 {
+  "agy" : {
+    "challenge" : [
+      "agy",
+      "-p",
+      "{prompt}",
+      "--output-format",
+      "json",
+      "--settings",
+      "{\"permissions\":{\"deny\":[\"command(*)\",\"write_file(*)\",\"mcp(*)\",\"url(*)\",\"unsandboxed(*)\"]},\"trustedWorkspaces\":[\"{folder}\",\"{project}\"]}",
+      "--add-dir",
+      "{project}",
+      "--model",
+      "{model}"
+    ],
+    "resume" : [
+      "agy",
+      "--conversation",
+      "{conversation}",
+      "--dangerously-skip-permissions",
+      "--model",
+      "{model}"
+    ],
+    "task" : [
+      "agy",
+      "--dangerously-skip-permissions",
+      "--model",
+      "{model}"
+    ]
+  },
   "claude" : {
     "challenge" : [
       "claude",

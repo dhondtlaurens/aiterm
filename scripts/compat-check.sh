@@ -36,9 +36,10 @@ print "1/4 Capturing $AGENTS"
     || failed+=("capture")
 [[ -s "$versions" ]] || { print -u2 "Nothing was captured."; exit 1; }
 
-# The CLIs AiTerm types into, among those asked for.
+# The CLIs AiTerm types into, among those asked for: the full tier (aitermd.models.FULL_SUPPORT).
+full="$(cd "$ROOT/daemon" && env -u PYTHONPATH "$PY" -c 'from aitermd.models import FULL_SUPPORT; print(" ".join(FULL_SUPPORT))')"
 messaged=()
-for agent in claude codex; do
+for agent in ${=full}; do
     if [[ ",$AGENTS," == *",$agent,"* ]]; then messaged+=("$agent"); fi
 done
 if (( ${#messaged} )); then

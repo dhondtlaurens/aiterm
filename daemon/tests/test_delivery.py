@@ -228,7 +228,7 @@ def _policy_file(tmp_path, content):
     return path
 
 
-NOTHING_CHECKED = {"claude": ("off", None), "codex": ("off", None), "pi": ("off", None)}
+NOTHING_CHECKED = {"claude": ("off", None), "codex": ("off", None), "pi": ("off", None), "agy": ("off", None)}
 
 
 def test_paste_and_submit_safe_is_auto_and_paste_safe_alone_is_paste_only(tmp_path):
@@ -240,7 +240,7 @@ def test_paste_and_submit_safe_is_auto_and_paste_safe_alone_is_paste_only(tmp_pa
         "grok": {"version": "1.0.44", "pasteSafe": True, "submitSafe": True},
     })
     assert load_policy(path) == {"claude": ("auto", "2.1.301"), "codex": ("pasteOnly", "0.160.0"),
-                                 "pi": ("off", None)}
+                                 "pi": ("off", None), "agy": ("off", None)}
     assert load_policy(path)["claude"].version == "2.1.301"
 
 

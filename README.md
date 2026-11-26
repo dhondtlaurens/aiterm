@@ -100,8 +100,9 @@ To start work automatically from Jira or a code host, [create a signal](docs/ope
 - **Open a shell:** **New Terminal…** (⌘T) starts in the project folder without creating a worktree.
 - **Bring local files along:** `.worktreeinclude` selects ignored files, such as `.env`, to copy
   into new task worktrees. [Worktree files](docs/configuration.md#files-in-task-worktrees).
-- **Use other providers:** PI supports manually started tasks and tabs, context reporting and the
-  Oracle; providers such as Grok run through PI. [Agents](docs/configuration.md#agents).
+- **Use other providers:** Antigravity CLI and PI support manually started tasks and tabs, status,
+  context reporting and the Oracle; providers such as Grok run through PI.
+  [Agents](docs/configuration.md#agents).
 - **Keep work running with the lid closed:** **Backpack Mode** (⌘B) joins your phone's hotspot and needs
   Lid sleep permission and Location access for network discovery. It stops at 10% battery and can
   stop after your agents finish. [Backpack Mode setup](docs/configuration.md#mac-and-backpack-mode).

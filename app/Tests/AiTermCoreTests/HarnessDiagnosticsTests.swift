@@ -134,17 +134,19 @@ import Testing
     }
 
     @Test func everyHarnessCallsItsIntegrationADriver() async throws {
-        // Hooks for Claude and Codex, an extension for PI: to the user each is the same thing,
-        // the piece AiTerm installs so the harness can report back, and Settings names it once.
+        // Hooks for Claude, Codex and Antigravity, an extension for PI: to the user each is the same
+        // thing, the piece AiTerm installs so the harness can report back, and Settings names it once.
         let home = try ScratchFolder.make("aiterm-harness-driver-")
         defer { try? FileManager.default.removeItem(at: home) }
-        let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
+        let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, arguments, _, _ in
             ProcessOutput(status: 0,
-                                 stdout: "provider model context max-out thinking images\nopenai model-x 128k 16k yes no\n",
-                                 stderr: "", timedOut: false)
+                          stdout: arguments == ["models"] ? "gemini-4-neon-high\tGemini 4 Neon (High)\n"
+                              : "provider model context max-out thinking images\nopenai model-x 128k 16k yes no\n",
+                          stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n"],
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .agy: "/usr/bin/true",
+                                                                  .pi: "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n"],
                                                                  installationAllowed: true,
                                                                  unavailableReason: nil))
         for agent in AgentKind.allCases {

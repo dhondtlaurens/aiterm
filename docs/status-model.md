@@ -54,6 +54,16 @@ working. Extensions before schema 7 relayed @tintinweb/pi-subagents'; the daemon
 The extension sends its posts one at a time, in the order PI raised them, so a `turn_start` on a
 slow connection never lands after its run's `agent_settled`.
 
+Antigravity CLI reports through the command hooks AiTerm adds to `~/.gemini/config/hooks.json`, and
+its status line:
+
+| Antigravity source | Signal | Notes |
+|---|---|---|
+| `SessionStart` hook | metadata | Fires with the first prompt, not at launch: until then a tab says nothing, and its folder-trust dialog is read from the screen, as PI's is. |
+| `PreInvocation` hook | working | Before each model call of a turn. |
+| `Stop` hook | done | However the turn ended: finished, cancelled or failed. |
+| status line `agent_state` | tick evidence | `working`, `tool_use` and `reviewing` say working, `idle` says done, and `tool_confirmation_pending` says needs input: the one sign Antigravity gives that a tool waits for approval. It only moves a turn under way (working to needs input and back, or to done when a Stop was missed), never starts one. A working or done reading within a second of a hook is not believed: it may describe the moment before. |
+
 These extension events use the existing urgency and unread rules; PI does not introduce a fifth
 state. In particular, `agent_settled` stays Done until the row is seen, just like Claude Code and
 Codex completion, and a PI input prompt outranks Working.

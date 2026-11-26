@@ -37,6 +37,53 @@ import Darwin
                 == "pi --model anthropic/claude-sonnet")
     }
 
+    /// Antigravity approves its own tools on every launch, and its model id names the effort: no
+    /// reasoning word is sent, whatever the task saved. Its launch prompt follows `-i`: given alone it
+    /// lands in the input unsent (agy 1.5.18), and the task would wait.
+    @Test func agyCommandSkipsPermissionsAndSendsOnlyTheModel() throws {
+        #expect(try AgentCommand.build(agent: .agy, model: "gemini-4-neon-high", reasoning: "high", prompt: "review",
+                                       worktreePath: wt, git: .hermetic())
+                == "agy --dangerously-skip-permissions --model gemini-4-neon-high -i 'review'")
+        #expect(try AgentCommand.build(agent: .agy, model: "gemini-3.8-flash-low", reasoning: nil, prompt: nil,
+                                       worktreePath: wt, git: .hermetic())
+                == "agy --dangerously-skip-permissions --model gemini-3.8-flash-low")
+    }
+
+    /// A long launch prompt read from its file still follows `-i`.
+    @Test func agyLongPromptFromItsFileFollowsItsFlag() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-agy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let command = try AgentCommand.build(agent: .agy, model: "gemini-4-neon-high", reasoning: nil,
+                                             prompt: String(repeating: "x", count: 5000), worktreePath: dir.path, git: .hermetic())
+        #expect(command.hasSuffix(#"-i "$(command cat .aiterm/first-prompt.md)""#))
+    }
+
+    /// An Antigravity review tab approves its own tools but may not write a file or write through git.
+    @Test func agyReviewWorkerCannotWrite() {
+        #expect(AgentCommand.workerWords(agent: .agy, model: "gemini-4-neon-high", reasoning: nil, readOnly: true) == [
+            "agy", "--dangerously-skip-permissions", "--settings",
+            #"{"permissions":{"deny":["write_file(*)","command(git commit)","command(git checkout)","command(git switch)","command(git reset)","command(git rebase)","command(git merge)","command(git stash)","command(git add)"]}}"#,
+            "--model", "gemini-4-neon-high"])
+        #expect(AgentCommand.workerWords(agent: .agy, model: "gemini-4-neon-high", reasoning: nil)
+                == ["agy", "--dangerously-skip-permissions", "--model", "gemini-4-neon-high"])
+    }
+
+    /// The Oracle's Antigravity run: one answer as JSON, its folders trusted and every write, command,
+    /// MCP call and fetch denied for this run only.
+    @Test func agyOracleRunsReadOnlyThroughItsDenyRules() throws {
+        let run = Harness.agy.readOnlyHeadless(prompt: "-why?", folder: "/repo", readable: ["/notes"], answerFile: "/tmp/a",
+                                               model: "gemini-4-neon-high", reasoning: "high")
+        #expect(run.executable == "agy")
+        #expect(run.answerFile == nil)
+        #expect(run.arguments == ["-p", "-why?", "--output-format", "json", "--settings",
+                                  #"{"permissions":{"deny":["command(*)","write_file(*)","mcp(*)","url(*)","unsandboxed(*)"]},"trustedWorkspaces":["/repo","/notes"]}"#,
+                                  "--add-dir", "/notes", "--model", "gemini-4-neon-high"])
+        #expect(Harness.agy.headlessAnswer(#"{"conversation_id":"c","status":"SUCCESS","response":"PONG"}"#, nil) == "PONG")
+        #expect(Harness.agy.headlessAnswer(#"{"status":"ERROR","response":"half an answer"}"#, nil) == nil)
+        #expect(Harness.agy.headlessAnswer("not json", nil) == nil)
+    }
+
     /// The command is typed into zsh, where an unquoted `[1m]` is a glob that matches nothing and
     /// fails the whole line with "no matches found". A word only shell-safe characters make up is
     /// left as it is, so every command above stays readable.
@@ -183,6 +230,8 @@ import Darwin
                 == "codex resume \(id) --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c model_reasoning_effort=medium")
         #expect(AgentCommand.resume(agent: .pi, conversation: id, model: "openai-codex/gpt-5.6-sol", reasoning: "high")
                 == "pi --session \(id) --model openai-codex/gpt-5.6-sol --thinking high")
+        #expect(AgentCommand.resume(agent: .agy, conversation: id, model: "gemini-4-neon-high", reasoning: nil)
+                == "agy --conversation \(id) --dangerously-skip-permissions --model gemini-4-neon-high")
     }
 
     /// An agent started in a tab by hand has no launch model AiTerm knows: it resumes on its own defaults.

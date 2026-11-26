@@ -7,11 +7,11 @@ from typing import Any
 
 from .agents import HOOK_PARSERS, STATUSLINE_PARSERS, USAGE_PARSERS
 from .agents.codex import CodexThreads
-from .hook_events import HookEvent
+from .hook_events import HookEvent, TickState
 from .models import AgentKind
 from .publisher import Publisher
 from .resolver import SessionResolver
-from .status import StatusEngine
+from .status import Evidence, StatusEngine
 from .usage import UsageStore
 
 log = logging.getLogger(__name__)
@@ -81,12 +81,12 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if tick.context_percent is not None or "context_window" in body:
+            if tick.context_percent is not None or "context_window" in body or tick.state is not None:
                 async with self._in_order:
                     post = HookEvent(agent, None, tick.session_id, tick.cwd,
                                      iterm_session_id=tick.iterm_session_id,
                                      context_percent=tick.context_percent, context_tokens=tick.context_tokens, transcript=tick.transcript)
-                    ticked = await self._place_and_apply(post, body, statusline=True)
+                    ticked = await self._place_and_apply(post, body, statusline=True, tick_state=tick.state)
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
@@ -151,7 +151,8 @@ class HookRouter:
         tab = self.status.reg.get(ev.iterm_session_id.rpartition(":")[2])
         return tab is not None and tab.agent == "shell"
 
-    async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any], *, statusline: bool = False) -> list[str] | None:
+    async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any], *, statusline: bool = False,
+                               tick_state: TickState | None = None) -> list[str] | None:
         """The sessions `ev` changed, once placed on its tab; None when it places on none."""
         sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
@@ -169,6 +170,9 @@ class HookRouter:
                                              clear_context_tokens=statusline and own,
                                              conversation=ev.conversation_id if own and not statusline else None,
                                              transcript=ev.transcript if own else None)
+        # What a status line says of the turn checks the hooks, for the tab it provably came from only.
+        if tick_state is not None and own:
+            changed += self.status.apply_evidence(sid, Evidence(tick_state, self.clock(), "agy_statusline"))
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct

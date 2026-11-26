@@ -22,6 +22,8 @@ public extension IconSource {
     static let gitlabTanuki = IconSource.artwork(name: "gitlab-tanuki", svg: Logos.gitlabFourColourSVG, fallback: .brand(Palette.gitlab))
     /// Pi's white badge, drawn for `VendorMark`'s black disc.
     static let piBadge = IconSource.artwork(name: "pi-badge", svg: Logos.piBadgeSVG, fallback: .symbol("square.grid.2x2.fill"))
+    /// Antigravity's full-colour arch, drawn for `VendorMark`'s white disc.
+    static let antigravity = IconSource.artwork(name: "antigravity", svg: Logos.antigravitySVG, fallback: .symbol("a.circle.fill"))
 }
 
 /// Draws an `IconSource` at a size, optionally overriding its ink. A brand or an artwork fills a

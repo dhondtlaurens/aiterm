@@ -15,9 +15,15 @@ if TYPE_CHECKING:
 
 # The states a tick's evidence can claim of a turn.
 EvidenceState = Literal["working", "needsInput", "done"]
-# Where tick evidence comes from: Claude's session file, the spinner in a Codex tab's title, or a turn
-# boundary in a Codex rollout. Each agent module under `agents/` maps its own readings.
-EvidenceSource = Literal["claude_file", "codex_title", "codex_rollout"]
+# Where tick evidence comes from: Claude's session file, the spinner in a Codex tab's title, a turn
+# boundary in a Codex rollout, or Antigravity's status line. Each agent module under `agents/` maps its
+# own readings.
+EvidenceSource = Literal["claude_file", "codex_title", "codex_rollout", "agy_statusline"]
+# How long after a hook Antigravity's status line is not believed to say working or done: it runs on
+# the same change of state, and its post can land after the hook's while still describing the moment
+# before. A tool waiting for approval is believed at once: it may be reported once only, and no hook
+# follows it faster than a person answers.
+STATUSLINE_SETTLE_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +180,14 @@ class StatusEngine:
             elif s.state != "working" or (current := self._turns.get(session_id)) is None or not current.spun:
                 return []
         turn = self._turns.get(session_id)
+        if source == "agy_statusline":
+            # It only moves a turn under way: to needs-input at a tool's approval and back once it is
+            # answered, which no hook reports, and to done when a Stop was missed. Only a hook starts a turn.
+            if target != "needsInput" and turn is not None and at - turn.hook_at < STATUSLINE_SETTLE_SECONDS:
+                return []
+            allowed = {"needsInput": ("working",), "working": ("needsInput",), "done": ("working", "needsInput")}
+            if s.state not in allowed[target]:
+                return []
         if source == "claude_file":
             # A file no newer than the last hook is ignored: Claude rewrites it after the hook fires,
             # and until then it still describes the moment before -- `busy` under a fresh permission

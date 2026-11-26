@@ -38,6 +38,22 @@ import Testing
         #expect(TranscriptLocator(home: home, claudeConfig: ClaudeConfig()).lastMessage(agent: .codex, conversation: "019a-thread") == "Tests pass. Commit 4f2a91c.")
     }
 
+    /// Antigravity's last model step with text; one that only calls tools, or an error step, says nothing.
+    /// Records as agy 1.5.18 writes them, shortened.
+    @Test func antigravitysLastReplyIsItsLastPlannerResponseWithText() throws {
+        defer { cleanUp() }
+        try write([
+            #"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>\ngo\n</USER_REQUEST>"}"#,
+            #"{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","model":"gemini-4-neon-high","content":"Should I also migrate the table?"}"#,
+            #"{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"run_command","args":{"CommandLine":"npm test"}}]}"#,
+            #"{"step_index":3,"source":"MODEL","type":"GENERIC","status":"ERROR","error":"tool call denied by pre-tool hook: "}"#,
+        ], to: ".gemini/antigravity-cli/brain/c62469da-conv/.system_generated/logs/transcript.jsonl")
+        let locator = TranscriptLocator(home: home, claudeConfig: ClaudeConfig())
+        #expect(locator.lastMessage(agent: .agy, conversation: "c62469da-conv") == "Should I also migrate the table?")
+        #expect(locator.lastMessage(agent: .agy, conversation: "another-conv") == nil)
+        #expect(locator.lastMessage(agent: .pi, conversation: "c62469da-conv") == nil)
+    }
+
     @Test func onlyTheEndOfALongTranscriptIsRead() throws {
         defer { cleanUp() }
         let filler = String(repeating: "x", count: 1000)

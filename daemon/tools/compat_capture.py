@@ -47,7 +47,7 @@ from typing import Any
 from aitermd.delivery import ESC, open_prompt, shows_update_offer
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermBridge
-from aitermd.models import AgentKind, Frame, classify_agent
+from aitermd.models import FULL_SUPPORT, AgentKind, Frame, classify_agent
 
 from tools.delivery_check import (Live, answer_trust, idle, parse_version, read_json, scratch_claude_config, scratch_codex_home,
                                   screen_settings)
@@ -117,8 +117,8 @@ def merged_verified(existing: Any, versions: Mapping[str, str], day: str) -> dic
     return dict(sorted(entries.items()))
 
 
-# The CLIs the delivery check covers (delivery_check.AGENTS): Messaging is part of their verdict.
-MESSAGED: tuple[AgentKind, ...] = ("claude", "codex")
+# The CLIs the delivery check covers (delivery_check.AGENTS), the full tier: Messaging is part of their verdict.
+MESSAGED: tuple[AgentKind, ...] = FULL_SUPPORT
 
 
 def delivery_problems(policy: Any, versions: Mapping[str, str], since: str) -> list[str]:
@@ -381,10 +381,15 @@ def cli_version(agent: AgentKind, env: Mapping[str, str] | None = None) -> str |
 
 
 def help_text(agent: AgentKind, env: Mapping[str, str]) -> str:
-    """Every --help text AiTerm's flags may be listed in: Codex's subcommands have their own."""
-    commands = {"claude": [["claude", "--help"]], "pi": [["pi", "--help"]],
+    """Every --help text AiTerm's flags may be listed in: Codex's subcommands have their own. Antigravity
+    prints its help on stderr, so a help with nothing on stdout is read from there."""
+    commands = {"claude": [["claude", "--help"]], "pi": [["pi", "--help"]], "agy": [["agy", "--help"]],
                 "codex": [["codex", "--help"], ["codex", "exec", "--help"], ["codex", "resume", "--help"]]}[agent]
-    return "\n".join(f"$ {' '.join(command)}\n{run(command, env=env, seconds=60).stdout}" for command in commands)
+
+    def text(command: list[str]) -> str:
+        result = run(command, env=env, seconds=60)
+        return result.stdout or result.stderr
+    return "\n".join(f"$ {' '.join(command)}\n{text(command)}" for command in commands)
 
 
 def launches() -> dict[str, dict[str, list[str]]]:

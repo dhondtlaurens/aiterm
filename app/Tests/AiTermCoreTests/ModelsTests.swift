@@ -4,9 +4,11 @@ import Foundation
 @testable import AiTermTestSupport
 
 @Suite struct ModelsTests {
-    @Test func agentsAreOrderedClaudeCodexPi() {
-        #expect(AgentKind.allCases == [.claude, .codex, .pi])
+    @Test func agentsAreOrderedClaudeCodexAntigravityPi() {
+        #expect(AgentKind.allCases == [.claude, .codex, .agy, .pi])
         #expect(AgentKind.pi.displayName == "PI")
+        #expect(AgentKind.agy.displayName == "Antigravity")
+        #expect(AgentKind.agy.session == .agy && SessionAgent.agy.agentKind == .agy)
         #expect(AgentKind.pi.session == .pi && SessionAgent.pi.agentKind == .pi)
         // Each agent is a tab's agent of the same name, and back: the two enums are kept in step
         // by their raw values alone.

@@ -1,20 +1,28 @@
 import Foundation
 
-public enum PiModelCatalogError: Error, Equatable, Sendable, LocalizedError {
-    case unavailable
-    case failed(Int32, String)
-    case malformed(String)
+/// Why an agent's model list, a launch of its CLI (`ModelListing.launch`), could not be read.
+public enum ModelListError: Error, Equatable, Sendable, LocalizedError {
+    case unavailable(AgentKind)
+    case failed(AgentKind, Int32, String)
+    case malformed(AgentKind, String)
+
+    /// The agent whose list it is.
+    public var agent: AgentKind {
+        switch self {
+        case .unavailable(let agent), .failed(let agent, _, _), .malformed(let agent, _): agent
+        }
+    }
 
     /// The failure in a sentence, as Settings' Models check says it.
     public var summary: String {
-        if case .unavailable = self { return "PI couldn’t be launched." }
-        return "The PI model catalogue is unavailable."
+        if case .unavailable = self { return "\(agent.displayName) couldn’t be launched." }
+        return "The \(agent.displayName) model catalogue is unavailable."
     }
 
-    /// What the New Task sheet says in place of PI's models when it has none to offer: the
-    /// summary, with PI's own last line of complaint when it gave one.
+    /// What the New Task sheet says in place of the agent's models when it has none to offer: the
+    /// summary, with the CLI's own last line of complaint when it gave one.
     public var errorDescription: String? {
-        guard case .failed(_, let stderr) = self,
+        guard case .failed(_, _, let stderr) = self,
               let reason = stderr.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).last(where: { !$0.isEmpty })
         else { return summary }
         return String(summary.dropLast()) + ": " + reason
@@ -29,14 +37,14 @@ public enum PiModelCatalog {
         guard let first = lines.first, !first.hasPrefix("No models available") else { return [] }
         let header = lines[0].split(whereSeparator: \Character.isWhitespace).map(String.init)
         guard header == ["provider", "model", "context", "max-out", "thinking", "images"] else {
-            throw PiModelCatalogError.malformed("Unexpected PI model-list header")
+            throw ModelListError.malformed(.pi, "Unexpected PI model-list header")
         }
         return try lines.dropFirst().map { line in
             let fields = line.split(whereSeparator: \Character.isWhitespace).map(String.init)
             guard fields.count == 6,
                   ["yes", "no"].contains(fields[4]),
                   ["yes", "no"].contains(fields[5]) else {
-                throw PiModelCatalogError.malformed("Malformed PI model row: \(line)")
+                throw ModelListError.malformed(.pi, "Malformed PI model row: \(line)")
             }
             let supportsThinking = fields[4] == "yes"
             let imageText = fields[5] == "yes" ? "images" : "no images"
@@ -60,10 +68,10 @@ public enum PiModelCatalog {
         do {
             result = try runner.run(executable, ["--offline", "--list-models"], ["PI_OFFLINE": "1"], 5)
         } catch {
-            throw PiModelCatalogError.unavailable
+            throw ModelListError.unavailable(.pi)
         }
         guard !result.timedOut, result.status == 0 else {
-            throw PiModelCatalogError.failed(result.status, result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+            throw ModelListError.failed(.pi, result.status, result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return try parse(result.stdout)
     }

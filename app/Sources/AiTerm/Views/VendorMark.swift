@@ -26,6 +26,9 @@ struct VendorMark: View {
                 Circle().fill(Palette.markInk)
                 Icon(.piBadge, size: size * LogoFit.pi.scale, tint: Palette.markPaper)
                     .offset(x: size * LogoFit.pi.dx, y: size * LogoFit.pi.dy)
+            case .agy:
+                Circle().fill(Palette.markPaper)
+                Icon(.antigravity, size: size * LogoFit.agy.scale)
             case .shell:
                 Circle().fill(Palette.markInk)
                 // The `>_` prompt glyph from the canvas: a bold chevron and a short underscore.
@@ -56,6 +59,9 @@ struct LogoFit {
     static let standard = LogoFit(scale: 0.61)
     /// The square's mass sits in its left leg.
     static let pi = LogoFit(scale: 0.48, dx: 0.036)
+    /// The arch is hollow, so its box is larger than the family's to carry the same ink: about 19%,
+    /// beside PI's 20%, centred, its feet inside the disc (measured on `marks.png`).
+    static let agy = LogoFit(scale: 0.84)
     /// The chevrons climb to the top right.
     static let jira = LogoFit(scale: 0.55, dx: -0.04, dy: 0.04)
 }

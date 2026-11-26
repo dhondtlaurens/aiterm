@@ -92,7 +92,7 @@ import AiTermCore
 
     /// With no CLI installed the note sends the user to where the CLIs are installed.
     @Test func anAgentIsSelectableOnlyWhenItsCLIIsInstalled() {
-        #expect(AgentStep.noAgentNote == "Claude Code, Codex and PI aren’t installed. Install them in Settings › Agents.")
+        #expect(AgentStep.noAgentNote == "Claude Code, Codex, Antigravity and PI aren’t installed. Install them in Settings › Agents.")
         for available: Set<AgentKind> in [[], [.codex], Set(AgentKind.allCases)] {
             let view = AgentStep(availableAgents: available, models: [], catalogueLoaded: true,
                                  agent: .claude, model: "", reasoning: .constant(nil), selectAgent: { _ in }, setModel: { _ in })

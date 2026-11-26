@@ -9,7 +9,7 @@ import AiTermUI
 @MainActor
 @Suite struct HarnessSettingsLayoutTests {
     @Test func settingsTabsAndCardsStayInHarnessOrder() {
-        #expect(HarnessCardPresentation.agents == [.claude, .codex, .pi])
+        #expect(HarnessCardPresentation.agents == [.claude, .codex, .agy, .pi])
     }
 
     /// Agents · Operator · Integrations · Interface, on ⌘1 to ⌘4.

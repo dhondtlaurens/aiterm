@@ -30,9 +30,9 @@ rm -rf "$ROOT/daemon/build"
 mkdir -p "$OUT/Contents/Resources/daemon/tools"
 cp "$ROOT/daemon/tools/"{__init__.py,delivery_check.py,compat_preflight.py} "$OUT/Contents/Resources/daemon/tools/"
 find "$OUT/Contents/Resources/daemon" -name '__pycache__' -type d -prune -exec rm -rf {} +
-cp "$ROOT/hooks/claude-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
+cp "$ROOT/hooks/claude-statusline-shim.sh" "$ROOT/hooks/agy-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
 cp "$ROOT/hooks/pi-aiterm-status.ts" "$OUT/Contents/Resources/hooks/"
-chmod +x "$OUT/Contents/Resources/hooks/claude-statusline-shim.sh"
+chmod +x "$OUT/Contents/Resources/hooks/claude-statusline-shim.sh" "$OUT/Contents/Resources/hooks/agy-statusline-shim.sh"
 # The CLI versions this build was checked with (scripts/compat-check.sh): each Settings › Agents
 # card says whether the installed one is among them (`CompatVerified`).
 mkdir -p "$OUT/Contents/Resources/compat"

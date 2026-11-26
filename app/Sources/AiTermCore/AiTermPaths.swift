@@ -28,9 +28,12 @@ public enum AiTermPaths {
         supportDirectory(home: home).appendingPathComponent("delivery-policy.json")
     }
 
-    /// The command of the user's own Claude Code status line, which the shim runs.
-    public static func statusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        supportDirectory(home: home).appendingPathComponent("statusline-original.cmd")
+    /// The command of the user's own status line for `agent`, which its shim runs: one file per agent,
+    /// so installing one agent's shim never touches another's record. Claude's keeps the name it had.
+    public static func statusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                                             agent: AgentKind = .claude) -> URL {
+        supportDirectory(home: home).appendingPathComponent(
+            agent == .claude ? "statusline-original.cmd" : "statusline-original-\(agent.rawValue).cmd")
     }
 
     public static var socketPath: String { supportDirectory().appendingPathComponent("aitermd.sock").path }

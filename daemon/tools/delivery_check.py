@@ -49,7 +49,7 @@ from typing import Any, cast
 from aitermd.delivery import ESC, PASTE_END, PASTE_START, POLICY_PATH, Deliverer, Verdict, open_prompt, shows_input_box, shows_update_offer
 from aitermd.iterm_bridge import ItermBridge, ItermPort, ItermUnavailable
 from aitermd.keystrokes import TypingGuard
-from aitermd.models import HARNESS_BY_AGENT, AgentKind, Frame
+from aitermd.models import FULL_SUPPORT, HARNESS_BY_AGENT, AgentKind, Frame
 from aitermd.sessions import SessionRegistry
 from tools.compat_preflight import command as checked_command
 
@@ -66,7 +66,8 @@ ITERM_CHECKS = ("keystrokesPassThrough", "backgroundWindow")
 # The order an agent's scenarios run in (check_agent); the first that fails ends the rest.
 RUN_ORDER = ("startupPaste", "updatePaste", "idleSubmit", "multiLine", "busyQueue", "takeover", "menuPaste",
              "approvalRace", "permissionPaste")
-AGENTS: tuple[AgentKind, ...] = ("claude", "codex")
+# The CLIs the check covers: those with full support, which AiTerm types into.
+AGENTS: tuple[AgentKind, ...] = FULL_SUPPORT
 # Pasted into an open prompt: the keys that answer one -- Codex's y, a and p, and Claude's digits.
 HAZARD = "please wait 1 2 3 y a p"
 # The footer while a turn runs ("esc to interrupt"), without whitespace and case-folded: Codex's, and

@@ -11,20 +11,34 @@ private let codexQuiet = ["--ignore-user-config", "--disable", "hooks"]
 /// PI has no sandbox: its tool set keeps it to reading, with extensions and MCP servers off.
 private let piReadingTools = ["read", "grep", "find", "ls"]
 private let piHeadlessOptions = ["--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--no-approve", "--offline"]
+/// What an Antigravity Oracle may not do, as its permission rules spell it: run a command, write a file,
+/// call an MCP server, fetch a URL or leave the terminal sandbox. It still reads, and searches the web,
+/// which no rule stops (docs/research/2026-11-26-antigravity-cli.md).
+private let agyReadOnlyDenials = ["command(*)", "write_file(*)", "mcp(*)", "url(*)", "unsandboxed(*)"]
+/// What an Antigravity review tab may not do: write a file, or write through git, so the commit it
+/// reviews is the one it reads. Rules match a command by its start, as Claude's review denials do.
+private let agyReviewDenials = ["write_file(*)"] + ["commit", "checkout", "switch", "reset", "rebase", "merge", "stash", "add"]
+    .map { "command(git \($0))" }
+/// Settings for one Antigravity run only, never saved (`--settings`), as JSON.
+private func agySettings(_ settings: [String: Any]) -> String {
+    (try? JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys, .withoutEscapingSlashes]))
+        .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+}
 /// An answer file larger than this is not an answer.
 private let answerLimit = 1_000_000
 
-/// The three harnesses, side by side: what differs between them is read here, in one table.
+/// The harnesses, side by side: what differs between them is read here, in one table.
 extension Harness {
     static let claude = claude(config: ClaudeConfig())
 
     static func claude(config: ClaudeConfig) -> Harness { Harness(
-        agent: .claude, executable: "claude", displayName: "Claude Code",
+        agent: .claude, executable: "claude", displayName: "Claude Code", support: .full,
         installCommand: "curl -fsSL https://claude.ai/install.sh | bash",
         fallbackEfforts: ["low", "medium", "high"], defaultEffort: "high",
         noModelsExplanation: "No models are available.",
         skillSigil: "/", hookEndpoint: "/hook/claude",
         bundledResource: .script("claude-statusline-shim.sh"),
+        promptFlag: [],
         launchArguments: { Harness.claude.modelArguments(model: $0, reasoning: $1) },
         modelArguments: { model, reasoning in
             ["--model", model] + (reasoning.map { ["--effort", $0] } ?? [])
@@ -60,7 +74,7 @@ extension Harness {
         makeDriver: { home, port, shim in shim.map { ClaudeDriver(home: home, daemonPort: port, shimPath: $0, claudeConfig: config) } }) }
 
     static let codex: Harness = Harness(
-        agent: .codex, executable: "codex", displayName: "Codex",
+        agent: .codex, executable: "codex", displayName: "Codex", support: .full,
         installCommand: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
         fallbackEfforts: ["minimal", "low", "medium", "high", "xhigh"], defaultEffort: "medium",
         noModelsExplanation: "No models are available.",
@@ -68,6 +82,7 @@ extension Harness {
         // among them.
         skillSigil: "$", hookEndpoint: "/hook/codex",
         bundledResource: nil,
+        promptFlag: [],
         launchArguments: { model, reasoning in
             ["--dangerously-bypass-approvals-and-sandbox"] + Harness.codex.modelArguments(model: model, reasoning: reasoning)
         },
@@ -105,13 +120,62 @@ extension Harness {
         },
         makeDriver: { home, port, _ in CodexDriver(home: home, daemonPort: port) })
 
+    static let agy: Harness = Harness(
+        agent: .agy, executable: "agy", displayName: "Antigravity", support: .basic,
+        installCommand: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        // Each model id names its effort (`gemini-4-neon-high`): there are no levels to pick.
+        fallbackEfforts: [], defaultEffort: "",
+        noModelsExplanation: "No Antigravity models are available. Run agy to sign in.",
+        skillSigil: "/", hookEndpoint: "/hook/agy",
+        bundledResource: .script("agy-statusline-shim.sh"),
+        // Every launch approves its own tools, as a Codex task bypasses its approvals.
+        promptFlag: ["-i"],
+        launchArguments: { model, reasoning in
+            ["--dangerously-skip-permissions"] + Harness.agy.modelArguments(model: model, reasoning: reasoning)
+        },
+        modelArguments: { model, _ in ["--model", model] },
+        // Deny rules hold whatever approves the rest (`--dangerously-skip-permissions`).
+        readOnlyLaunchArguments: { model, reasoning in
+            ["--dangerously-skip-permissions", "--settings", agySettings(["permissions": ["deny": agyReviewDenials]])]
+                + Harness.agy.modelArguments(model: model, reasoning: reasoning)
+        },
+        readOnlyHeadless: { prompt, folder, readable, _, model, reasoning in
+            // Settings for this run only, never saved: the folders trusted, so no dialog waits, and
+            // the rules that keep it to reading.
+            let json = agySettings(["trustedWorkspaces": [folder] + readable, "permissions": ["deny": agyReadOnlyDenials]])
+            return ["-p", prompt, "--output-format", "json", "--settings", json]
+                + readable.flatMap { ["--add-dir", $0] }
+                + (model.isEmpty ? [] : Harness.agy.modelArguments(model: model, reasoning: reasoning))
+        },
+        readsAnswerFromFile: false,
+        headlessAnswer: { stdout, _ in
+            struct AgyResult: Decodable { var status: String?; var response: String? }
+            guard let result = try? JSONDecoder().decode(AgyResult.self, from: Data(stdout.utf8)),
+                  result.status == nil || result.status == "SUCCESS" else { return nil }
+            return result.response
+        },
+        resumeArguments: { ["--conversation", $0] },
+        models: .launch(sources: { AgyModelCatalog.sources(home: $0) },
+                        list: { try AgyModelCatalog.discover(executable: $0, runner: $1) }),
+        skillRoots: { home, project in
+            // Antigravity reads skills from a customization root: `~/.gemini/config` globally and
+            // `.agents` in the project, and runs one as `/<name>`.
+            var roots = [SkillRoot(.skills(), home.appendingPathComponent(".gemini/config/skills"), .user)]
+            if let project {
+                roots.append(SkillRoot(.skills(), project.appendingPathComponent(".agents/skills"), .project))
+            }
+            return roots
+        },
+        makeDriver: { home, port, shim in shim.map { AgyDriver(home: home, daemonPort: port, shimPath: $0) } })
+
     static let pi: Harness = Harness(
-        agent: .pi, executable: "pi", displayName: "PI",
+        agent: .pi, executable: "pi", displayName: "PI", support: .basic,
         installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
         fallbackEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], defaultEffort: "medium",
         noModelsExplanation: "No PI providers are signed in. Run /login in PI.",
         skillSigil: "/", hookEndpoint: "/hook/pi",
         bundledResource: .source("pi-aiterm-status.ts"),
+        promptFlag: [],
         launchArguments: { Harness.pi.modelArguments(model: $0, reasoning: $1) },
         modelArguments: { model, reasoning in
             ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? [])
@@ -142,4 +206,5 @@ extension Harness {
             return roots
         },
         makeDriver: { home, port, source in source.map { PiDriver(home: home, daemonPort: port, source: $0) } })
+
 }
