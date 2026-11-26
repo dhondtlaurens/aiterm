@@ -466,7 +466,7 @@
   /* Hairline: a 1 pt rectangle, soft (Palette.border) or .firm (Palette.borderStrong). A stroke, so
      it does not scale. */
   .ai-hairline { height: 1px; background: var(--border); }
-  .ai-hairline.firm { background: var(--border-strong); }
+  
   /* TabBar: each tab its label in Typography.bodyEmphasis, Space.base over its Size.tabIndicator
      underline, the tabs Space.section apart from the leading edge. Selected: Palette.text over a bar
      in Palette.text as wide as the label. Unselected: Palette.muted, no bar. Rejected: Opacity.disabled.
@@ -524,58 +524,7 @@
   .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
   .no-proposals { margin-top: var(--space-block); color: var(--muted); }
 
-
-
-  .bs2 .cb { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-slot); font: 13px/1 var(--font); color: var(--text); }
-  .bs2 .cb i { width: 14px; height: 14px; box-sizing: border-box; border-radius: 3px; flex: none; display: flex; align-items: center;
-               justify-content: center; background: var(--control-active); border: 1px solid rgba(255, 255, 255, 0.2); }
-  .bs2 .cb.on i { background: var(--accent); border-color: transparent; }
-  .bs2 .cb.on i svg { width: 9px; height: 9px; fill: none; stroke: #FFFFFF; color: #FFFFFF; }
-  .bs2 .cb.dim { opacity: 0.5; }
-  .bs2 .mk-field.num { width: 112px; box-sizing: border-box; }
-  .bs2 .lead { font: 11px/1.4 var(--font); color: var(--muted); }
-  .bs2 .lead b { color: var(--text); font-weight: 600; }
-  .bs2 .agents { display: grid; grid-template-columns: 136px 1fr 1fr var(--size-slot); gap: var(--space-base) var(--space-gap);
-                 align-items: center; }
-  .bs2 .agents .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
-  .bs2 .agents .x { color: var(--muted); display: flex; justify-content: center; font-size: 11px; }
-  .bs2 .add { align-self: flex-start; color: var(--link); font: 13px/1 var(--font); display: inline-flex; align-items: center;
-              gap: var(--space-snug); height: var(--size-control); }
-  .bs2 .add svg { width: 10px; height: 10px; }
 /* a tab's combination, Typography.caption */
-  .bs2 .mk-menu .it .ck { width: 12px; flex: none; display: flex; }
-  .bs2 .mk-menu .it .ck svg { width: 9px; height: 9px; }
-
-
-
-
-
-
-  .diagnosis { margin: var(--space-block) 0 0; padding: 0; list-style: none; counter-reset: dx;
-               display: flex; flex-direction: column; gap: var(--space-gap); }
-  .diagnosis li { counter-increment: dx; display: grid; grid-template-columns: var(--size-slot) 1fr;
-                  gap: var(--space-inset); color: var(--muted); }
-  .diagnosis li::before {
-    content: counter(dx); font: 600 10px/var(--size-slot) var(--mono); text-align: center;
-    color: var(--amber); background: var(--badge); border-radius: var(--radius-chip);
-    height: var(--size-slot);
-  }
-  .diagnosis b { color: var(--text); font-weight: 600; }
-
-  .options { display: flex; flex-direction: column; gap: var(--space-block); margin-top: var(--space-block); }
-  .option { border: 1px solid var(--border); border-radius: var(--radius-group); padding: var(--space-section); }
-  .option.pick { border-color: var(--accent); }
-  .option header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-base); }
-  .option h3 { font-size: 13px; color: var(--text); }
-  .option .letter { font: 600 10px/var(--size-chip) var(--mono); color: var(--muted); background: var(--badge);
-                    border-radius: var(--radius-chip); padding-inline: var(--space-tight); height: var(--size-chip); }
-  .option.pick .letter { color: #FFFFFF; background: var(--accent); }
-  .option .rec { font: 500 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
-  .option > p { color: var(--muted); margin-top: var(--space-base); }
-  .option > p b { color: var(--text); font-weight: 600; }
-  .option .rules { margin-top: var(--space-block); }
-  .option .rules .yes .h { color: var(--green); }
-  .option .rules .no .h { color: var(--amber); }
 
   .figs { display: flex; flex-wrap: wrap; gap: var(--space-section); align-items: flex-start; margin-top: var(--space-block); }
   .fig { margin: 0; min-width: 0; max-width: 100%; }
@@ -585,253 +534,48 @@
   /* The sidebar: Size.sidebarMinWidth, with the List's own Space.inset either side. */
   .mk-sidebar { width: 360px; box-sizing: border-box; padding: var(--space-snug) var(--space-inset);
                 background: var(--sidebar); box-shadow: 0 0 0 1px var(--border); }
-  /* HeadingRow: Size.projectRow tall, Space.base leading and between, the trailing inset
-     Space.base − (Size.slot − Size.trailingGlyph) / 2 = 3 pt. */
-  .mk-head { display: flex; align-items: center; gap: var(--space-base); height: 28px;
-             padding-left: var(--space-base); padding-right: 3px; border-radius: var(--radius-control); }
-  .mk-head .chev { width: 10px; flex: none; display: flex; justify-content: center; color: var(--muted); }
-  .mk-head .prov { width: var(--size-avatar); height: var(--size-avatar); flex: none;
-                   display: flex; align-items: center; justify-content: center; }
-  .mk-head .nm { font: 500 13px/1 var(--font); color: var(--text); white-space: nowrap; overflow: hidden;
-                 text-overflow: ellipsis; min-width: 0; }
-  .mk-head .bdg { display: flex; align-items: center; gap: var(--space-gap); flex: none; }
-  .mk-head .sp { flex: 1; min-width: var(--space-tight); }
-  .mk-head .plus { width: var(--size-slot); height: var(--size-slot); flex: none; display: flex;
-                   align-items: center; justify-content: center; color: var(--muted); }
-  .mk-head .ai-badge { cursor: pointer; }
-
-  /* Approximations of what macOS draws: an NSMenu, and a bordered push button. Named, not tokens. */
-  .mk-menu { width: 248px; box-sizing: border-box; padding: 5px; background: var(--surface-raised);
-             border: 1px solid var(--border); border-radius: var(--radius-panel);
-             box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); font: 13px/1 var(--font); color: var(--text); }
-  .mk-menu .it { display: flex; align-items: center; gap: var(--space-base); height: 22px;
-                 padding-inline: var(--space-base); border-radius: var(--radius-chip); white-space: nowrap; }
-  .mk-menu .it.on { background: var(--accent); color: #FFFFFF; }
-  .mk-menu .it.off { color: var(--muted); opacity: 0.6; }
-  .mk-menu .it .k { font: 12px/1 var(--mono); color: var(--link); min-width: 36px; }
-  .mk-menu .it.on .k { color: #FFFFFF; }
-  .mk-menu .it .arrow { margin-left: auto; color: var(--muted); }
-  .mk-menu .it.on .arrow { color: #FFFFFF; }
-  .mk-menu .sep { height: 1px; background: var(--border); margin: 5px var(--space-base); }
-  .mk-menu .new { outline: 1px dashed var(--amber); outline-offset: -1px; }
-  .mk-menu-pair { display: flex; align-items: flex-start; }
-  .mk-menu-pair .mk-menu + .mk-menu { margin-left: -6px; }
-
-  /* SheetLayout: Sheet.width, the whole sheet on Palette.surface, its footer included. The header is
-     the title row (Typography.title, cut in the middle, and a trailing accessory, a stepped sheet's
-     SheetStepper, Space.gap clear) then what the header holds Space.tight under it (a SheetSubtitle
-     in Typography.caption and muted, a field, tabs); Space.section from the top, Space.margin from the
-     sides, Space.block from its Hairline, or none when it ends in a TabBar standing on that rule.
-     A Hairline over the footer; the footer Space.block by Space.margin. */
-  .mk-sheet { width: 560px; height: 560px; box-sizing: border-box; display: flex; flex-direction: column;
-              background: var(--surface); box-shadow: 0 0 0 1px var(--border-strong); border-radius: var(--radius-panel);
-              overflow: hidden; font: 13px/1.3 var(--font); color: var(--text); }
-  .mk-sheet.short { height: auto; }
-  .mk-sheet .hd { padding: var(--space-section) var(--space-margin) var(--space-block);
-                  display: flex; flex-direction: column; gap: var(--space-tight); }
-  .mk-sheet .hd.tabs-end { padding-bottom: 0; }
-
-  .mk-sheet .hd .tr { display: flex; align-items: center; gap: var(--space-gap); min-width: 0; }
-  .mk-sheet .ttl { font: 600 17px/1.2 var(--font); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mk-sheet .nav { display: flex; align-items: center;
-                   font: 12px/1.3 var(--font); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mk-sheet .rule { height: 1px; background: var(--border); flex: none; } /* Hairline */
-  .mk-sheet .bd { flex: 1; padding: var(--space-margin); display: flex; flex-direction: column; gap: var(--space-block); }
-  .mk-sheet .ft { padding: var(--space-block) var(--space-margin); background: var(--surface);
-                  display: flex; justify-content: flex-end; gap: var(--space-base); }
-  /* A secondary push button (PushButtonStyle.secondary) inside a mock. */
-  .mk-sheet .btn { display: inline-flex; align-items: center; height: var(--size-control); padding-inline: var(--space-gap);
-                   box-sizing: border-box; background: var(--button); border: 1px solid var(--border);
-                   border-radius: var(--radius-control); font-size: 13px; }
-
-  .mk-ff { display: flex; flex-direction: column; gap: var(--space-snug); position: relative; }
-  .mk-ff > .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
-  .mk-field { display: flex; align-items: center; gap: var(--space-base); height: var(--size-control);
-              box-sizing: border-box; padding-inline: var(--space-inset); background: var(--field);
-              border: 1px solid var(--border-strong); border-radius: var(--radius-control); }
-  .mk-field.focused { border-color: var(--focus-edge); box-shadow: 0 0 0 3px var(--focus-ring); }
-  .mk-field .ph { color: var(--placeholder); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mk-field .k { font: 12px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--link); }
-  .mk-field .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mk-field .x, .mk-field .dn { color: var(--muted); display: flex; }
-  .mk-field .dn { width: var(--size-menu-row); justify-content: center; margin-right: calc(var(--space-tight) - var(--space-inset)); }
-  .mk-stack { display: flex; flex-direction: column; gap: var(--space-snug); }
-  .mk-help { font: 11px/1.4 var(--font); color: var(--muted); }
-
-  /* ChipsPicker's results: Size.control + Space.tight under the field, Space.tight padding,
-     menuChrome (Palette.menu, the firm borderStrong edge, Radius.panel), Size.menuRow rows, Space.base
-     inside. The highlighted row is menuRowHighlight's neutral wash (menuHighlight): it keeps its
-     resting inks, its link-coloured key and its brand mark. The key is Typography.caption.tabular. */
-  .mk-results { position: absolute; left: 0; right: 0; z-index: 2; padding: var(--space-tight);
-                background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-panel);
-                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
-  .mk-results .r { display: flex; align-items: center; gap: var(--space-base); height: var(--size-menu-row);
-                   padding-inline: var(--space-base); border-radius: var(--radius-chip); font-size: 12px; }
-  .mk-results .r.on { background: var(--menu-highlight); }
-  .mk-results .r .k { font: 12px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--link); flex: none; }
-  .mk-results .r .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mk-results .r .d { font-size: 11px; color: var(--muted); flex: none; }
 
   /* SidebarBanner, above the List and outside its inset: text at Space.inset + Space.base, the
      Projects heading's leading edge. .mk-pane holds a banner over an .mk-sidebar with no shadow. */
   .mk-pane { width: 360px; background: var(--sidebar); box-shadow: 0 0 0 1px var(--border); }
   .mk-pane > .mk-sidebar { box-shadow: none; }
   /* SidebarHeading: Typography.section in Palette.tertiary, sentence case, on a Size.menuRow row. */
-  .mk-heading { display: flex; align-items: center; height: var(--size-menu-row); padding-left: var(--space-base);
-                font: 600 11px/1 var(--font); color: var(--tertiary); }
+  
   .mk-banner { display: flex; flex-direction: column; gap: var(--space-tight);
                padding: var(--space-base) var(--space-base) var(--space-base) calc(var(--space-inset) + var(--space-base));
                font: 11px/1.4 var(--font); color: var(--text); }
-  .mk-banner .rs { color: var(--muted); }
-  .mk-banner .acts { display: flex; gap: var(--space-gap); }
-  .mk-banner .acts span { color: var(--link); }
-  /* An approximation of a regular bordered push button in the sidebar. Named, not a token. */
-  .mk-banner .push { align-self: flex-start; height: 22px; display: inline-flex; align-items: center;
-                     padding-inline: var(--space-base); background: var(--badge); border-radius: var(--radius-control);
-                     font-size: 13px; color: var(--link); }
+
   /* The marked banner: the mark takes the shared leading edge, as a project row's chevron does;
      the close button sits in the trailing column, on the + glyphs' Size.slot. */
-  .mk-banner.marked { display: grid; grid-template-columns: 12px 1fr var(--size-slot); column-gap: var(--space-snug);
-                      row-gap: var(--space-tight); padding-right: calc(var(--space-inset) + 3px); }
-  .mk-banner.marked > * { grid-column: 2; }
-  .mk-banner.marked .mk { grid-column: 1; grid-row: 1; color: var(--destructive); display: flex; padding-top: 2px; }
-  .mk-banner.marked .x { grid-column: 3; grid-row: 1; height: 16px; display: flex; align-items: center;
-                         justify-content: center; color: var(--muted); }
-  .mk-banner.marked .x svg { width: 10px; height: 10px; }
+
   .mk-banner-rule { height: 1px; background: var(--border); margin-left: calc(var(--space-inset) + var(--space-base)); margin-right: var(--space-inset); }
   .mk-banner.card { margin: var(--space-snug) var(--space-inset) 0; padding: var(--space-base) 3px var(--space-base) var(--space-base);
                     background: rgba(255, 66, 69, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 66, 69, 0.38);
                     border-radius: var(--radius-group); }
 
-  /* TaskRowView inside SelectableRow: Size.row tall at least, Space.base above, below and leading,
-     the trailing inset 3 pt, indented Space.section, Radius.control. Avatars Size.avatar with a
-     −5 pt overlap and a 2 pt ring; the title Typography.body; the chip line Size.chip tall with
-     quiet badges Space.gap apart; the status mark Size.trailingGlyph in a Size.slot. */
-  .mk-row { display: flex; align-items: center; gap: var(--space-inset); min-height: var(--size-row); box-sizing: border-box;
-            padding: var(--space-base) 3px var(--space-base) var(--space-base); margin-left: var(--space-section);
-            border-radius: var(--radius-control); font: 13px/1 var(--font); }
-  /* Selected: Palette.selected, edged inside in selectedEdge; the avatar ring selectedSolid. */
-  .mk-row.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
-  .mk-row .av { width: 31px; flex: none; display: flex; }
-  .mk-row .av .mark { width: 18px; height: 18px; box-shadow: 0 0 0 1px var(--sidebar); }
-  .mk-row .av .mark + .mark { margin-left: -5px; }
-  .mk-row.sel .av .mark { box-shadow: 0 0 0 1px var(--selected-solid); }
-  .mk-row .ln { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; flex: 1; }
-  .mk-row .tt { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
-  .mk-row .cl { display: flex; align-items: center; gap: var(--space-gap); height: var(--size-chip); min-width: 0; }
   /* A quiet Badge on the badge line: Typography.chip.tabular in secondary ink, its mark inked with its
      words (markInk: .label), so the row's only colours are its status and its diff. */
 
-  .mk-row .cl .ai-badge.quiet, .mk-head .ai-badge.quiet { --brand-ink: currentColor; }
-  .mk-row .q { display: inline-flex; align-items: center; gap: var(--space-tight); flex: none;
-               font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--muted); --brand-ink: currentColor; }
-  .mk-row .q svg { width: 10px; height: 10px; }
-  .mk-row .q .d { display: inline-flex; gap: var(--space-hairline); }
-  .mk-row .q .a { color: var(--diff-added); } .mk-row .q .r { color: var(--diff-removed); }
-  .mk-row .br { font: 11px/1 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .mk-row .slot { width: var(--size-slot); flex: none; display: flex; justify-content: center; margin-left: var(--space-tight); }
-  .mk-row .st { width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; display: block; }
-  .mk-row .st.idle { border: 1.5px solid var(--idle-ring); }
-  .mk-row .st.needs { border: 1.5px solid var(--amber); }
-  .mk-row .st.spin { border-radius: 0; }
-  .mk-row .st.spin .arc { transform-origin: 5px 5px; animation: mk-spin 1.1s linear infinite; }
   @keyframes mk-spin { to { transform: rotate(360deg); } }
-  /* On the selection the title lifts to onAccent; the badge line, the branch and the caption keep
-     muted, and every mark keeps its colour. */
-  .mk-row.sel .tt { color: var(--on-accent); }
-  /* The removing row's title drops to secondary ink — Surface.secondaryInk, nothing new. */
-  .mk-row.removing .tt { color: var(--muted); }
+
   /* StatusMark's background look and BackgroundCardView (BackgroundCard.swift). The mark: StatusMark's ring, size * 0.15 stroke inside
      the 10 pt box, dashed into eight and turning slowly, in Palette.spinner (muted), Palette.onAccent on a
      selected row. The card: menuChrome at the pill's Radius.control (Palette.menu, the Palette.border hairline,
      the menu shadow), on the pill's top, bottom and leading edges, its trailing edge Space.tight before the mark's
      Size.slot; Space.base above and below, Space.gap either side, Size.chip lines Space.tight apart, so the heading
      lies on the row's title line and the first job on its second; more jobs scroll inside. */
-  #c-background .st.bg { border-radius: 0; }
-  #c-background .st.bg circle { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 1.9 1.44;
-                            transform-origin: 5px 5px; animation: mk-spin 6s linear infinite; }
 
-  #c-background .mk-row.carded { position: relative; overflow: visible; }
-  #c-background .mk-row.carded .slot { border-radius: var(--radius-chip); box-shadow: inset 0 0 0 1px var(--amber); }
-  #c-background .hcard { position: absolute; top: 0; bottom: 0; left: 0; right: calc(3px + var(--size-slot) + var(--space-tight));
-                     box-sizing: border-box; overflow-x: hidden; overflow-y: auto; padding: var(--space-base) var(--space-gap);
-                     display: flex; flex-direction: column; gap: var(--space-tight);
-                     background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-control);
-                     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); z-index: 2; scrollbar-width: thin; }
-  #c-background .hcard .hd { font: 11px/16px var(--font); color: var(--muted); white-space: nowrap; flex: none; }
-  #c-background .hcard .job { display: flex; align-items: center; gap: var(--space-tight); font: 11px/16px var(--mono);
-                          color: var(--text); white-space: nowrap; min-width: 0; flex: none; }
-  #c-background .hcard .job .t { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  #c-background .hcard .job.desc { font-family: var(--font); }
-  #c-background .hcard .job svg { width: 12px; height: 12px; flex: none; color: var(--muted); } /* Size.inlineMark */
-  #c-background .hcard .grp { font: 10px/14px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-  #c-background .hcard .job + .grp { margin-top: var(--space-tight); }
-  #c-background .bgnote { font: 10px/1.4 var(--mono); color: var(--muted); margin: var(--space-tight) 0 0 var(--space-section); }
-  #c-background .bgnote.warn { color: var(--amber); }
   @media (prefers-reduced-motion: reduce) { #c-background .st.bg circle { animation: none; } }
-  .mk-row.sel.removing .tt { color: var(--muted); }
+  
   /* ToastView: Typography.label on a popover's ground (Palette.menu) in a capsule edged in the firm
      borderStrong, Space.gap across and Space.base down; its shadow is an untokenised optical correction. */
-  .mk-toast { display: inline-flex; align-items: center; gap: var(--space-snug); padding: var(--space-base) var(--space-gap);
-              background: var(--menu); border: 1px solid var(--border-strong); border-radius: 999px;
-              box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); font: 500 12px/1 var(--font); color: var(--text); }
+  
   .mk-pane + figcaption { max-width: 360px; }
-  .mk-gone { height: var(--size-row); margin-left: var(--space-section); border: 1px dashed var(--border);
-             border-radius: var(--radius-control); display: flex; align-items: center; justify-content: center;
-             font: 10px/1 var(--mono); color: var(--muted); }
-
-  .impl { margin: var(--space-block) 0 0; padding-left: var(--space-block); color: var(--muted);
-          display: flex; flex-direction: column; gap: var(--space-snug); }
-  .impl b { color: var(--text); font-weight: 600; }
-
 
   /* --- 29 Sep 2026 consistency proposals ---------------------------------------------- */
-  /* A menu item's key equivalent, trailing, the way NSMenu prints it. An approximation. */
-  .mk-menu .it .sc { margin-left: auto; padding-left: var(--space-block); color: var(--muted); font: 13px/1 var(--font); }
-  .mk-menu .it.on .sc { color: #FFFFFF; }
-  .mk-menu .it.danger { color: var(--destructive); }
-  /* The menu bar's titles above a menu. An approximation of what macOS draws. */
-  .mk-bar { display: flex; gap: var(--space-block); height: var(--size-menu-row); align-items: center; padding-inline: var(--space-gap);
-            background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-control);
-            font: 13px/1 var(--font); color: var(--text); margin-bottom: var(--space-tight); width: max-content; max-width: 100%; }
-  .mk-bar b { font-weight: 600; }
-  .mk-bar .open { background: var(--accent); color: #FFFFFF; border-radius: var(--radius-chip); padding: 3px var(--space-snug); margin: -3px calc(-1 * var(--space-snug)); }
-  .mk-bar .new, .mk-menu .it.new, .mk-row.new, .mk-head.new { outline: 1px dashed var(--amber); outline-offset: -1px; }
-
-  /* SettingsCard: Space.block padding in groupChrome (Palette.surfaceRaised inside the soft border), a
-     Size.control mark, Space.inset beside it, Typography.card title over a Size.statusMarkSmall ring and
-     Typography.help line, Space.tight apart; its actions secondary push buttons at Size.control; a
-     Hairline and the fields below, Space.block apart. */
-  .mk-card { display: flex; flex-direction: column; gap: var(--space-block); padding: var(--space-block);
-             background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-group); }
-  .mk-card .top { display: flex; align-items: center; gap: var(--space-inset); }
-  .mk-card .mark { width: var(--size-control); height: var(--size-control); flex: none; font: 600 11px/1 var(--mono); color: #FFFFFF; }
-  .mk-card .tl { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; flex: 1; }
-  .mk-card .tl b { font: 600 13px/1.2 var(--font); color: var(--text); }
-  .mk-card .st { display: flex; align-items: center; gap: var(--space-tight); font: 11px/1.2 var(--font); }
-  /* ToneRing: the tone's ring, a size × 0.15 stroke inside Size.statusMarkSmall, in the line's colour. */
-  .mk-card .st i { width: 8px; height: 8px; border-radius: 50%; flex: none; box-sizing: border-box; border: 1.2px solid currentColor; }
-  .mk-card .st.ok { color: var(--green); }
-  .mk-card .st.warn { color: var(--amber); }
-  .mk-card .st.idle { color: var(--muted); }
-  .mk-card .hl { height: 1px; background: var(--border); }
-  .mk-card .acts { display: flex; gap: var(--space-base); flex: none; }
-  .mk-sheet .bd.tight { gap: var(--space-gap); }
-
-
-  /* The empty sidebar: SidebarHeading, then Typography.body over HelpText and the house secondary
-     push button (PushButtonStyle.secondary), which scales its own height, radius and padding. */
-  .mk-empty { display: flex; flex-direction: column; gap: var(--space-base); align-items: flex-start;
-              padding: var(--space-tight) var(--space-base) var(--space-block); }
-  .mk-empty b { font: 400 13px/1.3 var(--font); color: var(--text); }
-  .mk-empty .push { height: var(--size-control); box-sizing: border-box; display: inline-flex; align-items: center;
-                    padding-inline: var(--space-gap); background: var(--button); border: 1px solid var(--border);
-                    border-radius: var(--radius-control); font-size: 13px; color: var(--text); }
 
   /* Copy tables on the proposals tab reuse .patterns; the "today" column is struck through. */
   .patterns td s { color: var(--muted); text-decoration-color: var(--amber); }
-  .patterns td.to { color: var(--text); font-family: var(--font); font-size: 13px; white-space: normal; }
-
 
   /* --- 6 Oct 2026 SYSTEM footer proposal (shipped; kept as the footer's mock kit) ------ */
   /* SidebarFooter: Size.sidebarMinWidth wide, on its own ground (Palette.sidebarFooter); each group
@@ -844,21 +588,13 @@
   .mk-foot .rule { height: 1px; background: var(--border); }
   .mk-foot .hd { display: flex; align-items: center; height: var(--size-menu-row);
                  font: 600 11px/1 var(--font); color: var(--tertiary); }
-  .mk-foot .r { display: flex; align-items: center; gap: var(--space-inset); height: var(--size-menu-row); white-space: nowrap; }
-  .mk-foot .r.new { outline: 1px dashed var(--amber); outline-offset: -1px; }
-  .mk-foot .rd { display: inline-flex; align-items: center; }
+
   .mk-foot .m2 { color: var(--muted); white-space: pre; } .mk-foot .t { white-space: pre; }
   .mk-foot .w { color: var(--amber); white-space: pre; }
-  .mk-foot .ring { width: 10px; height: 10px; flex: none; }
+  
   .mk-foot .mk { width: 16px; height: 16px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; }
   .mk-foot .mk.claude { background: var(--claude); } .mk-foot .mk.claude svg { width: 9.8px; height: 9.8px; fill: #FFFFFF; }
   .mk-foot .mk.paper { background: #FFFFFF; } .mk-foot .mk.paper svg { width: 8px; height: 8px; fill: #000000; }
-  .mk-foot .lead { width: 16px; flex: none; display: flex; align-items: center; justify-content: center; }
-  .mk-foot .end { margin-left: auto; display: flex; }
-  .mk-foot .gap6 { width: var(--space-snug); flex: none; }
-  .mk-foot .st { width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; display: block; flex: none; }
-  .mk-foot .st.done { border: 1.5px solid var(--accent); } .mk-foot .st.needs { border: 1.5px solid var(--amber); }
-  .mk-foot svg.st { border-radius: 0; } .mk-foot svg.st .arc { transform-origin: 5px 5px; animation: mk-spin 1.1s linear infinite; }
 
   /* --- SidebarFooter (Components): every row its mark and three equal columns ---------- */
   /* Drawn with the footer kit above (.mk-foot: its groups, headings, marks and inks).
@@ -875,7 +611,7 @@
   .mk-foot .tp { display: inline-grid; white-space: pre; }
   .mk-foot .tp > * { grid-area: 1 / 1; }
   .mk-foot .tp > .ghost { visibility: hidden; }
-  .mk-foot .tp.nm { justify-items: end; }
+  
   /* Three columns: a row is its mark, Space.inset, then three columns of equal width Space.gap
      apart; a column is its label, Space.tight, its ring, a space, its number. A reset is not
      drawn at rest: it rises over its reading under the pointer (ResetBadge). */
@@ -884,9 +620,6 @@
   .uf-cols .col + .col { margin-left: calc(var(--space-gap) - var(--space-inset)); }
   .uf-cols .col .lb { margin-right: var(--space-tight); }
   .uf-cols .col .nl { margin-left: 3px; }
-  .uf-cols .col .lead { width: auto; margin-right: var(--space-tight); }
-  .uf-cols .lead { width: 16px; flex: none; }
-  .uf-pair { display: flex; flex-wrap: wrap; gap: var(--space-section); align-items: flex-start; margin-top: var(--space-block); }
 
   /* --- A stepped sheet's footer (Components: Notice) ------------------------------------ */
   /* SteppedSheetFooter on its own: the sheet footer's Space.block × Space.margin padding on the sheet's
@@ -902,20 +635,15 @@
                    border-radius: var(--radius-control); font-size: 13px; }
   /* Two FormFields side by side, Space.gap apart, each maxWidth .infinity — the agent card's
      Default model and Default reasoning row. */
-  .mk-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-gap); }
-  .mk-cols .ai-select { width: auto; }
+
   .ai-select.disabled { opacity: 0.4; }
-  .mk-card .chip { display: inline-flex; align-items: center; height: var(--size-chip); padding-inline: var(--space-tight);
-                   background: var(--badge); border-radius: var(--radius-chip); font: 500 10px/1 var(--font); color: var(--text); }
-  .mk-card .top .tl > div:first-child { display: flex; align-items: center; gap: var(--space-snug); }
-  .mk-card .top .tl .chips { display: flex; gap: var(--space-tight); }
+
   /* A group heading's status, joined to its words in the heading's face and its SettingsTone. */
   .mk-foot .hd .suf { white-space: pre; }
-  .mk-foot .suf.ready { color: var(--green); } .mk-foot .suf.attention { color: var(--amber); } .mk-foot .suf.idle { color: var(--muted); }
+  .mk-foot .suf.ready { color: var(--green); }  
   /* The real SF Symbols, the SymbolMark card's masks, at Size.vendorMark. */
   .mk-foot .gl { display: block; background: #000000; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
   .mk-foot .gl.macbook { width: 11.83px; height: 6.86px; -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGsAAAA+CAYAAAAs/OVIAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAa6ADAAQAAAABAAAAPgAAAAC4UhjEAAACuklEQVR4Ae2cPUseQRSFjYmCGIIflRYpBYvYpPMn2PhRWIpdCOnyA1IEUqUKBNLa2aUNyT9QxEK0MqTRwpAQooFAMB+eCyG8HGZfx91ZOGbPhQPe2d27d84zu27zzsCAww7YATtgB+yAHbADdqC7DtxoaerTqLsGzUNT0Aj0P8cPTO4TtANtQgfQtYjH6DKa/9NhvcLchyDpeITuugypd+4vlUmNo7lTw/q3WH/Bi5mSwAYLFltArTsF6133UuHtSslJ3CpY7H5FrdcYfwvFU1ciRlHkBXS7ZrF4VcXr+kvN6/myWKDxIbXOB5DPJcZqD5WENZnoYgtjG4nxJkPfcfFHqC6sWDTHTRqga6OfWJBj0BIdm6C8UVryNZgCv92ou+qL3+FQPCF1Ip7yNmI3UTTlSeK0vKGixRK3PEuMlRh6gyL70F0od8EF3BPoPdRGfGujaG/NtmH13qv030coGOpM5K7KzhiiPFHDUqZDvRkWGaKcGpYyHerNsMgQ5dSwlOlQb4ZFhiinhqVMh3ozLDJEOTUsZTrUm2GRIcqpYSnTod4MiwxRTg1LmQ71ZlhkiHJqWMp0qDfDIkOUU8NSpkO9GRYZopwaljId6s2wyBDl1LCU6VBvhkWGKKeGpUyHejMsMkQ5NSxlOtSbYZEhyqlhKdOh3gyLDFFODUuZDvVmWGSIcmpYynSoN8MiQ5TT3O2AFjGJJ9AsdLNiQvErSoYfe0GEuhAxd/4lafw09rxi8r8x/gF6Dm1ARWIZVeKmVnsePMwhlfNk7aHQvZxiPqe2A7FVxBQUD0Rl5MCKTbOGKyv4QCkHxlHoa79i/D8mdW5bWxGk7tXVsc+YeGym0jdyYD3tW8EHSzjwDEX6vgKvcpNVnBybhPz8W9QfG80/NuIr+RB6ADnsgB2wA3bADtgBO2AH7MAlDlwAreGnlEvlicUAAAAASUVORK5CYII=); }
-  .mk-foot .gl.iphone { width: 7.5px; height: 9px; -webkit-mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEEAAABOCAYAAAB/oXuQAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQaADAAQAAAABAAAATgAAAABdDxWoAAADQklEQVR4Ae1cTahNURi9/h+iF8KIJzJSLwNJKaFMGDI2kkzkJwPTN38jot5EmRFRlMnzU4Z6IhFJzxAvovzlf63uvfseu7332Wefe849g/XVcs/+vr2/vc963zr7DM7WasnEgBgQA2JADNgMzLIdJdrMNQwsA+aUyBMa+gfBj8AHgNeNsNlYxX7gBvAJ+FsTvmGeSeAQsAAYmK3HzFNAXTfum2caa9g6CBZIwEwDCOgS8x1r2V4nEdT+wwYR0CXiLda0NIWIuQmD+AzY7Bn3C36W5xdPvKx7CAlGAP7athKOY8CYHchrp+wOl5H0gCPxefhuAz8csX66uPNsAU4C9kPxKXybgEKWQsJrzLDWmuUi2lcsn6/JOX3zdkvbNzbr34bG6ayjc70Ev58dfq8rRQ6rHdnuOny2i8SdAEYAHwkItd4BZ4FHbASMOxPlZ9/DKvgKkcB9vqjZJcjxfEfIsyPosA4IEcAc1PZxXuQYZffe0cf1vHB067lSSOiN7l3FvL2xTGNtMTrGrO1nbMJQv5iJQuOLxK6icwxZzHmtQF/2L2W2nkolyxl8B/FnQEgSfDC+AaaB2qxOEnhTvEGiUVanHBp149nFiASwIRJEQlsUqgRVgiqhzYAqQZWgSjAMSA6SgykGvSdIDpKD5GAYkBwkB1MM2h0kB8lBcjAMSA6SgykG7Q6Sg+QgORgGJAfJwRSDdgfJQXKQHAwDkoPkYIpBu4PkIDlIDoYByaFNRV1ftC7EdEXn4nfQVZ2gad9959+iC/tvcGSDn+3vjOxrd3sFxymA5xoqs35tkaHDoDyqk2o8dbc8MNh19iLQ3R1KqQSWKM8jZI0L9X24fQGxPUCIqGyu7jW/eH8M8JSby4bgXOEIFJZQ3ikUxxytl3BusAI30Z6wfFU392KCw9YkJG4RwHOS0ZZSCfeR3SZhX2fG6/jlGaYqbRjJdwEHHZM8gK8QAcyRUgm7MW6Sgz32G/6vnlhZNyUwL5DkKGJnAvG+hm4hG0uvSXiB9czv613mJOOD8DnQFBJmsJaNOWuuJExtXgIGTcQ9rGENMFAbxezjwBTAvwifCVURw7dI/gcST4BzwA5AJgbEgBgQA2KgAgb+AXKsVjfyANzFAAAAAElFTkSuQmCC); mask-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEEAAABOCAYAAAB/oXuQAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQaADAAQAAAABAAAATgAAAABdDxWoAAADQklEQVR4Ae1cTahNURi9/h+iF8KIJzJSLwNJKaFMGDI2kkzkJwPTN38jot5EmRFRlMnzU4Z6IhFJzxAvovzlf63uvfseu7332Wefe849g/XVcs/+vr2/vc963zr7DM7WasnEgBgQA2JADNgMzLIdJdrMNQwsA+aUyBMa+gfBj8AHgNeNsNlYxX7gBvAJ+FsTvmGeSeAQsAAYmK3HzFNAXTfum2caa9g6CBZIwEwDCOgS8x1r2V4nEdT+wwYR0CXiLda0NIWIuQmD+AzY7Bn3C36W5xdPvKx7CAlGAP7athKOY8CYHchrp+wOl5H0gCPxefhuAz8csX66uPNsAU4C9kPxKXybgEKWQsJrzLDWmuUi2lcsn6/JOX3zdkvbNzbr34bG6ayjc70Ev58dfq8rRQ6rHdnuOny2i8SdAEYAHwkItd4BZ4FHbASMOxPlZ9/DKvgKkcB9vqjZJcjxfEfIsyPosA4IEcAc1PZxXuQYZffe0cf1vHB067lSSOiN7l3FvL2xTGNtMTrGrO1nbMJQv5iJQuOLxK6icwxZzHmtQF/2L2W2nkolyxl8B/FnQEgSfDC+AaaB2qxOEnhTvEGiUVanHBp149nFiASwIRJEQlsUqgRVgiqhzYAqQZWgSjAMSA6SgykGvSdIDpKD5GAYkBwkB1MM2h0kB8lBcjAMSA6SgykG7Q6Sg+QgORgGJAfJwRSDdgfJQXKQHAwDkoPkYIpBu4PkIDlIDoYByaFNRV1ftC7EdEXn4nfQVZ2gad9959+iC/tvcGSDn+3vjOxrd3sFxymA5xoqs35tkaHDoDyqk2o8dbc8MNh19iLQ3R1KqQSWKM8jZI0L9X24fQGxPUCIqGyu7jW/eH8M8JSby4bgXOEIFJZQ3ikUxxytl3BusAI30Z6wfFU392KCw9YkJG4RwHOS0ZZSCfeR3SZhX2fG6/jlGaYqbRjJdwEHHZM8gK8QAcyRUgm7MW6Sgz32G/6vnlhZNyUwL5DkKGJnAvG+hm4hG0uvSXiB9czv613mJOOD8DnQFBJmsJaNOWuuJExtXgIGTcQ9rGENMFAbxezjwBTAvwifCVURw7dI/gcST4BzwA5AJgbEgBgQA2KgAgb+AXKsVjfyANzFAAAAAElFTkSuQmCC); }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -957,72 +685,6 @@
     border-radius: 50%; box-sizing: border-box; border: calc(1.5px * var(--s)) solid var(--amber); }
 
   /* --- 8 Oct 2026 Jira projects on a project header (shipped; kept as the header's mock kit) */
-  #p-jira-projects .dq { font-size: 13px; margin-top: var(--space-margin); }
-  #p-jira-projects .figs .fig { flex: 0 1 auto; }
-  /* The name and its badges, Space.gap apart, as HeadingRow's title HStack. */
-  #p-jira-projects .hg { display: flex; align-items: center; gap: var(--space-gap); min-width: 0; }
-  /* The header's quiet Jira badge inks its mark with its words (markInk: .label). */
-  #p-jira-projects .jm { width: 10px; height: 10px; fill: var(--muted); flex: none; }
-  #p-jira-projects .ai-badge.quiet { cursor: pointer; flex: none; }
-  #p-jira-projects .ai-badge.quiet:hover, #p-jira-projects .key:hover, #p-jira-projects .key.hovered {
-    background: var(--badge-hovered); box-shadow: 0 0 0 var(--space-tight) var(--badge-hovered);
-    border-radius: 0; clip-path: inset(0 calc(-1 * var(--space-tight)) round var(--radius-chip)); }
-  #p-jira-projects .key { cursor: pointer; }
-  /* RowPill on Surface.selected: the name lifts to onAccent, everything quiet keeps muted. */
-  #p-jira-projects .mk-head.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
-  #p-jira-projects .mk-head.sel .nm { color: var(--on-accent); }
-  #p-jira-projects .chev.closed svg { transform: rotate(-90deg); }
-  /* StatusCountChip: Size.chip, Radius.chip, Space.tight, Typography.chip.tabular, one fill/stroke pair. */
-  #p-jira-projects .scs { display: flex; gap: var(--space-tight); flex: none; }
-  #p-jira-projects .scc { display: inline-flex; align-items: center; gap: var(--space-tight); height: var(--size-chip);
-                          padding-inline: var(--space-tight); border-radius: var(--radius-chip); font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; }
-  #p-jira-projects .scc i { width: 8px; height: 8px; border-radius: 50%; display: block; box-sizing: border-box; border: 1.2px solid; }
-  #p-jira-projects .scc.needs { background: var(--status-chip-attention-fill); box-shadow: inset 0 0 0 1px var(--status-chip-attention-stroke); color: var(--amber); }
-  #p-jira-projects .scc.needs i { border-color: var(--amber); }
-  #p-jira-projects .scc.done { background: var(--status-chip-done-fill); box-shadow: inset 0 0 0 1px var(--status-chip-done-stroke); color: var(--link); }
-  #p-jira-projects .scc.done i { border-color: var(--accent); }
-  /* The count badge's menu: an NSMenu hung under the badge. Click the badge to open and close it. */
-  #p-jira-projects .anc { position: relative; display: inline-flex; flex: none; }
-  #p-jira-projects .anc .mk-menu { position: absolute; top: 22px; left: -10px; z-index: 3; width: 196px; display: none; }
-  #p-jira-projects .anc.open .mk-menu { display: block; }
-  #p-jira-projects .mk-menu .it .jm { width: 11px; height: 11px; }
-  #p-jira-projects .mk-menu .it.on .jm { fill: #FFFFFF; }
-  #p-jira-projects .mk-menu .it .k { min-width: 32px; }
-  #p-jira-projects .mk-sidebar.room { min-height: 152px; }
-  /* Option C: the count gives way to the keys under the pointer. */
-  #p-jira-projects .xp .full { display: none; }
-  #p-jira-projects .xp:hover .full, #p-jira-projects .xp.hovered .full { display: inline-flex; gap: var(--space-tight); }
-  #p-jira-projects .xp:hover .n, #p-jira-projects .xp.hovered .n { display: none; }
-
-  /* A boxed Badge on a project header — the branch label's +n — and its selected wash. */
-  #p-jira-projects .mk-head .ai-badge:not(.quiet) { flex: none; cursor: pointer; }
-  #p-jira-projects .mk-head .ai-badge:not(.quiet):hover, #p-jira-projects .mk-head .ai-badge:not(.quiet).hovered { background: var(--badge-hovered); }
-  #p-jira-projects .mk-head.sel .ai-badge:not(.quiet) { background: var(--badge-selected); color: var(--on-accent); }
-  #p-jira-projects .pair { display: inline-flex; align-items: center; gap: var(--space-snug); flex: none; }
-  #p-jira-projects .ai-badge.quiet .more { margin-left: var(--space-tight); }
-
-
-
-  /* Scoped to .op. Every number is a Metrics member, named beside it; what macOS draws is approximated. */
-
-  /* Marks: VendorMark discs. Claude: Palette.claude disc, markPaper glyph. Codex: markPaper disc, markInk glyph. */
-  .op .vm { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
-  .op .vm svg { width: 61%; height: 61%; }
-  .op .vm.claude { background: var(--claude); } .op .vm.claude svg { fill: #FFFFFF; }
-  .op .vm.codex { background: #FFFFFF; } .op .vm.codex svg { fill: #000000; }
-  .op .vm.s18 { width: 18px; height: 18px; } .op .vm.s16 { width: 16px; height: 16px; }
-  .op .vm.s12 { width: 12px; height: 12px; } .op .vm.s28 { width: 28px; height: 28px; }
-
-  /* The operator badge: Size.chip tall, Radius.chip, Space.tight inside, Typography.chip, no mark. */
-  .op .ob { display: inline-flex; align-items: center; gap: var(--space-tight); height: var(--size-chip);
-            padding-inline: var(--space-tight); border-radius: var(--radius-chip); flex: none; max-width: 100%;
-            font: 500 10px/1 var(--font); color: var(--muted); white-space: nowrap; box-sizing: border-box; }
-  .op .ob .tx { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .op .ob.quiet { padding-inline: 0; background: none; }
-  .op .ob.acting { background: var(--badge); color: var(--text); }
-  .op .ob.you { background: var(--status-chip-attention-fill); box-shadow: inset 0 0 0 1px var(--status-chip-attention-stroke); color: var(--text); }
-  .op .ob .bang { width: 12px; height: 12px; border-radius: 50%; background: var(--amber); color: #000000;
-                  font: 700 9px/12px var(--font); text-align: center; flex: none; }
 
   /* The Notice: an amber exclamationmark.circle.fill at Size.inlineMark and the title in Typography.label
      on one row, Space.snug apart; the description in Typography.help and Palette.muted; the actions as
@@ -1034,208 +696,269 @@
   .op .ntc .d { color: var(--muted); }
   .op .ntc .a { display: flex; flex-wrap: wrap; gap: var(--space-gap); }
   .op .ntc .a span { color: var(--link); }
-  .op .ntc .a span.off { color: var(--muted); }
 
   /* Sidebar pieces on .mk-sidebar. */
   .op .hdg { display: flex; align-items: center; height: var(--size-menu-row); padding-left: var(--space-base); padding-right: 3px;
              font: 600 11px/1 var(--font); color: var(--tertiary); }
-  .op .hdg .sp { flex: 1; }
-  .op .hdg .plus { width: var(--size-slot); height: var(--size-slot); display: flex; align-items: center; justify-content: center; color: var(--muted); }
-  .op .hdg .plus svg { width: 10px; height: 10px; }
-  .op .mk-row .cl .ai-badge.quiet { flex: none; }
-  .op .mk-row .cl .proj { display: inline-flex; align-items: center; gap: var(--space-tight); font: 500 10px/1 var(--font); color: var(--muted); min-width: 0; }
-  .op .mk-row .cl .proj svg { width: 10px; height: 10px; flex: none; }
-  .op .mk-row .cl .more { display: inline-flex; align-items: center; height: var(--size-chip); padding-inline: var(--space-tight);
-                          background: var(--badge); border-radius: var(--radius-chip); font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--text); flex: none; }
-  .op .mk-row .ol { display: flex; align-items: center; height: var(--size-chip); min-width: 0; }
-  .op .mk-row .st.done { border: 1.5px solid var(--accent); }
-  .op .mk-row.sel .cl .more { background: var(--badge-selected); color: var(--on-accent); }
-  .op .statecol { display: flex; flex-direction: column; gap: var(--space-hairline); }
-  .op .statecol .lab { font: 10px/1.4 var(--mono); color: var(--muted); margin: var(--space-base) 0 var(--space-tight) var(--space-section); }
-
-
-
-
-
-
 
  /* Space.tight under the title row */
-
-
-
-
-
 
   /* The tab bar: the underline TabBar, Space.block under the header's lines, standing on the header's rule. */
 
   .op .col { display: flex; flex-direction: column; gap: var(--space-gap); min-width: 0; }
-  .op .col .ch { margin-bottom: calc(var(--space-base) - var(--space-gap)); }
-  .op .col .ch { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-menu-row);
-                 font: 600 11px/1 var(--font); color: var(--tertiary); }
-  .op .col .ch .n { font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--muted); }
 
-
-  /* PushButtonStyle: .secondary (Palette.button in the soft border) and .primary (the accent, medium). */
-  .op .btn2 { display: inline-flex; align-items: center; gap: var(--space-base); height: var(--size-control); padding-inline: var(--space-gap);
-              box-sizing: border-box; background: var(--button); border: 1px solid var(--border); border-radius: var(--radius-control);
-              font-size: 13px; color: var(--text); white-space: nowrap; }
-  .op .btn2.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 500; }
-  .op .btn2 .kc { display: inline-flex; gap: 3px; }
-  .op .btn2 .kc span { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; box-sizing: border-box;
-                       background: var(--keycap-fill); border: 1px solid var(--keycap-stroke); border-radius: var(--radius-chip);
-                       font: 400 11px/1 var(--font); color: var(--on-accent); }
-
-
-  /* Activity and Summary: the content scrolls as one, Space.block above and below, Space.margin either side. */
-
-
-
-  .op .act { display: flex; flex-direction: column; margin-inline: calc(-1 * var(--space-base)); }
-
-  .op .sum { display: flex; flex-direction: column; gap: var(--space-section); }
-  .op .sum .by { font: 11px/1.4 var(--font); color: var(--muted); }
-  .op .sum .lfy { display: flex; flex-direction: column; gap: var(--space-base); }
-  .op .sum .ch { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-menu-row);
-                 font: 600 11px/1 var(--font); color: var(--tertiary); }
-  .op .sum .ch .n { font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--muted); }
-  .op .sum .it { font: 12px/1.4 var(--font); color: var(--text); }
-
-  .op .shelf { display: flex; flex-direction: column; gap: var(--space-hairline); padding: var(--space-base) var(--space-margin); }
-  .op .shr { display: flex; align-items: center; gap: var(--space-inset); min-height: var(--size-row); box-sizing: border-box;
-             padding: var(--space-base); border-radius: var(--radius-control); font: 13px/1 var(--font); }
-  .op .shr .prov { width: var(--size-avatar); height: var(--size-avatar); flex: none; display: flex; align-items: center;
-                   justify-content: center; color: var(--muted); }
-  .op .shr .m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-tight); }
-  .op .shr .l1 { display: flex; align-items: baseline; gap: var(--space-tight); min-width: 0; }
-  .op .shr .tt { flex: 1; min-width: 0; font: 13px/16px var(--font); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .op .shr .dt { font: 11px/1 var(--font); color: var(--muted); flex: none; }
-  .op .shr .cl { display: flex; align-items: center; gap: var(--space-gap); height: var(--size-chip); min-width: 0; }
-  .op .shr .cl .ai-badge.quiet svg { width: 10px; height: 10px; }
-  .op .shr .cl .br { font: 11px/1 var(--mono); color: var(--muted); white-space: nowrap; }
-  .op .shr .cl .pj { font: 11px/1 var(--font); color: var(--muted); white-space: nowrap; }
-  /* Selected on the sheet (Surface.selectedOnSheet): Palette.selected edged in selectedEdge; the title lifts to
-     onAccent, the day and the glyph keep muted. */
-  .op .shr.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
-  .op .shr.sel .tt { color: var(--on-accent); }
-
-
-
-  .op .editor { box-sizing: border-box; padding: var(--space-base) var(--space-inset); background: var(--field);
-                border: 1px solid var(--border-strong); border-radius: var(--radius-control); font: 13px/1.45 var(--mono); color: var(--text); }
-  .op .editor .ph { color: var(--placeholder); }
-  .op .editor .sk { color: var(--link); }
-  .op .editor.focused { border-color: var(--focus-edge); box-shadow: 0 0 0 3px var(--focus-ring); }
-  .op .lanes { display: flex; flex-wrap: wrap; gap: var(--space-tight); align-items: center; }
-  .op .lane { display: inline-flex; align-items: center; gap: var(--space-tight); height: 20px; padding-inline: var(--space-snug);
-              border-radius: var(--radius-chip); font: 12px/1 var(--font); color: var(--text); background: var(--badge); }
-  .op .lane svg { width: 11px; height: 11px; }
-  .op .lane .x { color: var(--muted); font: 600 10px/1 var(--font); }
-  .op .dest { font: 11px/1.4 var(--font); color: var(--muted); }
-  .op .lnk { color: var(--link); }
-  .op .sheetft { display: flex; align-items: center; gap: var(--space-base); }
-  .op .sheetft .grow { flex: 1; }
-
-  /* Settings › Operator: the autonomy list. A row: title in Typography.bodyEmphasis over HelpText,
-     a SettingsSwitch trailing; rows split by a Hairline, Space.gap apart. */
-  .op .auto .rw { display: flex; align-items: flex-start; gap: var(--space-gap); }
-  .op .auto .rw .tl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-tight); }
-  .op .auto .rw .tl b { font: 500 13px/1.3 var(--font); color: var(--text); }
-  .op .auto .rw .tl span { font: 11px/1.4 var(--font); color: var(--muted); }
-  .op .auto .rw .always { font: 11px/1 var(--font); color: var(--muted); padding-top: 2px; }
-  .op .never { display: flex; flex-direction: column; gap: var(--space-tight); }
-  .op .never div { display: flex; align-items: center; gap: var(--space-snug); font: 11px/1.4 var(--font); color: var(--muted); }
-  .op .never svg { width: 11px; height: 11px; flex: none; }
-  .op .mk-group { display: flex; flex-direction: column; gap: var(--space-gap); padding: var(--space-block);
-                  background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-group); }
-  .op .mk-group .gh b { font: 600 13px/1.2 var(--font); color: var(--text); display: block; }
-  .op .mk-group .gh span { font: 11px/1.4 var(--font); color: var(--muted); display: block; margin-top: var(--space-tight); }
-  .op .mk-group .hl2 { height: 1px; background: var(--border); }
-  .op .mk-sheet.tall { height: auto; }
-  .op .mk-sheet .bd { overflow: hidden; }
-
-
-
-  /* A macOS notification banner: macOS draws it; approximated, nothing here is a token. */
-  .op .mk-notif { width: 344px; box-sizing: border-box; display: flex; gap: var(--space-inset); padding: var(--space-inset) var(--space-gap);
-                  background: rgba(50, 50, 52, 0.92); border: 1px solid var(--border); border-radius: 16px;
-                  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); font: 12px/1.35 var(--font); color: var(--text); }
-  .op .mk-notif .ic { width: 32px; height: 32px; border-radius: 8px; background: #2B2B2B; border: 1px solid var(--border); flex: none;
-                      display: flex; align-items: center; justify-content: center; font: 600 10px/1 var(--mono); color: var(--muted); }
-  .op .mk-notif b { font-weight: 600; display: block; }
-  .op .mk-notif .bd2 { color: rgba(255, 255, 255, 0.75); }
-  .op .fixstates { display: flex; flex-direction: column; gap: var(--space-gap); }
-  .op .busy { display: flex; align-items: center; gap: var(--space-snug); font: 11px/1.4 var(--font); color: var(--muted); }
-  .op .busy svg { width: 10px; height: 10px; }
-  .op .prop { display: flex; gap: var(--space-base); font: 11px/1.4 var(--font); }
-  .op .prop .tx2 { display: flex; flex-direction: column; gap: var(--space-tight); }
-  .op .prop b { font: 500 11px/1.35 var(--font); color: var(--text); }
-  .op .prop .w { color: var(--muted); }
-  .op .prop ol { margin: 0; padding-left: var(--space-block); color: var(--text); display: flex; flex-direction: column; gap: var(--space-hairline); }
-  .op .static-agent { display: flex; align-items: center; gap: var(--space-base); font: 500 13px/1 var(--font); color: var(--text); }
-  .op .dim { opacity: 0.4; }
-  /* Acting: no box, the words in the surface's secondary ink, as every word but needs-you's. New words morph once from the words standing over
-     OperatorBadge.decodeDuration (0.5 s), then stand still; the row's spinner carries the motion. The page replays it every 6 s. */
-  .op .ob.acting { background: none; padding-inline: 0; }
-  .op .ob.acting .tx { color: var(--muted); }
-  .op .mk-row.sel .ob.acting { background: none; }
-  .op .mk-row.sel .ob.acting .tx { color: var(--muted); }
-
-
-  /* The progress keeps its width; the badge's words are what is cut. */
-
-
-
-  .op .hdg .cnt { font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--muted);
-                  margin-left: var(--space-gap); white-space: pre; flex: none; }
-  .op .hdg .fold { width: var(--size-slot); height: var(--size-slot); display: flex; align-items: center; justify-content: center;
-                   color: var(--muted); opacity: 0; flex: none; }
-  .op .hdg:hover .fold, .op .hdg .fold.shown, .op .hdg .fold.closed { opacity: 1; }
-  .op .hdg .fold.closed svg { transform: rotate(-90deg); }
-
-  .op .hdg .sccs { margin-left: var(--space-base); }
-  /* TaskRowMarkView: SettledMark's finished disc (Palette.green, a white check) and paused disc (Palette.idleRing,
-     its bars in the ground), keeping their colours on the selection. A queued title in the surface's secondary ink. */
-  .op .st.check, .op .st.pause { border-radius: 0; }
-  .op .st.check { color: var(--green); }
-  .op .st.pause { color: var(--idle-ring); }
-  .op .mk-row.queued .tt { color: var(--muted); }
-  .op .mk-row.sel.queued .tt { color: var(--muted); }
-
-  .op .bhd .prov .bg { color: var(--muted); }
-  .op .bhd .prog { font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--muted); margin-left: var(--space-gap); flex: none; white-space: pre; }
-  .op .bhd .bbtn { width: var(--size-slot); height: var(--size-slot); flex: none; display: flex; align-items: center;
-                   justify-content: center; color: var(--muted); margin-left: var(--space-tight); }
-  .op .bhd.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
-  .op .bhd.sel .nm { color: var(--on-accent); }
-  .op .sccs { display: inline-flex; gap: var(--space-tight); flex: none; }
-  .op .scc { display: inline-flex; align-items: center; gap: var(--space-tight); height: var(--size-chip); box-sizing: border-box;
-             padding-inline: var(--space-tight); border-radius: var(--radius-chip); font: 500 10px/1 var(--font); font-variant-numeric: tabular-nums; }
-  .op .scc .st { display: block; width: 8px; height: 8px; border-radius: 50%; box-sizing: border-box; }
-  .op .scc .st.needs { border: 1.2px solid var(--amber); }
-  .op .scc.a { background: var(--status-chip-attention-fill); box-shadow: inset 0 0 0 1px var(--status-chip-attention-stroke); color: var(--amber); }
   /* The Operator's row: washed at rest in Palette.operatorRow, Palette.badgeHovered hovered, in RowPill's pill, which
      selection replaces; the avatar ring operatorRowSolid and operatorRowHoveredSolid, selectedSolid selected. */
-  .op .mk-row.opr { background: var(--operator-row); }
-  .op .mk-row.opr .av .mark { box-shadow: 0 0 0 1px var(--operator-row-solid); }
-  .op .mk-row.opr.hov { background: var(--badge-hovered); }
-  .op .mk-row.opr.hov .av .mark { box-shadow: 0 0 0 1px var(--operator-row-hovered-solid); }
-  .op .mk-row.opr.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
-  .op .mk-row.opr.sel .av .mark { box-shadow: 0 0 0 1px var(--selected-solid); }
-  .op .vm.more { background: var(--control-active); color: var(--text); font: 600 10px/1 var(--font); }
-
-
-
 
   .signal-states td:last-child { white-space: normal; }
   .native-reference { display:block; max-width:none; height:auto; }
 
 
+  /* pp:css:begin */
+  /* --- 26 Nov 2026 proposals: the signals flow. Scoped to #proposals; 1 CSS px = 1 pt. ------- */
+  #proposals .diagnosis { margin: var(--space-block) 0 0; padding: 0; list-style: none; counter-reset: dx;
+                          display: flex; flex-direction: column; gap: var(--space-gap); }
+  #proposals .diagnosis li { counter-increment: dx; display: grid; grid-template-columns: var(--size-slot) 1fr;
+                             gap: var(--space-inset); color: var(--muted); }
+  #proposals .diagnosis li::before { content: counter(dx); font: 600 10px/var(--size-slot) var(--mono); text-align: center;
+                                     color: var(--amber); background: var(--badge); border-radius: var(--radius-chip); height: var(--size-slot); }
+  #proposals .diagnosis b { color: var(--text); font-weight: 600; }
+  #proposals .options { display: flex; flex-direction: column; gap: var(--space-block); margin-top: var(--space-block); }
+  #proposals .option { border: 1px solid var(--border); border-radius: var(--radius-group); padding: var(--space-section); }
+  #proposals .option.pick { border-color: var(--accent); }
+  #proposals .option header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-base); }
+  #proposals .option h3 { font-size: 13px; color: var(--text); }
+  #proposals .option .letter { font: 600 10px/var(--size-chip) var(--mono); color: var(--muted); background: var(--badge);
+                               border-radius: var(--radius-chip); padding-inline: var(--space-tight); height: var(--size-chip); }
+  #proposals .option.pick .letter { color: #FFFFFF; background: var(--accent); }
+  #proposals .option .rec { font: 500 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+  #proposals .option > p { color: var(--muted); margin-top: var(--space-base); }
+  #proposals .option > p b { color: var(--text); font-weight: 600; }
+  #proposals .decision { margin-top: var(--space-margin); }
+  #proposals .decision > h3 { font-size: 13px; color: var(--text); }
+  #proposals .decision > p { color: var(--muted); margin-top: var(--space-tight); }
+  #proposals .board { display: flex; flex-wrap: wrap; gap: var(--space-margin); align-items: flex-start; margin-top: var(--space-block); }
+  #proposals .board > figure { margin: 0; max-width: 100%; overflow-x: auto; }
+  #proposals .board figcaption { display: flex; gap: var(--space-base); align-items: baseline; margin-top: var(--space-base);
+                                 font-size: 12px; color: var(--muted); max-width: 560px; }
+  #proposals .board figcaption .id { font: 600 10px/var(--size-chip) var(--mono); color: var(--surface); background: var(--amber);
+                                     border-radius: var(--radius-chip); padding-inline: var(--space-tight); flex: none; }
+  #proposals .board figcaption b { color: var(--text); font-weight: 600; }
+  #proposals .note-anat { font: 10px/1.4 var(--mono); color: var(--amber); }
 
+  /* Marks */
+  #proposals svg.g { display: block; flex: none; }
+  #proposals .vm { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  #proposals .vm.claude { background: var(--claude); } #proposals .vm.claude svg { width: 11px; height: 11px; fill: #FFFFFF; }
+  #proposals .vm.codex { background: #FFFFFF; } #proposals .vm.codex svg { width: 11px; height: 11px; fill: #000000; }
+  #proposals .vm.s12 { width: 12px; height: 12px; } #proposals .vm.s12 svg { width: 7.5px; height: 7.5px; }
+  #proposals .vms { display: inline-flex; } #proposals .vms .vm + .vm { margin-left: -3px; box-shadow: 0 0 0 1px var(--surface); }
 
+  /* SheetLayout: Sheet.width x Sheet.height on Palette.surface. The window's radius and edge are macOS's (approximated). */
+  #proposals .pp-sheet { width: 560px; height: 560px; background: var(--surface); border-radius: var(--radius-panel);
+                         box-shadow: 0 0 0 1px var(--border-strong); display: flex; flex-direction: column; overflow: hidden;
+                         position: relative; font-size: 13px; line-height: 1.25; flex: none; }
+  #proposals .pp-sheet.tall { height: auto; min-height: 560px; }
+  #proposals .pp-fold { position: absolute; left: 0; right: 0; top: 560px; border-top: 1px dashed var(--amber); pointer-events: none; }
+  #proposals .pp-fold span { position: absolute; right: var(--space-base); top: 2px; font: 10px/1 var(--mono); color: var(--amber); }
+  #proposals .pp-hd { padding: var(--space-section) var(--space-margin) var(--space-block); border-bottom: 1px solid var(--border);
+                      display: flex; flex-direction: column; gap: var(--space-tight); flex: none; }
+  #proposals .pp-hd .tr { display: flex; align-items: center; gap: var(--space-gap); min-height: 22px; }
+  #proposals .pp-ttl { font: 600 17px/22px var(--font); color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #proposals .pp-bd { flex: 1; min-height: 0; overflow: hidden; padding: var(--space-margin); display: flex; flex-direction: column; gap: var(--space-block); }
+  #proposals .pp-sheet.tall .pp-bd { flex: none; }
+  #proposals .pp-bd.list { padding: var(--space-base) var(--space-margin); gap: var(--space-hairline); }
+  #proposals .pp-ft { border-top: 1px solid var(--border); padding: var(--space-block) var(--space-margin); display: flex; align-items: center;
+                      gap: var(--space-base); flex: none; }
+  #proposals .pp-ft .grow { flex: 1; }
+  #proposals .pp-ft .st { font-size: 11px; color: var(--muted); }
+  #proposals .pp-sheet .ai-help { max-width: none; line-height: 1.3; }
+  #proposals .pp-sheet .ai-formfield > .lbl { display: flex; align-items: center; justify-content: space-between; min-height: 12px; }
+  #proposals .pp-sheet .ai-seg { display: flex; width: 100%; }
+  #proposals .pp-sheet .ai-seg > span { flex: 1; }
+  #proposals .pp-sheet .ai-seg > span svg { width: 11px; height: 11px; }
+  #proposals .pp-sheet .ai-field, #proposals .pp-sheet .ai-select { width: 100%; }
+  #proposals .pp-small { display: inline-flex; align-items: center; gap: var(--space-snug); height: var(--size-menu-row); padding-inline: var(--space-base);
+                         box-sizing: border-box; border-radius: var(--radius-control); background: var(--button); border: 1px solid var(--border);
+                         font: 12px/1 var(--font); color: var(--text); white-space: nowrap; }
+  /* PromptEditor in fieldBox: Sheet.queryEditorHeight (56) or PromptStep's 150, promptMono. */
+  #proposals .pp-ed { box-sizing: border-box; background: var(--field); border: 1px solid var(--border-strong); border-radius: var(--radius-control);
+                      padding: var(--space-base) var(--space-inset); font: 13px/16px var(--mono); color: var(--text); height: 56px; overflow: hidden;
+                      white-space: pre-wrap; }
+  #proposals .pp-ed.tall { height: 150px; }
+  #proposals .pp-ed.focused { border-color: var(--focus-edge); box-shadow: 0 0 0 3px var(--focus-ring); }
+  #proposals .pp-ed .ph { color: var(--placeholder); }
+  /* A native checkbox: macOS draws it; approximated. */
+  #proposals .pp-cb { display: flex; flex-direction: column; gap: var(--space-snug); }
+  #proposals .pp-cb > div { display: flex; align-items: center; gap: var(--space-snug); font-size: 13px; color: var(--text); }
+  #proposals .pp-cb i { width: 14px; height: 14px; border-radius: 4px; box-sizing: border-box; background: var(--control-active);
+                        border: 1px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  #proposals .pp-cb i svg { width: 10px; height: 10px; }
+  #proposals .pp-cb .ai-help { padding-left: var(--space-section); }
+  #proposals .pp-box { box-sizing: border-box; background: var(--field); border: 1px solid var(--border-strong); border-radius: var(--radius-control);
+                       padding: var(--space-inset); display: flex; flex-direction: column; gap: var(--space-snug); }
+  #proposals .pp-box .r { display: flex; gap: var(--space-snug); align-items: baseline; font-size: 12px; }
+  #proposals .pp-box .k { color: var(--link); font-variant-numeric: tabular-nums; flex: none; }
+  #proposals .pp-box .t { color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #proposals .pp-box .p { color: var(--muted); flex: none; }
+  #proposals .pp-close { background: var(--well); border-radius: var(--radius-control); padding: var(--space-inset); font-size: 13px; line-height: 1.35; color: var(--text); }
+  #proposals .pp-close b { font-weight: 600; }
+  #proposals .pp-cols { display: grid; grid-template-columns: 136px 1fr 1fr var(--size-slot); gap: var(--space-base) var(--space-gap); align-items: center; }
+  #proposals .pp-cols .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
+  #proposals .pp-cols .x { color: var(--muted); display: flex; justify-content: center; }
+  #proposals .pp-link { display: inline-flex; align-items: center; gap: var(--space-snug); height: var(--size-control); color: var(--link); font-size: 13px; }
+  #proposals .pp-lead { font-size: 11px; color: var(--muted); line-height: 1.35; } #proposals .pp-lead b { font-weight: 600; color: var(--muted); }
 
+  /* List rows: RowPill(ground: .sheet) round SidebarRowContent's grid — mark, two lines, trailing slot. */
+  #proposals .pp-row { display: flex; align-items: center; gap: var(--space-inset); padding: var(--space-base); min-height: var(--size-row);
+                       box-sizing: border-box; border-radius: var(--radius-control); position: relative; }
+  #proposals .pp-row.top { align-items: flex-start; }
+  #proposals .pp-row.hover { background: var(--row-hover); }
+  #proposals .pp-row.sel { background: var(--selected); box-shadow: inset 0 0 0 1px var(--selected-edge); }
+  #proposals .pp-row.off .pp-dim { opacity: 0.4; }
+  #proposals .pp-row .pp-dim { display: flex; align-items: center; gap: var(--space-inset); flex: 1; min-width: 0; }
+  #proposals .pp-row.top .pp-dim { align-items: flex-start; }
+  #proposals .pp-av { width: var(--size-avatar); height: var(--size-avatar); display: flex; align-items: center; justify-content: center; flex: none; color: var(--muted); }
+  #proposals .pp-ln { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-tight); }
+  #proposals .pp-l1 { display: flex; align-items: baseline; gap: var(--space-tight); min-height: var(--size-chip); }
+  #proposals .pp-tt { font-size: 13px; line-height: 16px; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #proposals .pp-tt.em { font-weight: 500; line-height: var(--size-avatar); }
+  #proposals .pp-meta { font-size: 11px; color: var(--muted); white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
+  #proposals .pp-meta.warn, #proposals .pp-l2.warn, #proposals .pp-hl.warn { color: var(--amber); }
+  #proposals .pp-l2 { display: flex; align-items: center; gap: var(--space-gap); height: var(--size-chip); color: var(--muted); min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
+  #proposals .pp-l2.mono, #proposals .pp-mono { font: 11px/1 var(--mono); color: var(--muted); }
+  #proposals .pp-hl { font-size: 11px; color: var(--muted); line-height: 1.3; }
+  #proposals .pp-q { display: inline-flex; align-items: center; gap: var(--space-tight); font: 500 10px/1 var(--font); color: var(--muted); flex: none; }
+  #proposals .pp-q svg { width: 10px; height: 10px; }
+  #proposals .pp-arrow { color: var(--tertiary); font-size: 10px; margin-inline: calc(-1 * var(--space-base)); }
+  #proposals .pp-slot { width: var(--size-slot); height: var(--size-slot); display: flex; align-items: center; justify-content: center; flex: none; color: var(--tertiary); }
+  #proposals .pp-slot.top { height: var(--size-avatar); }
+  #proposals .pp-slot svg { width: 10px; height: 10px; }
+  /* The proposed row button: Size.slot square, Radius.chip; badge wash boxed at rest (B), badgeHovered under the pointer. */
+  #proposals .pp-btn { width: var(--size-slot); height: var(--size-slot); border-radius: var(--radius-chip); display: flex; align-items: center;
+                       justify-content: center; color: var(--text); flex: none; }
+  #proposals .pp-btn.boxed { background: var(--badge); }
+  #proposals .pp-btn.hot { background: var(--badge-hovered); }
+  #proposals .pp-btn svg { width: 12px; height: 12px; }
+  #proposals .pp-ell { width: 12px; height: 12px; }
+  /* StatusCountChip: Size.chip, Radius.chip, Space.tight, Typography.chip.tabular. */
+  #proposals .pp-sc { display: inline-flex; align-items: center; gap: var(--space-tight); height: var(--size-chip); padding-inline: var(--space-tight);
+                      border-radius: var(--radius-chip); background: var(--badge); box-shadow: inset 0 0 0 1px var(--border-strong);
+                      font: 500 10px/1 var(--font); color: var(--text); font-variant-numeric: tabular-nums; }
+  #proposals .pp-sc.attn { background: var(--status-chip-attention-fill); box-shadow: inset 0 0 0 1px var(--status-chip-attention-stroke); color: var(--amber); }
+  #proposals .pp-sc.fin { background: rgba(48, 209, 88, 0.16); box-shadow: inset 0 0 0 1px rgba(48, 209, 88, 0.38); }
+  #proposals .pp-sc svg { width: 8px; height: 8px; }
+  /* An NSMenu, approximated: Palette.menu inside borderStrong, Size.menuRow rows. */
+  #proposals .pp-menu { position: absolute; z-index: 2; background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-control);
+                        padding: var(--space-tight); min-width: 168px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); font-size: 13px; }
+  #proposals .pp-menu.static { position: static; display: inline-block; }
+  #proposals .pp-menu .it { height: 22px; display: flex; align-items: center; padding-inline: var(--space-base); border-radius: var(--radius-chip); color: var(--text); white-space: nowrap; }
+  #proposals .pp-menu .it.on { background: var(--accent); color: #FFFFFF; }
+  #proposals .pp-menu .it.off { color: var(--tertiary); }
+  #proposals .pp-menu .it.danger { color: var(--destructive); }
+  #proposals .pp-menu .sep { height: 1px; background: var(--border-strong); margin: var(--space-tight) var(--space-base); }
+  #proposals .pp-state { display: inline-flex; flex: none; }
+  /* The state column: Size.slot wide, centred on the row like the trailing column, the text cut before it. */
+  #proposals .pp-col { width: var(--size-slot); height: var(--size-slot); display: flex; align-items: center; justify-content: center; flex: none; }
+  /* AddMenu's +: the symbol in Typography.label and the surface's secondary ink, no ground, centred in Size.slot;
+     the slot overhangs the row's Space.base padding by (Size.slot - Size.trailingGlyph) / 2. */
+  #proposals .pp-plain { width: var(--size-slot); height: var(--size-slot); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  #proposals .pp-plain svg { width: 12px; height: 12px; }
+  #proposals .pp-row > .pp-slot { margin-right: -5px; }
+  #proposals .pp-proj { font-size: 11px; color: var(--muted); }
+  #proposals .pp-avs { display: inline-flex; align-items: center; }
+  /* AvatarGroupView's column: two marks' width, so every row's title starts on one line. */
+  #proposals .pp-sheet.arch .pp-av { width: 31px; justify-content: flex-start; }
+  #proposals .pp-more { margin-left: -4px; height: 14px; padding-inline: 3px; border-radius: 7px; background: var(--button); box-shadow: 0 0 0 1px var(--surface);
+                        font: 600 9px/14px var(--font); color: var(--text); }
+  #proposals .pp-state > .ai-hover-chip { z-index: 4; left: auto; right: calc(-1 * var(--space-tight)); transform: none; }
+  #proposals .pp-l2 > * { flex: none; }
+  #proposals .pp-l2 > .tx, #proposals .pp-l2 > .pp-mono { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #proposals .pp-group { height: var(--size-menu-row); display: flex; align-items: center; padding-inline: var(--space-base);
+                         font: 600 11px/1 var(--font); color: var(--tertiary); margin-top: var(--space-base); }
+  #proposals .pp-group:first-child { margin-top: 0; }
+  #proposals .pp-icons { display: flex; flex-wrap: wrap; gap: var(--space-block); margin-top: var(--space-block); }
+  #proposals .pp-iconcell { display: flex; flex-direction: column; gap: var(--space-base); background: var(--surface); }
+  #proposals .pp-iconcell .cap { font: 10px/1.4 var(--mono); color: var(--muted); }
+  #proposals .decision > table.patterns { margin-top: var(--space-block); }
+  #proposals .decision > p + p { margin-top: var(--space-base); }
+  /* Anatomy callouts */
+  #proposals .pp-anat { position: relative; }
+  #proposals .pp-anat .co { position: absolute; font: 600 10px/var(--size-chip) var(--mono); color: var(--surface); background: var(--amber);
+                            border-radius: var(--radius-chip); padding-inline: var(--space-tight); white-space: nowrap; z-index: 3; }
+  #proposals .pp-anat .zone { position: absolute; border: 1px dashed var(--amber); border-radius: var(--radius-control); pointer-events: none; z-index: 3; }
+  #proposals .legend { margin-top: var(--space-block); display: grid; grid-template-columns: auto 1fr; gap: var(--space-snug) var(--space-gap); color: var(--muted); max-width: 900px; }
+  #proposals .legend .co { font: 600 10px/var(--size-chip) var(--mono); color: var(--surface); background: var(--amber); border-radius: var(--radius-chip);
+                           padding-inline: var(--space-tight); height: var(--size-chip); justify-self: start; }
+  #proposals .legend b { color: var(--text); font-weight: 600; }
 
+  /* The sidebar, approximated from SidebarView: Size.sidebarWidth on Palette.sidebar. */
+  #proposals .pp-side { width: 420px; background: var(--sidebar); border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--border-strong);
+                        padding: var(--space-snug) var(--space-inset); box-sizing: border-box; font-size: 13px; line-height: 1.25; position: relative; }
+  #proposals .pp-sh { display: flex; align-items: center; height: var(--size-menu-row); padding-inline: var(--space-base); gap: var(--space-base);
+                      font: 600 11px/1 var(--font); color: var(--tertiary); }
+  #proposals .pp-sh .grow { flex: 1; }
+  #proposals .pp-sh .sig { display: inline-flex; align-items: center; gap: var(--space-tight); font: 500 10px/1 var(--font); color: var(--muted); }
+  #proposals .pp-sh .sig.warn { color: var(--amber); }
+  #proposals .pp-sh .plus { width: var(--size-slot); display: flex; justify-content: center; color: var(--muted); }
+  #proposals .pp-ph { display: flex; align-items: center; height: var(--size-control); padding-inline: var(--space-base); gap: var(--space-base); }
+  #proposals .pp-ph .chev { color: var(--muted); width: 10px; display: flex; }
+  #proposals .pp-ph .nm { font-weight: 600; color: var(--text); flex: 1; }
+  #proposals .pp-ph .plus { width: var(--size-slot); display: flex; justify-content: center; color: var(--muted); }
+  #proposals .pp-side .pp-row.wash { background: var(--operator-row); }
+  #proposals .pp-side .pp-row.ind { padding-left: calc(var(--space-base) + 18px); }
+  #proposals .pp-ring { width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--idle-ring); }
+  #proposals .pp-ring.spin { border-color: var(--spinner-track); border-top-color: var(--text); }
+  #proposals .pp-ring.amber { border-color: var(--amber); }
+  #proposals .pp-av.grp { width: auto; gap: 0; position: relative; }
+  #proposals .pp-disc { position: absolute; left: 12px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: #FFFFFF; color: #000;
+                        box-shadow: 0 0 0 1px var(--sidebar); display: flex; align-items: center; justify-content: center; }
+  #proposals .pp-disc svg { width: 6px; height: 6px; }
+  #proposals .pp-banner { margin: 0 0 var(--space-snug); padding: var(--space-base) var(--space-base); display: flex; flex-direction: column; gap: var(--space-tight); }
+  #proposals .pp-banner .t { display: flex; gap: var(--space-snug); align-items: center; font-weight: 600; font-size: 12px; color: var(--text); }
+  #proposals .pp-banner .d { font-size: 11px; color: var(--muted); padding-left: 18px; }
+  #proposals .pp-banner .a { display: flex; gap: var(--space-gap); font-size: 11px; color: var(--link); padding-left: 18px; }
+  #proposals .pp-bang { width: 12px; height: 12px; border-radius: 50%; background: var(--amber); color: #000; font: 700 9px/12px var(--font); text-align: center; }
+  #proposals .pp-card { position: absolute; z-index: 2; background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-control);
+                        padding: var(--space-base) var(--space-inset); width: 300px; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-tight);
+                        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+  #proposals .pp-card .n { font-size: 11px; color: var(--muted); }
+  #proposals .pp-card .l { display: flex; justify-content: space-between; font-size: 11px; height: var(--size-chip); align-items: center; color: var(--text); }
+  #proposals .pp-sline { position: absolute; width: 1.5px; background: var(--status-line); }
 
+  #proposals .pp-cards { display: flex; gap: var(--space-section); align-items: flex-start; flex-wrap: wrap; background: var(--sidebar); padding: var(--space-block);
+                         border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--border); }
+  /* FloatingCardChrome: menuChrome at Radius.control, Space.base x Space.gap; Size.chip lines Space.tight apart. */
+  #proposals .pp-fcard { background: var(--menu); border: 1px solid var(--border-strong); border-radius: var(--radius-control); box-sizing: border-box;
+                         padding: var(--space-base) var(--space-gap); display: flex; flex-direction: column; gap: var(--space-tight); }
+  #proposals .pp-fl { display: flex; align-items: center; height: var(--size-chip); font-size: 11px; color: var(--text); min-width: 0; }
+  #proposals .pp-fl.gap-tight { gap: var(--space-tight); } #proposals .pp-fl.gap-base { gap: var(--space-base); } #proposals .pp-fl.gap-inset { gap: var(--space-inset); }
+  #proposals .pp-fl .w { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #proposals .pp-fl.head { color: var(--muted); }
+  #proposals .pp-fl.muted { color: var(--muted); }
+  #proposals .pp-fl.mono .w { font: 11px/1 var(--mono); }
+  #proposals .pp-fl.soft { color: var(--muted); }
+  #proposals .pp-fl .t { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  #proposals .pp-frule { height: 1px; background: var(--border); margin-block: var(--space-hairline); }
+  #proposals .pp-fl > .pp-ring, #proposals .pp-markbox { flex: none; }
+  #proposals .pp-markbox { width: 16px; display: flex; justify-content: center; }
+  #proposals .pp-symdisc { width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF; color: #000000; display: flex; align-items: center; justify-content: center; flex: none; }
+  #proposals .pp-term { width: 16px; height: 16px; border-radius: 50%; background: #000000; color: #FFFFFF; font: 700 7px/16px var(--mono); text-align: center; flex: none;
+                        box-shadow: 0 0 0 1px var(--border-strong); }
+  #proposals .pp-fl.cmd .w { display: flex; align-items: center; min-width: 0; }
+  #proposals .pp-cchip.shrink { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; line-height: var(--size-chip); }
+  #proposals .pp-cchip { display: inline-flex; align-items: center; height: var(--size-chip); padding-inline: var(--space-tight); border-radius: var(--radius-chip);
+                         background: var(--badge); font: 500 10px/1 var(--mono); color: var(--muted); margin-left: var(--space-tight); }
+  #proposals .pp-side .pp-ph .plus svg, #proposals .pp-plain svg { width: 10px; height: 10px; }
 
+  #proposals .pp-zooms { display: flex; gap: var(--space-margin); align-items: flex-end; flex-wrap: wrap; background: var(--sidebar); padding: var(--space-block);
+                         border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--border); }
+  #proposals .pp-zooms .cap { font-size: 11px; color: var(--muted); max-width: 160px; }
+  #proposals .pp-zoom { display: inline-block; }
+  #proposals .pp-zoom.z { width: 88px; height: 88px; }
+  #proposals .pp-zoom.z > .pp-av { transform: scale(4); transform-origin: 0 0; }
+  #proposals .pp-sh .sig svg { width: 12px; height: 12px; }
+  /* pp:css:end */
 </style>
 </head>
 <body>
@@ -3206,11 +2929,147 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <p class="no-proposals">No open proposals.</p>
 
+    <!-- pp:html:begin -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="pp-gitlab" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/><path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></symbol>
+<symbol id="pp-claude" viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></symbol>
+<symbol id="pp-openai" viewBox="0 0 24 24"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></symbol>
+<symbol id="pp-jira" viewBox="0 0 24 24"><path fill="#2684FF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></symbol>
+GITHUB None
+<symbol id="pp-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+<symbol id="pp-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.2V8l2.6 1.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+<symbol id="pp-dots" viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/></symbol>
+<symbol id="pp-pause" viewBox="0 0 10 10"><rect x="2" y="1.5" width="2.2" height="7" rx=".6" fill="currentColor"/><rect x="5.8" y="1.5" width="2.2" height="7" rx=".6" fill="currentColor"/></symbol>
+<symbol id="pp-radio" viewBox="0 0 16 12"><circle cx="8" cy="6" r="1.5" fill="currentColor"/><path d="M5.3 3.3a3.8 3.8 0 0 0 0 5.4M10.7 3.3a3.8 3.8 0 0 1 0 5.4M3.2 1.2a6.8 6.8 0 0 0 0 9.6M12.8 1.2a6.8 6.8 0 0 1 0 9.6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></symbol>
+<symbol id="pp-plus" viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+<symbol id="pp-check" viewBox="0 0 10 10"><path d="M1.6 5.4 4 7.7 8.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="pp-updown" viewBox="0 0 10 10"><path d="M3 4 5 2l2 2M3 6l2 2 2-2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="pp-x" viewBox="0 0 10 10"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+<symbol id="pp-chev" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="pp-search" viewBox="0 0 12 12"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M7.7 7.7 10.6 10.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+<symbol id="pp-seal" viewBox="0 0 16 16"><path d="M8 1.5l1.6 1.2 2-.1.6 1.9 1.6 1.2-.6 1.9.6 1.9-1.6 1.2-.6 1.9-2-.1L8 14.5l-1.6-1.2-2 .1-.6-1.9-1.6-1.2.6-1.9-.6-1.9 1.6-1.2.6-1.9 2 .1z" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M5.6 8.2 7.3 9.8 10.5 6.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="pp-person" viewBox="0 0 16 16"><circle cx="8" cy="5.2" r="2.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3 13.6c.6-2.6 2.6-3.8 5-3.8s4.4 1.2 5 3.8" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></symbol>
+<symbol id="pp-arrowr" viewBox="0 0 10 10"><path d="M2 5h6M5.5 2.5 8 5 5.5 7.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="pp-gear" viewBox="0 0 16 16"><path fill="currentColor" fill-rule="evenodd" d="M13.15 6.06 L15.15 6.55 L15.15 9.45 L13.15 9.94 L13.01 10.27 L14.08 12.03 L12.03 14.08 L10.27 13.01 L9.94 13.15 L9.45 15.15 L6.55 15.15 L6.06 13.15 L5.73 13.01 L3.97 14.08 L1.92 12.03 L2.99 10.27 L2.85 9.94 L0.85 9.45 L0.85 6.55 L2.85 6.06 L2.99 5.73 L1.92 3.97 L3.97 1.92 L5.73 2.99 L6.06 2.85 L6.55 0.85 L9.45 0.85 L9.94 2.85 L10.27 2.99 L12.03 1.92 L14.08 3.97 L13.01 5.73Z M10.4 8a2.4 2.4 0 1 0-4.8 0 2.4 2.4 0 1 0 4.8 0Z"/></symbol>
+<symbol id="pp-sliders" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="5" cy="4" r="1.8" fill="var(--surface)" stroke="currentColor" stroke-width="1.3"/><circle cx="11" cy="8" r="1.8" fill="var(--surface)" stroke="currentColor" stroke-width="1.3"/><circle cx="7" cy="12" r="1.8" fill="var(--surface)" stroke="currentColor" stroke-width="1.3"/></symbol>
+<symbol id="pp-ellc" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="5" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="11" cy="8" r="1" fill="currentColor"/></symbol>
+<symbol id="pp-bangc" viewBox="0 0 12 12"><circle cx="6" cy="6" r="6" fill="#FF9230"/><rect x="5.2" y="2.4" width="1.6" height="4.6" rx=".8" fill="#1E1F23"/><circle cx="6" cy="8.9" r=".95" fill="#1E1F23"/></symbol>
+<symbol id="pp-gear-o" viewBox="0 0 10 10"><circle cx="5" cy="5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 .9v1.3M5 7.8v1.3M.9 5h1.3M7.8 5h1.3M2.1 2.1l.9.9M7 7l.9.9M2.1 7.9l.9-.9M7 3l.9-.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+<symbol id="pp-sliders-o" viewBox="0 0 10 10"><path d="M1 2.5h8M1 5h8M1 7.5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M3.2 1.3v2.4M6.8 3.8v2.4M4.4 6.3v2.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+<symbol id="pp-switch-o" viewBox="0 0 10 10"><path d="M1 3h8M1 7h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="3" cy="3" r="1.5" fill="var(--pp-ground, #1E1F23)" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="1.5" fill="var(--pp-ground, #1E1F23)" stroke="currentColor" stroke-width="1.2"/></symbol>
+<symbol id="pp-bolt" viewBox="0 0 12 12"><path d="M7.2.8 2.2 6.9h3.3L4.6 11.2l5.2-6.4H6.4z" fill="currentColor"/></symbol>
+<symbol id="pp-radio-r" viewBox="0 0 12 12"><circle cx="3" cy="6" r="1.5" fill="currentColor"/><path d="M5.9 3.6a3.3 3.3 0 0 1 0 4.8M8.2 1.6a6.2 6.2 0 0 1 0 8.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+<symbol id="pp-merge" viewBox="0 0 10 10"><circle cx="2.6" cy="2.2" r="1.2" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="2.6" cy="7.8" r="1.2" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="7.4" cy="7.8" r="1.2" fill="none" stroke="currentColor" stroke-width="1"/><path d="M2.6 3.4v3.2M2.6 3.6c0 2 4.8 1.4 4.8 3" fill="none" stroke="currentColor" stroke-width="1"/></symbol>
+</svg>
 
-    
-    
+    <div class="section" id="p-list-sheet">
+      <p class="eyebrow proposal-flag">Proposal · Signals and Archive as one list sheet · 26 Nov 2026 · round 4</p>
+      <h2>Three list sheets, one pattern</h2>
+      <p class="why">Agreed: two-line rows with the description cut before the columns (1B); the state glyph in its own
+        centred column with a <code>HoverChip</code>; a settings button drawn as the + is, always there (2A); and one
+        <code>ListSheet</code> with its search field on every list (3C). The Archive's rows are task rows with the settings
+        glyph where the status mark sits, grouped by date. The settings glyph is the outline <code>gearshape</code> (A).</p>
+
+      <div class="decision">
+        <h3>The settings glyph · picked: A, <code>gearshape</code></h3>
+        <p>Each is an SF Symbol at the +'s weight: <code>Typography.label</code> in the surface's secondary ink, its ink
+          <code>Size.trailingGlyph</code> wide in a <code>Size.slot</code> square, the same centre line as the +. Drawn here as
+          approximations; macOS draws the real ones.</p>
+        <div class="options">
+          <div class="option pick"><header><span class="letter">A</span><h3><code>gearshape</code></h3><span class="rec">Picked</span></header><p>The outline cog: says settings at once, and at 10 pt its teeth read as a light ring of ticks rather than a filled blob. The calmest of the three that still reads as a cog.</p><div class="board"><figure><div class="pp-side" style="width:300px;padding:var(--space-snug) var(--space-inset)"><div class="pp-ph"><span class="chev"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-chev"/></svg></span><svg class="g" width="14" height="14" aria-hidden="true"><use href="#pp-gitlab"/></svg><span class="nm">acme-storefront</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div></div><figcaption>the + it sits beside in the sidebar</figcaption></figure><figure><div class="pp-sheet" style="width:420px;height:auto;padding:var(--space-base) var(--space-block)"><div class="pp-row sel"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-jira"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Plan &amp; Implement</span></div><div class="pp-l2 trunc"><span class="tx">My tickets labelled operator that nobody started yet</span></div></div><span class="pp-col"></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-gitlab"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Review</span></div><div class="pp-l2 trunc"><span class="tx">Merge requests assigned to me, labelled operator, with a thread waiting on me and nobody’s approval yet</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bangc"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="14" height="14" style="color:var(--muted)" aria-hidden="true"><use href="#pp-clock"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Weekly dependency bumps</span></div><div class="pp-l2 trunc"><span class="tx">Every Monday at 9am</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" style="color:var(--tertiary)" aria-hidden="true"><use href="#pp-clock"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div></div><figcaption>in the list, with the state column</figcaption></figure></div></div>
+          <div class="option"><header><span class="letter">B</span><h3><code>slider.horizontal.3</code></h3></header><p>Three hairlines with stops: the lightest ink, closest to the +'s two strokes. On macOS it also means filter or adjust, so it reads less as “this row's menu”.</p><div class="board"><figure><div class="pp-side" style="width:300px;padding:var(--space-snug) var(--space-inset)"><div class="pp-ph"><span class="chev"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-chev"/></svg></span><svg class="g" width="14" height="14" aria-hidden="true"><use href="#pp-gitlab"/></svg><span class="nm">acme-storefront</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div></div><figcaption>the + it sits beside in the sidebar</figcaption></figure><figure><div class="pp-sheet" style="width:420px;height:auto;padding:var(--space-base) var(--space-block)"><div class="pp-row sel"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-jira"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Plan &amp; Implement</span></div><div class="pp-l2 trunc"><span class="tx">My tickets labelled operator that nobody started yet</span></div></div><span class="pp-col"></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-sliders-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-gitlab"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Review</span></div><div class="pp-l2 trunc"><span class="tx">Merge requests assigned to me, labelled operator, with a thread waiting on me and nobody’s approval yet</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bangc"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-sliders-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="14" height="14" style="color:var(--muted)" aria-hidden="true"><use href="#pp-clock"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Weekly dependency bumps</span></div><div class="pp-l2 trunc"><span class="tx">Every Monday at 9am</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" style="color:var(--tertiary)" aria-hidden="true"><use href="#pp-clock"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-sliders-o"/></svg></span></span></div></div><figcaption>in the list, with the state column</figcaption></figure></div></div>
+          <div class="option"><header><span class="letter">C</span><h3><code>switch.2</code></h3></header><p>Two toggles: settings as on and off. Light, but it hints at Switch Off alone, and on the Archive's rows, where the menu is Restore and Remove…, it says the wrong thing.</p><div class="board"><figure><div class="pp-side" style="width:300px;padding:var(--space-snug) var(--space-inset)"><div class="pp-ph"><span class="chev"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-chev"/></svg></span><svg class="g" width="14" height="14" aria-hidden="true"><use href="#pp-gitlab"/></svg><span class="nm">acme-storefront</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div></div><figcaption>the + it sits beside in the sidebar</figcaption></figure><figure><div class="pp-sheet" style="width:420px;height:auto;padding:var(--space-base) var(--space-block)"><div class="pp-row sel"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-jira"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Plan &amp; Implement</span></div><div class="pp-l2 trunc"><span class="tx">My tickets labelled operator that nobody started yet</span></div></div><span class="pp-col"></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-switch-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-gitlab"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Review</span></div><div class="pp-l2 trunc"><span class="tx">Merge requests assigned to me, labelled operator, with a thread waiting on me and nobody’s approval yet</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bangc"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-switch-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="14" height="14" style="color:var(--muted)" aria-hidden="true"><use href="#pp-clock"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Weekly dependency bumps</span></div><div class="pp-l2 trunc"><span class="tx">Every Monday at 9am</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" style="color:var(--tertiary)" aria-hidden="true"><use href="#pp-clock"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-switch-o"/></svg></span></span></div></div><figcaption>in the list, with the state column</figcaption></figure></div></div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <h3>The three sheets</h3>
+        <p>Drawn with A. <code>ListSheet</code>: the title, the search field, the rows and <code>SheetFooter</code>. ↑ ↓ move the
+          highlight from the search field; a double-click is the row's first command (Edit Signal…, Restore); ⌘↩ is the
+          footer's primary (Done on a signals sheet, Restore on the Archive); ⌘⌫ asks the row's Remove question; ⎋ clears
+          the search, then closes.</p>
+        <div class="board">
+          <figure><div class="pp-sheet "><div class="pp-hd"><div class="tr"><span class="pp-ttl">Operator signals</span></div><div class="ai-field focused" style="margin-top:var(--space-base);gap:var(--space-base)"><svg class="g" width="12" height="12" style="color:var(--muted)" aria-hidden="true"><use href="#pp-search"/></svg><span style="color:var(--placeholder)">Search name, description, query</span></div></div><div class="pp-bd list"><div class="pp-row sel"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-jira"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Plan &amp; Implement</span></div><div class="pp-l2 trunc"><span class="tx">My tickets labelled operator that nobody started yet</span></div></div><span class="pp-col"></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row hover"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-gitlab"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Review</span></div><div class="pp-l2 trunc"><span class="tx">Merge requests assigned to me, labelled operator, with a thread waiting on me and nobody’s approval yet</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bangc"/></svg><span class="ai-hover-chip">Can’t read GitLab: the server answered 401 Unauthorized. Tries again at 12:05.</span></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="14" height="14" style="color:var(--muted)" aria-hidden="true"><use href="#pp-clock"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Weekly dependency bumps</span></div><div class="pp-l2 trunc"><span class="tx">Every Monday at 9am</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" style="color:var(--tertiary)" aria-hidden="true"><use href="#pp-clock"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row off"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" style="color:#FFFFFF" aria-hidden="true"><use href="#pp-github"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Stale pull requests</span></div><div class="pp-l2 mono trunc"><span class="tx">is:pr is:open updated:&lt;2026-10-01</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" style="color:var(--tertiary)" aria-hidden="true"><use href="#pp-pause"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div></div><div class="pp-ft"><span class="ai-push">New Signal…</span><span class="grow"></span><span class="ai-primary">Done <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div><figcaption><span class="id">L1</span><span><b>Operator signals</b> first row highlighted, the Review row hovered on its amber mark.</span></figcaption></figure>
+          <figure><div class="pp-sheet "><div class="pp-hd"><div class="tr"><span class="pp-ttl">Project signals</span></div><div class="ai-field focused" style="margin-top:var(--space-base);gap:var(--space-base)"><svg class="g" width="12" height="12" style="color:var(--muted)" aria-hidden="true"><use href="#pp-search"/></svg><span style="color:var(--placeholder)">Search name, description, query</span></div></div><div class="pp-bd list"><div class="pp-row sel"><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-gitlab"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Reviews for me</span></div><div class="pp-l2 trunc"><span class="tx">Merge requests where I’m a reviewer and haven’t reviewed yet, no drafts</span></div></div><span class="pp-col"></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="16" height="16" aria-hidden="true"><use href="#pp-jira"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Bugs for my team</span></div><div class="pp-l2 trunc"><span class="tx">Bugs in my team’s board that nobody picked up, highest priority first</span></div></div><span class="pp-col"></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><svg class="g" width="14" height="14" style="color:var(--muted)" aria-hidden="true"><use href="#pp-clock"/></svg></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Weekly dependency bumps</span></div><div class="pp-l2 trunc"><span class="tx">Every Monday at 9am</span></div></div><span class="pp-col"><span class="pp-state ai-hover-raise"><svg class="g" width="12" height="12" style="color:var(--tertiary)" aria-hidden="true"><use href="#pp-clock"/></svg></span></span></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div></div><div class="pp-ft"><span class="ai-push">New Signal…</span><span class="grow"></span><span class="ai-primary">Done <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div><figcaption><span class="id">L2</span><span><b>Project signals</b> the same sheet for project signals.</span></figcaption></figure>
+          <figure><div class="pp-sheet arch"><div class="pp-hd"><div class="tr"><span class="pp-ttl">Archive</span></div><div class="ai-field focused" style="margin-top:var(--space-base);gap:var(--space-base)"><svg class="g" width="12" height="12" style="color:var(--muted)" aria-hidden="true"><use href="#pp-search"/></svg><span style="color:var(--placeholder)">Search title, ticket, !MR, branch, project</span></div></div><div class="pp-bd list"><div class="pp-group">Today</div><div class="pp-row sel"><div class="pp-dim"><span class="pp-av"><span class="vm claude"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Login flow</span></div><div class="pp-l2 trunc"><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-jira"/></svg>SHOP-123</span><span class="pp-mono">feat/SHOP-123-login</span><span class="pp-proj">acme-storefront</span></div></div></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-group">Yesterday</div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><span class="vm claude"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Header refactor</span></div><div class="pp-l2 trunc"><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gitlab"/></svg>!482</span><span class="pp-mono">feat/header-refactor</span><span class="pp-proj">acme-storefront</span></div></div></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-group">October</div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Checkout payment retry</span></div><div class="pp-l2 trunc"><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-jira"/></svg>SHOP-118</span><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gitlab"/></svg>!471</span><span class="pp-mono">fix/SHOP-118-payment-retry-with-a-much-longer-branch-name</span><span class="pp-proj">acme-storefront</span></div></div></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><span class="vm claude"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Daemon backoff</span></div><div class="pp-l2 trunc"><span class="pp-mono">feat/daemon-backoff</span><span class="pp-proj">aiterm</span></div></div></div><span class="pp-slot"><span class="pp-plain"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-gear-o"/></svg></span></span></div></div><div class="pp-ft"><span class="st">4 archived</span><span class="grow"></span><span class="ai-push">Close</span><span class="ai-primary">Restore <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div><figcaption><span class="id">L3</span><span><b>Archive</b> task rows grouped by date, the settings glyph where the status mark sits.</span></figcaption></figure>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="p-cards">
+      <p class="eyebrow proposal-flag">Proposal · The signal card and the background-work card · 26 Nov 2026 · picked</p>
+      <h2>The two floating cards</h2>
+      <p class="why">Both cards share <code>FloatingCardChrome</code> (<code>menuChrome</code> at <code>Radius.control</code>,
+        <code>Space.base</code> × <code>Space.gap</code> padding, <code>Size.chip</code> lines <code>Space.tight</code> apart).
+        From your feedback:</p>
+      <ol class="diagnosis">
+        <li><span><b>The signal card repeats its title.</b> Its heading is the current signal's name, and the line under it is
+          the same name with its time; with one signal the card says “Plan &amp; Implement” twice.</span></li>
+        <li><span><b>The work looks like a signal.</b> “Working” is a <code>Typography.help</code> line in <code>text</code>, the
+          same shape as the signal line above it, with no status mark, so it reads as a third signal.</span></li>
+        <li><span><b>The background card mixes two faces on one ladder.</b> A command's line is <code>Typography.mono</code>, a
+          description's <code>Typography.help</code>: at the same 11 pt the mono runs wider and looks larger, so the lines
+          don't sit as one list.</span></li>
+        <li><span><b>Its marks crowd the words.</b> A <code>Size.vendorMark</code> mark <code>Space.tight</code> (4 pt) from its
+          text, where the footer's lines, with the same marks, leave <code>Space.inset</code>.</span></li>
+      </ol>
+      <div class="board">
+        <figure><div class="pp-cards"><div class="pp-fcard" style="width:320px"><div class="pp-fl head"><span class="w">Plan &amp; Implement</span></div><div class="pp-fl ink gap-tight"><span class="w">Plan &amp; Implement</span><span class="t">14:06</span></div><div class="pp-fl ink gap-tight"><span class="w">Working</span></div></div><div class="pp-fcard" style="width:320px"><div class="pp-fl head"><span class="w">Review</span></div><div class="pp-fl muted gap-tight"><span class="w">Plan &amp; Implement</span><span class="t">11:40</span></div><div class="pp-fl ink gap-tight"><span class="w">Review</span><span class="t">12:00</span></div><div class="pp-fl ink gap-tight"><span class="w">Operator answering its worker</span></div></div></div><figcaption><span class="id">Today</span><span><b>Signal card</b> one signal; a chain of two.</span></figcaption></figure>
+        <figure><div class="pp-cards"><div class="pp-fcard" style="width:320px"><div class="pp-fl head"><span class="w">Background work · 2 jobs</span></div><div class="pp-fl ink gap-tight"><span class="pp-term">&gt;_</span><span class="w">Run full suite on the clean tree</span></div><div class="pp-fl ink mono gap-tight"><span class="pp-term">&gt;_</span><span class="w">all tests: running tests · all</span></div></div></div><figcaption><span class="id">Today</span><span><b>Background-work card</b> a shell and a command.</span></figcaption></figure>
+      </div>
+
+      <div class="decision">
+        <h3>The signal card · picked: A, signals, a rule, then the work</h3>
+        <p>Each signal that ran the task on its own <code>Size.chip</code> line in <code>Typography.help</code>, oldest first,
+          its time trailing in <code>Typography.help.tabular</code>; the current one in <code>text</code>, earlier ones
+          <code>muted</code>. A <code>Hairline</code>. Then the work beside a <code>StatusMark</code> at
+          <code>Size.statusMark</code> (the row's own mark: working arc, idle ring, amber, settled), in the secondary ink. No
+          heading.</p>
+        <div class="board"><figure><div class="pp-cards"><div class="pp-fcard" style="width:320px"><div class="pp-fl ink gap-base"><span class="w">Plan &amp; Implement</span><span class="t">14:06</span></div><div class="pp-frule"></div><div class="pp-fl muted gap-base"><span class="pp-ring spin"></span><span class="w">Working</span></div></div><div class="pp-fcard" style="width:320px"><div class="pp-fl muted gap-base"><span class="w">Plan &amp; Implement</span><span class="t">11:40</span></div><div class="pp-fl ink gap-base"><span class="w">Review</span><span class="t">12:00</span></div><div class="pp-frule"></div><div class="pp-fl muted gap-base"><span class="pp-ring spin"></span><span class="w">Operator answering its worker</span></div></div><div class="pp-fcard" style="width:320px"><div class="pp-fl muted gap-base"><span class="w">Plan &amp; Implement every ticket labelled operator in the sprint</span><span class="t">Mon 14:06</span></div><div class="pp-fl ink gap-base"><span class="w">Review</span><span class="t">12:00</span></div><div class="pp-frule"></div><div class="pp-fl muted gap-base"><span class="pp-ring spin"></span><span class="w">Waiting for its worker to be idle</span></div></div></div><figcaption><span class="id">1A</span><span><b>Signal card</b> one signal; a chain of two held by the Operator; a long name and a waiting task.</span></figcaption></figure></div>
+      </div>
+
+      <div class="decision">
+        <h3>The background-work card · picked: C, the kind in words, the command as a chip</h3>
+        <p>A line with a native description says it, in <code>Typography.help</code>. A raw command (a shell job with no
+          description, <code>BackgroundJob.isCommand</code>) says its kind in words, “Shell”, and its command follows in a
+          quiet chip: <code>Typography.monoChip</code> in the secondary ink on the <code>badge</code> wash, <code>Radius.chip</code>,
+          <code>Size.chip</code> tall, <code>Space.tight</code> inside. The mark is <code>Space.inset</code> from the words, as
+          in the footer.</p>
+        <div class="board"><figure><div class="pp-cards"><div class="pp-fcard" style="width:320px"><div class="pp-fl head"><span class="w">Background work · 2 jobs</span></div><div class="pp-fl ink gap-inset"><span class="pp-term">&gt;_</span><span class="w">Run full suite on the clean tree</span></div><div class="pp-fl ink cmd gap-inset"><span class="pp-term">&gt;_</span><span class="w">Shell <span class="pp-cchip shrink">all tests: running tests · all</span></span></div></div><div class="pp-fcard" style="width:320px"><div class="pp-fl head"><span class="w">Background work · 4 jobs</span></div><div class="pp-fl ink gap-inset"><span class="pp-term">&gt;_</span><span class="w">Run the full integration suite against the clean tree, then compare the snapshots</span></div><div class="pp-fl ink cmd gap-inset"><span class="pp-term">&gt;_</span><span class="w">Shell <span class="pp-cchip shrink">pytest -q tests/integration --maxfail=1 -k "not slow and not flaky"</span></span></div><div class="pp-fl ink gap-inset"><span class="pp-term">&gt;_</span><span class="w">Watching the deploy logs for errors</span></div><div class="pp-fl ink gap-inset"><span class="vm claude" style="width:16px;height:16px"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span><span class="w">Explore the daemon’s retry path</span></div><div class="pp-fl muted gap-inset"><span class="vm codex" style="width:16px;height:16px"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="w">Write the release notes</span></div></div></div><figcaption><span class="id">2C</span><span><b>Background-work card</b> a description and a command; then long ones, a lowercase description, an agent and an idle teammate.</span></figcaption></figure></div>
+      </div>
+
+      <div class="decision">
+        <h3>Capitalisation and truncation</h3>
+        <table class="patterns states"><thead><tr><th>Where</th><th>Capitalisation</th><th>Truncation</th></tr></thead><tbody>
+          <tr><td>List row title</td><td>As named</td><td>One line, at the end, before the state column</td></tr>
+          <tr><td>List row description</td><td>As written</td><td>One line, at the end, before the state column; a query, at the end too</td></tr>
+          <tr><td>Archive badge line</td><td>As the sidebar's</td><td>Whole badges drop first; the branch cuts in the middle; the project stays whole</td></tr>
+          <tr><td>HoverChip</td><td>Sentence case, one sentence then the retry: “Can’t read GitLab: the server answered 401 Unauthorized. Tries again at 12:05.”</td><td>None: one line at its own width</td></tr>
+          <tr><td>Signal card, a signal</td><td>As named</td><td>The name at the end; its time never</td></tr>
+          <tr><td>Signal card, the work</td><td>Sentence case: “Waiting for its worker to be idle”, not “waiting for…”</td><td>At the end; the whole sentence in its help tag</td></tr>
+          <tr><td>Background card heading</td><td>“Background work · 2 jobs”</td><td>Never: fits the card</td></tr>
+          <tr><td>Background card, a description</td><td>Its first letter raised (“Watching the deploy logs”), the rest as the agent wrote it</td><td>At the end; the whole line in its help tag</td></tr>
+          <tr><td>Background card, a command</td><td>The kind word capitalised (“Shell”); the command exactly as run, never recased</td><td>The kind never; the chip shrinks to the card and cuts its command at the end; the whole command in the help tag</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="section" id="p-signal-glyph">
+      <p class="eyebrow proposal-flag">Proposal · The signals glyph · 26 Nov 2026 · picked</p>
+      <h2>One glyph for signals, everywhere</h2>
+      <p class="why">The signals glyph appears in two places: the signals button left of each heading's + (the glyph and the
+        count in <code>Typography.chip</code>, in the +'s ink, <code>amber</code> while a source fails) and the disc on a task's
+        first avatar (<code>SymbolMark</code> at <code>Size.cornerBadge</code>, 8 pt, the same size as a badge's green check,
+        overhanging by <code>Space.hairline</code>). At 8 pt the two-sided waves of today's glyph close up into a smudge. One
+        constant would name it for both (<code>AvatarGroupView.signalGlyph</code>, which the heading's literal would read).
+        SF Symbols drawn here as approximations.</p>
+      <div class="options">
+        <div class="option"><header><span class="letter">A</span><h3><code>dot.radiowaves.left.and.right</code></h3><span class="rec">Today</span></header><p>Today's: a source broadcasting. Clear at the heading's size; at 8 pt on the disc its four arcs run together.</p><div class="board"><figure><div class="pp-side" style="width:360px"><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="sig"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-radio"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="sig warn"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-radio"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="pp-sc"><span class="pp-ring spin" style="width:8px;height:8px"></span>1</span><span style="color:var(--muted);display:flex"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-chev"/></svg></span><span class="sig"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-radio"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><span class="pp-av grp"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="pp-disc"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-radio"/></svg></span></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Add Apple Pay to the checkout flow</span></div><div class="pp-l2 "><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-jira"/></svg>PAY-214</span><span class="pp-mono">feat/pay-214-apple-pay</span></div></div></div><span class="pp-slot"><span class="pp-ring spin"></span></span></div></div><figcaption>the heading at rest, failing, folded; a task a signal started</figcaption></figure><figure><div class="pp-zooms"><span class="pp-zoom z"><span class="pp-av grp" style="width:22px;height:22px;align-items:flex-start;justify-content:flex-start"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="pp-disc" style="left:12px;top:12px"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-radio"/></svg></span></span></span><span class="pp-zoom z"><span class="pp-av grp" style="width:22px;height:22px;align-items:flex-start;justify-content:flex-start"><span class="vm claude"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span><span class="pp-disc" style="left:12px;top:12px"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-radio"/></svg></span></span></span><span class="cap">the avatar disc at ×4: <code>Size.cornerBadge</code>, as the badge’s check</span></div></figure></div></div>
+        <div class="option pick"><header><span class="letter">B</span><h3><code>dot.radiowaves.right</code></h3><span class="rec">Picked</span></header><p>The same idea with half the ink: a dot and two arcs going one way, something coming in. Reads at 8 pt, keeps the meaning people have learnt, and sits lighter beside the +.</p><div class="board"><figure><div class="pp-side" style="width:360px"><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="sig"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-radio-r"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="sig warn"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-radio-r"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="pp-sc"><span class="pp-ring spin" style="width:8px;height:8px"></span>1</span><span style="color:var(--muted);display:flex"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-chev"/></svg></span><span class="sig"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-radio-r"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><span class="pp-av grp"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="pp-disc"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-radio-r"/></svg></span></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Add Apple Pay to the checkout flow</span></div><div class="pp-l2 "><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-jira"/></svg>PAY-214</span><span class="pp-mono">feat/pay-214-apple-pay</span></div></div></div><span class="pp-slot"><span class="pp-ring spin"></span></span></div></div><figcaption>the heading at rest, failing, folded; a task a signal started</figcaption></figure><figure><div class="pp-zooms"><span class="pp-zoom z"><span class="pp-av grp" style="width:22px;height:22px;align-items:flex-start;justify-content:flex-start"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="pp-disc" style="left:12px;top:12px"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-radio-r"/></svg></span></span></span><span class="pp-zoom z"><span class="pp-av grp" style="width:22px;height:22px;align-items:flex-start;justify-content:flex-start"><span class="vm claude"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span><span class="pp-disc" style="left:12px;top:12px"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-radio-r"/></svg></span></span></span><span class="cap">the avatar disc at ×4: <code>Size.cornerBadge</code>, as the badge’s check</span></div></figure></div></div>
+        <div class="option"><header><span class="letter">C</span><h3><code>bolt.fill</code></h3></header><p>A trigger: something happened, so work started. The boldest at 8 pt and distinct from every other mark, but louder in the heading, and on macOS it also means power and Shortcuts automations.</p><div class="board"><figure><div class="pp-side" style="width:360px"><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="sig"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bolt"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="sig warn"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bolt"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-sh" style="padding-inline:var(--space-base)"><span>Operator</span><span class="grow"></span><span class="pp-sc"><span class="pp-ring spin" style="width:8px;height:8px"></span>1</span><span style="color:var(--muted);display:flex"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-chev"/></svg></span><span class="sig"><svg class="g" width="12" height="12" aria-hidden="true"><use href="#pp-bolt"/></svg>3</span><span class="plus"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-plus"/></svg></span></div><div class="pp-row "><div class="pp-dim"><span class="pp-av"><span class="pp-av grp"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="pp-disc"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-bolt"/></svg></span></span></span><div class="pp-ln"><div class="pp-l1"><span class="pp-tt">Add Apple Pay to the checkout flow</span></div><div class="pp-l2 "><span class="pp-q"><svg class="g" width="10" height="10" aria-hidden="true"><use href="#pp-jira"/></svg>PAY-214</span><span class="pp-mono">feat/pay-214-apple-pay</span></div></div></div><span class="pp-slot"><span class="pp-ring spin"></span></span></div></div><figcaption>the heading at rest, failing, folded; a task a signal started</figcaption></figure><figure><div class="pp-zooms"><span class="pp-zoom z"><span class="pp-av grp" style="width:22px;height:22px;align-items:flex-start;justify-content:flex-start"><span class="vm codex"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-openai"/></svg></span><span class="pp-disc" style="left:12px;top:12px"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-bolt"/></svg></span></span></span><span class="pp-zoom z"><span class="pp-av grp" style="width:22px;height:22px;align-items:flex-start;justify-content:flex-start"><span class="vm claude"><svg class="g" width="11" height="11" aria-hidden="true"><use href="#pp-claude"/></svg></span><span class="pp-disc" style="left:12px;top:12px"><svg class="g" width="6" height="6" style="color:#000000" aria-hidden="true"><use href="#pp-bolt"/></svg></span></span></span><span class="cap">the avatar disc at ×4: <code>Size.cornerBadge</code>, as the badge’s check</span></div></figure></div></div>
+      </div>
+    </div>
+    <!-- pp:html:end -->
 
   </section>
 
