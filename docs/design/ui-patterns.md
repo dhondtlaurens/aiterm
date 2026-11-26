@@ -35,7 +35,7 @@ top of a manually reordered group. Existing rows keep their chosen relative orde
 row's previous manual position is not remembered.
 
 `SectionHeading` draws PROJECTS and OPERATOR; OPERATOR shows global pause, offers New Signal… in its + menu and
-Pause Operator / Resume Operator in its context menu; PROJECTS' + offers Add Project…, New Signal… and Add Divider….
+Pause Operator / Resume Operator in its context menu; PROJECTS' + offers Add Project… and Add Divider…, then a separator and New Signal….
 Left of each +, while the section has a signal, `SectionSignalsButton` draws the signals glyph and the section's
 count in the +'s ink, `Palette.amber` while a source fails or an item is skipped (its help names the first), and
 opens that section's signals sheet. `SignalOperatorRow` is the active workload’s chat row,

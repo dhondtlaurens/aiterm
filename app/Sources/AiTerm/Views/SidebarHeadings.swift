@@ -186,8 +186,8 @@ struct SectionHeading: View {
             [[RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal(kind: .operator) }]]
         case .projects:
             [[RowCommand(title: "Add Project…", enabled: controller.canChangeWorkspace) { Task { await controller.projects.addProject() } },
-              RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal(kind: .project) },
-              RowCommand(title: "Add Divider…", enabled: controller.canChangeWorkspace) { controller.sheets.presentNewDivider() }]]
+              RowCommand(title: "Add Divider…", enabled: controller.canChangeWorkspace) { controller.sheets.presentNewDivider() }],
+             [RowCommand(title: "New Signal…", enabled: controller.canPresentNewSignal) { controller.presentNewSignal(kind: .project) }]]
         }
     }
 }

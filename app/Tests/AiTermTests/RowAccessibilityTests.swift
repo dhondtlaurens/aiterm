@@ -243,9 +243,9 @@ import Testing
             expectCommands(SectionHeading(controller: controller, kind: .operator).addCommands(),
                 titles: add, disabled: unlocked ? [] : ["New Signal…"])
             expectCommands(SectionHeading.commands(kind: .projects, paused: false, controller: controller), titles: [])
-            // The Projects' + makes a project signal beside its project and divider.
+            // The Projects' + separates signal creation from project and divider actions.
             expectCommands(SectionHeading(controller: controller, kind: .projects).addCommands(),
-                titles: [["Add Project…", "New Signal…", "Add Divider…"]],
+                titles: [["Add Project…", "Add Divider…"], ["New Signal…"]],
                 disabled: unlocked ? [] : ["Add Project…", "New Signal…", "Add Divider…"])
         }
         var world = SignalWorld(); world.signal()
