@@ -356,7 +356,6 @@ struct ProviderIcon: View {
         case .schedule: .symbol("clock")
         case .operator: .symbol("checkmark.seal")
         case .person: .symbol("person")
-        case .unknown: .symbol("questionmark.circle")
         }
     }
 

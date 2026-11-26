@@ -3,11 +3,9 @@ import Foundation
 import CoreGraphics
 #endif
 
-/// What hosts a project's remote. A raw value this build does not know — one a newer build saved —
-/// decodes as `.git`: the project keeps working as a plain repository instead of failing the load.
-public enum Provider: String, Codable, LenientRawDecodable, Equatable, Sendable {
+/// What hosts a project's remote.
+public enum Provider: String, Codable, Equatable, Sendable {
     case gitlab, github, git, none
-    static var unrecognized: Self { .git }
 }
 /// One step of an item along the sidebar, from its context menu.
 public enum MoveStep: Sendable { case up, down }
@@ -84,59 +82,17 @@ public struct SidebarDivider: Codable, Identifiable, Equatable, Sendable {
     public init(id: UUID, name: String) { self.id = id; self.name = name }
 }
 
-/// Fields from a newer build, written alongside the fields this build understands.
-struct PreservedFields: Equatable, Sendable {
-    private struct Key: CodingKey {
-        let stringValue: String
-        var intValue: Int? { nil }
-        init?(stringValue: String) { self.stringValue = stringValue }
-        init?(intValue: Int) { return nil }
-    }
-    private var values: [String: JSONValue] = [:]
-    init() {}
-    init<K: CodingKey>(_ decoder: Decoder, known: K.Type) throws {
-        let c = try decoder.container(keyedBy: Key.self)
-        for key in c.allKeys where K(stringValue: key.stringValue) == nil {
-            values[key.stringValue] = try c.decode(JSONValue.self, forKey: key)
-        }
-    }
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: Key.self)
-        for (name, value) in values {
-            if let key = Key(stringValue: name) { try c.encode(value, forKey: key) }
-        }
-    }
-}
-
-/// A sidebar row of a kind only a newer build knows, held as it was read. It is not drawn and no
-/// action reaches it, but it stays in `AppState.items` where it was, so a save writes it back.
-public struct UnknownSidebarItem: Equatable, Sendable {
-    /// Per load: the row has no id this build can read, and nothing looks it up.
-    public let id = UUID()
-    let raw: JSONValue
-    public static func == (a: Self, b: Self) -> Bool { a.raw == b.raw }
-}
-
 /// One row of the sidebar's top level. `AppState.items` is the order the sidebar is drawn in.
-///
-/// `.unknown` is a kind a newer build added — or a row with no `kind` this build can read, missing
-/// or not a string. Like `Provider`, it lets an older build open the workspace instead of refusing
-/// it, but a row cannot be defaulted into something else, so it is kept whole, left undrawn, and
-/// written back unchanged.
 public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
     case project(Project)
     case divider(SidebarDivider)
-    case unknown(UnknownSidebarItem)
 
     public var id: UUID {
         switch self {
         case .project(let p): return p.id
         case .divider(let d): return d.id
-        case .unknown(let u): return u.id
         }
     }
-    /// Whether the sidebar draws it, and so whether a move can land beside it.
-    public var isDrawn: Bool { if case .unknown = self { return false } else { return true } }
     public var project: Project? { if case .project(let p) = self { return p } else { return nil } }
     public var divider: SidebarDivider? { if case .divider(let d) = self { return d } else { return nil } }
 
@@ -147,12 +103,9 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // A kind that is missing, not a string, or one this build does not know is kept as it came.
-        let kind = (try? c.decode(String.self, forKey: .kind)).flatMap(Kind.init(rawValue:))
-        switch kind {
+        switch try c.decode(Kind.self, forKey: .kind) {
         case .project: self = .project(try c.decode(Project.self, forKey: .project))
         case .divider: self = .divider(try c.decode(SidebarDivider.self, forKey: .divider))
-        case nil: self = .unknown(UnknownSidebarItem(raw: try decoder.singleValueContainer().decode(JSONValue.self)))
         }
     }
 
@@ -161,13 +114,11 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
         switch self {
         case .project(let p): try c.encode(Kind.project, forKey: .kind); try c.encode(p, forKey: .project)
         case .divider(let d): try c.encode(Kind.divider, forKey: .kind); try c.encode(d, forKey: .divider)
-        case .unknown(let u): try u.raw.encode(to: encoder)
         }
     }
 }
 
-/// A task's ticket as saved: a Jira issue, or a GitLab issue (`source`). A save from before GitLab
-/// issues has no `source` and reads as Jira, and a Jira ref is written without one, as it always was.
+/// A task's ticket as saved: a Jira issue, or a GitLab issue (`source`).
 public struct JiraRef: Codable, Equatable, Sendable {
     public var key: String, summary: String, url: String
     public var source: TicketSource
@@ -177,37 +128,13 @@ public struct JiraRef: Codable, Equatable, Sendable {
 
     public init(_ ticket: JiraTicket) { self.init(key: ticket.key, summary: ticket.summary, url: ticket.url, source: ticket.source) }
 
-    private enum CodingKeys: String, CodingKey { case key, summary, url, source }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        key = try c.decode(String.self, forKey: .key)
-        summary = try c.decode(String.self, forKey: .summary)
-        url = try c.decode(String.self, forKey: .url)
-        source = try c.decodeIfPresent(TicketSource.self, forKey: .source) ?? .jira
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(key, forKey: .key)
-        try c.encode(summary, forKey: .summary)
-        try c.encode(url, forKey: .url)
-        if source != .jira { try c.encode(source, forKey: .source) }
-    }
-
     /// Whether it is a GitLab issue rather than a Jira ticket.
     public var isGitLabIssue: Bool { if case .gitLab = source { true } else { false } }
 }
 
-/// Which of the two branch-shaped flows made this item; only `== .review` is ever tested. A task
-/// saved without one — every task is, as was everything saved before reviews existed — reads as
-/// `.task`. A raw value this build does not know decodes as `.task` too, like `Provider`;
-/// `TaskItem` keeps what the file had for the resave.
-/// So a row of a kind only a newer build knows is removed here as a task is: its Remove offers
-/// "Delete local branch" — unticked, the person's to tick — where a review's never does.
-public enum TaskKind: String, Codable, LenientRawDecodable, Equatable, Sendable {
+/// Which of the two branch-shaped flows made this item; only `== .review` is ever tested.
+public enum TaskKind: String, Codable, Equatable, Sendable {
     case task, review
-    static var unrecognized: Self { .task }
 
     /// The kind as copy names it — "Remove Review…", "Review removed." — capitalised, as a menu
     /// item has it; a sentence lowercases it.
@@ -236,117 +163,31 @@ public struct TaskConversation: Codable, Equatable, Sendable {
 }
 
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
-    private var preservedFields = PreservedFields()
     public var id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String
     public var jira: JiraRef?, mr: MergeRequestRef?
-    /// Assigning one replaces what the file had: the new value is what is saved from then on.
-    public var kind: TaskKind { didSet { savedKind = kind.rawValue } }
-    /// Assigning one drops `unrecognizedAgent`, as for `kind`.
-    public var agent: AgentKind { didSet { unrecognizedAgent = nil } }
+    public var kind: TaskKind
+    public var agent: AgentKind
     public var model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool
     public var createdAt: Date, windowId: String?
     /// The agent conversations its window's tabs last showed, in tab order (`AppState.rememberingConversations`):
-    /// what reopening the window resumes. Empty until an agent names one, and for a workspace saved before.
+    /// what reopening the window resumes. Empty until an agent names one.
     public var conversations: [TaskConversation]
-    /// The raw `agent` a newer build saved, when this build has no case for it. The task reads as a
-    /// `.claude` task meanwhile, and a save writes the raw value back, so a downgrade and a later
-    /// upgrade lose nothing.
-    public private(set) var unrecognizedAgent: String?
-    /// `kind` as the file has it, written back as it was: none for a task saved without one, and a
-    /// raw value a newer build saved, which this build reads as `.task`.
-    private var savedKind: String?
     /// What an operator adds to the task; nil for every task you made yourself.
     public var signalTask: SignalTask?
     /// That a person took this task over from a signal (`AppState.takeOver`): it is theirs, and no later
-    /// match continues it. Saved only when true.
+    /// match continues it.
     public var takenOver = false
     /// The signal that started or last ran this task as an ordinary one, or that the Operator handed it from on Take
-    /// Over; nil for a task no signal touched. Saved only when set.
+    /// Over; nil for a task no signal touched.
     public var signalOrigin: SignalOrigin?
-    /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
         self.jira = jira; self.kind = kind; self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning; self.firstPrompt = firstPrompt; self.appendTicket = appendTicket
         self.createdAt = createdAt; self.windowId = windowId; self.conversations = conversations
-        savedKind = kind == .task ? nil : kind.rawValue
     }
 
     /// "Task" or "Review": what the row's menu, its alerts and its banners call it.
     public var kindName: String { kind.displayName }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
-        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, signalTask, takenOver, signalOrigin
-    }
-
-    /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
-    /// the whole workspace load.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        projectId = try c.decode(UUID.self, forKey: .projectId)
-        title = try c.decode(String.self, forKey: .title)
-        branch = try c.decode(String.self, forKey: .branch)
-        worktreePath = try c.decode(String.self, forKey: .worktreePath)
-        baseBranch = try c.decode(String.self, forKey: .baseBranch)
-        jira = try c.decodeIfPresent(JiraRef.self, forKey: .jira)
-        savedKind = try c.decodeIfPresent(String.self, forKey: .kind)
-        kind = savedKind.flatMap(TaskKind.init(rawValue:)) ?? .task
-        mr = try c.decodeIfPresent(MergeRequestRef.self, forKey: .mr)
-        let rawAgent = try c.decode(String.self, forKey: .agent)
-        agent = AgentKind(rawValue: rawAgent) ?? .claude
-        unrecognizedAgent = AgentKind(rawValue: rawAgent) == nil ? rawAgent : nil
-        model = try c.decode(String.self, forKey: .model)
-        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
-        firstPrompt = try c.decodeIfPresent(String.self, forKey: .firstPrompt)
-        appendTicket = try c.decode(Bool.self, forKey: .appendTicket)
-        createdAt = try c.decode(Date.self, forKey: .createdAt)
-        windowId = try c.decodeIfPresent(String.self, forKey: .windowId)
-        // Only what a reopen resumes: an entry for an agent this build does not know is dropped, and a
-        // list it cannot read at all is none, rather than failing the whole workspace load.
-        conversations = (try? c.decodeIfPresent([SavedConversation].self, forKey: .conversations))?
-            .compactMap(\.conversation) ?? []
-        signalTask = try c.decodeIfPresent(SignalTask.self, forKey: .signalTask)
-        takenOver = try c.decodeIfPresent(Bool.self, forKey: .takenOver) ?? false
-        signalOrigin = try c.decodeIfPresent(SignalOrigin.self, forKey: .signalOrigin)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        try preservedFields.encode(to: encoder)
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(projectId, forKey: .projectId)
-        try c.encode(title, forKey: .title)
-        try c.encode(branch, forKey: .branch)
-        try c.encode(worktreePath, forKey: .worktreePath)
-        try c.encode(baseBranch, forKey: .baseBranch)
-        try c.encodeIfPresent(jira, forKey: .jira)
-        try c.encodeIfPresent(savedKind, forKey: .kind)
-        try c.encodeIfPresent(mr, forKey: .mr)
-        try c.encode(unrecognizedAgent ?? agent.rawValue, forKey: .agent)
-        try c.encode(model, forKey: .model)
-        try c.encodeIfPresent(reasoning, forKey: .reasoning)
-        try c.encodeIfPresent(firstPrompt, forKey: .firstPrompt)
-        try c.encode(appendTicket, forKey: .appendTicket)
-        try c.encode(createdAt, forKey: .createdAt)
-        try c.encodeIfPresent(windowId, forKey: .windowId)
-        // Left out while empty, so a workspace with none is written as it always was.
-        if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
-        // Left out for a task you made yourself, so it is written as it always was.
-        try c.encodeIfPresent(signalTask, forKey: .signalTask)
-        if takenOver { try c.encode(true, forKey: .takenOver) }
-        try c.encodeIfPresent(signalOrigin, forKey: .signalOrigin)
-    }
-
-    /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;
-    /// one whose id no resume could use (`TaskConversation.isResumable`) is dropped.
-    private struct SavedConversation: Decodable {
-        let agent: String, id: String
-        var conversation: TaskConversation? {
-            TaskConversation.isResumable(id) ? AgentKind(rawValue: agent).map { TaskConversation(agent: $0, id: id) } : nil
-        }
-    }
 }
 
 /// A task or review put away: its worktree deleted and its window closed, its branch untouched, and
@@ -382,7 +223,6 @@ public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct AppState: Codable, Equatable, Sendable {
-    private var preservedFields = PreservedFields()
     /// The sidebar's top level, in the order it is drawn: the projects and the dividers between them.
     public var items: [SidebarItem] = []
     public var tasks: [TaskItem] = [], terminals: [TerminalItem] = []
@@ -394,9 +234,7 @@ public struct AppState: Codable, Equatable, Sendable {
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
     /// The signals in their sheets' order, which is also their priority within their kind (`MatchDecision`): a new
-    /// one is appended, and Move Up / Move Down swap neighbours of one kind. The app is their only writer. Dividers
-    /// an earlier build saved among them (`signalDividers`) are neither read nor drawn: `preservedFields` writes
-    /// them back as they came.
+    /// one is appended, and Move Up / Move Down swap neighbours of one kind. The app is their only writer.
     public var signals: [Signal] = []
     public var signalSeen: [SignalSeen] = []
     /// Per scheduled signal, the last scheduled time it fired or skipped: a time at or before it never fires again.
@@ -404,8 +242,7 @@ public struct AppState: Codable, Equatable, Sendable {
     public var scheduleCursors: [UUID: Date] = [:]
     public var operatorSession: OperatorSession?
     /// Whether the sidebar shows the Operator's section, the projects folded under their heading. The
-    /// two fold into each other, one open at a time; the projects are the default, so a workspace
-    /// that never opened the Operator, or was saved before this existed, opens on them.
+    /// two fold into each other, one open at a time; the projects are the default.
     public var operatorOpen = false
     /// The projects folded in the Operator's section, apart from `Project.collapsed`, which folds them under Projects.
     public var operatorFolded: Set<UUID> = []
@@ -444,28 +281,22 @@ public struct AppState: Codable, Equatable, Sendable {
         items[i] = .divider(d)
     }
 
-    /// Whether `move` would do anything: the first drawn item has no "up", the last no "down".
+    /// Whether `move` would do anything: the first item has no "up", the last no "down".
     public func canMove(id: UUID, _ step: MoveStep) -> Bool { neighbour(of: id, step) != nil }
 
-    /// Moves an item past its drawn neighbour in the combined list, so a project directly below a
-    /// divider moves above it on one press without reordering the projects around it. A row an
-    /// older build cannot draw is stepped over, and stays where it was relative to the rest.
+    /// Moves an item past its neighbour in the combined list, so a project directly below a
+    /// divider moves above it on one press without reordering the projects around it.
     @discardableResult
     public mutating func move(id: UUID, _ step: MoveStep) -> Bool {
         guard let i = items.firstIndex(where: { $0.id == id }), let n = neighbour(of: id, step) else { return false }
-        items.insert(items.remove(at: i), at: n)
+        items.swapAt(i, n)
         return true
     }
 
     private func neighbour(of id: UUID, _ step: MoveStep) -> Int? {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return nil }
-        let direction = step == .up ? -1 : 1
-        var n = i + direction
-        while items.indices.contains(n) {
-            if items[n].isDrawn { return n }
-            n += direction
-        }
-        return nil
+        let n = i + (step == .up ? -1 : 1)
+        return items.indices.contains(n) ? n : nil
     }
 
     /// Tasks and reviews move within their own project and kind group. Operator-owned rows belong
@@ -522,55 +353,40 @@ public struct AppState: Codable, Equatable, Sendable {
         case signals, signalSeen, scheduleCursors, operatorSession, operatorOpen, operatorFolded
     }
 
-    /// Reads known workspace fields and preserves unrecognized keys for the next save.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
-        items = try c.decodeIfPresent([SidebarItem].self, forKey: .items) ?? []
-        tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
-        terminals = try c.decodeIfPresent([TerminalItem].self, forKey: .terminals) ?? []
-        archive = try c.decodeIfPresent([ArchivedTask].self, forKey: .archive) ?? []
+        items = try c.decode([SidebarItem].self, forKey: .items)
+        tasks = try c.decode([TaskItem].self, forKey: .tasks)
+        terminals = try c.decode([TerminalItem].self, forKey: .terminals)
+        archive = try c.decode([ArchivedTask].self, forKey: .archive)
         sidebarFrame = try c.decodeIfPresent(CGRect.self, forKey: .sidebarFrame)
-        // Only preferences, so an agent from a newer build is dropped rather than failing the load.
-        lastAgentByProject = (try c.decodeIfPresent([UUID: SavedAgent].self, forKey: .lastAgentByProject) ?? [:]).compactMapValues(\.agent)
-        lastModelByAgent = Dictionary(uniqueKeysWithValues: (try c.decodeIfPresent([SavedAgent: String].self, forKey: .lastModelByAgent) ?? [:])
-            .compactMap { saved, model in saved.agent.map { ($0, model) } })
-        signals = try c.decodeIfPresent([Signal].self, forKey: .signals) ?? []
-        signalSeen = try c.decodeIfPresent([SignalSeen].self, forKey: .signalSeen) ?? []
-        scheduleCursors = try c.decodeIfPresent([UUID: Date].self, forKey: .scheduleCursors) ?? [:]
+        lastAgentByProject = try c.decode([UUID: AgentKind].self, forKey: .lastAgentByProject)
+        lastModelByAgent = try c.decode([AgentKind: String].self, forKey: .lastModelByAgent)
+        signals = try c.decode([Signal].self, forKey: .signals)
+        signalSeen = try c.decode([SignalSeen].self, forKey: .signalSeen)
+        scheduleCursors = try c.decode([UUID: Date].self, forKey: .scheduleCursors)
         operatorSession = try c.decodeIfPresent(OperatorSession.self, forKey: .operatorSession)
-        operatorOpen = try c.decodeIfPresent(Bool.self, forKey: .operatorOpen) ?? false
-        operatorFolded = Set(try c.decodeIfPresent([UUID].self, forKey: .operatorFolded) ?? [])
+        operatorOpen = try c.decode(Bool.self, forKey: .operatorOpen)
+        operatorFolded = Set(try c.decode([UUID].self, forKey: .operatorFolded))
     }
 
-    /// An agent as it was saved, known to this build or not. Neither a `String` nor
-    /// `CodingKeyRepresentable`, like `AgentKind`, so a dictionary keyed by it is stored the same way.
-    private struct SavedAgent: Decodable, Hashable {
-        let raw: String
-        var agent: AgentKind? { AgentKind(rawValue: raw) }
-        init(from decoder: Decoder) throws { raw = try decoder.singleValueContainer().decode(String.self) }
-    }
-
+    /// Synthesised but for `operatorFolded`, written as a sorted list so a save of the same workspace
+    /// writes the same bytes.
     public func encode(to encoder: Encoder) throws {
-        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(items, forKey: .items)
         try c.encode(tasks, forKey: .tasks)
         try c.encode(terminals, forKey: .terminals)
-        // Left out while empty, so a workspace with nothing archived is written as it always was.
-        if !archive.isEmpty { try c.encode(archive, forKey: .archive) }
+        try c.encode(archive, forKey: .archive)
         try c.encodeIfPresent(sidebarFrame, forKey: .sidebarFrame)
         try c.encode(lastAgentByProject, forKey: .lastAgentByProject)
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
-        // Left out while there are none, so a workspace without signals is written as it always was.
-        if !signals.isEmpty { try c.encode(signals, forKey: .signals) }
-        if !signalSeen.isEmpty { try c.encode(signalSeen, forKey: .signalSeen) }
-        if !scheduleCursors.isEmpty { try c.encode(scheduleCursors, forKey: .scheduleCursors) }
+        try c.encode(signals, forKey: .signals)
+        try c.encode(signalSeen, forKey: .signalSeen)
+        try c.encode(scheduleCursors, forKey: .scheduleCursors)
         try c.encodeIfPresent(operatorSession, forKey: .operatorSession)
-        // Left out while the projects are open, the default, so such a workspace is written as it always was.
-        if operatorOpen { try c.encode(true, forKey: .operatorOpen) }
-        // A sorted list, left out while none is folded, so such a workspace is written as it always was.
-        if !operatorFolded.isEmpty { try c.encode(operatorFolded.sorted { $0.uuidString < $1.uuidString }, forKey: .operatorFolded) }
+        try c.encode(operatorOpen, forKey: .operatorOpen)
+        try c.encode(operatorFolded.sorted { $0.uuidString < $1.uuidString }, forKey: .operatorFolded)
     }
 
     /// A window iTerm2 no longer has: its row, a task's, a terminal's or the Operator's chat, stays

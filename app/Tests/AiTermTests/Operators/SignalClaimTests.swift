@@ -40,12 +40,6 @@ import Testing
         #expect(!same.allows(in: owner.workspace))
     }
 
-    @Test func anUnknownPhaseRefusesTheClaim() throws {
-        let (h, claim) = try claimed { state, id in state.updateSignalTask(id) { $0.phase = .unknown(["kind": "retired"]) } }
-        defer { h.cleanUp() }
-        #expect(claim.holds(in: h.workspace.state) && !claim.allows(in: h.workspace))
-    }
-
     @Test func aCancelledTaskIsRefusedTheClaim() async throws {
         let (h, claim) = try claimed(); defer { h.cleanUp() }
         let workspace = h.workspace

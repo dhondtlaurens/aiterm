@@ -22,6 +22,20 @@ require_full_gate() {
         die "no recent green full gate for these clean test inputs; run scripts/test.sh all"
 }
 
+# The workspace format a release saves (`AiTerm --workspace-format`, the newest update script's
+# version) is never newer than the release, and a format no tag has shipped yet ships as exactly
+# that version: a change to the saved workspace is a major release, its `.0.0`.
+check_workspace_format() {  # <format> <version> <latest tag's version, or empty>
+    local format="$1" version="$2" latest="$3"
+    [[ "$(printf '%s\n%s\n' "$format" "$version" | sort -V | tail -1)" == "$version" ]] ||
+        die "the workspace format $format is newer than $version"
+    if [[ -n "$latest" && "$format" != "$latest" &&
+          "$(printf '%s\n%s\n' "$format" "$latest" | sort -V | tail -1)" == "$format" && "$format" != "$version" ]]; then
+        die "this release brings update scripts for $format: release it as $format"
+    fi
+    return 0
+}
+
 [[ "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || die "usage: scripts/release.sh <major.minor.patch>"
 cd "$ROOT"
 [[ "$(git branch --show-current)" == main ]] || die "run from main"
@@ -52,6 +66,7 @@ fi
 require_full_gate
 
 AITERM_RELEASE=1 SIGN_IDENTITY="$IDENTITY" "$ROOT/scripts/make-app.sh"
+check_workspace_format "$("$APP/Contents/MacOS/AiTerm" --workspace-format)" "$VERSION" "${latest#v}"
 BUILD=$(( PRIOR_RELEASES + $(git tag -l 'v*' | wc -l) + 1 ))
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$APP/Contents/Info.plist"

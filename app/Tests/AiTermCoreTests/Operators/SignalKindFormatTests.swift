@@ -3,24 +3,20 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The saved shape of signal kinds, "You decide" and the origin a signal leaves on an ordinary task: what was saved
-/// before decodes and saves unchanged, and every new field is left out while it has nothing to say.
+/// The saved shape of signal kinds, "You decide" and the origin a signal leaves on an ordinary task: every kind is
+/// saved, and an origin's optional fields are left out while they have nothing to say.
 @Suite struct SignalKindFormatTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let request = ItemRef.request(remote: "https://git.example/shop/web", number: 7)
 
-    @Test func aSignalSavedBeforeKindsIsAnOperatorSignalAndSavesUnchanged() throws {
+    @Test func anOperatorSignalSavesItsKind() throws {
         let (encoder, decoder) = SignalScheduleFormatTests.coder()
-        let signal = try decoder.decode(Signal.self, from: Data(SignalScheduleFormatTests.oldSignal.utf8))
-        #expect(signal.kind == nil && !signal.isProject && signal.isRunnable)
-        let again = try JSONSerialization.jsonObject(with: encoder.encode(signal)) as? NSDictionary
-        let before = try JSONSerialization.jsonObject(with: Data(SignalScheduleFormatTests.oldSignal.utf8)) as? NSDictionary
-        #expect(again == before)
-        // An Operator signal made as one saves no kind either.
-        let made = Signal(name: "Plan", createdAt: now, start: signal.start, done: signal.done, work: signal.work,
-                          agents: signal.agents, finish: signal.finish, kind: .operator)
-        let saved = try JSONValue(encoding: made)
-        #expect(made.kind == nil && saved["kind"] == nil)
+        let signal = Signal.make()
+        #expect(signal.kind == .operator && !signal.isProject && signal.isRunnable)
+        #expect(try JSONValue(encoding: signal)["kind"] == "operator")
+        #expect(try decoder.decode(Signal.self, from: encoder.encode(signal)) == signal)
+        var object = try #require(JSONValue(encoding: signal).objectValue); object["kind"] = nil
+        #expect(throws: DecodingError.self) { try JSONValue.object(object).decode(Signal.self) }
     }
 
     @Test func aProjectSignalLeavingDoneToThePersonRoundTrips() throws {
@@ -60,13 +56,10 @@ import Testing
         #expect(turn.isEmpty)
     }
 
-    /// A newer build's extra key is ignored; a missing required one fails, as every record does at this boundary.
-    @Test func anOriginFromANewerBuildReadsUnlessARequiredKeyIsMissing() throws {
+    @Test func anOriginWithoutARequiredKeyFails() throws {
         let (encoder, decoder) = SignalScheduleFormatTests.coder()
         let origin = SignalOrigin.make(item: request, startedAt: now)
         var object = try #require(JSONSerialization.jsonObject(with: encoder.encode(origin)) as? [String: Any])
-        object["fromLater"] = ["any": 1]
-        #expect(try decoder.decode(SignalOrigin.self, from: JSONSerialization.data(withJSONObject: object)) == origin)
         object["name"] = nil
         #expect(throws: DecodingError.self) { try decoder.decode(SignalOrigin.self, from: JSONSerialization.data(withJSONObject: object)) }
     }

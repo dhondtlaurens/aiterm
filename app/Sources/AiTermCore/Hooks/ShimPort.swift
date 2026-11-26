@@ -17,7 +17,7 @@ public enum ShimPort {
     private static func contents(_ port: Int) -> Data { Data("\(port)\n".utf8) }
 
     /// Writes `port` for the shim, unless it is there already. The support folder is made if it is
-    /// missing, never migrated: renaming the user's data is launch's job.
+    /// missing.
     public static func record(_ port: Int, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws {
         guard !isRecorded(port, home: home) else { return }
         let url = AiTermPaths.hookPortURL(home: home)

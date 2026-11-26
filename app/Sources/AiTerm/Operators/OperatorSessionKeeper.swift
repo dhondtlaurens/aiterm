@@ -101,7 +101,6 @@ struct OperatorOpenDeferred: Error {}
             if !retire, session.paused, session.lifecycle.isChanging, !(chose && session.lifecycle == .opening) { return }
             while true {
                 switch session.lifecycle {
-                case .unknown: return
                 case .idle:
                     guard !retire else { return }
                     // A retired record stays for source metadata and pause. Every later workload needs

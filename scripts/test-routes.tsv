@@ -21,7 +21,7 @@
 # `# opt-in, reads outside its target:` line; a daemon reader by `<test file>=<path it reads>` on the
 # `# daemon readers outside daemon/:` line, where a row above must route that path to daemon.
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
-# reads only its own target: PaletteDistinctionTests WorkerTurnTests SignalSavedFormatTests StateStoreUpgradeTests
+# reads only its own target: PaletteDistinctionTests WorkerTurnTests SignalSavedFormatTests Update2_0_0Tests
 # opt-in, reads outside its target: OperatorEvalRunner SignalOperatorEvalRunner WorkerGuardCodexTests
 # daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py test_compat_preflight.py=scripts/compat-check.sh
 
@@ -78,10 +78,6 @@ scripts/snapshots.sh	toolchain
 LICENSE	toolchain
 # The history guard syntax-checks release.sh without running it.
 scripts/release.sh	toolchain
-# The reset guard edits scratch copies of the saved workspace fixture.
-scripts/reset-operator-state.sh	toolchain
-scripts/test-reset-operator-state.sh	toolchain
-app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals/state.json	toolchain
 
 # Nothing a test reads.
 docs/*	none

@@ -8,6 +8,8 @@ import AiTermCore
 final class AiTermApp: NSObject, NSApplicationDelegate {
     static func main() {
         if WorkerGuardEntry.runIfRequested() { return }
+        // What `scripts/release.sh` asks a built bundle: the workspace format it saves.
+        if CommandLine.arguments.dropFirst().first == "--workspace-format" { print(UpdateScripts.current); return }
         let app = NSApplication.shared
         Appearance.apply()
         #if DEBUG
@@ -25,14 +27,33 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         app.run()
     }
 
-    let controller: AppController
-    private(set) lazy var updates = UpdateController.live(prompter: controller.prompter)
+    /// Built on first use, which at launch is after the update scripts ran: a script may change
+    /// preferences the controller reads when it is made.
+    var controller: AppController {
+        if let built { return built }
+        let made = makeController()
+        built = made
+        return made
+    }
+    private var built: AppController?
+    private let makeController: () -> AppController
+    private let workspaceURL: URL
+    private let updateDefaults: UserDefaults
+    /// The controller's prompter once it exists; until then, alerts of the launch's own.
+    private var launchPrompter: any Prompter { built?.prompter ?? ModalPrompter() }
+    private(set) lazy var updates = UpdateController.live(prompter: launchPrompter)
 
     override convenience init() {
-        self.init(controller: .live())
+        self.init(makeController: { .live() }, workspaceURL: StateStore.defaultURL, updateDefaults: .standard)
     }
-    init(controller: AppController) {
-        self.controller = controller
+    convenience init(controller: AppController) {
+        self.init(makeController: { controller }, workspaceURL: controller.workspace.file.url, updateDefaults: ScratchDefaults.make())
+        built = controller
+    }
+    private init(makeController: @escaping () -> AppController, workspaceURL: URL, updateDefaults: UserDefaults) {
+        self.makeController = makeController
+        self.workspaceURL = workspaceURL
+        self.updateDefaults = updateDefaults
         super.init()
     }
     var window: NSWindow!
@@ -47,8 +68,8 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         let scale = controller.preferences.interfaceSize.scale
         let minimum = scale(Size.sidebarMinWidth)
         var initialFrame = saved ?? CGRect(x: screen.minX + 12, y: screen.minY, width: scale(Size.sidebarWidth), height: screen.height)
-        // Upgrade frames persisted by versions that allowed the sidebar to shrink below its
-        // content. Keeping the origin fixed avoids making the window jump sideways on launch.
+        // Never narrower than the sidebar's content, which a larger interface size since the save
+        // widens. Keeping the origin fixed avoids making the window jump sideways on launch.
         initialFrame.size.width = max(initialFrame.width, minimum)
         window = NSWindow(contentRect: initialFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "AiTerm"; window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
@@ -68,13 +89,12 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         buildMenu()
         archiveShortcut.start()
         controller.start()
-        if controller.workspace.file.clearedOperatorRecords { controller.notices.showToast(StateStore.clearedOperatorRecordsNote) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard controller.workspaceLoaded else { return .terminateNow }
+        guard let controller = built, controller.workspaceLoaded else { return .terminateNow }
         controller.tiling.finishPendingMove()
         // Changes wait a moment to be saved together; whatever is still waiting is saved now.
         if controller.workspace.flush() { return .terminateNow }
@@ -89,13 +109,16 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         archiveShortcut.stop()
-        controller.shutdown()
+        built?.shutdown()
     }
 
     func prepareWorkspace() -> Bool {
         while true {
-            do { try controller.workspace.load(); return true }
-            catch {
+            do {
+                guard try updateWorkspace() else { return false }
+                try controller.workspace.load()
+                return true
+            } catch {
                 let answer = controller.prompter.askBlocking(AlertPrompt(
                     message: "AiTerm couldn’t open your workspace",
                     detail: error.localizedDescription
@@ -105,12 +128,58 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
                 switch answer.button {
                 case 0: continue
                 case 1:
-                    do { try controller.workspace.restoreBackup(); return true }
+                    // Read on the next pass, once the update scripts brought a backup from before an update forward.
+                    do { try controller.workspace.file.replaceWithBackup() }
                     catch { controller.prompter.askBlocking(AlertPrompt(message: error.localizedDescription)) }
                 case 2:
                     NSWorkspace.shared.activateFileViewerSelecting([controller.workspace.file.url.deletingLastPathComponent()])
                 default: return false
                 }
+            }
+        }
+    }
+
+    /// Brings the workspace file into this build's format, under the progress panel: false when
+    /// AiTerm should quit instead, because the file is newer than this build, the person declined, or
+    /// a script failed. A file that cannot be read throws, for the alert that offers its backup.
+    func updateWorkspace() throws -> Bool {
+        let updater = WorkspaceUpdater(url: workspaceURL)
+        let folder = workspaceURL.deletingLastPathComponent()
+        switch try updater.plan() {
+        case .upToDate:
+            return true
+        case .newer(let version):
+            let answer = launchPrompter.askBlocking(AlertPrompt(
+                message: "This workspace was saved by a newer AiTerm",
+                detail: "It is in AiTerm \(version)'s format; this AiTerm reads \(updater.current)'s. Install AiTerm \(version) or newer to open it.",
+                buttons: ["Quit", "Reveal in Finder"], escape: 0))
+            if answer.button == 1 { NSWorkspace.shared.activateFileViewerSelecting([workspaceURL]) }
+            return false
+        case .update(let from, _):
+            let copy = updater.beforeUpdateURL(from: from).lastPathComponent
+            if BuildChannel(infoDictionary: Bundle.main.infoDictionary) == .dev {
+                let answer = launchPrompter.askBlocking(AlertPrompt(
+                    message: "Update the workspace for AiTerm \(updater.current)?",
+                    detail: "This development build shares the workspace with the installed AiTerm. Once it is updated, "
+                        + "an AiTerm that reads \(from)'s format can't open it. The workspace as it is now is kept as \(copy).",
+                    buttons: ["Update", "Quit"], escape: 1))
+                guard answer.button == 0 else { return false }
+            }
+            // UserDefaults is documented as thread-safe; the SDK just does not mark it `Sendable`.
+            nonisolated(unsafe) let defaults = updateDefaults
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            do {
+                try UpdateProgressPanel.showWhile("Updating your workspace for AiTerm \(updater.current)…") {
+                    try updater.run(defaults: defaults, home: home)
+                }
+                return true
+            } catch {
+                let answer = launchPrompter.askBlocking(AlertPrompt(
+                    message: "AiTerm couldn’t update your workspace",
+                    detail: error.localizedDescription + "\n\nThe workspace as it was before the update is kept as \(copy).",
+                    buttons: ["Quit", "Reveal in Finder"], escape: 0))
+                if answer.button == 1 { NSWorkspace.shared.activateFileViewerSelecting([folder.appendingPathComponent(copy)]) }
+                return false
             }
         }
     }

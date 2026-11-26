@@ -5,7 +5,6 @@ public enum ItemRef: KindTaggedEnum, Equatable, Sendable {
     case mergeRequest(SignalRequestRef)
     /// A schedule's firing: no host item, only the signal and the time it was due.
     case run(SignalRunRef)
-    case unknown(JSONValue)
 
     static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
         switch kind {
@@ -25,7 +24,6 @@ public enum ItemRef: KindTaggedEnum, Equatable, Sendable {
             case .ticket(let value): return .known("ticket", try JSONValue(encoding: value))
             case .mergeRequest(let value): return .known("mergeRequest", try JSONValue(encoding: value))
             case .run(let value): return .known("run", try JSONValue(encoding: value))
-            case .unknown(let value): return .unknown(value)
             }
         }
     }
@@ -41,7 +39,6 @@ public extension ItemRef {
             return "jira:\(JiraConfig.normalizedSiteURL(url).absoluteString):\(ref.key.uppercased())"
         case .mergeRequest(let ref): return Self.repository(ref.remote).map { "request:\($0):\(ref.number)" }
         case .run(let ref): return "run:\(ref.signal.uuidString):\(ref.at.formatted(.iso8601))"
-        case .unknown: return nil
         }
     }
     static func repository(_ remote: String) -> String? {

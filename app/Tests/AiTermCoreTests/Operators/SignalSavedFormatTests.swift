@@ -45,19 +45,19 @@ import Testing
         #expect(again == loaded && again.operatorSession?.waitingOnYou == 1)
         #expect(again.operatorSession?.questions.last?.withdrawn == "Dropped.")
     }
-    /// A workspace saved before the Operator's section could be open,
-    /// opens on the projects; the Operator open is kept, and the default is written as it always was.
+    /// A new workspace opens on the projects, and saves that; an open Operator section is kept.
     @Test func theProjectsAreTheDefaultSectionAndAnOpenOperatorIsKept() throws {
         let decoder = JSONDecoder(), encoder = JSONEncoder()
-        let old = try decoder.decode(AppState.self, from: Data(#"{"items":[],"tasks":[],"terminals":[]}"#.utf8))
-        #expect(!old.operatorOpen)
-        let plain = try #require(JSONSerialization.jsonObject(with: encoder.encode(old)) as? [String: Any])
-        #expect(plain["operatorOpen"] == nil)
-        var open = old; open.operatorOpen = true
+        let plain = AppState.empty
+        #expect(!plain.operatorOpen)
+        #expect(try JSONValue(encoding: plain)["operatorOpen"] == false)
+        #expect(try decoder.decode(AppState.self, from: encoder.encode(plain)) == plain)
+        var open = plain; open.operatorOpen = true
         #expect(try decoder.decode(AppState.self, from: encoder.encode(open)).operatorOpen)
     }
 
-    private static func state() -> AppState {
+    /// The workspace the golden holds; `Update2_0_0Tests` brings 1.5.0's file of it forward.
+    static func state() -> AppState {
         func id(_ n: Int) -> UUID { UUID(uuidString: "E7A1C0DE-0000-4000-8000-" + String(format: "%012X", n))! }
         let at = Date(timeIntervalSince1970: 1_794_657_600)
         let claude = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")

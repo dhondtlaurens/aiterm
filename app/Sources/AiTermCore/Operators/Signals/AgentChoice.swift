@@ -43,7 +43,7 @@ public enum AgentChoiceNeed: Equatable, Sendable {
 
 /// The row and project a stage was given, why, and how that was decided. run_status shows it.
 public struct AgentChoiceRecord: Codable, Equatable, Sendable {
-    public enum Decided: OpenStringEnum, Hashable, Sendable {
+    public enum Decided: String, Codable, Hashable, Sendable {
         /// The Oracle agreed with the Operator's proposal.
         case oracleAgreed
         /// The Oracle is off, so the Operator's proposal applied.
@@ -54,18 +54,6 @@ public struct AgentChoiceRecord: Codable, Equatable, Sendable {
         case disagreed
         /// Only the project was open; the Operator decided it alone.
         case operatorAlone
-        case unknown(String)
-        static let knownCases: [Self] = [.oracleAgreed, .oracleOff, .oracleUnavailable, .disagreed, .operatorAlone]
-        var savedName: String {
-            switch self {
-            case .oracleAgreed: "oracleAgreed"
-            case .oracleOff: "oracleOff"
-            case .oracleUnavailable: "oracleUnavailable"
-            case .disagreed: "disagreed"
-            case .operatorAlone: "operatorAlone"
-            case .unknown(let value): value
-            }
-        }
     }
     public var row: AgentChoice
     public var project: UUID?
@@ -98,7 +86,6 @@ public struct AgentChoiceRecord: Codable, Equatable, Sendable {
         case .oracleUnavailable: how = "the Oracle was unavailable, so the Operator's proposal applies" + (note.map { " (\($0))" } ?? "")
         case .disagreed: how = "the Operator and the Oracle disagreed for three rounds, so the first permitted row applies"
         case .operatorAlone: how = "the Operator chose the project"
-        case .unknown(let value): how = value
         }
         return "Agent row: \(row.label). Reason: \(reason) (\(how))."
     }

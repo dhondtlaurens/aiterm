@@ -9,8 +9,8 @@ AiTerm › Check for Updates. It runs only from the GitHub-origin main checkout,
 maintainer's yes. Releases are listed with `gh release list --repo dhondtlaurens/aiterm`.
 
 After a merge and push, ship offers one release and proposes the version, semver by what a user
-sees: major for a change to the saved workspace or anything the person must do to upgrade (with a
-note in `docs/release-notes/`), minor for new behaviour, patch for fixes and small tweaks only.
+sees: major for a change to the saved workspace (with its update script) or anything the person must
+do to upgrade (with a note in `docs/release-notes/`), minor for new behaviour, patch for fixes and small tweaks only.
 
 ## Pipeline
 
@@ -35,22 +35,25 @@ A run that stops after pushing the tag is finished by hand with the two `gh rele
 the end of `scripts/release.sh`, using that run's `build/AiTerm-<version>.dmg`. A draft that was not
 published: `gh release edit v<version> --repo dhondtlaurens/aiterm --draft=false`.
 
-## Operator format
+## Workspace format and update scripts
 
-The saved workspace carries the Operator's records: signals, each task's `signalTask` or
-`signalOrigin`, and the Operator's folds. A change to them is a change to the saved workspace, so ship
-proposes a major version and the change brings a note in `docs/release-notes/` saying what an older
-build does with a workspace this one saved.
+`state.json` carries a top-level `version`: the format it is in, which is the version of the newest
+update script it went through (none means 1.5.0). A build reads only its own format, the newest
+script it ships (`AiTerm --workspace-format`), and stamps it on every save.
 
-- `TaskItem` and `AppState` keep keys they do not know (`PreservedFields`), so an older build writes
-  a newer task's `signalOrigin`, `operatorFolded` and saved `signalDividers` back unchanged.
-- `Signal` (and the copy each stage keeps) has no such store: an older build that saves the workspace
-  drops a field it does not know. A project signal then loses its `kind` and becomes an Operator
-  signal there, and one whose Done is "You decide" (`person`) decodes it as unknown and stops running.
-- Opening such a workspace with the older build is therefore not supported. To go back, remove the
-  project signals first, or expect them to come back as Operator signals.
-- Going forward needs nothing: a newer build reads every older record, and its own new fields are
-  optional and left out while empty, so `operator-signals/state.json` keeps its bytes.
+- A change to anything the workspace saves (a field added, renamed, retyped or removed, a new enum
+  value, a value no longer written) adds a script to `UpdateScripts.all`
+  (`app/Sources/AiTermCore/Updates/Scripts/`), versioned as the next major's `.0.0`. It edits the
+  file as JSON from the previous format to the new one, and the decoders read only the new one: no
+  defaults for keys an older file lacks, no unknown cases for values a newer one might hold.
+- At launch, a file in an older format goes through every script after its version, in order,
+  under the progress panel; the file as it was is kept as `state.json.before-update-<version>`. A
+  file in a newer format is refused. There is no way back: an older build never opens a workspace a
+  newer one has updated.
+- `release.sh` refuses a release older than the format it saves, and a release that brings a new
+  script under any version other than that script's.
+- A release with a script is a major release, with a note in `docs/release-notes/` that says what
+  the update does and that the workspace cannot go back.
 
 ## Checks
 

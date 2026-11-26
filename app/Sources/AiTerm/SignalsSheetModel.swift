@@ -84,7 +84,7 @@ final class SignalsSheetModel: Identifiable {
         let skipped = SignalSidebar.skipped(in: state, calendar: calendar)
         let nextRuns = SignalSidebar.nextRuns(in: state, now: now, calendar: calendar)
         return signals.enumerated().map { index, signal in
-            var issues = signal.isValid ? [] : ["This version cannot run this signal."]
+            var issues = signal.isValid ? [] : ["This signal can’t run as it is set up."]
             if let failure = failure(signal.id) {
                 let retry = SignalReadIssues.retry(after: failure, backOff: SignalPoller.failureBackOff, calendar: calendar)
                 issues.append("Can’t read \(signal.start.source.label): " + SignalReadIssues.reason(failure.text, retry: retry))

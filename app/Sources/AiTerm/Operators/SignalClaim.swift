@@ -20,8 +20,6 @@ struct SignalClaim: Equatable {
         guard workspace.canChangeWorkspace, !Task.isCancelled, holds(in: state), state.operatorSession?.paused != true,
               state.signal(id: signal)?.enabled != false,
               let record = state.signalItem(id: task)?.signalTask else { return false }
-        guard record.current.configuration.isValid else { return false }
-        if case .unknown = record.phase { return false }
-        return true
+        return record.current.configuration.isValid
     }
 }

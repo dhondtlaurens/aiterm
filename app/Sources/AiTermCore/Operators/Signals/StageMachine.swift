@@ -3,7 +3,6 @@ import Foundation
 public enum SignalTransitions {
     public static func apply(_ action: SignalAction, to task: SignalTask, at: Date, workerIsWorking: Bool = false) throws -> SignalTask {
         var next = task
-        if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
             next.previousStage = EarlierStage(of: next)
             next.earlier = (next.earlier ?? []) + [SignalStep(signal: next.current.signal, name: next.current.configuration.name,

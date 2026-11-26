@@ -297,7 +297,7 @@ import Testing
         #expect(await model.create())
         #expect(saved?.kind == .project && saved?.id == original.id && saved?.done.source == .person)
     }
-    @Test func anOperatorSignalStillSavesNoKind() async throws {
+    @Test func anOperatorSignalSavesItsKind() async throws {
         var saved: [Signal] = []
         let model = SignalModel(projects: [], context: pair, save: { saved.append($0) })
         #expect(!model.isProject && model.agentRows.count == 2 && model.doneKinds == [.query, .operatorDecides])
@@ -308,7 +308,7 @@ import Testing
         model.start.query = "labels = ready"; model.done.query = "status = Done"
         #expect(await model.create())
         let signal = try #require(saved.first)
-        #expect(signal.kind == nil && signal.agents.count == 2)
+        #expect(signal.kind == .operator && signal.agents.count == 2)
         let edited = SignalModel(signal: signal, kind: .project, projects: [], context: pair, save: { _ in })
         #expect(!edited.isProject && edited.title == "Edit Operator signal")
     }

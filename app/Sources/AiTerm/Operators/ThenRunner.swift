@@ -39,7 +39,6 @@ import AiTermCore
                 try await journal.append(.ours("Applying Then: " + signal.finish.then.rawValue + "."), task: id)
                 guard allowed() else { return }
                 switch signal.finish.then {
-                case .unknown: return
                 case .keep: break
                 case .archive:
                     guard let current = workspace.state.task(id: id) else { return }

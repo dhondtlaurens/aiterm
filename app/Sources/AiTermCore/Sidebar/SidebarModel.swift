@@ -434,17 +434,14 @@ public enum SidebarModel {
         let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
                         terminals: Dictionary(grouping: state.terminals, by: \.projectId),
                         signalNames: Dictionary(state.signals.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }))
-        // A row only a newer build can draw is skipped, and does not count as an end to move towards.
-        let drawn = state.items.indices.filter { state.items[$0].isDrawn }
-        let first = drawn.first ?? 0, last = drawn.last ?? 0
-        return state.items.enumerated().compactMap { index, item in
+        let last = state.items.count - 1
+        return state.items.enumerated().map { index, item in
             switch item {
-            case .unknown: return nil
-            case .divider(let d): return .divider(DividerEntry(divider: d, canMoveUp: index > first, canMoveDown: index < last))
+            case .divider(let d): return .divider(DividerEntry(divider: d, canMoveUp: index > 0, canMoveDown: index < last))
             case .project(let project):
                 var section = section(project: project, rows: rows, tabs: tabs,
                                       branchByCwd: branchByCwd, projectBranch: projectBranch, diffByTask: diffByTask)
-                section.canMoveUp = index > first; section.canMoveDown = index < last
+                section.canMoveUp = index > 0; section.canMoveDown = index < last
                 return .project(section)
             }
         }
@@ -476,8 +473,6 @@ public enum SidebarModel {
                                 diffByTask: [UUID: DiffStat]) -> ProjectSection {
         let projectTasks = rows.tasks[project.id] ?? []
         // Keep both lanes in saved order, but never let a newly-created task land below reviews.
-        // `nil` is the legacy representation of a task, so only an explicit `.review` belongs in
-        // the second lane.
         let orderedTasks = projectTasks.filter { $0.kind != .review }
             + projectTasks.filter { $0.kind == .review }
         var tasks = orderedTasks.map {

@@ -162,7 +162,6 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         case .ticket(let ticket): ticket.key
         case .mergeRequest(let request): "!" + String(request.number)
         case .run(let run): "the scheduled run due " + run.at.formatted(.iso8601)
-        case .unknown: "an item"
         }
     }
 }

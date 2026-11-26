@@ -15,7 +15,6 @@ public enum ItemProjectMapper {
         case .run(let run):
             guard let id = signals.first(where: { $0.id == run.signal })?.start.project else { return [] }
             return projects.filter { $0.id == id }
-        case .unknown: return []
         }
     }
     private static func matching(remote: String, projects: [Project]) -> [Project] {

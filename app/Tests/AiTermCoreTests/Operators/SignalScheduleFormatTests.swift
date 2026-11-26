@@ -3,31 +3,13 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The saved shape of scheduled signals and the Operator Done: what was saved before decodes unchanged, the new kinds
-/// round-trip, and a kind from a newer build stays unknown and inert.
+/// The saved shape of scheduled signals and the Operator Done: the schedule, the Operator Done and a run round-trip.
 @Suite struct SignalScheduleFormatTests {
-    static let oldSignal = #"""
-    {"agents":[{"agent":"claude","model":"claude-opus-5-5","reasoning":"high"}],"collapsed":false,"createdAt":"2026-11-14T12:00:00Z",
-     "done":{"description":"","query":"status = Done","source":"jira"},"enabled":true,
-     "finish":{"deletesMergedBranch":false,"mergesWhenReady":false,"then":"keep"},"id":"E7A1C0DE-0000-4000-8000-000000000002",
-     "name":"Plan tickets","start":{"description":"Tickets labelled operator","query":"labels = operator","source":"jira"},
-     "work":{"prompt":"/psg:plan","requestDescription":true,"ticketDescription":true}}
-    """#
-
     static func coder() -> (JSONEncoder, JSONDecoder) {
         let encoder = JSONEncoder(), decoder = JSONDecoder()
         encoder.dateEncodingStrategy = .iso8601; decoder.dateDecodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         return (encoder, decoder)
-    }
-
-    @Test func aSignalSavedBeforeSchedulesDecodesAndSavesUnchanged() throws {
-        let (encoder, decoder) = Self.coder()
-        let signal = try decoder.decode(Signal.self, from: Data(Self.oldSignal.utf8))
-        #expect(signal.start.project == nil && signal.scheduledFrom == nil && !signal.isScheduled && signal.isRunnable)
-        let again = try JSONSerialization.jsonObject(with: encoder.encode(signal)) as? NSDictionary
-        let before = try JSONSerialization.jsonObject(with: Data(Self.oldSignal.utf8)) as? NSDictionary
-        #expect(again == before)
     }
 
     @Test func aScheduledSignalWithAnOperatorDoneRoundTrips() throws {
@@ -54,29 +36,19 @@ import Testing
         var record = SignalTask.make(item: item)
         record.scheduledRun = run
         #expect(try decoder.decode(SignalTask.self, from: encoder.encode(record)) == record)
-        // A task saved before carries no origin.
+        // A task no schedule started carries no run.
         let plain = SignalTask.make(item: .ticket(site: "https://jira.example", key: "PAY-1"))
         #expect(!String(decoding: try encoder.encode(plain), as: UTF8.self).contains("scheduledRun"))
     }
 
-    @Test func scheduleCursorsAreSavedOnlyWhenThereAreAny() throws {
+    @Test func scheduleCursorsAreAlwaysSaved() throws {
         let (encoder, decoder) = Self.coder()
         var state = AppState()
         let plain = try #require(JSONSerialization.jsonObject(with: encoder.encode(state)) as? [String: Any])
-        #expect(plain["scheduleCursors"] == nil)
+        #expect(plain["scheduleCursors"] != nil)
         let id = UUID()
         state.scheduleCursors[id] = Date(timeIntervalSince1970: 1_800_000_000)
         #expect(try decoder.decode(AppState.self, from: encoder.encode(state)).scheduleCursors == state.scheduleCursors)
-    }
-
-    @Test func kindsFromANewerBuildStayUnknownAndInert() throws {
-        let item = try JSONValue.object(["kind": "calendarEvent", "value": ["id": "x"]]).decode(ItemRef.self)
-        guard case .unknown = item else { Issue.record("expected unknown, got \(item)"); return }
-        #expect(item.identity == nil)
-        #expect(try JSONValue(encoding: item) == ["kind": "calendarEvent", "value": ["id": "x"]])
-        var world = SignalWorld(); let id = world.scheduled()
-        world.state.signals[0].start.source = try JSONValue.string("calendar").decode(SignalTrigger.Source.self)
-        #expect(world.state.signal(id: id)?.isRunnable == false)
     }
 
     @Test(arguments: [

@@ -98,7 +98,7 @@ extension SignalConnections {
             } catch GitHubError.refused(let why) {
                 return .refused(why)
             } catch { return .unchecked("GitHub couldn’t check it. " + OperationIssue.reason(of: error)) }
-        case .gitLab, .schedule, .operator, .person, .unknown:
+        case .gitLab, .schedule, .operator, .person:
             return .passed
         }
     }

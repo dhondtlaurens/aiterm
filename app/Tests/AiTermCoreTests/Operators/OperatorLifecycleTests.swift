@@ -25,14 +25,11 @@ import Testing
         }
     }
 
-    /// A newer build's case, and a known kind whose value does not decode, are kept as they were and are inert.
-    @Test func whatDoesNotDecodeIsUnknownAndKeepsItsBytes() throws {
+    /// An unknown kind, or a known kind whose value does not decode, fails the read.
+    @Test func whatDoesNotDecodeThrows() {
         for raw: JSONValue in [["kind": "handing", "value": 3], ["kind": "closing", "value": "later"], ["kind": "open", "value": ["wake": "sent"]],
                                ["kind": "open", "value": ["since": "2027-01-15T08:00:00Z", "wake": "read"]]] {
-            let decoded = try raw.decode(OperatorSession.Lifecycle.self)
-            #expect(decoded == .unknown(raw))
-            #expect(try JSONValue(encoding: decoded) == raw)
-            #expect(decoded.isChanging && !decoded.isOpen && !decoded.isRetiring && decoded.wake == nil)
+            #expect(throws: DecodingError.self, "\(raw)") { try raw.decode(OperatorSession.Lifecycle.self) }
         }
     }
 
@@ -48,7 +45,7 @@ import Testing
         }
     }
 
-    /// A saved session without a lifecycle is from an earlier build: it does not load.
+    /// A saved session without a lifecycle does not load.
     @Test func aSessionSavedWithoutALifecycleDoesNotDecode() throws {
         var saved = try #require(try JSONValue(encoding: OperatorSession(createdAt: now)).objectValue)
         saved["lifecycle"] = nil

@@ -276,7 +276,7 @@ struct ProjectPickup: Equatable {
     /// to review is a review; the account's own request is its source branch checked out as a task; a ticket is a new
     /// task on `baseBranch`, and a scheduled run a new task on its run branch from `baseBranch`. The signal's one agent row,
     /// its bare prompt and its two description switches: the create composes the prompt once
-    /// (`TaskLauncher.UnattendedCreate.prompt`). Nil for an unknown item.
+    /// (`TaskLauncher.UnattendedCreate.prompt`). Nil for a merge request item without its request.
     nonisolated static func pickupKind(_ pickup: ProjectPickup, signal: Signal, baseBranch: String) -> TaskLauncher.UnattendedCreate.Kind? {
         let agent = signal.agents.first ?? AgentChoice(agent: .claude, model: "", reasoning: nil)
         let item = pickup.item
@@ -304,7 +304,6 @@ struct ProjectPickup: Equatable {
             draft.promptText = signal.work.prompt
             draft.appendTicket = false
             return .run(draft)
-        case .unknown: return nil
         }
     }
     /// A merge request is a review task, which never pushes, unless the account authored it or is one of its assignees.
@@ -316,7 +315,6 @@ struct ProjectPickup: Equatable {
             guard let user = accountUser else { return true }
             let yours = { (name: String?) in name?.caseInsensitiveCompare(user) == .orderedSame }
             return !(yours(item.mergeRequest?.author) || item.assignees.contains(where: yours))
-        case .unknown: return true
         }
     }
 }

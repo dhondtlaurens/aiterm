@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 
-/// The workspace encoder's exact bytes for every open saved enum case.
+/// The workspace encoder's exact bytes for every saved enum case.
 @Suite struct SavedEnumBytesTests {
     private func pin<Value: Codable & Equatable>(_ value: Value, _ expected: String) throws {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -17,7 +17,6 @@ import Testing
         try pin(SignalTrigger.Source.jira, #""jira""#)
         try pin(SignalTrigger.Source.gitLab, #""gitLab""#)
         try pin(SignalTrigger.Source.gitHub, #""gitHub""#)
-        try pin(SignalTrigger.Source.unknown("future"), #""future""#)
     }
 
     @Test func phases() throws {
@@ -56,14 +55,6 @@ import Testing
           "kind" : "watching"
         }
         """#)
-        try pin(TaskPhase.unknown(["kind": "future", "value": ["extra": 7]]), #"""
-        {
-          "kind" : "future",
-          "value" : {
-            "extra" : 7
-          }
-        }
-        """#)
     }
 
     @Test func items() throws {
@@ -85,14 +76,6 @@ import Testing
           }
         }
         """#)
-        try pin(ItemRef.unknown(["kind": "future", "value": ["extra": 7]]), #"""
-        {
-          "kind" : "future",
-          "value" : {
-            "extra" : 7
-          }
-        }
-        """#)
     }
 
     @Test func journalText() throws {
@@ -108,14 +91,6 @@ import Testing
           "value" : {
             "source" : "Worker",
             "text" : "Reply"
-          }
-        }
-        """#)
-        try pin(JournalText.unknown(["kind": "future", "value": ["extra": 7]]), #"""
-        {
-          "kind" : "future",
-          "value" : {
-            "extra" : 7
           }
         }
         """#)
@@ -182,27 +157,17 @@ import Testing
           "value" : "retire"
         }
         """#)
-        try pin(OperatorSession.Lifecycle.unknown(["kind": "future", "value": ["extra": 7]]), #"""
-        {
-          "kind" : "future",
-          "value" : {
-            "extra" : 7
-          }
-        }
-        """#)
     }
 
     @Test func finishChoices() throws {
         try pin(SignalFinish.Then.keep, #""keep""#)
         try pin(SignalFinish.Then.archive, #""archive""#)
         try pin(SignalFinish.Then.remove, #""remove""#)
-        try pin(SignalFinish.Then.unknown("future"), #""future""#)
     }
 
     @Test func seenDispositions() throws {
         try pin(SignalSeen.Disposition.started, #""started""#)
         try pin(SignalSeen.Disposition.skipped, #""skipped""#)
-        try pin(SignalSeen.Disposition.unknown("future"), #""future""#)
     }
 
     @Test func agentDecisions() throws {
@@ -211,7 +176,6 @@ import Testing
         try pin(AgentChoiceRecord.Decided.oracleUnavailable, #""oracleUnavailable""#)
         try pin(AgentChoiceRecord.Decided.disagreed, #""disagreed""#)
         try pin(AgentChoiceRecord.Decided.operatorAlone, #""operatorAlone""#)
-        try pin(AgentChoiceRecord.Decided.unknown("future"), #""future""#)
     }
 
     private func missing<Value: Decodable>(_ type: Value.Type, kinds: [String], name: String) throws {
@@ -230,13 +194,28 @@ import Testing
         try missing(JournalText.self, kinds: ["ours", "quoted"], name: "JournalText")
     }
 
-    @Test func lifecycleMissingOrInvalidValuesStayUnknown() throws {
+    @Test func lifecycleMissingOrInvalidValuesThrow() {
         for kind in ["open", "closing", "revoking"] {
             for raw: JSONValue in [["kind": .string(kind)], ["kind": .string(kind), "value": 7]] {
-                let decoded = try raw.decode(OperatorSession.Lifecycle.self)
-                #expect(decoded == .unknown(raw))
-                #expect(try JSONValue(encoding: decoded) == raw)
+                #expect(throws: DecodingError.self) { try raw.decode(OperatorSession.Lifecycle.self) }
             }
         }
+    }
+
+    @Test func unknownKindsThrow() {
+        let raw: JSONValue = ["kind": "future", "value": ["extra": 7]]
+        #expect(throws: DecodingError.self) { try raw.decode(TaskPhase.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(ItemRef.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(JournalText.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(OperatorSession.Lifecycle.self) }
+    }
+
+    @Test func unknownStringsThrow() {
+        let raw: JSONValue = "future"
+        #expect(throws: DecodingError.self) { try raw.decode(SignalTrigger.Source.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(SignalFinish.Then.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(SignalSeen.Disposition.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(AgentChoiceRecord.Decided.self) }
+        #expect(throws: DecodingError.self) { try raw.decode(Signal.Kind.self) }
     }
 }

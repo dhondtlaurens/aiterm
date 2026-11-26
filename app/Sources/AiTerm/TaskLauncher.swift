@@ -322,8 +322,7 @@ final class TaskLauncher {
             throw ActionUnavailable("“\(task.title)” has no worktree at \(task.worktreePath).")
         }
         guard let current = state.task(id: id) else { throw removed }
-        let resumed = current.unrecognizedAgent != nil ? nil
-            : current.conversations.first { $0.agent == current.agent && TaskConversation.isResumable($0.id) }
+        let resumed = current.conversations.first { $0.agent == current.agent && TaskConversation.isResumable($0.id) }
         let command = try await workflow.command(for: current, prompt: prompt, resuming: resumed?.id)
         guard let ready = state.task(id: id) else { throw removed }
         guard mayOpen() else { return false }

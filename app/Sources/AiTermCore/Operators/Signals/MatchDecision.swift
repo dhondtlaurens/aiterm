@@ -30,7 +30,6 @@ public enum MatchDecision: Equatable, Sendable {
         let ordered = matches.filter { match in
             ranks[match.signal] != nil && match.item.identity != nil && !seen.contains { prior in
                 guard prior.signal == match.signal && prior.item.identity == match.item.identity else { return false }
-                if case .unknown = prior.disposition { return true }
                 return prior.disposition == .started && prior.isMatching
             }
         }.sorted { ranks[$0.signal, default: .max] < ranks[$1.signal, default: .max] }
@@ -124,7 +123,7 @@ public enum MatchDecision: Equatable, Sendable {
             var path = url.path
             if let split = path.range(of: "/-/merge_requests/") ?? path.range(of: "/pull/") { path = String(path[..<split.lowerBound]) }
             return ItemRef.repository("https://" + host + path) == ItemRef.repository(ref.remote)
-        case .run, .unknown: return false
+        case .run: return false
         }
     }
 }
@@ -144,17 +143,8 @@ public struct SignalMatch: Equatable, Sendable {
 }
 
 public struct SignalSeen: Codable, Equatable, Sendable {
-    public enum Disposition: OpenStringEnum, Hashable, Sendable {
+    public enum Disposition: String, Codable, Hashable, Sendable {
         case started, skipped
-        case unknown(String)
-        static let knownCases: [Self] = [.started, .skipped]
-        var savedName: String {
-            switch self {
-            case .started: "started"
-            case .skipped: "skipped"
-            case .unknown(let value): value
-            }
-        }
     }
     public var signal: UUID
     public var item: ItemRef

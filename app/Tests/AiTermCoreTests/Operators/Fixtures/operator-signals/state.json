@@ -18,9 +18,15 @@
         "id" : "E7A1C0DE-0000-4000-8000-000000000006",
         "jira" : {
           "key" : "PAY-2",
+          "source" : {
+            "jira" : {
+
+            }
+          },
           "summary" : "Earlier work",
           "url" : "https:\/\/jira.example\/browse\/PAY-2"
         },
+        "kind" : "task",
         "model" : "claude-opus-5-5",
         "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
         "reasoning" : "high",
@@ -53,6 +59,7 @@
                 "then" : "keep"
               },
               "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+              "kind" : "operator",
               "name" : "Plan tickets",
               "start" : {
                 "description" : "Tickets labelled operator",
@@ -109,6 +116,7 @@
           "startedAt" : "2026-11-14T12:00:00Z",
           "thenApplied" : true
         },
+        "takenOver" : false,
         "title" : "Earlier work",
         "worktreePath" : "\/synthetic\/shop\/.worktrees\/pay-2"
       }
@@ -137,6 +145,10 @@
   "lastModelByAgent" : [
 
   ],
+  "operatorFolded" : [
+
+  ],
+  "operatorOpen" : false,
   "operatorSession" : {
     "conversation" : "operator-conversation",
     "createdAt" : "2026-11-14T12:00:00Z",
@@ -188,6 +200,9 @@
     ],
     "window" : "operator-window"
   },
+  "scheduleCursors" : [
+
+  ],
   "signalSeen" : [
     {
       "at" : "2026-11-14T12:00:00Z",
@@ -231,6 +246,7 @@
         "then" : "keep"
       },
       "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+      "kind" : "operator",
       "name" : "Plan tickets",
       "start" : {
         "description" : "Tickets labelled operator",
@@ -265,6 +281,7 @@
         "then" : "archive"
       },
       "id" : "E7A1C0DE-0000-4000-8000-000000000003",
+      "kind" : "operator",
       "name" : "Build tickets",
       "start" : {
         "description" : "",
@@ -295,9 +312,15 @@
       "id" : "E7A1C0DE-0000-4000-8000-000000000004",
       "jira" : {
         "key" : "PAY-1",
+        "source" : {
+          "jira" : {
+
+          }
+        },
         "summary" : "Make retries safe",
         "url" : "https:\/\/jira.example\/browse\/PAY-1"
       },
+      "kind" : "task",
       "model" : "claude-opus-5-5",
       "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
       "reasoning" : "high",
@@ -330,6 +353,7 @@
               "then" : "keep"
             },
             "id" : "E7A1C0DE-0000-4000-8000-000000000002",
+            "kind" : "operator",
             "name" : "Plan tickets",
             "start" : {
               "description" : "Tickets labelled operator",
@@ -418,6 +442,7 @@
                 "then" : "archive"
               },
               "id" : "E7A1C0DE-0000-4000-8000-000000000003",
+              "kind" : "operator",
               "name" : "Build tickets",
               "start" : {
                 "description" : "",
@@ -447,6 +472,7 @@
         "stage" : 1,
         "startedAt" : "2026-11-14T12:00:00Z"
       },
+      "takenOver" : false,
       "title" : "Make retries safe",
       "windowId" : "worker-window",
       "worktreePath" : "\/synthetic\/shop\/.worktrees\/pay-1"
@@ -456,14 +482,23 @@
       "appendTicket" : false,
       "baseBranch" : "main",
       "branch" : "feat\/pay-3",
+      "conversations" : [
+
+      ],
       "createdAt" : "2026-11-14T12:00:00Z",
       "firstPrompt" : "\/psg:plan",
       "id" : "E7A1C0DE-0000-4000-8000-000000000008",
       "jira" : {
         "key" : "PAY-3",
+        "source" : {
+          "jira" : {
+
+          }
+        },
         "summary" : "Tidy checkout",
         "url" : "https:\/\/jira.example\/browse\/PAY-3"
       },
+      "kind" : "task",
       "model" : "claude-opus-5-5",
       "projectId" : "E7A1C0DE-0000-4000-8000-000000000001",
       "reasoning" : "high",
@@ -474,5 +509,6 @@
   ],
   "terminals" : [
 
-  ]
+  ],
+  "version" : "2.0.0"
 }
