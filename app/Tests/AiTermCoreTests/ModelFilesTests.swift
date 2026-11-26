@@ -253,13 +253,39 @@ import Foundation
 
 @Suite struct AgyModelCatalogTests {
     /// `agy models` prints one id and label a row, tab-separated; its progress line goes to stderr.
-    @Test func agyModelsAreItsTabSeparatedRows() throws {
-        let output = "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n\ngemini-pro-orchestrator\tOrchestrator\n"
+    /// A model's rows fold into one model, its efforts in order and medium its default; a row whose
+    /// label names no effort is a model without levels.
+    @Test func agyModelsFoldEachModelsEffortRows() throws {
+        let output = "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-neon-xhigh\tGemini 4 Neon (XHigh)\n"
+            + "gemini-4-neon-low\tGemini 4 Neon (Low)\ngemini-4-neon-medium\tGemini 4 Neon (Medium)\n"
+            + "gemini-3.1-pro-low\tGemini 3.1 Pro (Low)\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\n\n"
+            + "gemini-pro-orchestrator\tOrchestrator\n"
         let models = try AgyModelCatalog.parse(output)
-        #expect(models.map(\.id) == ["gemini-4-neon-high", "gemini-3.8-flash-low", "gemini-pro-orchestrator"])
-        #expect(models.map(\.label) == ["Gemini 4 Neon (High)", "Gemini 3.8 Flash (Low)", "Orchestrator"])
-        // The id names the effort already: no model offers a reasoning level of its own.
-        #expect(models.allSatisfy { $0.efforts.isEmpty && $0.defaultEffort == nil && $0.detail == nil })
+        #expect(models == [
+            AgentModel(id: "gemini-4-neon", label: "Gemini 4 Neon", detail: nil,
+                       efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium"),
+            AgentModel(id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", detail: nil, efforts: ["low", "high"], defaultEffort: "low"),
+            AgentModel(id: "gemini-pro-orchestrator", label: "Orchestrator", detail: nil, efforts: [], defaultEffort: nil),
+        ])
+    }
+
+    /// The launch joins a model and its effort into the CLI's own id, and leaves one that names it already.
+    @Test func agyCLIModelJoinsTheEffort() {
+        #expect(AgyModelCatalog.cliModel("gemini-4-neon", reasoning: "high") == "gemini-4-neon-high")
+        #expect(AgyModelCatalog.cliModel("gemini-4-neon-high", reasoning: "high") == "gemini-4-neon-high")
+        #expect(AgyModelCatalog.cliModel("gemini-pro-orchestrator", reasoning: nil) == "gemini-pro-orchestrator")
+        #expect(AgyModelCatalog.cliModel("gemini-pro-orchestrator", reasoning: "") == "gemini-pro-orchestrator")
+    }
+
+    /// A default saved as the CLI's full id, before the catalogue folded efforts, reads as its model at that effort.
+    @Test func aSavedAgyIdThatNamesItsEffortResolvesToItsModel() throws {
+        let defaults = ScratchDefaults.make()
+        ModelSettings.save(ModelPreference(model: "gemini-4-neon-high", reasoning: nil), for: .agy, defaults: defaults)
+        let catalog = try AgyModelCatalog.parse("gemini-4-neon-low\tGemini 4 Neon (Low)\ngemini-4-neon-high\tGemini 4 Neon (High)\n")
+        #expect(ModelSettings.resolution(for: .agy, catalog: catalog, defaults: defaults)
+                == .valid(ModelPreference(model: "gemini-4-neon", reasoning: "high")))
+        #expect(ModelSettings.resolution(for: .agy, catalog: catalog, remembered: "gemini-4-neon-low", defaults: ScratchDefaults.make())
+                == .valid(ModelPreference(model: "gemini-4-neon", reasoning: "low")))
     }
 
     @Test func agyModelParserRejectsARowWithoutItsLabel() throws {
@@ -275,7 +301,7 @@ import Foundation
             #expect(timeout == 15)
             return ProcessOutput(status: 0, stdout: "gemini-4-neon-high\tGemini 4 Neon (High)\n", stderr: "Fetching available models...\n", timedOut: false)
         })
-        #expect(try AgyModelCatalog.discover(executable: "/usr/local/bin/agy", runner: listed).map(\.id) == ["gemini-4-neon-high"])
+        #expect(try AgyModelCatalog.discover(executable: "/usr/local/bin/agy", runner: listed).map(\.id) == ["gemini-4-neon"])
 
         let failed = HarnessCommandRunner(locate: { _ in "/usr/local/bin/agy" }, run: { _, _, _, _ in
             ProcessOutput(status: 1, stdout: "", stderr: "Fetching available models...\nauthentication required", timedOut: false)

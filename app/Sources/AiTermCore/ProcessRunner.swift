@@ -58,11 +58,18 @@ public enum ProcessRunner {
     /// The environment a child gets unless told otherwise: the app's own, minus its launch identity.
     public static var inheritedEnvironment: [String: String] { withoutLaunchIdentity(ProcessInfo.processInfo.environment) }
 
-    /// Overrides for an npm-installed CLI: its own bin must precede launchd's PATH to find node.
-    public static func environment(runningCLI executable: String, overrides: [String: String] = [:]) -> [String: String] {
+    /// Overrides for a CLI that runs on node: its own bin, and the bin its link points into, must
+    /// precede launchd's PATH to find node, and so must the login shell's (`searchPath`), where a
+    /// launcher in `~/bin` finds a node it does not ship — PI's does, with `#!/usr/bin/env node`.
+    public static func environment(runningCLI executable: String, overrides: [String: String] = [:],
+                                   searchPath: String? = LoginShellLocator.shared.knownPath) -> [String: String] {
         var environment = overrides
         let bin = (executable as NSString).deletingLastPathComponent
-        environment["PATH"] = [bin, overrides["PATH"] ?? inheritedEnvironment["PATH"]].compactMap { $0 }.joined(separator: ":")
+        let linkedBin = ((executable as NSString).resolvingSymlinksInPath as NSString).deletingLastPathComponent
+        let path = [bin, linkedBin, searchPath, overrides["PATH"] ?? inheritedEnvironment["PATH"]]
+            .compactMap { $0 }.flatMap { $0.split(separator: ":").map(String.init) }.filter { !$0.isEmpty }
+        var seen = Set<String>()
+        environment["PATH"] = path.filter { seen.insert($0).inserted }.joined(separator: ":")
         return environment
     }
 

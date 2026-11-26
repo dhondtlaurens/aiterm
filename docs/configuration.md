@@ -43,8 +43,8 @@ Settings tests each agent when it opens. On the agent's card:
 Sign in through your chosen agent's CLI as needed. AiTerm uses that agent's account and access;
 installing an agent does not supply a subscription or API credentials. PI lists models from its
 signed-in providers; run `/login` in PI if none are available. Antigravity lists the models its
-signed-in account offers (`agy models`), each with its effort in its name, so it offers no separate
-reasoning level; run `agy` once to sign in.
+signed-in account offers (`agy models`), and AiTerm offers each model's effort levels as its
+reasoning; run `agy` once to sign in.
 
 **Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`, and Antigravity tasks with
 `--dangerously-skip-permissions`.** Antigravity's driver adds a named hook, `aiterm`, to

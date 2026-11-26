@@ -37,10 +37,14 @@ import Darwin
                 == "pi --model anthropic/claude-sonnet")
     }
 
-    /// Antigravity approves its own tools on every launch, and its model id names the effort: no
-    /// reasoning word is sent, whatever the task saved. Its launch prompt follows `-i`: given alone it
-    /// lands in the input unsent (agy 1.5.18), and the task would wait.
+    /// Antigravity approves its own tools on every launch, and takes its effort in the model id: the
+    /// reasoning is joined to the model, never sent as a word of its own, and an id saved with its
+    /// effort already is left as it is. Its launch prompt follows `-i`: given alone it lands in the
+    /// input unsent (agy 1.5.18), and the task would wait.
     @Test func agyCommandSkipsPermissionsAndSendsOnlyTheModel() throws {
+        #expect(try AgentCommand.build(agent: .agy, model: "gemini-4-neon", reasoning: "xhigh", prompt: "review",
+                                       worktreePath: wt, git: .hermetic())
+                == "agy --dangerously-skip-permissions --model gemini-4-neon-xhigh -i 'review'")
         #expect(try AgentCommand.build(agent: .agy, model: "gemini-4-neon-high", reasoning: "high", prompt: "review",
                                        worktreePath: wt, git: .hermetic())
                 == "agy --dangerously-skip-permissions --model gemini-4-neon-high -i 'review'")

@@ -49,7 +49,7 @@ from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermBridge
 from aitermd.models import MESSAGING_CHECKED, AgentKind, Frame, classify_agent
 
-from tools.delivery_check import (Live, answer_trust, idle, parse_version, read_json, scratch_claude_config, scratch_codex_home,
+from tools.delivery_check import (Live, answer_trust, idle, identity, parse_version, read_json, scratch_claude_config, scratch_codex_home,
                                   screen_settings)
 from tools.compat_preflight import command as checked_command
 
@@ -65,8 +65,8 @@ AGENTS: tuple[AgentKind, ...] = ("claude", "codex", "agy", "pi")
 MODELS: dict[AgentKind, tuple[str, str]] = {
     "claude": ("haiku", "low"),
     "codex": ("gpt-6-luna", "low"),
-    # Its id names the effort: it takes no reasoning word.
-    "agy": ("gemini-3.8-flash-low", ""),
+    # Its CLI id names the effort; the app's launch joins the two (`gemini-3.8-flash-low`).
+    "agy": ("gemini-3.8-flash", "low"),
     "pi": ("openai-codex/gpt-6-luna", "low"),
 }
 # How long one turn may take, and a CLI to start.
@@ -606,7 +606,9 @@ async def open_session(live: Live, listener: Listener, agent: AgentKind, folder:
             else:
                 idle_since = None
             await asyncio.sleep(0.5)
-        raise CaptureFailed(f"{agent}: not ready within {START_SECONDS:g} seconds", await session.look())
+        screen = await session.look()
+        why = "" if session.running else " (the tab was not read as " + agent + ": " + await identity(live.bridge, sid) + ")"
+        raise CaptureFailed(f"{agent}: not ready within {START_SECONDS:g} seconds{why}", screen)
     except BaseException:
         await close(session)
         raise

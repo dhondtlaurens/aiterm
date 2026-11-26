@@ -123,7 +123,8 @@ extension Harness {
     static let agy: Harness = Harness(
         agent: .agy, executable: "agy", displayName: "Antigravity", support: .full, messagingChecked: true,
         installCommand: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
-        // Each model id names its effort (`gemini-4-neon-high`): there are no levels to pick.
+        // The CLI's ids name their effort (`gemini-4-neon-high`); its catalogue folds them into a
+        // model and its levels (`AgyModelCatalog`), and the launch joins the two again.
         fallbackEfforts: [], defaultEffort: "",
         noModelsExplanation: "No Antigravity models are available. Run agy to sign in.",
         skillSigil: "/", hookEndpoint: "/hook/agy",
@@ -133,7 +134,7 @@ extension Harness {
         launchArguments: { model, reasoning in
             ["--dangerously-skip-permissions"] + Harness.agy.modelArguments(model: model, reasoning: reasoning)
         },
-        modelArguments: { model, _ in ["--model", model] },
+        modelArguments: { model, reasoning in ["--model", AgyModelCatalog.cliModel(model, reasoning: reasoning)] },
         // Deny rules hold whatever approves the rest (`--dangerously-skip-permissions`).
         readOnlyLaunchArguments: { model, reasoning in
             ["--dangerously-skip-permissions", "--settings", agySettings(["permissions": ["deny": agyReviewDenials]])]

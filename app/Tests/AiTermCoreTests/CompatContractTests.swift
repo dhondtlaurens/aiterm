@@ -163,8 +163,11 @@ import Testing
         let output = try Self.text(.agy, "list-models.txt")
         let rows = output.split(whereSeparator: \.isNewline).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let read = try AgyModelCatalog.parse(output)
-        #expect(read.count == rows.count)
-        #expect(read.map(\.id).contains(try Self.capturedModel(.agy)))
+        // Each row is one model at one effort, folded into its model's levels.
+        let ids = read.flatMap { model in model.efforts.isEmpty ? [model.id] : model.efforts.map { AgyModelCatalog.cliModel(model.id, reasoning: $0) } }
+        #expect(ids.count == rows.count)
+        let captured = try Self.object(Self.captured(.agy, "capture.json"))
+        #expect(ids.contains(AgyModelCatalog.cliModel(captured["model"] as? String ?? "", reasoning: captured["reasoning"] as? String)))
     }
 
     private static func ran(_ stdout: String) -> ProcessOutput { ProcessOutput(status: 0, stdout: stdout, stderr: "", timedOut: false) }
