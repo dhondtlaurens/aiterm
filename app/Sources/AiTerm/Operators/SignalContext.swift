@@ -8,7 +8,7 @@ struct SignalContext: Equatable, Sendable {
     static func read(installed: Set<AgentKind>, models: (AgentKind) -> [AgentModel], remembered: [AgentKind: String],
                      preferences: UserDefaults) -> Self {
         var lists: [AgentKind: [AgentModel]] = [:], choices: [AgentKind: AgentChoice] = [:]
-        for agent in ModelChoice.pair where installed.contains(agent) {
+        for agent in AgentCommand.workerAgents where installed.contains(agent) {
             let list = models(agent); lists[agent] = list
             var preference = ModelSettings.resolve(for: agent, catalog: list, remembered: remembered[agent], defaults: preferences)
             if preference.model.isEmpty, let first = list.first { preference.select(first) }

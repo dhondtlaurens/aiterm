@@ -21,7 +21,7 @@ enum SignalReadiness: Equatable {
     static func of(agents: [AgentKind], installed: Set<AgentKind>, snapshots: [AgentKind: HarnessSnapshot],
                    messaging: (AgentKind) -> DeliveryReadiness?, iterm: DeliveryReadiness?) -> SignalReadiness {
         guard installed.contains(.claude) else { return .notReady(["The Operator needs Claude Code. Install it in Settings › Agents."]) }
-        let agents = ModelChoice.pair.filter { agents.contains($0) && installed.contains($0) }
+        let agents = AgentCommand.workerAgents.filter { agents.contains($0) && installed.contains($0) }
         var lines: [String] = [], reading = false
         for agent in agents {
             guard let snapshot = snapshots[agent], let messaging = messaging(agent) else { reading = true; continue }

@@ -145,8 +145,9 @@ public enum ModelChoice {
     static let switchAt = 80
     public static var switchAtPercent: Int { switchAt }
 
-    /// The two agents the Operator chooses between. An agent outside them never switches.
-    public static let pair: [AgentKind] = [.claude, .codex]
+    /// The two agents that report weekly usage and can switch between each other at `switchAt`.
+    /// An agent outside this pair (such as Antigravity) reports no weekly usage and never switches.
+    public static let weeklySwitchPair: [AgentKind] = [.claude, .codex]
 
     /// The weekly-use switch takes the first row on the other agent, or stays put.
     public static func launchChoice(planned: AgentChoice, pinned: Bool, weekly: [AgentKind: Int],
@@ -159,8 +160,8 @@ public enum ModelChoice {
     /// The agent a task starts on: its planned agent, unless that agent's weekly use is at or past
     /// `switchAt`, the task isn't pinned, and the other agent is installed and under `switchAt`.
     public static func launchAgent(planned: AgentKind, pinned: Bool, weekly: [AgentKind: Int], installed: Set<AgentKind>) -> AgentKind {
-        guard !pinned, pair.contains(planned), (weekly[planned] ?? 0) >= switchAt else { return planned }
-        guard let other = pair.first(where: { $0 != planned }), installed.contains(other),
+        guard !pinned, weeklySwitchPair.contains(planned), (weekly[planned] ?? 0) >= switchAt else { return planned }
+        guard let other = weeklySwitchPair.first(where: { $0 != planned }), installed.contains(other),
               (weekly[other] ?? 0) < switchAt else { return planned }
         return other
     }

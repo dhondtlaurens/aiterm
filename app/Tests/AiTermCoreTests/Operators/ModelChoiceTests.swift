@@ -39,4 +39,14 @@ extension ModelChoiceTests {
         #expect(ModelChoice.launchChoice(planned: planned, pinned: false, weekly: [.claude: 80, .codex: 80],
                                          installed: [.claude, .codex], rows: rows) == planned)
     }
+
+    @Test func antigravityNeverSwitchesAndIsNeverAWeeklySwitchTarget() {
+        #expect(ModelChoice.weeklySwitchPair == [.claude, .codex])
+        let agy = AgentChoice(agent: .agy, model: "gemini-4-neon", reasoning: "medium")
+        let claude = AgentChoice(agent: .claude, model: "opus", reasoning: "high")
+        #expect(ModelChoice.launchAgent(planned: .agy, pinned: false, weekly: [.agy: 95, .claude: 10, .codex: 10],
+                                        installed: [.claude, .codex, .agy]) == .agy)
+        #expect(ModelChoice.launchChoice(planned: claude, pinned: false, weekly: [.claude: 95],
+                                         installed: [.claude, .agy], rows: [claude, agy]) == claude)
+    }
 }

@@ -6,14 +6,16 @@ import Testing
     let opus = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")
     let sonnet = AgentChoice(agent: .claude, model: "claude-sonnet-5-5", reasoning: nil)
     let codex = AgentChoice(agent: .codex, model: "gpt-5.5", reasoning: "high")
+    let agy = AgentChoice(agent: .agy, model: "gemini-4-neon", reasoning: "medium")
     let first = UUID(), second = UUID()
 
     @Test func oneRowAndOneProjectNeedNoChoice() {
         #expect(AgentChoiceNeed.decide(permitted: [opus], projects: nil, conversationAgent: nil) == .ready(opus))
         #expect(AgentChoiceNeed.decide(permitted: [opus], projects: [first], conversationAgent: nil) == .ready(opus))
+        #expect(AgentChoiceNeed.decide(permitted: [agy], projects: nil, conversationAgent: nil) == .ready(agy))
     }
     @Test func severalRowsOrProjectsAreLeftToChoose() {
-        #expect(AgentChoiceNeed.decide(permitted: [opus, codex], projects: nil, conversationAgent: nil) == .choose(rows: [opus, codex], projects: nil))
+        #expect(AgentChoiceNeed.decide(permitted: [opus, codex, agy], projects: nil, conversationAgent: nil) == .choose(rows: [opus, codex, agy], projects: nil))
         let projectOnly = AgentChoiceNeed.decide(permitted: [opus], projects: [first, second], conversationAgent: nil)
         #expect(projectOnly == .choose(rows: [opus], projects: [first, second]))
         #expect(projectOnly.isProjectOnly)
@@ -22,6 +24,7 @@ import Testing
     }
     @Test func aSavedConversationKeepsItsAgent() {
         #expect(AgentChoiceNeed.decide(permitted: [opus, codex], projects: nil, conversationAgent: .codex) == .ready(codex))
+        #expect(AgentChoiceNeed.decide(permitted: [opus, codex, agy], projects: nil, conversationAgent: .agy) == .ready(agy))
         #expect(AgentChoiceNeed.decide(permitted: [opus, sonnet, codex], projects: nil, conversationAgent: .claude) == .choose(rows: [opus, sonnet], projects: nil))
         #expect(AgentChoiceNeed.decide(permitted: [codex], projects: nil, conversationAgent: .claude) == .ready(codex),
                 "No row for the conversation's agent: the full choice, and a new conversation.")

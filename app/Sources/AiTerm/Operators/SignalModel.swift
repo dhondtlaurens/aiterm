@@ -70,7 +70,7 @@ import AiTermCore
         let kind = signal?.kind ?? kind
         self.kind = kind
         // A project signal runs one agent: the first row.
-        let choices = signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }
+        let choices = signal?.agents ?? AgentCommand.workerAgents.compactMap { context.defaults[$0] }
         agentRows = (kind == .project ? Array(choices.prefix(1)) : choices).map { choice in
             var choice = choice
             if let model = context.models[choice.agent]?.first(where: { $0.id == choice.model }) {
@@ -196,7 +196,7 @@ import AiTermCore
                                        ticketDescription: ticketDescription && !isScheduled, requestDescription: requestDescription && !isScheduled),
                       agents: agents, finish: finish, scheduledFrom: original?.scheduledFrom, kind: kind)
     }
-    var offeredAgents: [AgentKind] { ModelChoice.pair.filter { context.defaults[$0] != nil } }
+    var offeredAgents: [AgentKind] { AgentCommand.workerAgents.filter { context.defaults[$0] != nil } }
     func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
     var agents: [AgentChoice] { var found = Set<AgentChoice>(); return agentRows.map(\.choice).filter { found.insert($0).inserted } }
     var agentsWhyNot: String? {

@@ -12,8 +12,8 @@ extension AppController {
     }
 
     func checkSignalReadiness() async {
-        let planned = ModelChoice.pair.filter(agents.availableAgents.contains), harness = agents.harnessSettingsModel()
-        async let probes: Void = harness.load(planned)
+        let workers = AgentCommand.workerAgents.filter(agents.availableAgents.contains), harness = agents.harnessSettingsModel()
+        async let probes: Void = harness.load(workers)
         async let watch: Void = messaging.watch()
         _ = await (probes, watch)
     }
