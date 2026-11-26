@@ -73,6 +73,98 @@ import Testing
         await root.reconcile(); await ports.work.settled()
         #expect(entries().count == 2 && daemon.requests("session.deliver").count == 2)
     }
+    /// A project signal's failing source is the person's: no Operator session is made, nothing is logged and nothing
+    /// wakes; its attempts count every time, whatever the reason, and a good read clears them. An Operator signal's
+    /// failure counts there too.
+    @Test func aProjectSignalsFailureCreatesNoSessionAndNoWakeAndCountsItsAttempts() async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(), operatorSignal = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let daemon = RecordingDaemon(), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { daemon }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        root.sourceRegistrations = { _ in [] }; root.tabsKnown = true; root.start(); await ports.work.settled()
+        defer { root.stop() }
+
+        root.poller.onFailure([signal], "The source is unavailable.")
+        root.poller.onFailure([signal], "The source is unavailable.")
+        root.poller.onFailure([signal], "The connection was refused.")
+        await root.reconcile(); await ports.work.settled()
+
+        #expect(h.workspace.state.operatorSession == nil)
+        #expect(ActivityLogReader.read(folder: OperatorLaunch.folder(home: ports.home)).entries.isEmpty)
+        #expect(daemon.requests("session.deliver").isEmpty)
+        #expect(root.readIssues.issue(for: signal)?.attempts == 3 && root.readIssues.issue(for: signal)?.raised == true)
+        #expect(root.readIssues.issue(for: signal)?.text == "The connection was refused.")
+        root.poller.onFailure([operatorSignal], "The source is unavailable.")
+        #expect(root.readIssues.issue(for: operatorSignal)?.attempts == 1)
+        #expect(h.workspace.state.operatorSession?.sourceFailures?[operatorSignal.uuidString] == "The source is unavailable.")
+
+        root.poller.onPass([SignalObservation(signals: [signal], read: SignalRead(items: [], complete: true))])
+        #expect(root.readIssues.issue(for: signal) == nil && root.readIssues.issue(for: operatorSignal) != nil)
+    }
+    /// A source's banner: raised at the third failure in a row, once for the streak, naming the signal, the source, the
+    /// error and when AiTerm tries again; a fourth only refreshes it; a good read takes it down, and a new streak raises
+    /// it again at its own third failure. An Operator signal's banner follows the same rule beside its saved failure.
+    @Test func threeFailuresRaiseTheBannerOnceAndAGoodReadTakesItDown() async throws {
+        var world = SignalWorld()
+        let signal = world.projectSignal(name: "Reviews for me", start: SignalTrigger(source: .gitLab, query: "reviewer:@me"))
+        let operatorSignal = world.signal()
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        var ports = OperatorPorts.scratch(); let clock = TestClock(world.now)
+        ports.clock.now = { clock.now }
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+        root.calendar = utc
+        var raised: [OperationIssue] = [], refreshed: [OperationIssue] = [], dropped: [UUID] = []
+        root.readIssueBanner = .init(raise: { raised.append($0) }, refresh: { refreshed.append($0) }, drop: { dropped.append($0) })
+        root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
+        defer { root.stop() }
+
+        root.poller.onFailure([signal], "The source is unavailable.")
+        clock.advance(by: 300); root.poller.onFailure([signal], "The source is unavailable.")
+        #expect(raised.isEmpty, "Two failures are still AiTerm's to retry.")
+        clock.advance(by: 300); root.poller.onFailure([signal], "The connection was refused")
+        let retry = SignalReadIssues.retry(at: clock.now + SignalPoller.failureBackOff, from: clock.now, calendar: utc)
+        #expect(raised == [.signalRead(signal: signal, name: "Reviews for me", source: "GitLab", reason: "The connection was refused",
+                                       retry: retry)])
+        #expect(raised.first?.title == "“Reviews for me” can’t read GitLab.")
+        #expect(raised.first?.reason == "The connection was refused. " + retry)
+        #expect(raised.first?.actions == [.openSignals(signal: signal), .openSettings])
+
+        clock.advance(by: 300); root.poller.onFailure([signal], "The connection was refused.")
+        #expect(raised.count == 1, "A fourth failure raises nothing.")
+        #expect(refreshed.count == 1 && refreshed.first?.reason?.hasPrefix("The connection was refused. AiTerm tries again at ") == true)
+
+        root.poller.onPass([SignalObservation(signals: [signal], read: SignalRead(items: [], complete: true))])
+        #expect(root.readIssues.issue(for: signal) == nil && dropped == [signal])
+
+        for _ in 0..<3 { root.poller.onFailure([signal, operatorSignal], "Timed out.") }
+        #expect(raised.count == 3 && raised.suffix(2).compactMap(\.signal) == [signal, operatorSignal])
+        #expect(h.workspace.state.operatorSession?.sourceFailures?[operatorSignal.uuidString] == "Timed out.")
+    }
+    /// A signal switched off or removed while failing is read no more: its issue goes, and its banner with it.
+    @Test func aSignalSwitchedOffWhileFailingTakesItsIssueAndBannerDown() async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(), kept = world.projectSignal(name: "Kept")
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let root = SignalOperatorController(workspace: h.workspace, live: LiveSessions(workspace: h.workspace), work: WorkInFlight(),
+            ports: ports, daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) }, automatic: false)
+        var dropped: [UUID] = []
+        root.readIssueBanner = .init(drop: { dropped.append($0) })
+        root.sourceRegistrations = { _ in [] }; root.start(); await ports.work.settled()
+        defer { root.stop() }
+        for _ in 0..<3 { root.poller.onFailure([signal, kept], "Timed out.") }
+
+        h.workspace.mutate { state in if let index = state.signals.firstIndex(where: { $0.id == signal }) { state.signals[index].enabled = false } }
+        await ports.work.settled()
+
+        #expect(root.readIssues.issue(for: signal) == nil && dropped == [signal])
+        #expect(root.readIssues.issue(for: kept)?.attempts == 3)
+    }
     /// Polling needs no iTerm2: the tick reads a configured source while it is not connected.
     @Test func theTickPollsAConfiguredSourceWhileITerm2IsNotConnected() async throws {
         var world = SignalWorld(); _ = world.signal()

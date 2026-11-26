@@ -12,7 +12,7 @@ struct SignalDoneStep: View {
                               help: "AiTerm merges through the host once it’s approved, its checks pass and its threads are resolved, unless the Oracle vetoes. Offered when the merge request is yours.")
         }
         FormField("Then") {
-            SegmentedControl(values: SignalFinish.Then.allCases, selection: $model.then) { value, _ in
+            SegmentedControl(values: model.thenValues, selection: $model.then) { value, _ in
                 Text(Self.thenLabel(value))
             }
             HelpText(thenHelp)
@@ -25,7 +25,7 @@ struct SignalDoneStep: View {
     private var thenHelp: String {
         switch model.then {
         case .unknown: "Choose a supported finish for this version."
-        case .keep: "It stays under the signal, with its window and worktree."
+        case .keep: "It stays in its project, with its window and worktree."
         case .archive: "Its window and worktree close. Branch and conversation stay in the Archive. Unsaved work keeps the worktree."
         case .remove: "The task and its worktree go. Unsaved work keeps the worktree."
         }
@@ -49,11 +49,24 @@ struct SignalDoneSummary: View {
         case (_, .author?), (_, .assignee?): "Each merge request that matches starts a task"
         case (_, nil): "Each merge request that matches starts a task, a review task unless it’s yours"
         }
-        let opening = model.isScheduled
-            ? Text("On schedule ") + Text(start.query.trimmingCharacters(in: .whitespacesAndNewlines)).fontWeight(.semibold)
+        let opening: Text
+        if model.isScheduled {
+            opening = Text("On schedule ") + Text(start.query.trimmingCharacters(in: .whitespacesAndNewlines)).fontWeight(.semibold)
                 + Text(" a task starts in ") + Text(model.scheduleProject?.name ?? "its project").fontWeight(.semibold)
-                + Text("; a run is skipped while the last one is unfinished. ")
-            : Text(what + ", and a later match continues it. ")
+                + Text(model.isProject ? " with your prompt" : "") + Text("; a run is skipped while the last one is unfinished. ")
+        } else if model.isProject {
+            let what = switch (start.source, start.startRole) {
+            case (.jira, _): "Each ticket that matches starts a task"
+            case (_, .reviewer?): "Each merge request that matches starts a review"
+            case (_, .author?), (_, .assignee?): "Each merge request that matches starts a task"
+            case (_, nil): "Each merge request that matches starts a review, or a task when it’s yours,"
+            }
+            opening = Text(what + " in its project with your prompt; a later match runs the prompt again in the same task. ")
+        } else {
+            opening = Text(what + ", and a later match continues it. ")
+        }
+        // A project signal's agent works for the person: no Operator between them, and no guard on its branch.
+        let agent = model.isProject ? Text("Its agent asks you directly and no branch guard applies. ") : Text("")
         // The query, never the description: free words do not read inside this sentence.
         let query = model.done.query.trimmingCharacters(in: .whitespacesAndNewlines)
         let byOperator = model.doneKind == .operatorDecides
@@ -66,7 +79,9 @@ struct SignalDoneSummary: View {
         case .archive: "its task is archived"
         case .remove: model.deleteMergedBranch ? "its task is removed, and its branch deleted only if it’s merged and unchanged" : "its task is removed"
         }
-        let finish = model.finish.mergesWhenReady
+        let finish = model.doneKind == .youDecide
+            ? Text("You decide when it’s done").fontWeight(.semibold) + Text("; a merged or closed merge request still ends it. ")
+            : model.finish.mergesWhenReady
             ? (byOperator ? Text("AiTerm merges it once it’s ready, and it’s done when ") + condition + Text(", or its merge request is closed. ")
                : Text("AiTerm merges it once it’s ready, and it’s done when merged or closed. "))
             : Text("It’s done when ") + condition + Text(", or its merge request is merged or closed. ")
@@ -77,7 +92,7 @@ struct SignalDoneSummary: View {
             count = model.startCount.map { "\($0) \($0 == 1 ? "item matches" : "items match") now and \($0 == 1 ? "starts" : "start") at once." }
                 ?? "AiTerm checks for matches when you save."
         }
-        return opening + finish + Text("Then ") + Text(ending).fontWeight(.semibold) + Text(". " + count)
+        return opening + agent + finish + Text("Then ") + Text(ending).fontWeight(.semibold) + Text(". " + count)
     }
     /// `Mon 30 Nov at 09:00`.
     static func firstRun(_ date: Date, calendar: Calendar) -> String {

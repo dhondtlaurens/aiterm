@@ -52,6 +52,39 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: made.task.worktreePath + "/.env"))
     }
 
+    /// A signal's pick-up of a request of the account's own works on the request's existing source branch, in a
+    /// worktree named as a review's, its base the target; the row is an ordinary task that carries the request, and its
+    /// agent launches as a task you make does, with none of a worker's denials.
+    @Test func aCreateOnARequestChecksOutItsBranchAsAnOrdinaryTask() async throws {
+        let (project, _) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let git = GitRunner.hermetic()
+        try git.run(["branch", "request-source"], in: project.path)
+        let source = try git.run(["rev-parse", "request-source"], in: project.path)
+        var draft = ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil)
+        draft.apply(mr: MergeRequest(iid: 12, title: "Mine", sourceBranch: "request-source", targetBranch: "main",
+                                     author: "me", state: "opened", draft: false, url: "https://gitlab/x/-/merge_requests/12",
+                                     description: "Request body"))
+        draft.promptText = "Carry on"
+
+        let created = try await TaskWorkflow(git: .hermetic()).createOnRequest(draft: draft, project: project,
+                                                                               source: "request-source", target: "main")
+
+        #expect(created.task.kind == .task)
+        #expect(created.task.branch == "request-source" && created.task.baseBranch == "main")
+        #expect(created.task.mr == MergeRequestRef(iid: 12, title: "Mine", url: "https://gitlab/x/-/merge_requests/12"))
+        #expect(created.task.worktreePath.hasSuffix("/.worktrees/review-request-source"))
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: created.task.worktreePath) == "request-source")
+        #expect(try git.run(["rev-parse", "HEAD"], in: created.task.worktreePath) == source, "the branch as it was, not a new one")
+        let command = try #require(created.command)
+        #expect(created.launchWarning == nil)
+        // Inline, or in the worktree's prompt file when too long to type.
+        let carried = (try? String(contentsOfFile: created.task.worktreePath + "/.aiterm/first-prompt.md", encoding: .utf8)) ?? command
+        #expect(command.hasPrefix("claude "))
+        #expect(carried.contains("Carry on") && carried.contains("Request body"), "the request's description goes with its switch")
+        #expect(!command.contains("--disallowedTools") && !command.contains("--permission-mode"))
+    }
+
     /// Not agreed to lose its commits, an unmerged branch is kept and the removal says why, in
     /// AiTerm's words for git's "not fully merged"; agreed, it is deleted with them.
     @Test func anUnmergedBranchIsKeptAndSaidSoAgreedItIsDeleted() async throws {

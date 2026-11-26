@@ -76,6 +76,40 @@ struct SidebarRowGeometryTests {
         return (selected, hovered)
     }
 
+    /// The signals disc lies over the avatar column without widening it: the title column starts at the same x with
+    /// and without it, at every interface size, and the disc paints inside the row.
+    @Test(arguments: InterfaceScale.all)
+    func theTitleStartsWhereItDidWithADisc(scale: InterfaceScale) throws {
+        func render(disc: Bool) throws -> NSBitmapImageRep {
+            let content = SidebarRowContent(avatars: AvatarGroup(marks: [.claude, .codex], overflow: 0), signalDisc: disc) {
+                Rectangle().fill(Palette.amber).frame(height: scale(Size.chip))
+            } mark: { EmptyView() }
+            let renderer = ImageRenderer(content: content.frame(width: 300).padding(scale(Space.base))
+                .background(Palette.sidebar).surface(.sidebar).interfaceScale(scale))
+            renderer.scale = 2
+            return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        }
+        func firstAmber(_ bitmap: NSBitmapImageRep) throws -> Int? {
+            // The column's middle is the rectangle's: its colour as drawn.
+            let y = bitmap.pixelsHigh / 2
+            let amber = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: y)?.usingColorSpace(.sRGB))
+            return (0..<bitmap.pixelsWide).first { x in
+                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
+                return abs(c.redComponent - amber.redComponent) + abs(c.greenComponent - amber.greenComponent)
+                    + abs(c.blueComponent - amber.blueComponent) < 0.05
+            }
+        }
+        let plain = try render(disc: false), disc = try render(disc: true)
+        #expect(plain.pixelsWide == disc.pixelsWide && plain.pixelsHigh == disc.pixelsHigh, "the row keeps its size")
+        let title = try #require(try firstAmber(plain))
+        #expect(try firstAmber(disc) == title, "the title column starts at the same x")
+        var differs = false
+        for y in 0..<plain.pixelsHigh where !differs {
+            for x in 0..<title where plain.colorAt(x: x, y: y) != disc.colorAt(x: x, y: y) { differs = true; break }
+        }
+        #expect(differs, "the disc is drawn, left of the title")
+    }
+
     @Test func selectionAndHoverPaintTheSamePill() throws {
         let (selected, hovered) = try pills(size: .standard)
         #expect(selected == hovered, "selection pill \(selected) and hover pill \(hovered) must be the same rectangle")

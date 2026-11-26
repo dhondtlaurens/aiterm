@@ -3,6 +3,16 @@ import Foundation
 public struct OperatorSession: Codable, Equatable, Sendable {
     /// The sidebar row exists before any CLI or persisted session does.
     public static let rowID = UUID(uuidString: "6AF39C02-7591-4EB4-9420-2D56565F9A1B")!
+    /// A project's heading in the Operator's section: the project's id XORed with `rowID`, so it is an id of its own,
+    /// apart from the project's heading under PROJECTS, and the same call turns it back into the project's.
+    public static func projectRowID(_ project: UUID) -> UUID {
+        var bytes = project.uuid
+        let key = rowID.uuid
+        withUnsafeMutableBytes(of: &bytes) { out in
+            withUnsafeBytes(of: key) { key in for index in out.indices { out[index] ^= key[index] } }
+        }
+        return UUID(uuid: bytes)
+    }
     public struct Question: Codable, Equatable, Identifiable, Sendable {
         public var id: String
         public var task: UUID?

@@ -315,38 +315,41 @@ struct SidebarInteractionTests {
         #expect(controller.state.project(id: project.id)?.collapsed == false)
     }
 
-    @Test func returnOnAnEmptySignalHeadingEditsTheSignal() async throws {
+    /// A project's heading in the Operator's section is a label: Return folds it there, opens no sheet and leaves the
+    /// project's own fold.
+    @Test func returnOnAnOperatorProjectHeadingFoldsItThere() async throws {
         let controller = AppController(preferences: .scratch())
         try controller.workspace.load()
         defer { controller.shutdown() }
-        var world = SignalWorld(); let id = world.signal()
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
         world.state.operatorOpen = true
         controller.workspace.mutate { $0 = world.state }
-        controller.focus.browse(.signal(id))
+        controller.focus.browse(.operatorProject(world.project.id))
         let (host, window) = HostedSidebar.make(controller, key: true)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
         #expect(window.makeFirstResponder(list))
         window.sendEvent(try #require(keyDown("\r", code: 36, in: window)))
-        #expect(await eventually(describing: "Return opens Edit Signal") { controller.sheet != nil })
-        guard case .signal(let model)? = controller.sheet else { Issue.record("expected Edit Signal"); return }
-        #expect(model.title == "Edit signal")
-        #expect(model.name == world.state.signal(id: id)?.name)
+        #expect(await eventually(describing: "Return folds the heading") { controller.state.operatorFolded == [world.project.id] })
+        #expect(controller.sheet == nil)
+        #expect(controller.state.project(id: world.project.id)?.collapsed == false)
+        #expect(controller.focus.selection == .operatorProject(world.project.id))
     }
 
     @Test func returnOnEmptyHeadingsPresentsNothingWhileLocked() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }
-        var world = SignalWorld(); let signal = world.signal()
+        var world = SignalWorld(); _ = world.workingTask(signal: world.signal())
         controller.workspace.mutate { $0 = world.state }
         #expect(!controller.canChangeWorkspace)
-        for row in [RowSelection.project(world.project.id), .signal(signal)] {
+        for row in [RowSelection.project(world.project.id), .operatorProject(world.project.id)] {
             controller.focus.browse(row)
             controller.activateSelection()
         }
         await Task.yield()
         #expect(controller.sheet == nil)
+        #expect(controller.state.operatorFolded.isEmpty)
     }
 
     @Test func finalBranchRefreshUsesTheLatestInputs() async throws {

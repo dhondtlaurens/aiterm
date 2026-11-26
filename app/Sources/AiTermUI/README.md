@@ -71,6 +71,12 @@ segment or tab, or the Oracle's Agent/Model/Reasoning fields while it is off (no
 `Sheet.queryEditorHeight` (56 pt) is a signal trigger's description and query editors; `PromptStep` keeps its
 own 150 pt prompt editor.
 
+The Operator's status line draws from three tokens. `Palette.statusLine` (an alias of `idleRing`) is its ink at
+rest; an exchange inks its stretch `text`, a question `amber`. `Size.statusStop` (5 pt) is the filled stop on a
+folded project's heading, and how far the line stops from that stop's centre (it stops `Space.base` from a mark's).
+Its dots are `Space.hairline` on and `Space.tight` off, scaled with the row; `Motion.march` (24 pt/s) is how fast
+they march during an exchange, and `Motion.pulse` (1 s) how long a wake marches up its stretch, once.
+
 If no token fits, add a documented member explaining its role and mention it in the change summary.
 Do not choose an arbitrary nearby number. Truly local geometry may be a documented private static
 constant describing what that component measures and why no token fits. When another file needs
@@ -142,7 +148,8 @@ traffic-light controls. Focus/selection and surface declaration must work while 
 | `SymbolMark` | SF Symbol on the standard paper/ink disc. |
 | `Hairline` | Shared unscaled border/separator, soft (`border`) or `.firm` (`borderStrong`, a stepper's connectors); use instead of a bare Divider. |
 
-Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` is `SidebarToast`'s ease-out),
+Foundations are `Palette`/`Brand`, Metrics (`Motion.settle` is `SidebarToast`'s ease-out; `Motion.march` and
+`Motion.pulse` time the Operator's status line),
 `TypeStyle`, `Surface`, `InterfaceScale`, `IconSource`, `RingGeometry` (the shared proportional ring
 stroke/inset), and `ControlChrome` modifiers: `focusRing`, `fieldChrome`, `chipChrome`, `fieldBox`,
 `menuChrome`, `menuRowHighlight`, `groupChrome`. They are rules/data rather than component cards. `Logos`,
@@ -155,9 +162,11 @@ explains ownership and the full reusable vocabulary.
 
 | Types | Responsibility |
 | --- | --- |
-| `SectionHeading`, `HeadingRow`, `HeadingValue`, `SignalOperatorRow` | The OPERATOR and PROJECTS headings with their + menus (New Signal… and Add Divider… under the Operator), the paused title and Pause Operator/Resume Operator in the Operator heading’s context menu; one heading row for a project or a signal, drawn from its `HeadingValue` (mark, fold, counts while folded, menu); the Operator’s row, which opens the active workload’s chat, in a task row’s grid. |
+| `SectionHeading`, `SectionSignalsButton` | The OPERATOR and PROJECTS headings: the signals icon (the `dot.radiowaves.left.and.right` glyph and the section's signal count in `Typography.chip.tabular`, in the "+"'s ink, `Palette.amber` while a source fails or an item is skipped, the first one as its help) left of the "+", opening the section's signals sheet; the + menus (New Signal… alone under the Operator; Add Project…, New Signal… and Add Divider… under Projects); the paused title and Pause Operator/Resume Operator in the Operator heading’s context menu. |
+| `HeadingRow`, `HeadingValue`, `SignalOperatorRow` | One heading row for a project, drawn from its `HeadingValue` (mark, fold, counts while folded): under Projects with its + and menu; in the Operator's section (`operatorProject`, a derived id) with no + and no menu, folding there alone, its trailing slot carrying the status line or a folded project's stop. The Operator’s row, titled “Running 3 tasks”, which opens the active workload’s chat, in a task row’s grid. |
+| `DividerRow` | A named rule between projects; in the Operator's section it has no menu and its rule ends before the trailing slot, which carries the status line. |
 | `SectionFoldLabel`, `SectionFoldChevron` | OPERATOR and PROJECTS fold into each other, projects open by default: the heading's click switches; the chevron sits in the trailing slot before the "+", shown folded and, open, only under the pointer; folded, its rows' `StatusCountChips`, as a folded project's header draws them, one button per chip opening the section at its first row in that status. |
-| `TaskRowView`, `OperatorActivityCaption`, `OperatorBadge`, `DecodeWordsView` | The same two-line task row under projects/signals, drawn from the projection's `TaskRow` (its trailing `mark` and whether it `needsYou`); only the Operator activity caption decodes, when its words change, morphing from the words standing to the new ones (never from or into nothing) in one view whose layer never animates on its own, every word in the secondary ink but needs-you's chip, with a Reduce Motion swap. |
+| `TaskRowView`, `OperatorActivityCaption`, `OperatorBadge`, `DecodeWordsView` | The same two-line task row in both sections, drawn from the projection's `TaskRow` (its trailing `mark` and whether it `needsYou`); only the Operator activity caption decodes, when its words change, morphing from the words standing to the new ones (never from or into nothing) in one view whose layer never animates on its own, every word in the secondary ink but needs-you's chip, with a Reduce Motion swap. |
 | `SteppedSheet`, `Step`, `SheetLayout`, `SheetStepper`, `CreationClosingBlock` | Shared sheet anatomy, completed-step navigation, validation/actions and effect of the current picks. |
 | `NewTaskSheet`, `NewReviewSheet`, `SignalSheet` | Source/name/prompt/agent/finish in one order, omitting inapplicable steps. |
 | `ProjectSheet`, `NameSheet` | Add/Edit Project including Jira links/import; one-step terminal/divider/name forms. |
@@ -165,6 +174,10 @@ explains ownership and the full reusable vocabulary.
 | `DescriptionToggle`, `AgentStep`, `ModelReasoningFields` | Description-only context and the shared select row. |
 | `OperatorSettingsPane`, `OracleGroup` | Operator/Oracle role copy, model choices, Oracle switch and standing instructions. |
 | `ArchiveSheet`, `ArchiveRow` | Search, restore and removal of archived tasks. |
+| `SignalsSheet`, `SignalsSheetRow` | A section's signals in priority order, as the Archive lists tasks: `RowPill(ground: .sheet)` rows with the source's `ProviderIcon`, the name in `Typography.bodyEmphasis`, Starts/Done/next-run lines as `HelpText` and issues in its warning tone; a switched-off row at `Opacity.disabled` with the pause glyph; the menu as a context menu and behind a trailing ellipsis; New Signal… and Done in the footer. |
+| `AvatarGroupView` (signals disc) | A task a signal started wears a `SymbolMark` of the signals glyph at `Size.cornerBadge` on its first mark's bottom-trailing corner, overhanging by `Space.hairline`, ringed in the surface's `occludingBackground` at the group's ring width; the column keeps its width, and a `Size.chip` square centred on the disc opens the signal card. With no agent listed, such a task draws its agent's mark at `Opacity.disabled` under the disc (`AvatarGroup.muted`); its ring stays whole. |
+| `SignalCardView`, `FloatingCardChrome` | The disc's card, in the background-work card's chrome (`FloatingCardChrome`: `menuChrome` at `Radius.control`, `.surface(.sheet)`): the signal's name as `HelpText`, one `Size.chip` line per signal that ran the task with its time (earlier ones `muted`), and the work going on now in `text`; anchored after the avatar column plus `Space.tight`. |
+| `StatusLineSegment`, `StatusLineCell`, `StatusLineOverlay` | A row's piece of the Operator's status line behind its trailing slot, reaching half the list's gap (`Space.tight`, unscaled) to its row's edge: a `RingGeometry` stroke with round ends in `Palette.statusLine`, stopping `Space.base` from a mark's centre and `Size.statusStop` from a stop's; an exchange's stretch dotted in `text` (marching down for an act, up once for a wake, `Motion.march`), a question's `amber` and still; Reduce Motion and snapshots hold the dots still. Each row reads its own cell. |
 
 ## Human reference and proposals
 

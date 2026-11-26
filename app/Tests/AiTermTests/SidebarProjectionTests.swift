@@ -119,33 +119,94 @@ import Testing
 
     /// What the list draws from: a write that changes none of it redraws no row.
     private func readsTheList(_ rows: SidebarProjection) -> () -> Void {
-        { _ = rows.entries; _ = rows.signalSections; _ = rows.terminals }
+        { _ = rows.entries; _ = rows.operatorEntries; _ = rows.terminals }
     }
 
-    /// A divider changed alone (added, renamed, moved) derives the Operator's rows again, stays off the arrow path, and
-    /// keeps the section openable once the last signal is gone, so it can still be renamed or removed.
-    @Test func aSignalDividerAloneRedrawsTheOperatorSection() throws {
+    /// The Operator's section is the projects' entries cut to the tasks it runs, with a fold of its own: a fold there
+    /// changes its entries and not the projects', a project's own fold the projects' and not the Operator's. A divider
+    /// and a project with nothing of the Operator's are left out of its section, and a saved signal divider is not drawn.
+    @Test func theOperatorSectionHoldsItsTasksByProjectAndFoldsApart() throws {
         let controller = try controller(); defer { controller.shutdown() }
-        var world = SignalWorld()
-        let a = world.signal(name: "A"), b = world.signal(name: "B")
-        controller.workspace.mutate { $0.signals = world.state.signals; $0.operatorOpen = true }
         let rows = controller.rows
-        #expect(rows.operatorEntries.map(\.id) == [a, b])
-        let path = rows.operatorPath
+        let signal = Signal.make(), ordinary = TaskItem.make(project: project.id, worktreePath: "/repo/b")
+        controller.workspace.mutate { state in
+            state.signals = [signal]; state.tasks[0].signalTask = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-1"))
+            state.tasks.append(ordinary); state.operatorOpen = true
+        }
+        #expect(rows.operatorEntries.map(\.id) == [project.id])
+        #expect(rows.operatorSections.map { $0.tasks.map(\.id) } == [[Self.taskId]])
+        #expect(rows.operatorSections.first?.terminals.isEmpty == true)
+        #expect(rows.sections.map { $0.tasks.map(\.id) } == [[ordinary.id]])
+        #expect(rows.operatorPath == [.operatorChat, .operatorProject(project.id), .task(Self.taskId)])
 
-        let divider = UUID()
-        controller.workspace.mutate { $0.append(signalDivider: SignalDivider(id: divider, name: "Reviews")) }
-        #expect(rows.operatorEntries.map(\.id) == [a, b, divider])
-        controller.workspace.mutate { $0.move(signalDividerId: divider, .up) }
-        #expect(rows.operatorEntries.map(\.id) == [a, divider, b])
-        controller.workspace.mutate { $0.renameSignalDivider(id: divider, to: "Later") }
-        guard case .divider(let entry) = rows.operatorEntries[1] else { Issue.record("no divider"); return }
-        #expect(entry.divider.name == "Later")
-        #expect(rows.operatorPath == path)
+        #expect(invalidates({ _ = rows.operatorEntries }) { controller.workspace.mutate { $0.operatorFolded = [project.id] } })
+        #expect(rows.operatorSections.first?.collapsed == true && rows.sections.first?.collapsed == false)
+        #expect(rows.operatorPath == [.operatorChat, .operatorProject(project.id)])
+        #expect(!invalidates({ _ = rows.entries }) { controller.workspace.mutate { $0.operatorFolded = [] } }, "the projects' fold is their own")
+        #expect(!invalidates({ _ = rows.operatorEntries }) {
+            controller.workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed = true } }
+        }, "and the Operator's is its own")
+        #expect(rows.sections.first?.collapsed == true && rows.operatorSections.first?.collapsed == false)
 
-        controller.workspace.mutate { $0.removeSignal(id: a); $0.removeSignal(id: b) }
-        #expect(rows.operatorHeading.folds && rows.operatorOpen)
-        #expect(rows.operatorEntries.map(\.id) == [divider])
+        let divider = SidebarDivider(id: UUID(), name: "Later"), other = Project.make(name: "docs", path: "/docs")
+        controller.workspace.mutate { state in state.append(divider: divider); state.append(project: other) }
+        #expect(rows.operatorEntries.map(\.id) == [project.id])
+        #expect(rows.entries.map(\.id) == [project.id, divider.id, other.id])
+    }
+
+    /// Each heading's signals icon counts its own kind, the OPERATOR heading the Operator's signals and the PROJECTS
+    /// heading the project signals, on its own value: a count change redraws that heading and not the other, and a status
+    /// change elsewhere redraws neither.
+    @Test func theOperatorHeadingCountsItsSignalsAndOnlyItRedraws() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let rows = controller.rows
+        #expect(rows.operatorHeading.signals == 0)
+        var world = SignalWorld()
+        let first = world.signal(name: "A"); world.signal(name: "B"); world.projectSignal()
+        #expect(invalidates({ _ = rows.operatorHeading }) { controller.workspace.mutate { $0.signals = world.state.signals } })
+        #expect(rows.operatorHeading.signals == 2, "the project signal is not the Operator's")
+        #expect(rows.projectsHeading.signals == 1, "the project signal is the projects'")
+        #expect(!invalidates({ _ = rows.projectsHeading }) { controller.workspace.mutate { $0.removeSignal(id: first) } })
+        #expect(rows.operatorHeading.signals == 1)
+        var event = tab(); event.state = .needsInput
+        #expect(!invalidates({ _ = rows.operatorHeading }) { controller.live.handle(.sessionChanged(event)) },
+                "a task's status is not the heading's")
+    }
+
+    /// A section's amber fact is on its heading's own value: the first failing source in the sheet's order, else the
+    /// first skipped item. A source failing redraws that heading and not the other, and its attempts alone redraw neither.
+    @Test func aFailingSourceOrSkippedItemIsOnItsHeadingsValueAndRedrawsOnlyIt() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let rows = controller.rows
+        var world = SignalWorld()
+        let first = world.signal(name: "A"), second = world.signal(name: "B")
+        let project = world.projectSignal(name: "Reviews for me", start: SignalTrigger(source: .gitLab, query: "reviewer:@me"))
+        var issues = SignalReadIssues()
+        rows.readIssues = { issues }
+        controller.workspace.mutate { $0.signals = world.state.signals }
+        #expect(rows.operatorHeading.signalIssue == nil && rows.projectsHeading.signalIssue == nil)
+
+        issues.fail(second, "Timed out.", at: world.now)
+        #expect(invalidates({ _ = rows.operatorHeading }) { controller.refreshRows() })
+        #expect(rows.operatorHeading.signalIssue == "“B” can’t read Jira.")
+        issues.fail(first, "Timed out.", at: world.now + 1)
+        #expect(rows.operatorHeading.signalIssue == "“B” can’t read Jira.", "not yet derived")
+        #expect(!invalidates({ _ = rows.projectsHeading }) { controller.refreshRows() })
+        #expect(rows.operatorHeading.signalIssue == "“A” can’t read Jira.", "the first in the sheet's order")
+        issues.fail(first, "Refused.", at: world.now + 2)
+        #expect(!invalidates({ _ = rows.operatorHeading }) { controller.refreshRows() }, "a later attempt is not the heading's")
+
+        #expect(invalidates({ _ = rows.projectsHeading }) {
+            controller.workspace.mutate { $0.signalSeen = [SignalSeen(signal: project, item: .mergeRequest(SignalRequestRef(remote: "gitlab.example.com/shop", number: 12)),
+                                                                        disposition: .skipped, at: world.now, reason: "Several projects match")] }
+        })
+        #expect(rows.projectsHeading.signalIssue == "“Reviews for me” skipped !12: Several projects match")
+        issues.fail(project, "The server answered 401.", at: world.now)
+        controller.refreshRows()
+        #expect(rows.projectsHeading.signalIssue == "“Reviews for me” can’t read GitLab.", "a failing source before a skipped item")
+        issues.succeed(first); issues.succeed(second)
+        controller.refreshRows()
+        #expect(rows.operatorHeading.signalIssue == nil)
     }
 
     /// A host read that found only what a merge lacks changes the waiting task's line, and nothing else.
@@ -157,7 +218,7 @@ import Testing
         record.phase = .watching
         controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record }
         let rows = controller.rows
-        func line() -> String? { rows.signalSections.first?.tasks.first?.operatorLine?.text }
+        func line() -> String? { rows.operatorSections.first?.tasks.first?.operatorLine?.text }
         #expect(line() == "status = Done")
         controller.workspace.mutate { $0.updateSignalTask(Self.taskId) { $0.waitingOn = SignalWaitFacts(mergeBlockers: [.approval]) } }
         #expect(line() == "waiting to merge · approval")
@@ -175,7 +236,7 @@ import Testing
         controller.workspace.mutate { $0.signals = [signal]; $0.tasks[0].signalTask = record; $0.operatorSession = OperatorSession(createdAt: Date()) }
         controller.live.handle(.sessionChanged(tab(.idle)))
         let rows = controller.rows
-        func row() throws -> TaskRow { try #require(rows.signalSections.first?.tasks.first) }
+        func row() throws -> TaskRow { try #require(rows.operatorSections.first?.tasks.first) }
         func changesOnce(_ change: () -> Void) throws -> (before: TaskRow, after: TaskRow) {
             let before = try row(), start = rows.derivations
             change()
@@ -243,6 +304,52 @@ import Testing
         #expect(renamed?.background.first?.label == "Inspect checkout changes")
         #expect(renamed?.background.first?.text == "Review")
         #expect(renamed?.status == before)
+    }
+
+    /// A signal's mark on a task changes that row alone: its disc and its card come with the origin, a removed signal
+    /// renames both, and the chain or the work going on changes the card without changing the row. What the origin
+    /// keeps for its runtime only (its turn, its notification, its Done baseline) derives nothing.
+    @Test func anOriginChangeRedrawsItsRowOnly() throws {
+        let controller = try controller(); defer { controller.shutdown() }
+        let other = TaskItem.make(project: project.id, title: "b", branch: "feat/b", worktreePath: "/repo/b", createdAt: Date(), windowId: "w2")
+        let signal = Signal.project(name: "Reviews for me")
+        controller.workspace.mutate { $0.tasks.append(other); $0.signals = [signal] }
+        let rows = controller.rows
+        func row(_ id: UUID) throws -> TaskRow { try #require(rows.sections.flatMap(\.tasks).first { $0.id == id }) }
+        let untouched = try row(other.id)
+        #expect(try row(Self.taskId).startedBySignal == nil && rows.signalCard(for: .task(Self.taskId)) == nil)
+
+        var start = rows.derivations
+        let origin = SignalOrigin(signal: signal.id, name: signal.name, item: .request(remote: "git.example/shop/web", number: 7),
+                                  startedAt: Date())
+        controller.workspace.mutate { $0.tasks[0].signalOrigin = origin }
+        #expect(rows.derivations == start + 1)
+        #expect(try row(Self.taskId).startedBySignal == "Reviews for me")
+        #expect(try row(other.id) == untouched, "another row is not redrawn")
+        #expect(rows.signalCard(for: .task(Self.taskId))?.current.text == "Working")
+
+        let marked = try row(Self.taskId)
+        start = rows.derivations
+        #expect(!invalidates({ _ = rows.signalCards }) {
+            controller.workspace.mutate { $0.tasks[0].signalOrigin?.turn = SignalTurn(sentAt: Date(), seenWorking: true) }
+            controller.workspace.mutate { $0.tasks[0].signalOrigin?.notifiedAt = Date() }
+            controller.workspace.mutate { $0.tasks[0].signalOrigin?.doneMatched = false }
+        }, "what the runtime keeps draws nothing")
+        #expect(rows.derivations == start)
+
+        #expect(!invalidates(readsTheList(rows)) {
+            controller.workspace.mutate { $0.tasks[0].signalOrigin?.earlier = [SignalStep(signal: UUID(), name: "Triage", at: Date())] }
+        }, "a longer chain is the card's, not the row's")
+        #expect(rows.signalCard(for: .task(Self.taskId))?.steps.map(\.name) == ["Triage (removed)", "Reviews for me"])
+        #expect(try row(Self.taskId) == marked)
+        controller.workspace.mutate { $0.tasks[0].signalOrigin?.owed = OwedPrompt(text: "/review", at: Date(), kind: .delivery) }
+        #expect(rows.signalCard(for: .task(Self.taskId))?.current.text == "waiting for its worker to be idle")
+        #expect(try row(Self.taskId) == marked)
+
+        controller.workspace.mutate { $0.removeSignal(id: signal.id) }
+        #expect(try row(Self.taskId).startedBySignal == "Reviews for me (removed)")
+        #expect(rows.signalCard(for: .task(Self.taskId))?.heading == "Reviews for me (removed)")
+        #expect(try row(other.id) == untouched)
     }
 
     /// Context fills, sidebar moves, remembered choices and menu validation do not derive the rows again.

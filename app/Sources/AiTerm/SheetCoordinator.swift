@@ -102,19 +102,14 @@ final class SheetCoordinator {
         }
     }
 
-    func presentNewDivider(in section: SidebarSection = .projects) {
+    func presentNewDivider() {
         guard canChangeWorkspace else { return }
-        present(.newDivider(section))
+        present(.newDivider)
     }
 
     func presentRename(divider: SidebarDivider) {
         guard canChangeWorkspace else { return }
         present(.rename(.divider(divider)))
-    }
-
-    func presentRename(signalDivider: SidebarDivider) {
-        guard canChangeWorkspace else { return }
-        present(.rename(.signalDivider(signalDivider)))
     }
 
     func presentRename(task: TaskItem) {
@@ -141,6 +136,12 @@ final class SheetCoordinator {
     func presentArchive(_ model: ArchiveSheetModel) {
         guard canPresentArchive else { return }
         present(.archive(model))
+    }
+
+    /// A section's signals sheet, not over another sheet, as the Archive.
+    func presentSignals(_ model: SignalsSheetModel) {
+        guard sheet == nil, canChangeWorkspace else { return }
+        present(.signals(model))
     }
 
     // -- sheets that read something first ----------------------------------------------

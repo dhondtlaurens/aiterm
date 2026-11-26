@@ -10,8 +10,11 @@ public struct SignalTrigger: Codable, Equatable, Sendable {
         case schedule
         /// A Done only: the Operator judges the stage done and the Oracle confirms it.
         case `operator`
+        /// A Done only, "You decide": no watch, the person ends the task. Saved as "person"; not `.none`, which an
+        /// optional chain would read as `Optional.none`.
+        case person
         case unknown(String)
-        public static let allCases: [Self] = itemSources + [.schedule, .operator]
+        public static let allCases: [Self] = itemSources + [.schedule, .operator, .person]
         /// The sources that read items from a host: the Reads row.
         public static let itemSources: [Self] = [.jira, .gitLab, .gitHub]
         static let knownCases: [Self] = allCases
@@ -22,6 +25,7 @@ public struct SignalTrigger: Codable, Equatable, Sendable {
             case .gitHub: "gitHub"
             case .schedule: "schedule"
             case .operator: "operator"
+            case .person: "person"
             case .unknown(let value): value
             }
         }
@@ -49,6 +53,8 @@ public struct SignalTrigger: Codable, Equatable, Sendable {
         switch source {
         case .operator:
             return start ? QueryRefusal(token: "", message: "The Operator decides only when a signal is done.") : nil
+        case .person:
+            return start ? QueryRefusal(token: "", message: "You decide only when a signal is done.") : nil
         case .schedule:
             guard start else { return QueryRefusal(token: "", message: "A schedule can only start a signal.") }
             do { _ = try Cron(query) } catch { return error }
@@ -62,7 +68,7 @@ public struct SignalTrigger: Codable, Equatable, Sendable {
             case .jira: return nil
             case .gitLab: _ = try start ? GitLabQuery.start(text) : GitLabQuery.done(text)
             case .gitHub: _ = try start ? GitHubQuery.start(text) : GitHubQuery.done(text)
-            case .schedule, .operator: return nil
+            case .schedule, .operator, .person: return nil
             case .unknown: return QueryRefusal(token: "", message: "This version of AiTerm cannot read this source.")
             }
         } catch let refusal as QueryRefusal {
@@ -97,7 +103,7 @@ public struct SignalTrigger: Codable, Equatable, Sendable {
                 }
             }
             return nil
-        case .jira, .schedule, .operator, .unknown: return nil
+        case .jira, .schedule, .operator, .person, .unknown: return nil
         }
     }
 

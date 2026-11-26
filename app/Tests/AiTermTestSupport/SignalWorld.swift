@@ -38,6 +38,17 @@ struct SignalWorld {
         state.signals.append(signal)
         return signal.id
     }
+    /// A project signal on `labels = review` unless `start` says otherwise, on one agent row, done when the person
+    /// decides unless `done` says otherwise.
+    @discardableResult mutating func projectSignal(name: String = "Review tickets", age: TimeInterval = 0,
+                                                  start: SignalTrigger = SignalTrigger(source: .jira, query: "labels = review"),
+                                                  done: SignalTrigger = SignalTrigger(source: .person, query: ""),
+                                                  then: SignalFinish.Then = .keep) -> UUID {
+        let signal = Signal.project(name: name, createdAt: now.addingTimeInterval(age), start: start, done: done,
+                                    agent: Self.agent, then: then)
+        state.signals.append(signal)
+        return signal.id
+    }
     func ticket(_ key: String = "PAY-1") -> SignalItem {
         let ticket = JiraTicket(key: key, summary: "Make retries safe", description: "Use an idempotency key.",
                                 issueType: "Task", status: "To Do", url: "https://jira.example/browse/" + key)
@@ -54,5 +65,13 @@ struct SignalWorld {
         if state.operatorSession == nil { state.operatorSession = OperatorSession(createdAt: now) }
         return task.id
     }
-
+    /// An ordinary task `signal` started on `item` (the world's ticket unless given): marked with its origin, no record.
+    @discardableResult mutating func markedTask(signal: UUID, item: ItemRef? = nil) -> UUID {
+        let item = item ?? ticket().item
+        var task = TaskItem.make(project: project.id, worktreePath: project.path + "/.worktrees/work",
+                                 model: Self.agent.model, reasoning: Self.agent.reasoning, createdAt: now, windowId: "task-window")
+        task.signalOrigin = SignalOrigin(signal: signal, name: state.signal(id: signal)?.name ?? "", item: item, startedAt: now)
+        state.tasks.append(task)
+        return task.id
+    }
 }

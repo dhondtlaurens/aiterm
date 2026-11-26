@@ -22,6 +22,8 @@ final class RecordingDaemon: DaemonCommands {
     /// What `session.deliver` answers, in order, the last one repeated; delivered when empty.
     var deliveries: [Delivery] = []
     var idleClosures: [Delivery] = []
+    /// What `session.inputState` answers, by session: empty when not set.
+    var inputStates: [String: InputState] = [:]
     /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
     var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
                                                           .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
@@ -120,8 +122,9 @@ final class RecordingDaemon: DaemonCommands {
         try await answer("interface.setMatchItermBackground", ["matchItermBackground": enabled])
     }
 
-    func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery {
+    func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, guardInput: Bool, worktree: String?) async throws -> Delivery {
         var params: [String: Any] = ["sessionId": sessionId, "text": text, "ownership": ownership, "wake": wake]
+        if guardInput { params["guardInput"] = true }
         params["worktree"] = worktree
         try await answer("session.deliver", params)
         guard let first = deliveries.first else { return Delivery(result: .delivered, reason: nil) }
@@ -134,6 +137,10 @@ final class RecordingDaemon: DaemonCommands {
         guard let first = idleClosures.first else { return Delivery(result: .delivered, reason: nil) }
         if idleClosures.count > 1 { idleClosures.removeFirst() }
         return first
+    }
+    func inputState(sessionId: String) async throws -> InputState {
+        try await answer("session.inputState", ["sessionId": sessionId])
+        return inputStates[sessionId] ?? .empty
     }
     func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict] {
         try await answer("delivery.policy", [:])

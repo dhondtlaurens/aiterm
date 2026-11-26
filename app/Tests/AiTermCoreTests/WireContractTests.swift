@@ -105,6 +105,7 @@ import Testing
                 for (agent, verdict) in verdicts {
                     #expect(verdict.policy.rawValue == agents[agent]?["policy"] as? String && verdict.version == agents[agent]?["version"] as? String)
                 }
+            case .sessionInputState: #expect(try read(DaemonClient.InputStateResult.self).input.rawValue == field("input") as? String)
             case .itermProvideCookie: #expect(try read(DaemonClient.AcceptedResult.self).accepted == field("accepted") as? Bool)
             case .windowCreateTask:
                 // An Operator's worker window says why its agent command could not be typed, when it could not.

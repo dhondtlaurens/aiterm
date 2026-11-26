@@ -8,7 +8,8 @@ public extension TaskItem {
         }
         agent = row.agent; model = row.model; reasoning = row.reasoning
     }
-    /// A task under the Operator is drawn under its signal, offers Take Over, and is not one of its project's own rows.
+    /// A task under the Operator is drawn in the Operator's section under its project, offers Take Over, and is not one
+    /// of its project's own rows.
     var isUnderOperator: Bool { signalTask != nil }
 }
 
@@ -52,6 +53,9 @@ public struct SignalTask: Codable, Equatable, Sendable {
     /// The scheduled run this task started from, kept for good: across its stages, and when another signal continues
     /// it, so the schedule still knows its previous run is unfinished. Nil for a task that started from an item.
     public var scheduledRun: SignalRunRef?
+    /// The stages that ran the task before the current one, oldest first, since stages keep no history; nil until a
+    /// stage continues the task. Take Over copies it into the task's `SignalOrigin`.
+    public var earlier: [SignalStep]?
     public var ownership = 0
     public var blockedReason: String?
     public var journal: [TaskJournal.Entry] = []

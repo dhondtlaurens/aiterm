@@ -232,7 +232,7 @@ import Testing
         let task = try #require(alone.route(single).first)
         #expect(alone.record(task)?.phase == .choosing && alone.record(task)?.choosableRows == [SignalWorld.agent])
         let entries = SidebarModel.entries(state: alone.h.workspace.state, sessions: [], branchByCwd: [:], projectBranch: [:])
-        #expect(SignalSidebar(state: alone.h.workspace.state, entries: entries).signals.first?.tasks.first?.operatorLine?.text == "Operator choosing its project")
+        #expect(SignalSidebar(state: alone.h.workspace.state, entries: entries).operatorSections.first?.tasks.first?.operatorLine?.text == "Operator choosing its project")
         let picked = await alone.call("choose_agent", task, key: "p", ["project": .string(second.id.uuidString), "reason": "The admin repository."])
         #expect(picked.value?["decided"] == "operatorAlone" && alone.oracle.prompts.isEmpty && alone.launched.count == 1)
     }
@@ -242,7 +242,7 @@ import Testing
         func noOneNeedsThePerson() {
             let state = r.h.workspace.state
             #expect(!state.allSignalTasks.contains { $0.signalTask?.phase == .blocked })
-            let rows = SignalSidebar(state: state, entries: SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])).signals.flatMap(\.tasks)
+            let rows = SignalSidebar(state: state, entries: SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])).operatorSections.flatMap(\.tasks)
             #expect(rows.count == 3 && rows.allSatisfy { $0.status != .needsInput && $0.operatorLine?.look != .needsYou })
             #expect(SignalOperatorRowValue.make(state: state, sessions: []).status != .needsInput)
         }

@@ -84,25 +84,6 @@ public struct SidebarDivider: Codable, Identifiable, Equatable, Sendable {
     public init(id: UUID, name: String) { self.id = id; self.name = name }
 }
 
-/// A named rule between signal headings in the Operator's section, as `SidebarDivider` is between projects: a label
-/// that holds nothing and leaves the signals' priority (the order of `AppState.signals`) as it was. `position` is how
-/// many live signals are drawn above it, so the signal list itself never holds one.
-public struct SignalDivider: Codable, Identifiable, Equatable, Sendable {
-    public var id: UUID, name: String, position: Int
-    public init(id: UUID, name: String, position: Int = 0) { self.id = id; self.name = name; self.position = position }
-}
-
-/// One slot of the Operator section's drawn order: a live signal's heading or a divider.
-public enum OperatorSlot: Equatable, Sendable {
-    case signal(Signal), divider(SignalDivider)
-    public var id: UUID {
-        switch self {
-        case .signal(let s): return s.id
-        case .divider(let d): return d.id
-        }
-    }
-}
-
 /// Fields from a newer build, written alongside the fields this build understands.
 struct PreservedFields: Equatable, Sendable {
     private struct Key: CodingKey {
@@ -279,6 +260,9 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// That a person took this task over from a signal (`AppState.takeOver`): it is theirs, and no later
     /// match continues it. Saved only when true.
     public var takenOver = false
+    /// The signal that started or last ran this task as an ordinary one, or that the Operator handed it from on Take
+    /// Over; nil for a task no signal touched. Saved only when set.
+    public var signalOrigin: SignalOrigin?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
@@ -292,7 +276,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
-        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, signalTask, takenOver
+        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, signalTask, takenOver, signalOrigin
     }
 
     /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
@@ -325,6 +309,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
             .compactMap(\.conversation) ?? []
         signalTask = try c.decodeIfPresent(SignalTask.self, forKey: .signalTask)
         takenOver = try c.decodeIfPresent(Bool.self, forKey: .takenOver) ?? false
+        signalOrigin = try c.decodeIfPresent(SignalOrigin.self, forKey: .signalOrigin)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -351,6 +336,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         // Left out for a task you made yourself, so it is written as it always was.
         try c.encodeIfPresent(signalTask, forKey: .signalTask)
         if takenOver { try c.encode(true, forKey: .takenOver) }
+        try c.encodeIfPresent(signalOrigin, forKey: .signalOrigin)
     }
 
     /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;
@@ -407,12 +393,11 @@ public struct AppState: Codable, Equatable, Sendable {
     public var sidebarFrame: CGRect? = nil
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
-    /// The signals in their headings' order, which is also their priority (`MatchDecision`): a new one
-    /// is appended, and Move Up / Move Down swap neighbours. The app is their only writer.
+    /// The signals in their sheets' order, which is also their priority within their kind (`MatchDecision`): a new
+    /// one is appended, and Move Up / Move Down swap neighbours of one kind. The app is their only writer. Dividers
+    /// an earlier build saved among them (`signalDividers`) are neither read nor drawn: `preservedFields` writes
+    /// them back as they came.
     public var signals: [Signal] = []
-    /// The dividers among the signal headings, in drawn order (`operatorSlots`). Changed only through the mutators
-    /// below, which keep each one's place as signals come, go and move.
-    public private(set) var signalDividers: [SignalDivider] = []
     public var signalSeen: [SignalSeen] = []
     /// Per scheduled signal, the last scheduled time it fired or skipped: a time at or before it never fires again.
     /// Saved in the same flush as the task a firing starts, and never pruned with `signalSeen`.
@@ -422,6 +407,8 @@ public struct AppState: Codable, Equatable, Sendable {
     /// two fold into each other, one open at a time; the projects are the default, so a workspace
     /// that never opened the Operator, or was saved before this existed, opens on them.
     public var operatorOpen = false
+    /// The projects folded in the Operator's section, apart from `Project.collapsed`, which folds them under Projects.
+    public var operatorFolded: Set<UUID> = []
     public static let empty = AppState()
     public init() {}
 
@@ -506,95 +493,33 @@ public struct AppState: Codable, Equatable, Sendable {
         return nil
     }
 
-    /// Signals move one place along the Operator section's drawn order (`operatorSlots`). Past a signal they swap,
-    /// and that order is their priority (`MatchDecision`); past a divider only the divider's place changes, so a
-    /// signal directly under one moves above it on one press. A removed signal's leftover heading is not in
-    /// `signals`, so it is never a neighbour.
-    public func canMove(signalId: UUID, _ step: MoveStep) -> Bool {
-        signals.contains { $0.id == signalId } && slotNeighbour(of: signalId, step) != nil
-    }
+    /// Signals move one place among the signals of their own kind, stepping over those of the other kind, which keep
+    /// their places. That order is their priority within their kind (`MatchDecision`).
+    public func canMove(signalId: UUID, _ step: MoveStep) -> Bool { signalNeighbour(of: signalId, step) != nil }
 
     @discardableResult
     public mutating func move(signalId: UUID, _ step: MoveStep) -> Bool {
-        guard signals.contains(where: { $0.id == signalId }) else { return false }
-        return moveSlot(id: signalId, step)
-    }
-
-    /// The Operator section's drawn order: each live signal's heading with the dividers between them, a divider
-    /// drawn above the signal at its `position` and after any divider earlier in `signalDividers` at the same one.
-    public var operatorSlots: [OperatorSlot] {
-        var slots: [OperatorSlot] = []
-        var dividers = signalDividers[...]
-        for index in 0...signals.count {
-            while let next = dividers.first, min(max(next.position, 0), signals.count) <= index {
-                slots.append(.divider(next)); dividers = dividers.dropFirst()
-            }
-            if index < signals.count { slots.append(.signal(signals[index])) }
-        }
-        return slots
-    }
-
-    /// Writes an edited drawn order back: the signals in their new order, each divider's position recounted.
-    private mutating func setOperatorSlots(_ slots: [OperatorSlot]) {
-        var signals: [Signal] = [], dividers: [SignalDivider] = []
-        for slot in slots {
-            switch slot {
-            case .signal(let signal): signals.append(signal)
-            case .divider(var divider): divider.position = signals.count; dividers.append(divider)
-            }
-        }
-        self.signals = signals; signalDividers = dividers
-    }
-
-    private func slotNeighbour(of id: UUID, _ step: MoveStep) -> Int? {
-        let slots = operatorSlots
-        guard let i = slots.firstIndex(where: { $0.id == id }) else { return nil }
-        let n = i + (step == .up ? -1 : 1)
-        return slots.indices.contains(n) ? n : nil
-    }
-
-    private mutating func moveSlot(id: UUID, _ step: MoveStep) -> Bool {
-        var slots = operatorSlots
-        guard let i = slots.firstIndex(where: { $0.id == id }), let n = slotNeighbour(of: id, step) else { return false }
-        slots.swapAt(i, n)
-        setOperatorSlots(slots)
+        guard let i = signals.firstIndex(where: { $0.id == signalId }), let n = signalNeighbour(of: signalId, step) else { return false }
+        signals.swapAt(i, n)
         return true
     }
 
-    /// Removes a signal and keeps every divider where it was drawn.
-    public mutating func removeSignal(id: UUID) {
-        guard signals.contains(where: { $0.id == id }) else { return }
-        setOperatorSlots(operatorSlots.filter { $0.id != id })
+    private func signalNeighbour(of id: UUID, _ step: MoveStep) -> Int? {
+        guard let i = signals.firstIndex(where: { $0.id == id }) else { return nil }
+        let kind = signals[i].isProject, direction = step == .up ? -1 : 1
+        var n = i + direction
+        while signals.indices.contains(n) {
+            if signals[n].isProject == kind { return n }
+            n += direction
+        }
+        return nil
     }
 
-    /// A new divider goes last, as a new signal does.
-    public mutating func append(signalDivider: SignalDivider) {
-        var divider = signalDivider
-        divider.position = signals.count
-        signalDividers.append(divider)
-    }
-
-    public mutating func renameSignalDivider(id: UUID, to name: String) {
-        guard let i = signalDividers.firstIndex(where: { $0.id == id }) else { return }
-        signalDividers[i].name = name
-    }
-
-    public mutating func removeSignalDivider(id: UUID) { signalDividers.removeAll { $0.id == id } }
-
-    public func canMove(signalDividerId: UUID, _ step: MoveStep) -> Bool {
-        signalDividers.contains { $0.id == signalDividerId } && slotNeighbour(of: signalDividerId, step) != nil
-    }
-
-    /// Moves a divider past its drawn neighbour, a signal or another divider; the signals keep their order.
-    @discardableResult
-    public mutating func move(signalDividerId: UUID, _ step: MoveStep) -> Bool {
-        guard signalDividers.contains(where: { $0.id == signalDividerId }) else { return false }
-        return moveSlot(id: signalDividerId, step)
-    }
+    public mutating func removeSignal(id: UUID) { signals.removeAll { $0.id == id } }
 
     private enum CodingKeys: String, CodingKey {
         case items, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
-        case signals, signalDividers, signalSeen, scheduleCursors, operatorSession, operatorOpen
+        case signals, signalSeen, scheduleCursors, operatorSession, operatorOpen, operatorFolded
     }
 
     /// Reads known workspace fields and preserves unrecognized keys for the next save.
@@ -611,21 +536,11 @@ public struct AppState: Codable, Equatable, Sendable {
         lastModelByAgent = Dictionary(uniqueKeysWithValues: (try c.decodeIfPresent([SavedAgent: String].self, forKey: .lastModelByAgent) ?? [:])
             .compactMap { saved, model in saved.agent.map { ($0, model) } })
         signals = try c.decodeIfPresent([Signal].self, forKey: .signals) ?? []
-        // A position past either end (a hand edit, or an older build that removed a signal) is drawn at that end.
-        // Kept in drawn order, ties in the order they were saved, which `operatorSlots` relies on.
-        let count = signals.count
-        signalDividers = (try c.decodeIfPresent([SignalDivider].self, forKey: .signalDividers) ?? []).enumerated()
-            .map { index, divider in
-                var divider = divider
-                divider.position = min(max(divider.position, 0), count)
-                return (index, divider)
-            }
-            .sorted { ($0.1.position, $0.0) < ($1.1.position, $1.0) }
-            .map(\.1)
         signalSeen = try c.decodeIfPresent([SignalSeen].self, forKey: .signalSeen) ?? []
         scheduleCursors = try c.decodeIfPresent([UUID: Date].self, forKey: .scheduleCursors) ?? [:]
         operatorSession = try c.decodeIfPresent(OperatorSession.self, forKey: .operatorSession)
         operatorOpen = try c.decodeIfPresent(Bool.self, forKey: .operatorOpen) ?? false
+        operatorFolded = Set(try c.decodeIfPresent([UUID].self, forKey: .operatorFolded) ?? [])
     }
 
     /// An agent as it was saved, known to this build or not. Neither a `String` nor
@@ -649,12 +564,13 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
         // Left out while there are none, so a workspace without signals is written as it always was.
         if !signals.isEmpty { try c.encode(signals, forKey: .signals) }
-        if !signalDividers.isEmpty { try c.encode(signalDividers, forKey: .signalDividers) }
         if !signalSeen.isEmpty { try c.encode(signalSeen, forKey: .signalSeen) }
         if !scheduleCursors.isEmpty { try c.encode(scheduleCursors, forKey: .scheduleCursors) }
         try c.encodeIfPresent(operatorSession, forKey: .operatorSession)
         // Left out while the projects are open, the default, so such a workspace is written as it always was.
         if operatorOpen { try c.encode(true, forKey: .operatorOpen) }
+        // A sorted list, left out while none is folded, so such a workspace is written as it always was.
+        if !operatorFolded.isEmpty { try c.encode(operatorFolded.sorted { $0.uuidString < $1.uuidString }, forKey: .operatorFolded) }
     }
 
     /// A window iTerm2 no longer has: its row, a task's, a terminal's or the Operator's chat, stays

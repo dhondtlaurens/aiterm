@@ -141,6 +141,16 @@ async def test_a_wake_line_waits_while_you_type_in_that_session(claude):
     assert it.sent == []
 
 
+async def test_a_guarded_message_waits_while_you_type_and_an_unguarded_one_does_not(claude):
+    _svc, it, sid, call, _policy = claude
+    await it.user_types(sid)
+    reply = await call("session.deliver", {"sessionId": sid, "text": "Review it again.", "ownership": 1, "guardInput": True})
+    assert reply["result"] == {"result": "refused", "reason": "you are typing", "code": "typing"}
+    assert it.sent == []
+    reply = await call("session.deliver", {"sessionId": sid, "text": "Review it again.", "ownership": 1, "guardInput": False})
+    assert reply["result"]["result"] == "delivered"
+
+
 async def test_a_wake_line_needs_no_policy_and_a_workers_message_does(claude):
     svc, it, sid, call, policy = claude
     policy.clear()
@@ -188,6 +198,7 @@ async def test_the_policy_names_every_harness_and_the_version_its_check_vouches_
     ("session.deliver", {"sessionId": "s1", "text": "hello", "ownership": "1"}),
     ("session.deliver", {"sessionId": "s1", "text": "hello", "ownership": True}),
     ("session.deliver", {"sessionId": "s1", "text": "hello", "ownership": 1, "wake": "yes"}),
+    ("session.deliver", {"sessionId": "s1", "text": "hello", "ownership": 1, "guardInput": "yes"}),
     ("session.deliver", {"sessionId": "s1", "text": "hello", "ownership": 1, "worktree": 7}),
     ("session.setOwnership", {"sessionId": "s1"}),
 ])

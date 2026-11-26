@@ -132,6 +132,10 @@ public enum Size {
     /// hairline, so it reads as the selection rather than as a second rule. A stroke, so it does
     /// not scale.
     public static let tabIndicator: CGFloat = 2
+    /// The stop the Operator's status line makes on a folded project's heading, standing in for the marks of the
+    /// tasks it hides: a filled dot in the line's ink, half a ``trailingGlyph`` across. The line stops this far from
+    /// its centre, as it stops ``Space/base`` from a mark's (the picked drawing, 25 Nov 2026).
+    public static let statusStop: CGFloat = 5
 }
 
 /// A text style's parts, kept separate so `Typography` can declare size, weight and design
@@ -283,7 +287,13 @@ public enum Opacity {
     public static let disabled: Double = 0.4
 }
 
-/// The ease-out for a toast arriving (`SidebarToast`).
+/// How things move: a toast's arrival, and the Operator's status line.
 public enum Motion {
+    /// The ease-out for a toast arriving (`SidebarToast`).
     public static let settle = Animation.easeOut(duration: 0.2)
+    /// How fast the dots of the Operator's status line march during an exchange, in points a second: one dot and
+    /// its gap (`Space.hairline` + `Space.tight`) each quarter second.
+    public static let march: CGFloat = 24
+    /// How long a task waking the Operator marches up its stretch of the status line, once, in seconds (O7).
+    public static let pulse: Double = 1
 }

@@ -131,7 +131,7 @@ public enum QueryWriter {
         case .gitLab: "GitLab merge request query"
         case .gitHub: "GitHub pull request query"
         case .schedule: "cron expression"
-        case .operator: "description of done"
+        case .operator, .person: "description of done"
         case .unknown(let value): value + " query"
         }
     }
@@ -141,7 +141,7 @@ public enum QueryWriter {
             return "It is a schedule: at each time it names, AiTerm starts a new task for the signal, in the time zone of the "
                 + "person's Mac. A time the person leaves vague takes the usual working reading (\"in the morning\" is 9:00)."
         }
-        let item = switch source { case .jira: "ticket"; case .gitHub: "pull request"; case .gitLab, .schedule, .operator, .unknown: "merge request" }
+        let item = switch source { case .jira: "ticket"; case .gitHub: "pull request"; case .gitLab, .schedule, .operator, .person, .unknown: "merge request" }
         switch trigger {
         case .start:
             return "It is a Start query: AiTerm runs it every minute, and each \(item) it lists starts a task, or continues one when it "
@@ -200,6 +200,8 @@ public enum QueryWriter {
             """
         case .operator:
             return "No query: the Operator decides."
+        case .person:
+            return "No query: the person decides."
         case .unknown:
             return "This version of AiTerm cannot read this source."
         }
@@ -237,7 +239,7 @@ public enum QueryWriter {
                 format.calendar = Calendar(identifier: .gregorian)
                 lines.append("Now: \(now.formatted(format)), time zone \(zone.identifier).")
             }
-        case .operator, .unknown:
+        case .operator, .person, .unknown:
             break
         }
         return lines.isEmpty ? "Nothing beyond the description." : lines.joined(separator: "\n")

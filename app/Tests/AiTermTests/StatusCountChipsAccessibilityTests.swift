@@ -59,6 +59,22 @@ import AiTermCore
         }
     }
 
+    /// The OPERATOR heading's signals icon is a button that says its count in words, and its press opens the sheet.
+    @Test func theSignalsIconIsAButtonNamedForItsCount() throws {
+        var opened = 0
+        try AccessibilityTree.with {
+            let buttons = { (nodes: [NSObject]) in nodes.filter { AccessibilityTree.role(of: $0) == NSAccessibility.Role.button.rawValue } }
+            let icon = SectionSignalsButton(section: .operator, count: 3, enabled: true) { opened += 1 }
+            let (window, host, nodes) = hosted(icon) { buttons($0).count == 1 }
+            defer { window.orderOut(nil) }
+            let button = try #require(buttons(nodes).first)
+            #expect(AccessibilityTree.label(of: button) == "3 Operator signals")
+            AccessibilityTree.press(button)
+            settle(host, describing: "the icon's press") { opened > 0 }
+            #expect(opened == 1)
+        }
+    }
+
     @Test func withoutAnActionTheStripIsOneLabel() {
         AccessibilityTree.with {
             let label = "2 working, 1 needs input"

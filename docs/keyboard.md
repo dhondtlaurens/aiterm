@@ -10,14 +10,14 @@ then cancels.
 | --- | --- | --- |
 | ⌘, | Settings… | Also View › Show Settings. Opens Integrations when setup needs attention, Agents otherwise. Disabled while another sheet is up. |
 | ⌘P | Add Project… | Asks for the folder, then opens one sheet for its Jira links and worktree import, which shows the folder as a line with Choose… to pick another. |
-| ⌘D | Add Divider… | One name field. Adds to the open section: between projects, or, with OPERATOR open, between signals. |
+| ⌘D | Add Divider… | One name field. Adds between projects, whichever section is open. |
 | ⌘N | New Task… | Uses the selected project or the selected row's project. |
 | ⌘R | New Review… | The same target project. |
 | ⌘T | New Terminal… | Opens a shell in the target project, including a plain folder. |
-| ⌘S | New Signal… | Also the Operator heading's +; no selected project needed. |
+| ⌘S | New Signal… | Makes the open section's kind: a project signal with Projects open, an Operator signal with OPERATOR open. Also each heading's + and signals sheet; no selected project needed. |
 | ⌘+ / ⌘− / ⌘0 | Zoom In / Zoom Out / Actual Size | Sidebar only. ⌘= aliases ⌘+. Sheets retain native scale. |
-| ⌘F | Focus View | Opens signals/projects with attention rows and peeks at the first. The Operator's chat questions count; ordinary unseen done rows still count. |
-| ⌘L | List View | Opens signals and projects; they remain visible together. |
+| ⌘F | Focus View | Opens the projects with attention rows, in both sections, and peeks at the first. The Operator's chat questions count; ordinary unseen done rows still count. |
+| ⌘L | List View | Opens every project, in both sections; they remain visible together. |
 | ⌘A | Show Archive | Outside a text field. During text editing it stays Select All. |
 | ⌘B | Backpack Mode | Opens setup at the desk, turns it off while on. |
 | ⌘Q | Quit | Flushes state and stops the helper; agents keep running in iTerm2. |
@@ -27,7 +27,10 @@ then cancels.
 Creation keys are disabled while a sheet is open or the workspace cannot change. A task/review
 needs a compatible project; a terminal also accepts a plain folder. Row menus keep Rename, Open in…,
 Pull, Archive and Remove. The Operator heading's context menu has Pause Operator, or Resume Operator
-while paused; its + has New Signal… and Add Divider…. Signal menus have Edit, Switch Off/On, Move Up/Move Down and Remove; a divider's, under either heading, Rename…, Move Up/Move Down and Remove Divider. Take Over
+while paused; its + has New Signal…. The Projects heading's + has Add Project…, New Signal… and Add Divider…. Each
+heading's signals icon opens its signals sheet, whose rows' menus have Edit Signal…, Switch Off/On, Move Up/Move Down
+and Remove Signal…; a double-click edits. A divider's menu, under Projects, has Rename…, Move Up/Move Down and Remove
+Divider; in the Operator's section a divider and a project heading have no menu. Take Over
 is on the menu of a task still under the Operator; there is no Hand Back.
 
 `KeyBindings.all` feeds Settings › Interface; `KeyboardSettingsTests` compares it to the actual
@@ -40,8 +43,8 @@ A row hidden by a fold hands the selection to its heading; a row that disappears
 
 | Keys | Action |
 | --- | --- |
-| ↑ / ↓ | Select visible project/signal headers and rows, skipping dividers and removing rows. Peek at a row's window without taking the keyboard. Folded children are skipped. ↓ on the Operator's last row selects the first project, opening PROJECTS and folding OPERATOR; ↑ on the first project selects the Operator's last row, the other way round. |
-| Return | Open the selected row's window for typing, or fold/open its header. A closed worker resumes its conversation; the Operator row opens the one chat. An empty project heading opens New Task, or New Terminal for a plain folder; an empty signal heading opens Edit Signal. |
+| ↑ / ↓ | Select visible project headers and rows, skipping dividers and removing rows. Peek at a row's window without taking the keyboard. Folded children are skipped. ↓ on the Operator's last row selects the first project, opening PROJECTS and folding OPERATOR; ↑ on the first project selects the Operator's last row, the other way round. |
+| Return | Open the selected row's window for typing, or fold/open its header. A closed worker resumes its conversation; the Operator row opens the one chat. An empty project heading opens New Task, or New Terminal for a plain folder. A project heading in the Operator's section folds there alone. |
 | ⌘Delete | The selected task/review/terminal's Remove action. Task/review removal asks all its questions before anything closes. Nothing on a header. |
 
 Worker permission prompts open in the worker window; the Operator's counted questions open its
@@ -54,7 +57,7 @@ directory. Starting another agent there adds its avatar to the task.
 ## Creation sheets
 
 Task: Task (ticket, name, branch) → Agent → Prompt. Review: Review (merge request, ticket, name,
-branch) → Agent → Prompt. Signal: Signal → Starts when → Agents → Prompt → Done when. Add/Edit Project,
+branch) → Agent → Prompt. Signal: Signal → Starts when → Agents (Agent on a project signal) → Prompt → Done when. Add/Edit Project,
 New Terminal and Add Divider have one confined step. A search field's results open when you click
 it or type, not when the sheet focuses it.
 

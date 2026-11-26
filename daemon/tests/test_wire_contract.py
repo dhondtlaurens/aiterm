@@ -269,6 +269,8 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         # Additive signal-stage handover: the same checked delivery envelope, no sibling closes.
         replies["session.closeIdle"] = await app.call("session.closeIdle", {
             "sessionId": worker, "ownership": 1, "conversation": "c-wire"})
+        # Additive: what the worker's input holds, read without typing, before a project signal's Archive closes it.
+        replies["session.inputState"] = await app.call("session.inputState", {"sessionId": worker})
 
         mark = app.mark()
         await iterm.disconnect()

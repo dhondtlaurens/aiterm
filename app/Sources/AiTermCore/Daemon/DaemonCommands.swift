@@ -24,15 +24,27 @@ public protocol DaemonCommands: Sendable {
     /// Applies the Interface preference to every terminal window AiTerm manages.
     func setMatchItermBackground(_ enabled: Bool) async throws
     /// Types `text` into the session by the daemon's delivery rules; `ownership` must be the session's
-    /// current generation, `wake` holds it while the person types there.
-    func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery
+    /// current generation, `wake` holds it while the person types there. `guardInput` holds any other text to the
+    /// same checks of the person (typing, unsent input, no keystroke monitor), the delivery check's pass still needed:
+    /// a project signal's prompt typed into a conversation that is also the person's.
+    func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, guardInput: Bool, worktree: String?) async throws -> Delivery
     func closeIdle(sessionId: String, ownership: Int, conversation: String) async throws -> Delivery
+    /// What the session's input holds, read and never typed into: a project signal's Archive waits while it may hold
+    /// the person's unsent words.
+    func inputState(sessionId: String) async throws -> InputState
     func setOwnership(sessionId: String, ownership: Int) async throws
     /// What the delivery check vouches for, per agent: whether, and at which version, its workers can be messaged.
     func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict]
     func registerOperator(operatorId: String, token: String, generation: Int) async throws
     func revokeOperator(operatorId: String, generation: Int) async throws
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws
+}
+
+public extension DaemonCommands {
+    /// An unguarded delivery, as every caller but a project signal's makes it.
+    func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery {
+        try await deliver(sessionId: sessionId, text: text, ownership: ownership, wake: wake, guardInput: false, worktree: worktree)
+    }
 }
 
 /// A window or tab the daemon opened: its window or session id, and why its agent command

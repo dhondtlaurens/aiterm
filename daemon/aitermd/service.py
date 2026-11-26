@@ -155,6 +155,7 @@ class Service:
         r("sessions.markSeen", self._h_mark_seen)
         r("session.deliver", self._h_deliver)
         r("session.closeIdle", self._h_close_idle)
+        r("session.inputState", self._h_input_state)
         r("session.setOwnership", self._h_set_ownership)
         r("delivery.policy", self._h_delivery_policy)
         r("operator.register", self.operators.register)
@@ -217,13 +218,18 @@ class Service:
     async def _h_deliver(self, p: Any) -> dict[str, Any]:
         session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)
         wake, worktree = bool(optional_param(p, "wake", bool)), optional_param(p, "worktree", str)
-        result = await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)
+        guard_input = bool(optional_param(p, "guardInput", bool))
+        result = await self.deliverer.deliver(session_id, text, ownership, wake=wake, guard_input=guard_input,
+                                              worktree=worktree)
         return result.to_json()
 
     async def _h_close_idle(self, p: Any) -> dict[str, Any]:
         result = await self.deliverer.close_idle(param(p, "sessionId", str), param(p, "ownership", int),
                                                  param(p, "conversation", str))
         return result.to_json()
+
+    async def _h_input_state(self, p: Any) -> dict[str, Any]:
+        return {"input": await self.deliverer.input_state(param(p, "sessionId", str))}
 
     async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
         self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))

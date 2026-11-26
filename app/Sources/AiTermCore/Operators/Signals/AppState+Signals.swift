@@ -23,8 +23,10 @@ public extension AppState {
         (operatorSession?.questions ?? []).filter { $0.resolvedAt == nil && isCurrentOperatorQuestion($0) }
     }
 
-    /// Backpack Mode must bridge quiet turns while sources or retained stages can schedule work.
+    /// Backpack Mode must bridge quiet turns while sources or retained stages can schedule work. A runnable project
+    /// signal picks items up whatever the Operator's pause.
     var operatorMayStartWork: Bool {
+        if signals.contains(where: { $0.isProject && $0.isRunnable }) { return true }
         guard operatorSession?.paused != true else { return false }
         if signals.contains(where: \.isRunnable) { return true }
         return allSignalTasks.contains { task in
@@ -46,12 +48,21 @@ public extension AppState {
         guard let index = tasks.firstIndex(where: { $0.id == id }), let record = tasks[index].signalTask else { return nil }
         tasks[index].signalTask = nil
         tasks[index].takenOver = true
+        // The task keeps its chain: the stage it was taken from, named as its signal is now, and the stages before.
+        tasks[index].signalOrigin = SignalOrigin(signal: record.current.signal,
+                                                 name: signal(id: record.current.signal)?.name ?? record.current.configuration.name,
+                                                 item: record.current.item, startedAt: record.startedAt, earlier: record.earlier)
         updateProject(id: tasks[index].projectId) { $0.collapsed = false }
         operatorSession?.questions.removeAll { $0.task == id }
         operatorSession?.pausedWorkers?.removeAll { $0.task == id }
         return record
     }
     func signal(id: UUID) -> Signal? { signals.first { $0.id == id } }
+    /// The identities of the items marked tasks were started on, in the sidebar and the archive: live items, whose
+    /// seen records stay.
+    var markedItems: Set<String> { Set((tasks + archive.map(\.task)).compactMap { $0.signalOrigin?.item.identity }) }
+    /// The project signals that exist.
+    var projectSignalIds: Set<UUID> { Set(signals.filter(\.isProject).map(\.id)) }
     var allSignalTasks: [TaskItem] { tasks.filter { $0.isUnderOperator } + archive.map(\.task).filter { $0.isUnderOperator } }
     func signalItem(id: UUID) -> TaskItem? { task(id: id) ?? archived(id: id)?.task }
     mutating func updateSignalItem(_ id: UUID, _ change: (inout TaskItem) throws -> Void) rethrows {
@@ -74,8 +85,8 @@ public extension AppState {
         let activeSignals = Set(signals.map(\.id))
         let liveItems = Set(records.values.flatMap { record in
             ([record.current.item] + record.pendingStages.map(\.item) + (record.watchedRequest.map { [ItemRef.mergeRequest($0)] } ?? [])).compactMap(\.identity)
-        })
-        signalSeen = SignalSeen.pruned(signalSeen, liveItems: liveItems, now: at)
+        }).union(markedItems)
+        signalSeen = SignalSeen.pruned(signalSeen, liveItems: liveItems, now: at, projectSignals: projectSignalIds)
         scheduleCursors = scheduleCursors.filter { activeSignals.contains($0.key) }
         operatorSession?.questions.removeAll { question in
             guard question.resolvedAt != nil, question.workerQuestion != nil, let id = question.task else { return false }
