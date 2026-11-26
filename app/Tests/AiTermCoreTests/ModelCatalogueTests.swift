@@ -65,12 +65,12 @@ import Testing
         let launches = Launches(failing: true)
         let catalogue = ModelCatalogue(home: home, runner: pi(launches))
 
-        #expect(throws: PiModelCatalogError.failed(1, "Loading…\nNo API key for openai")) { try catalogue.models(for: .pi) }
-        #expect(catalogue.read(.pi) == ModelCatalogue.Reading(models: [], failure: .failed(1, "Loading…\nNo API key for openai")))
+        #expect(throws: ModelListError.failed(.pi, 1, "Loading…\nNo API key for openai")) { try catalogue.models(for: .pi) }
+        #expect(catalogue.read(.pi) == ModelCatalogue.Reading(models: [], failure: .failed(.pi, 1, "Loading…\nNo API key for openai")))
         #expect(launches.value == 2, "a failure is not an answer to keep")
-        #expect(PiModelCatalogError.failed(1, "Loading…\nNo API key for openai\n").localizedDescription
+        #expect(ModelListError.failed(.pi, 1, "Loading…\nNo API key for openai\n").localizedDescription
                 == "The PI model catalogue is unavailable: No API key for openai")
-        #expect(PiModelCatalogError.unavailable.localizedDescription == "PI couldn’t be launched.")
+        #expect(ModelListError.unavailable(.pi).localizedDescription == "PI couldn’t be launched.")
 
         launches.failing = false
         let listed = try catalogue.models(for: .pi)
@@ -115,7 +115,7 @@ import Testing
     /// A missing CLI is a failure like a failed launch, and launches nothing.
     @Test func aMissingPiIsUnavailable() {
         let catalogue = ModelCatalogue(home: FileManager.default.temporaryDirectory, runner: .nothingInstalled)
-        #expect(catalogue.read(.pi) == ModelCatalogue.Reading(models: [], failure: .unavailable))
+        #expect(catalogue.read(.pi) == ModelCatalogue.Reading(models: [], failure: .unavailable(.pi)))
     }
 
     /// A file catalogue is read once and then stands until one of its files changes: a file that

@@ -1,8 +1,9 @@
 import Foundation
 
 /// The user's own status line, kept when AiTerm's shim takes its place: the shim runs it and prints
-/// what it prints, so the user loses nothing. Claude Code's driver keeps it as a plain-text command
-/// file the shim reads on every tick, and `record` decides what an install does with it.
+/// what it prints, so the user loses nothing. Claude Code's and Antigravity's drivers each keep it as a
+/// plain-text command file of their own that their shim reads on every tick, and `record` decides what
+/// an install does with it.
 public enum StatusLineOriginal {
     /// What the agent's status line was before an install, as the driver reads it off the agent's
     /// own config.
@@ -20,8 +21,8 @@ public enum StatusLineOriginal {
     /// own status line. A foreign command is saved; with none, the record is forgotten, or a repair
     /// would bring back a status line the user removed; behind our own shim it stays as it is, which
     /// is how a moved bundle is repaired.
-    static func record(_ before: Before, home: URL) throws {
-        let command = AiTermPaths.statusLineOriginalURL(home: home)
+    static func record(_ before: Before, home: URL, agent: AgentKind = .claude) throws {
+        let command = AiTermPaths.statusLineOriginalURL(home: home, agent: agent)
         switch before {
         case .foreign(let original):
             try FileManager.default.createDirectory(at: command.deletingLastPathComponent(), withIntermediateDirectories: true)

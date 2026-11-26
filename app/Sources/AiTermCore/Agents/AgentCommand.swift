@@ -26,8 +26,8 @@ public enum AgentCommand {
         return ([agent.harness.executable] + agent.harness.resumeArguments(resuming) + words.dropFirst()).map(shellWord)
     }
 
-    /// The agents an operator may give a task: the two whose limits AiTerm can set.
-    public static let workerAgents: [AgentKind] = [.claude, .codex]
+    /// The agents an operator may give a task: those with full support (`SupportTier`).
+    public static var workerAgents: [AgentKind] { AgentKind.fullSupport }
 
     /// What Claude workers may not do outside a publishing stage: ask through a menu, push or change a request.
     /// A publishing stage uses `publishingClaudeDenials`; AiTerm alone merges when the signal permits it.
@@ -51,7 +51,7 @@ public enum AgentCommand {
     ///   (`readOnly`) adds `reviewClaudeDenials`.
     /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make. A review tab launches
     ///   read-only through its harness instead.
-    /// - PI is not offered to the Operator (`workerAgents`) and launches as it always does.
+    /// - An agent with basic support is not offered to the Operator (`workerAgents`) and launches as it always does.
     /// Neither review launch removes subagents or read-only shell commands.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?, readOnly: Bool = false, publishing: Bool = false) -> [String] {
         let harness = agent.harness
@@ -91,6 +91,7 @@ public enum AgentCommand {
                              git: any GitRunning, worker: Bool = false, readOnly: Bool = false, promptFile: String = "first-prompt.md", publishing: Bool = false, resuming: String? = nil) throws -> String {
         var parts = invocation(agent: agent, model: model, reasoning: reasoning, worker: worker, readOnly: readOnly, publishing: publishing, resuming: resuming)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
+            parts += agent.harness.promptFlag.map(shellWord)
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)

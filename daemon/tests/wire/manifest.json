@@ -164,6 +164,7 @@
   ],
   "protocolVersion": 1,
   "sessionAgents": [
+    "agy",
     "claude",
     "codex",
     "pi",

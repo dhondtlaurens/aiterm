@@ -49,7 +49,7 @@ async def closed_by_server(r):
 
 
 def test_the_routes_derive_from_the_harness_table():
-    assert hooks_server.ROUTES == {"/hook/claude", "/hook/codex", "/hook/pi", "/mcp", "/statusline"}
+    assert hooks_server.ROUTES == {"/hook/claude", "/hook/codex", "/hook/pi", "/hook/agy", "/mcp", "/statusline", "/statusline/agy"}
 
 
 async def test_post_routes_deliver_body(server):
@@ -63,6 +63,7 @@ async def test_post_routes_deliver_body(server):
 @pytest.mark.parametrize("path,event,tab", [
     ("/hook/codex", "SubagentStart", "w0t0p0:child"),
     ("/hook/pi", "agent_start", "w0t0p0:pi"),
+    ("/hook/agy", "PreInvocation", "w0t0p0:agy"),
 ])
 async def test_a_route_forwards_the_inherited_iterm_session_id(server, path, event, tab):
     srv, received = server
@@ -79,7 +80,7 @@ async def test_a_client_supplied_iterm_session_id_without_the_header_is_dropped(
     assert received == [("/hook/codex", {"hook_event_name": "Stop"})]
 
 
-@pytest.mark.parametrize("path", ["/hook/codex", "/hook/pi"])
+@pytest.mark.parametrize("path", ["/hook/codex", "/hook/pi", "/hook/agy"])
 async def test_header_routes_take_the_tab_from_the_header_over_the_body(server, path):
     srv, received = server
     body = {"hook_event_name": "Stop", "_aiterm_iterm_session_id": "w0t0p0:forged"}

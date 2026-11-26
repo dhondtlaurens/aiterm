@@ -179,7 +179,7 @@ is pure (`screens.py`). `ItermSupervisor` owns reconnect/cookie handling. A lock
 snapshots and creation; tick consumers reuse that pass's session view, and task lookups use its
 index. Each corroborating read is a `ReadPlan` captured on the loop, run off the loop under a
 deadline and applied on the loop: the agent-neutral steps are in `corroboration.py`, each agent's
-own reads in its module under `agents/` (`claude.py`, `codex.py`, `pi.py`); `CodexThreads` keeps
+own reads in its module under `agents/` (`claude.py`, `codex.py`, `pi.py`, `agy.py`); `CodexThreads` keeps
 each Codex tab's thread. `SessionNotFound` marks a session that is truly absent. A reading is applied
 only while the session key it was captured with (`SessionKey`: agent, process, conversation) still
 stands, so late telemetry never attaches to a replacement process.
@@ -218,7 +218,7 @@ it started: one a crash left holding the socket is ended, and the app starts its
 | Workspace, recovery and logs | `~/Library/Application Support/AiTerm/`; `StateStore`, `WorkspaceStore`, logging and daemon supervisor. |
 | Credentials | Keychain service `com.laurensdhondt.aiterm`, account `secrets`: service tokens and hotspot password. Settings validates before writing and rolls back failed changes. |
 | Task worktrees | `<repo>/.worktrees/<slug>`; task operations reserve archived paths and check branch/worktree ownership before deletion. A folder git still lists counts as taken, and cleanup prunes git's record of a worktree deleted outside AiTerm. `.worktreeinclude` copies selected ignored files. |
-| Agent drivers | Claude's resolved config directory, `~/.codex/` and `~/.pi/agent/extensions/`; explicit Install/Repair keeps backups and foreign entries. Hook resources ship in the app bundle. |
+| Agent drivers | Claude's resolved config directory, `~/.codex/`, `~/.pi/agent/extensions/`, and Antigravity's `~/.gemini/config/hooks.json` (the `aiterm` named hook) and `~/.gemini/antigravity-cli/settings.json` (its status line); explicit Install/Repair keeps backups and foreign entries. Hook resources ship in the app bundle. |
 | Codex tab identity | iTerm user variable `aiterm_codex_thread`, containing the proven thread and foreground process ID, owned by the daemon's `CodexThreads`. Written after corroboration and reused only for that process; subagent hooks and inferred directory matches cannot supply it. |
 | Operator artifacts | One private `operators/operator` folder under application support: `session.json` binds the token to the session's id and generation; the token, `brief.md`, `mcp.json`, `gate.json`, the launch script, `activity.jsonl` and `journals/` beside it. Large worker messages go under the task's `.aiterm/messages/`. |
 | Preferences | Interface and integration choices, hotspot name and engagement marker. Tests use scratch defaults. |

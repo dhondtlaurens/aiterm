@@ -68,7 +68,7 @@ public enum WorkerGuardLaunch {
         let check = AgentCommand.shellQuote(executable.path) + " --worker-guard hook " + AgentCommand.shellQuote(config.path)
         let hooks: JSONValue = ["hooks": ["PreToolUse": [["matcher": "Bash", "hooks": [["type": "command", "command": .string(check), "timeout": 30]]]]]]
         try PrivateFile.write(encoder.encode(hooks), to: settings)
-        for tool in ["git", "gh", "glab", "claude", "codex"] {
+        for tool in ["git", "gh", "glab", "claude", "codex", "agy"] {
             let path = folder.appendingPathComponent("bin/" + tool)
             try PrivateFile.write(Data(shim(tool, folder: folder, executable: executable).utf8), to: path)
             try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
@@ -80,11 +80,16 @@ public enum WorkerGuardLaunch {
     }
     private static func shim(_ tool: String, folder: URL, executable: URL) -> String {
         let variable = "AITERM_REAL_" + tool.uppercased()
-        if tool == "codex" || tool == "claude" {
+        if tool == "codex" || tool == "claude" || tool == "agy" {
             // Codex exec_command defaults to a login shell, which resets PATH and loses the guard.
             // A per-launch setting preserves the shims without changing personal CLI settings.
-            let options = tool == "codex" ? "-c allow_login_shell=false" : "--settings " + AgentCommand.shellQuote(folder.appendingPathComponent("settings.json").path)
-            return "#!/bin/sh\nset -eu\nexec \"$\(variable)\" " + options + " \"$@\"\n"
+            // Antigravity's commands inherit its PATH, so its own shim only passes the launch on.
+            let options = switch tool {
+            case "codex": "-c allow_login_shell=false "
+            case "claude": "--settings " + AgentCommand.shellQuote(folder.appendingPathComponent("settings.json").path) + " "
+            default: ""
+            }
+            return "#!/bin/sh\nset -eu\nexec \"$\(variable)\" " + options + "\"$@\"\n"
         }
         let exec = tool == "git"
             ? "exec \"$\(variable)\" -c " + AgentCommand.shellQuote("core.hooksPath=" + folder.appendingPathComponent("hooks").path) + " \"$@\""
@@ -126,7 +131,8 @@ public enum WorkerGuardLaunch {
         AITERM_REAL_GLAB=${AITERM_REAL_GLAB:-$(/usr/bin/which glab 2>/dev/null || true)}
         AITERM_REAL_CLAUDE=${AITERM_REAL_CLAUDE:-$(/usr/bin/which claude 2>/dev/null || true)}
         AITERM_REAL_CODEX=${AITERM_REAL_CODEX:-$(/usr/bin/which codex 2>/dev/null || true)}
-        export AITERM_REAL_GIT AITERM_REAL_GH AITERM_REAL_GLAB AITERM_REAL_CLAUDE AITERM_REAL_CODEX
+        AITERM_REAL_AGY=${AITERM_REAL_AGY:-$(/usr/bin/which agy 2>/dev/null || true)}
+        export AITERM_REAL_GIT AITERM_REAL_GH AITERM_REAL_GLAB AITERM_REAL_CLAUDE AITERM_REAL_CODEX AITERM_REAL_AGY
         aiterm_guard_previous=$("$AITERM_REAL_GIT" rev-parse --git-path hooks/pre-push)
         if [ "$aiterm_guard_previous" != \(AgentCommand.shellQuote(folder.appendingPathComponent("hooks/pre-push").path)) ]; then
             AITERM_PREVIOUS_PRE_PUSH=$aiterm_guard_previous

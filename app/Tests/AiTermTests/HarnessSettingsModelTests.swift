@@ -117,7 +117,7 @@ import AiTermCore
         await model.load()
 
         // PI's driver is missing in the default fixture: nothing to test until it is installed.
-        #expect(Set(await fake.testedAgents()) == [.claude, .codex])
+        #expect(Set(await fake.testedAgents()) == [.claude, .codex, .agy])
         #expect(model.snapshots[.claude]?.checks.contains(passed) == true)
         #expect(model.snapshots[.codex]?.checks.contains(passed) == true)
         #expect(model.snapshots[.pi]?.checks.contains { $0.id == .delivery } == false)
@@ -313,6 +313,7 @@ import AiTermCore
     }
 }
 
+private let agyModel = AgentModel(id: "gemini-4-neon-high", label: "Gemini 4 Neon (High)", detail: nil, efforts: [], defaultEffort: nil)
 private let piModel = AgentModel(id: "openai-codex/gpt-5.6-sol", label: "openai-codex / gpt-5.6-sol",
                                  detail: "128k context", efforts: ["off", "medium", "high"],
                                  defaultEffort: "medium")
@@ -325,6 +326,7 @@ private let readySnapshots: [AgentKind: HarnessSnapshot] = [
     .claude: snapshot(.claude, health: .ready, summary: "Ready.", integration: .current, models: [claudeModel]),
     .codex: snapshot(.codex, health: .ready, summary: "Ready.", integration: .current, models: [codexModel]),
     .pi: snapshot(.pi, health: .ready, summary: "Ready.", integration: .current, models: [piModel]),
+    .agy: snapshot(.agy, health: .ready, summary: "Ready.", integration: .current, models: [agyModel]),
 ]
 
 private func snapshot(_ agent: AgentKind, health: HarnessHealth, summary: String,

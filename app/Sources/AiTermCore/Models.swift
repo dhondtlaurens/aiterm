@@ -11,7 +11,7 @@ public enum Provider: String, Codable, LenientRawDecodable, Equatable, Sendable 
 }
 /// One step of an item along the sidebar, from its context menu.
 public enum MoveStep: Sendable { case up, down }
-public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Sendable { case claude, codex, pi }
+public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Sendable { case claude, codex, pi, agy }
 
 /// What a tab runs: an agent — one case for each `AgentKind`, of the same name, so each is the
 /// other's by its raw value — or a plain shell.
@@ -19,7 +19,7 @@ public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Senda
 /// An unrecognized raw value decodes to `.shell` so one session cannot make the whole
 /// `DaemonSnapshot` unreadable.
 public enum SessionAgent: String, Codable, LenientRawDecodable, Equatable, CaseIterable, Sendable {
-    case claude, codex, pi, shell
+    case claude, codex, pi, agy, shell
     static var unrecognized: Self { .shell }
 }
 /// See `SessionAgent`'s decoding note: an unrecognized raw value decodes to `.idle` rather than

@@ -6,8 +6,9 @@ import AiTermCore
 /// The last thing a worker said, read from its agent's own conversation file — never the screen, where
 /// Claude's grey suggestion reads as typed text. Claude keeps a conversation in
 /// `projects/<folder>/<id>.jsonl` under its configuration folder (`ClaudeConfig`: `~/.claude` unless
-/// `CLAUDE_CONFIG_DIR` names another), Codex in `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-…-<id>.jsonl`;
-/// both are named by the conversation id the daemon reports (`SessionInfo.conversationId`).
+/// `CLAUDE_CONFIG_DIR` names another), Codex in `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-…-<id>.jsonl`,
+/// Antigravity in `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`; each is
+/// named by the conversation id the daemon reports (`SessionInfo.conversationId`). PI keeps none AiTerm reads.
 enum WorkerTranscript {
     /// How much of a conversation's end is read: a reply is kilobytes, the file can be megabytes.
     static let tailBytes = 512 * 1024
@@ -29,6 +30,10 @@ enum WorkerTranscript {
                 return url
             }
             return nil
+        case .agy:
+            let file = home.appendingPathComponent(".gemini/antigravity-cli/brain")
+                .appendingPathComponent(conversation).appendingPathComponent(".system_generated/logs/transcript.jsonl")
+            return fileManager.fileExists(atPath: file.path) ? file : nil
         case .pi:
             return nil
         }
@@ -61,10 +66,26 @@ enum WorkerTranscript {
         let decoder = JSONDecoder()
         for line in lines.reversed() {
             guard let record = try? decoder.decode(JSONValue.self, from: Data(line.utf8)),
-                  let text = agent == .codex ? codexReply(record) : claudeReply(record), !text.isEmpty else { continue }
+                  let text = reply(record, agent: agent), !text.isEmpty else { continue }
             return TailRead(reply: Reply(text: text, identity: line.hashValue, fingerprint: SHA256.hash(data: Data(line.utf8)).map { String(format: "%02x", $0) }.joined()))
         }
         return TailRead(reply: nil)
+    }
+
+    /// The reply a record of `agent`'s carries, if it is one.
+    static func reply(_ record: JSONValue, agent: AgentKind) -> String? {
+        switch agent {
+        case .claude: claudeReply(record)
+        case .codex: codexReply(record)
+        case .agy: agyReply(record)
+        case .pi: nil
+        }
+    }
+
+    /// Antigravity's model step: a `PLANNER_RESPONSE` with text. One that only calls tools says nothing.
+    static func agyReply(_ record: JSONValue) -> String? {
+        guard record["type"]?.stringValue == "PLANNER_RESPONSE", record["source"]?.stringValue == "MODEL" else { return nil }
+        return record["content"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// An assistant record's text blocks, joined; a record of tool calls alone says nothing.

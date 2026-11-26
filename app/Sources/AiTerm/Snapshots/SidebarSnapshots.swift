@@ -63,7 +63,7 @@ enum SidebarSnapshots {
             VStack(alignment: .leading, spacing: Space.base) {
                 ForEach([Size.vendorMark, Size.avatar, Size.control, 96], id: \.self) { size in
                     HStack(spacing: Space.base) {
-                        ForEach([SessionAgent.claude, .codex, .pi, .shell], id: \.self) { VendorMark(agent: $0, size: size) }
+                        ForEach([SessionAgent.claude, .codex, .pi, .agy, .shell], id: \.self) { VendorMark(agent: $0, size: size) }
                         IntegrationMark(service: .jira, size: size)
                         IntegrationMark(service: .gitlab, size: size)
                         IntegrationMark(service: .github, size: size)

@@ -10,7 +10,7 @@ cp -R "$ROOT/scripts" "$repo/"
 cp "$ROOT/app/Sources/AiTerm/Resources/Info.plist" "$repo/app/Sources/AiTerm/Resources/"
 touch "$repo/app/Sources/AiTerm/Resources/AiTerm.icns" "$repo/LICENSE"
 for file in __init__.py delivery_check.py compat_preflight.py wire_frames.py; do touch "$repo/daemon/tools/$file"; done
-for file in claude-statusline-shim.sh pi-aiterm-status.ts; do touch "$repo/hooks/$file"; done
+for file in claude-statusline-shim.sh agy-statusline-shim.sh pi-aiterm-status.ts; do touch "$repo/hooks/$file"; done
 touch "$repo/compat/verified.json"
 cat >"$repo/scripts/swift.sh" <<'SWIFT'
 #!/bin/zsh

@@ -21,10 +21,10 @@ import Foundation
 
     @Test func piModelParserHandlesEmptyAndRejectsBrokenTables() throws {
         #expect(try PiModelCatalog.parse("\n").isEmpty)
-        #expect(throws: PiModelCatalogError.self) {
+        #expect(throws: ModelListError.self) {
             try PiModelCatalog.parse("provider model\nx y")
         }
-        #expect(throws: PiModelCatalogError.self) {
+        #expect(throws: ModelListError.self) {
             try PiModelCatalog.parse("provider model context max-out thinking images\np only-two")
         }
     }
@@ -41,12 +41,12 @@ import Foundation
         let failed = HarnessCommandRunner(locate: { _ in "/usr/local/bin/pi" }, run: { _, _, _, _ in
             ProcessOutput(status: 2, stdout: "", stderr: "bad auth", timedOut: false)
         })
-        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: failed) }
+        #expect(throws: ModelListError.self) { try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: failed) }
 
         let timedOut = HarnessCommandRunner(locate: { _ in "/usr/local/bin/pi" }, run: { _, _, _, _ in
             ProcessOutput(status: 15, stdout: "", stderr: "", timedOut: true)
         })
-        #expect(throws: PiModelCatalogError.self) { try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: timedOut) }
+        #expect(throws: ModelListError.self) { try PiModelCatalog.discover(executable: "/usr/local/bin/pi", runner: timedOut) }
     }
 
     @Test func testClaudeModelsFromSettingsOrDefaults() {
@@ -248,5 +248,42 @@ import Foundation
              {"id":"high","name":"High","badge":{"message":"Recommended","variant":"neutral"}},{"id":"xhigh","name":"Extra"},{"id":"max","name":"Max"}]}}
         ]}}}
         """#.utf8)
+    }
+}
+
+@Suite struct AgyModelCatalogTests {
+    /// `agy models` prints one id and label a row, tab-separated; its progress line goes to stderr.
+    @Test func agyModelsAreItsTabSeparatedRows() throws {
+        let output = "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n\ngemini-pro-orchestrator\tOrchestrator\n"
+        let models = try AgyModelCatalog.parse(output)
+        #expect(models.map(\.id) == ["gemini-4-neon-high", "gemini-3.8-flash-low", "gemini-pro-orchestrator"])
+        #expect(models.map(\.label) == ["Gemini 4 Neon (High)", "Gemini 3.8 Flash (Low)", "Orchestrator"])
+        // The id names the effort already: no model offers a reasoning level of its own.
+        #expect(models.allSatisfy { $0.efforts.isEmpty && $0.defaultEffort == nil && $0.detail == nil })
+    }
+
+    @Test func agyModelParserRejectsARowWithoutItsLabel() throws {
+        #expect(throws: ModelListError.malformed(.agy, "Malformed Antigravity model row: gemini-4-neon-high")) {
+            try AgyModelCatalog.parse("gemini-4-neon-high\n")
+        }
+        #expect(try AgyModelCatalog.parse("").isEmpty)
+    }
+
+    @Test func agyDiscoveryRunsModelsAndWordsItsFailures() throws {
+        let listed = HarnessCommandRunner(locate: { _ in "/usr/local/bin/agy" }, run: { _, arguments, _, timeout in
+            #expect(arguments == ["models"])
+            #expect(timeout == 15)
+            return ProcessOutput(status: 0, stdout: "gemini-4-neon-high\tGemini 4 Neon (High)\n", stderr: "Fetching available models...\n", timedOut: false)
+        })
+        #expect(try AgyModelCatalog.discover(executable: "/usr/local/bin/agy", runner: listed).map(\.id) == ["gemini-4-neon-high"])
+
+        let failed = HarnessCommandRunner(locate: { _ in "/usr/local/bin/agy" }, run: { _, _, _, _ in
+            ProcessOutput(status: 1, stdout: "", stderr: "Fetching available models...\nauthentication required", timedOut: false)
+        })
+        #expect(throws: ModelListError.failed(.agy, 1, "Fetching available models...\nauthentication required")) {
+            try AgyModelCatalog.discover(executable: "/usr/local/bin/agy", runner: failed)
+        }
+        #expect(ModelListError.failed(.agy, 1, "Fetching available models...\nauthentication required").localizedDescription
+                == "The Antigravity model catalogue is unavailable: authentication required")
     }
 }

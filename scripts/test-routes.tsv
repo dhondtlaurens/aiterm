@@ -23,12 +23,13 @@
 # Add the name when a new test only reads its own target's files; add a row when it reads another's.
 # reads only its own target: PaletteDistinctionTests WorkerTurnTests SignalSavedFormatTests StateStoreUpgradeTests
 # opt-in, reads outside its target: OperatorEvalRunner SignalOperatorEvalRunner WorkerGuardCodexTests
-# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py test_compat_preflight.py=scripts/compat-check.sh
+# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts test_test_activity.py=scripts/test-queue.py test_compat_preflight.py=scripts/compat-check.sh test_agy_statusline_shim.py=hooks/agy-statusline-shim.sh
 
 # The daemon, and what the Swift suites read from it.
 daemon/*	daemon
 daemon/tests/wire/*	daemon suite:AiTermCoreTests.WireContractTests
 daemon/aitermd/delivery.py	daemon suite:AiTermCoreTests.OperatorTimingTests
+daemon/aitermd/models.py	daemon suite:AiTermCoreTests.SupportTierTests
 daemon/aitermd/signal_tools.json	daemon suite:AiTermCoreTests.SignalOperatorContractTests
 daemon/aitermd/operator_mcp.py	daemon suite:AiTermCoreTests.SignalOperatorContractTests suite:AiTermTests.SignalControllerTests
 hooks/*	daemon suite:AiTermCoreTests.StatusLineShimTests

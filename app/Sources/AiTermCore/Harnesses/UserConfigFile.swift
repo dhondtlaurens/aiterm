@@ -100,12 +100,17 @@ struct UserConfigFile: Sendable {
         }
     }
 
-    /// Atomically, through the link, creating the directory it goes in.
+    /// Atomically, through the link, creating the directory it goes in. A file that was there keeps
+    /// its permissions: an atomic write replaces it with a new file, which would otherwise open up one
+    /// its agent keeps private (Antigravity writes its `settings.json` 0600).
     func write(_ data: Data) throws {
         if let target = Self.danglingLinkTarget(url) { throw refusal("links to \(target), which does not exist") }
         let file = target
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fileManager = FileManager.default
+        let permissions = (try? fileManager.attributesOfItem(atPath: file.path))?[.posixPermissions]
+        try fileManager.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: file, options: .atomic)
+        if let permissions { try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: file.path) }
     }
 
     /// Where `url` points when it is a symlink that leads nowhere. `fileExists` follows the link

@@ -11,6 +11,8 @@ public struct Harness: Sendable {
     /// The CLI's name on the login shell's `PATH`.
     public let executable: String
     public let displayName: String
+    /// How far AiTerm supports the agent (`SupportTier`); the daemon's harness row says the same.
+    public let support: SupportTier
     /// The vendor's own installer, which Install runs through the login shell (`CLIInstaller`).
     public let installCommand: String
     /// The reasoning levels offered while no model is picked, and the one picked then.
@@ -25,6 +27,9 @@ public struct Harness: Sendable {
     let hookEndpoint: String
     /// What the driver installs from the app bundle, when it installs anything from there.
     let bundledResource: BundledResource?
+    /// What goes right before a launch prompt, when the CLI takes one only after a flag: Antigravity's
+    /// `-i`, without which the prompt lands in its input unsent.
+    let promptFlag: [String]
     /// The launch command's arguments after the CLI and before the prompt, unquoted.
     let launchArguments: @Sendable (_ model: String, _ reasoning: String?) -> [String]
     /// The model and reasoning words, unquoted.
@@ -91,12 +96,31 @@ public struct Harness: Sendable {
     }
 }
 
+/// How far AiTerm supports an agent, as `docs/configuration.md` tells the person.
+///
+/// - `basic`: tasks and tabs launch and resume; models, reasoning and skills are offered; the row's
+///   state comes from the agent's own hooks or events; the context ring fills; it can be the Oracle;
+///   Settings installs, repairs and tests its driver; the compatibility check captures it.
+/// - `full`: basic, and the row's state is checked against a tick (needs-input included), AiTerm
+///   types into it once the delivery check passed, and the Operator can give it a task as a worker:
+///   choose it, guard its branch and read its replies from its transcript.
+///
+/// Account usage and background work show where an agent reports them; neither is a tier's.
+public enum SupportTier: String, Sendable {
+    case basic, full
+}
+
 public extension AgentKind {
+    /// The agents with full support, in `allCases` order: the Operator's workers and the delivery
+    /// check's CLIs.
+    static var fullSupport: [AgentKind] { allCases.filter { $0.harness.support == .full } }
+
     var harness: Harness {
         switch self {
         case .claude: return .claude
         case .codex: return .codex
         case .pi: return .pi
+        case .agy: return .agy
         }
     }
 
@@ -129,14 +153,13 @@ enum ModelListing: Sendable {
         }
     }
 
-    /// The list, read now. A launched list without its CLI is unavailable. PI's is the only one
-    /// launched, so a launch's failure is `PiModelCatalogError`, which `ModelCatalogue` words; a
-    /// second launched list would generalise that error, not copy it.
-    func read(home: URL, executable: String?, runner: HarnessCommandRunner) throws -> [AgentModel] {
+    /// `agent`'s list, read now. A launched list without its CLI is unavailable; a launch's failure
+    /// is a `ModelListError`, which `ModelCatalogue` words.
+    func read(_ agent: AgentKind, home: URL, executable: String?, runner: HarnessCommandRunner) throws -> [AgentModel] {
         switch self {
         case .files(_, let read): return read(home)
         case .launch(_, let list):
-            guard let executable else { throw PiModelCatalogError.unavailable }
+            guard let executable else { throw ModelListError.unavailable(agent) }
             return try list(executable, runner)
         }
     }

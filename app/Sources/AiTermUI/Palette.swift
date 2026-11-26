@@ -154,7 +154,7 @@ public enum Palette {
     public static let faint = muted.opacity(0.8)
 
     // -- vendor marks -------------------------------------------------------------------
-    /// The white of a round vendor mark: the Codex, GitLab and GitHub discs, and the logo on Claude's,
+    /// The white of a round vendor mark: the Codex, Antigravity, GitLab and GitHub discs, and the logo on Claude's,
     /// Jira's, Pi's and the shell's. A mark keeps its vendor's colours, not the appearance's;
     /// the same white as `onAccent`, declared as an alias.
     public static let markPaper = onAccent

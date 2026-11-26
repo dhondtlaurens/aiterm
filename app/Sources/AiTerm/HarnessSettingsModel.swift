@@ -202,6 +202,8 @@ extension HarnessSettingsModel {
         let pi = AgentModel(id: "openai-codex/gpt-5.6-sol", label: "openai-codex / gpt-5.6-sol",
                             detail: "128k context · images", efforts: ["off", "medium", "high"],
                             defaultEffort: "medium")
+        let agy = AgentModel(id: "gemini-4-neon-high", label: "Gemini 4 Neon (High)", detail: nil, efforts: [],
+                             defaultEffort: nil)
         func ready(_ agent: AgentKind, _ model: AgentModel) -> HarnessSnapshot {
             .reduce(agent: agent, cliAvailable: true, integrationState: .current, models: [model],
                     checks: [HarnessCheck(.cli, passed: true, explanation: nil),
@@ -213,6 +215,7 @@ extension HarnessSettingsModel {
             .pi: .reduce(agent: .pi, cliAvailable: true, integrationState: .missing, models: [pi],
                          checks: [HarnessCheck(.cli, passed: true, explanation: nil),
                                   HarnessCheck(.integration, passed: false, explanation: "Driver is not installed.")]),
+            .agy: ready(.agy, agy),
         ]
     }()
 }

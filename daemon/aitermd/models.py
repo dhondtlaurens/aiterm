@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-AgentKind = Literal["claude", "codex", "pi", "shell"]
+AgentKind = Literal["claude", "codex", "pi", "agy", "shell"]
 State = Literal["idle", "working", "needsInput", "done"]
 # What a hook says happened to a turn. Metadata (model, reasoning, context, cwd) is not a kind: it
 # rides along on any event and is applied separately. `promptStart`/`promptEnd` bracket a PI input
@@ -25,6 +25,10 @@ class Harness:
     # id it carries in X-AiTerm-iTerm-Session, or -- Claude's, which travel over HTTP from the agent
     # itself -- by the pid the agent's own session file names.
     placement: Literal["header", "pid_file"] = "header"
+    # How far AiTerm supports it, the app's `SupportTier` (docs/configuration.md): "full" adds a tick
+    # that checks the hooks, verified messaging and Operator workers to "basic". The app's harness says
+    # the same (SupportTierTests).
+    support: Literal["basic", "full"] = "basic"
     # Whether it reports the account's rate limits, which the usage footer shows: Claude in its
     # status line, Codex in its rollout.
     reports_usage: bool = False
@@ -57,10 +61,13 @@ CLAUDE_TRUST_PROMPT = ("Yes, I trust this folder", "Do you trust the files in th
 # PI 1.6's project-trust select (core/project-trust.js, formatProjectTrustPrompt): its title, and the
 # line under the folder that says what trusting allows.
 PI_TRUST_PROMPT = ("Trust project folder?", "This allows pi to load .pi settings and resources")
+# Antigravity CLI 1.5.18's folder-trust select: its question, and the line under it.
+AGY_TRUST_PROMPT = ("Do you trust the contents of this project?",
+                    "Antigravity CLI requires permission to read, edit, and execute files here.")
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
-    Harness("claude", "/hook/claude", placement="pid_file",
+    Harness("claude", "/hook/claude", placement="pid_file", support="full",
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
             trust_prompt=CLAUDE_TRUST_PROMPT,
@@ -70,7 +77,7 @@ HARNESSES: tuple[Harness, ...] = (
             input_box=("❯",), numbered_menus=True,
             transcript_view=("Showing detailed transcript · ctrl+o to toggle",)),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", reports_usage=True,
+    Harness("codex", "/hook/codex", support="full", reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
             # 0.163's dialogs end on "enter confirm · esc skip" (its review of untrusted hooks) or
             # "enter select · esc back" (its /model picker).
@@ -82,11 +89,16 @@ HARNESSES: tuple[Harness, ...] = (
     # An in-process extension. Its folder-trust dialog comes before the extension's first post, so
     # the screen is the only sign of it, as for Claude.
     Harness("pi", "/hook/pi", trust_prompt=PI_TRUST_PROMPT),
+    # Command hooks in its hooks.json, and a status-line shim whose `agent_state` checks them. Its
+    # folder-trust dialog comes before any hook loads, as PI's does.
+    Harness("agy", "/hook/agy", statusline_route="/statusline/agy", trust_prompt=AGY_TRUST_PROMPT),
 )
 
 HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}
 AGENT_BINARIES: frozenset[AgentKind] = frozenset(HARNESS_BY_AGENT)
 USAGE_VENDORS: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.reports_usage)
+# The agents with full support: the delivery check's CLIs, and the ones the compat check gates on it.
+FULL_SUPPORT: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.support == "full")
 # The payload field the hook server puts X-AiTerm-iTerm-Session in, and discards from a body: a
 # trusted private field, which only the header may set.
 ITERM_SESSION_FIELD = "_aiterm_iterm_session_id"

@@ -10,9 +10,22 @@ immediately.
 
 ## Agents
 
-Claude Code and Codex support agent status, account usage and verified messaging. PI supports
-manually started tasks and tabs, context reporting and use as the Oracle. Other providers, such
-as Grok, run through PI. The Operator's workers use Claude Code or Codex.
+AiTerm supports each agent at one of two levels:
+
+| | Basic | Full |
+|---|---|---|
+| Start and resume tasks and tabs, with a model, reasoning and skills | ✓ | ✓ |
+| Status from the agent's own hooks, and the context ring | ✓ | ✓ |
+| The Oracle | ✓ | ✓ |
+| Install, repair and test from Settings, and the compatibility check | ✓ | ✓ |
+| Status checked against a regular reading, including "needs input" | | ✓ |
+| Verified messaging: AiTerm types into the agent | | ✓ |
+| Operator workers: the Operator gives it tasks, guards its branch and reads its replies | | ✓ |
+
+Claude Code and Codex have full support; PI and Antigravity CLI have basic support. Other
+providers, such as Grok, run through PI. Account usage and background work show for the agents that
+report them: Claude Code and Codex. Antigravity's status line already tells AiTerm when a tool waits
+for your approval; it reaches full support once the delivery check passes for it.
 
 Settings tests each agent when it opens. On the agent's card:
 
@@ -30,9 +43,15 @@ Settings tests each agent when it opens. On the agent's card:
 
 Sign in through your chosen agent's CLI as needed. AiTerm uses that agent's account and access;
 installing an agent does not supply a subscription or API credentials. PI lists models from its
-signed-in providers; run `/login` in PI if none are available.
+signed-in providers; run `/login` in PI if none are available. Antigravity lists the models its
+signed-in account offers (`agy models`), each with its effort in its name, so it offers no separate
+reasoning level; run `agy` once to sign in.
 
-**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The New Task sheet summarises
+**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`, and Antigravity tasks with
+`--dangerously-skip-permissions`.** Antigravity's driver adds a named hook, `aiterm`, to
+`~/.gemini/config/hooks.json` and sets its status line in `~/.gemini/antigravity-cli/settings.json`,
+keeping your own status line running beneath it. As the Oracle, Antigravity runs with rules that deny
+commands, file writes, MCP servers and fetches; it can still search the web. The New Task sheet summarises
 the destination before launch. An ordinary **New Review…** uses the normal agent launch command;
 signal workers also use the task-branch publishing guard. See the
 [Operator guide](operators.md#publishing-done-and-merging) for publishing and merge boundaries.

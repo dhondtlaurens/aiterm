@@ -100,8 +100,8 @@ import Foundation
     @Test func pickingTheOraclesAgentTakesItsDefault() async {
         let settings = settings(ScratchDefaults.make())
         await settings.load()
-        #expect(OperatorSettingsModel.oracleAgents == [.claude, .codex, .pi])
-        #expect(settings.oracleAgentChoices == [.claude, .codex, .pi], "all installed")
+        #expect(OperatorSettingsModel.oracleAgents == [.claude, .codex, .pi, .agy])
+        #expect(settings.oracleAgentChoices == [.claude, .codex, .pi, .agy], "all installed")
         settings.select(oracleAgent: .claude)
         #expect(settings.oracle == OracleSetting(isOn: true, agent: .claude, model: "claude-opus-5-5", reasoning: "high"))
         settings.select(oracleAgent: .codex)

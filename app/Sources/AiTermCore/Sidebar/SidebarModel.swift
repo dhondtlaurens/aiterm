@@ -660,6 +660,7 @@ public extension SidebarModel {
         case .claude: "Claude"
         case .codex: "Codex"
         case .pi: "PI"
+        case .agy: "Antigravity"
         }
     }
 }
