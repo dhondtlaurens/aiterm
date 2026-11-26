@@ -11,7 +11,7 @@
       "--add-dir",
       "{project}",
       "--model",
-      "{model}"
+      "{model}-{reasoning}"
     ],
     "resume" : [
       "agy",
@@ -19,7 +19,7 @@
       "{conversation}",
       "--dangerously-skip-permissions",
       "--model",
-      "{model}"
+      "{model}-{reasoning}"
     ],
     "review" : [
       "agy",
@@ -27,19 +27,19 @@
       "--settings",
       "{\"permissions\":{\"deny\":[\"write_file(*)\",\"command(git commit)\",\"command(git checkout)\",\"command(git switch)\",\"command(git reset)\",\"command(git rebase)\",\"command(git merge)\",\"command(git stash)\",\"command(git add)\"]}}",
       "--model",
-      "{model}"
+      "{model}-{reasoning}"
     ],
     "task" : [
       "agy",
       "--dangerously-skip-permissions",
       "--model",
-      "{model}"
+      "{model}-{reasoning}"
     ],
     "worker" : [
       "agy",
       "--dangerously-skip-permissions",
       "--model",
-      "{model}"
+      "{model}-{reasoning}"
     ]
   },
   "claude" : {

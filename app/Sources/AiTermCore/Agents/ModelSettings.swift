@@ -44,15 +44,27 @@ public enum ModelSettings {
     public static func resolution(for agent: AgentKind, catalog: [AgentModel], remembered: String? = nil,
                                   defaults: UserDefaults = .standard) -> ModelPreferenceResolution {
         if let saved = load(for: agent, defaults: defaults) {
-            guard let model = catalog.first(where: { $0.id == saved.model }) else { return .missing(saved) }
-            var preference = saved
+            guard let (model, effort) = find(saved.model, in: catalog) else { return .missing(saved) }
+            var preference = ModelPreference(model: model.id, reasoning: effort ?? saved.reasoning)
             preference.select(model)
             return .valid(preference)
         }
-        guard let model = catalog.first(where: { $0.id == remembered }) ?? catalog.first else { return .empty }
-        var preference = ModelPreference(model: model.id, reasoning: nil)
+        let found = remembered.flatMap { find($0, in: catalog) }
+        guard let model = found?.model ?? catalog.first else { return .empty }
+        var preference = ModelPreference(model: model.id, reasoning: found?.effort)
         preference.select(model)
         return .valid(preference)
+    }
+
+    /// The catalogue's model for `id`, or for an id that names its effort as well: Antigravity's
+    /// were saved as `gemini-4-neon-high` before its catalogue folded them into `gemini-4-neon` at
+    /// `high` (`AgyModelCatalog`).
+    private static func find(_ id: String, in catalog: [AgentModel]) -> (model: AgentModel, effort: String?)? {
+        if let model = catalog.first(where: { $0.id == id }) { return (model, nil) }
+        for model in catalog {
+            if let effort = model.efforts.first(where: { id == model.id + "-" + $0 }) { return (model, effort) }
+        }
+        return nil
     }
 
     /// Convert explicit resolution into the draft value. A missing saved model stays empty so it

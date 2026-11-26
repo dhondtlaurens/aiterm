@@ -6,6 +6,7 @@ import shlex
 from aitermd.delivery import ESC, PASTE_START, PASTE_END
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import Frame, HARNESS_BY_AGENT
+from aitermd.process_agents import Process
 from dataclasses import replace
 from tests.fake_iterm import FakeIterm
 from tools import delivery_check as check
@@ -1003,3 +1004,32 @@ async def test_no_iterm2_is_written_as_each_agents_failure(tmp_path, monkeypatch
     entry = json.loads(policy.read_text(encoding="utf-8"))["codex"]
     assert entry["failedAt"] == "startupPaste" and "iTerm2 is not running" in entry["failure"]
     assert not entry["pasteSafe"] and entry["version"] == "0.163.0"
+
+
+async def test_a_tab_not_read_as_its_agent_says_what_iterm2_reported(monkeypatch):
+    """A screen that looks idle in a tab the registry reads as another process: the failure names the job iTerm2
+    reported, what it reads as, and the job's process group, where the daemon looks for the agent."""
+    bridge = FakeIterm()
+    _window, sid = await bridge.create_window("/w", "check", {}, Frame(0, 0, 800, 600))
+    bridge.sessions[sid] = replace(bridge.sessions[sid], command_line="/bin/sh /tmp/bin/agy --model m", job_pid=41)
+    bridge.screens[sid] = "> \n? for shortcuts"
+    monkeypatch.setattr(check, "read_processes", lambda: [
+        Process(41, 40, 41, "/bin/sh"),
+        Process(42, 41, 41, "/opt/agy"),
+        Process(50, 1, 50, "/usr/bin/curl"),
+    ])
+    live = check.Live(bridge)
+    assert not await live.ready("agy", sid, seconds=0)
+    why = live.unready[sid]
+    assert why.startswith("Its screen was idle, but the registry read the tab as shell, not agy.")
+    assert "'/bin/sh /tmp/bin/agy --model m' (pid 41), read as shell" in why
+    assert why.endswith("its process group: 41<40 sh, 42<41 agy.")
+
+
+async def test_a_screen_never_idle_says_so():
+    bridge = FakeIterm()
+    _window, sid = await bridge.create_window("/w", "check", {}, Frame(0, 0, 800, 600))
+    bridge.screens[sid] = "loading"
+    live = check.Live(bridge)
+    assert not await live.ready("agy", sid, seconds=0)
+    assert live.unready[sid] == "The agent was not idle within 0 seconds."

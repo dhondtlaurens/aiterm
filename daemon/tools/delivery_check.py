@@ -49,7 +49,8 @@ from typing import Any, cast
 from aitermd.delivery import ESC, PASTE_END, PASTE_START, POLICY_PATH, Deliverer, Verdict, open_prompt, shows_input_box, shows_update_offer
 from aitermd.iterm_bridge import ItermBridge, ItermPort, ItermUnavailable
 from aitermd.keystrokes import TypingGuard
-from aitermd.models import HARNESS_BY_AGENT, MESSAGING_CHECKED, AgentKind, Frame
+from aitermd.models import HARNESS_BY_AGENT, MESSAGING_CHECKED, AgentKind, Frame, classify_agent
+from aitermd.process_agents import read_processes
 from aitermd.sessions import SessionRegistry
 from tools.compat_preflight import command as checked_command
 
@@ -356,6 +357,8 @@ class Live:
         self.bridge, self.registry, self.typing = bridge, SessionRegistry(), TypingGuard(bridge.keystroke_epoch)
         self.keys: Counter[str] = Counter()
         self.last_screen: dict[str, str] = {}
+        # Why `ready` last said no, by session: the screen never idle, or the tab not read as the agent.
+        self.unready: dict[str, str] = {}
         # Each CLI's version, as its `--version` printed it: the one the verdict is written for.
         self.versions: dict[AgentKind, str] = {}
         bridge.on_keystroke(self._key)
@@ -409,12 +412,48 @@ class Live:
     async def ready(self, agent: AgentKind, session_id: str, seconds: float = STEP_SECONDS) -> bool:
         """Whether the CLI is idle with no prompt open, and known to the adapter's registry as itself,
         at the version `--version` printed: the daemon's tick reads the same string from the CLI's own
-        files, which this check does not tick."""
+        files, which this check does not tick. When not, `unready` says which of the two failed."""
+        self.unready.pop(session_id, None)
         if not await self.wait_for(session_id, idle(agent), seconds):
+            self.unready[session_id] = f"The agent was not idle within {seconds:g} seconds."
             return False
         self.registry.apply_snapshot(await self.bridge.snapshot())
         self.registry.set_cli_version(session_id, self.versions.get(agent))
-        return (session := self.registry.get(session_id)) is not None and session.agent == agent
+        if (session := self.registry.get(session_id)) is not None and session.agent == agent:
+            return True
+        self.unready[session_id] = (f"Its screen was idle, but the registry read the tab as "
+                                    f"{session.agent if session else 'closed'}, not {agent}. "
+                                    + await identity(self.bridge, session_id))
+        return False
+
+
+def foreground(job_pid: int | None) -> str:
+    """The processes in `job_pid`'s process group, each `pid<parent name`: where the daemon looks for
+    the tab's agent (process_agents.resolve_agents)."""
+    if not job_pid:
+        return "no job"
+    try:
+        processes = read_processes()
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"unread ({error})"
+    if (group := next((p.group for p in processes if p.pid == job_pid), None)) is None:
+        return f"job {job_pid} no longer runs"
+    return ", ".join(f"{p.pid}<{p.parent} {os.path.basename(p.command)}" for p in processes if p.group == group)
+
+
+async def identity(bridge: ItermPort, session_id: str) -> str:
+    """What the tab's agent is read from, as it stands now: the command line iTerm2 reports for its
+    job, cut short, what that reads as, and the job's process group."""
+    try:
+        info = await bridge.session_info(session_id)
+    except ItermUnavailable as error:
+        return f"iTerm2 could not be read: {error}"
+    if info is None:
+        return "iTerm2 does not list the session."
+    command = info.command_line or ""
+    command = command if len(command) <= 160 else command[:160] + "…"
+    return (f"iTerm2 reports the job {command!r} (pid {info.job_pid}), read as {classify_agent(info.command_line)}; "
+            f"its process group: {foreground(info.job_pid)}.")
 
 
 async def dialog_or_idle(live: Live, agent: AgentKind, sid: str, dialog: Callable[[str], bool]) -> bool | None:
@@ -750,9 +789,7 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
         for current, step in steps:
             say(f"{agent} {current}: {STEPS[current]}")
             if not await live.ready(agent, sid):
-                note(current, await live.failure(sid, agent, expected_idle(agent),
-                                                 f"The agent was not idle within {STEP_SECONDS:g} seconds; "
-                                                 f"the registry must also identify {agent}."))
+                note(current, await live.failure(sid, agent, expected_idle(agent), live.unready.get(sid, "")))
                 break
             if not note(current, await step()):
                 break
