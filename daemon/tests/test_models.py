@@ -9,7 +9,7 @@ def test_the_harness_table_derives_what_each_agent_is():
     assert AGENT_BINARIES == {"claude", "codex", "pi", "agy"}
     # Claude's posts are placed by the agent's pid, everyone else's by the tab the header names.
     assert {a: h.placement for a, h in HARNESS_BY_AGENT.items()} == {
-        "claude": "pid_file", "codex": "header", "pi": "header", "agy": "header"}
+        "claude": "pid_file", "codex": "header", "agy": "header", "pi": "header"}
     assert USAGE_VENDORS == ("claude", "codex")
 
 
@@ -17,7 +17,7 @@ def test_the_full_tier_is_claude_and_codex_and_what_derives_from_it_follows():
     from tools.compat_capture import MESSAGED
     from tools.delivery_check import AGENTS
     assert {a: h.support for a, h in HARNESS_BY_AGENT.items()} == {
-        "claude": "full", "codex": "full", "pi": "basic", "agy": "basic"}
+        "claude": "full", "codex": "full", "agy": "basic", "pi": "basic"}
     assert FULL_SUPPORT == ("claude", "codex")
     # The delivery check covers the full tier, and the compat check gates exactly those on it.
     assert AGENTS == FULL_SUPPORT

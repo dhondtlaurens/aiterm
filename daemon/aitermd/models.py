@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-AgentKind = Literal["claude", "codex", "pi", "agy", "shell"]
+AgentKind = Literal["claude", "codex", "agy", "pi", "shell"]
 State = Literal["idle", "working", "needsInput", "done"]
 # What a hook says happened to a turn. Metadata (model, reasoning, context, cwd) is not a kind: it
 # rides along on any event and is applied separately. `promptStart`/`promptEnd` bracket a PI input
@@ -86,12 +86,12 @@ HARNESSES: tuple[Harness, ...] = (
             startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
             update_prompt=("Update now", "Skip until next version"),
             input_box=("›",)),
-    # An in-process extension. Its folder-trust dialog comes before the extension's first post, so
-    # the screen is the only sign of it, as for Claude.
-    Harness("pi", "/hook/pi", trust_prompt=PI_TRUST_PROMPT),
     # Command hooks in its hooks.json, and a status-line shim whose `agent_state` checks them. Its
     # folder-trust dialog comes before any hook loads, as PI's does.
     Harness("agy", "/hook/agy", statusline_route="/statusline/agy", trust_prompt=AGY_TRUST_PROMPT),
+    # An in-process extension. Its folder-trust dialog comes before the extension's first post, so
+    # the screen is the only sign of it, as for Claude.
+    Harness("pi", "/hook/pi", trust_prompt=PI_TRUST_PROMPT),
 )
 
 HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}

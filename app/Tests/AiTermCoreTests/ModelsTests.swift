@@ -4,8 +4,8 @@ import Foundation
 @testable import AiTermTestSupport
 
 @Suite struct ModelsTests {
-    @Test func agentsAreOrderedClaudeCodexPiAntigravity() {
-        #expect(AgentKind.allCases == [.claude, .codex, .pi, .agy])
+    @Test func agentsAreOrderedClaudeCodexAntigravityPi() {
+        #expect(AgentKind.allCases == [.claude, .codex, .agy, .pi])
         #expect(AgentKind.pi.displayName == "PI")
         #expect(AgentKind.agy.displayName == "Antigravity")
         #expect(AgentKind.agy.session == .agy && SessionAgent.agy.agentKind == .agy)

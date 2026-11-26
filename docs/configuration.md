@@ -22,7 +22,7 @@ AiTerm supports each agent at one of two levels:
 | Verified messaging: AiTerm types into the agent | | ✓ |
 | Operator workers: the Operator gives it tasks, guards its branch and reads its replies | | ✓ |
 
-Claude Code and Codex have full support; PI and Antigravity CLI have basic support. Other
+Claude Code and Codex have full support; Antigravity CLI and PI have basic support. Other
 providers, such as Grok, run through PI. Account usage and background work show for the agents that
 report them: Claude Code and Codex. Antigravity's status line already tells AiTerm when a tool waits
 for your approval; it reaches full support once the delivery check passes for it.

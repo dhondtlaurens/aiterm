@@ -120,45 +120,6 @@ extension Harness {
         },
         makeDriver: { home, port, _ in CodexDriver(home: home, daemonPort: port) })
 
-    static let pi: Harness = Harness(
-        agent: .pi, executable: "pi", displayName: "PI", support: .basic,
-        installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
-        fallbackEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], defaultEffort: "medium",
-        noModelsExplanation: "No PI providers are signed in. Run /login in PI.",
-        skillSigil: "/", hookEndpoint: "/hook/pi",
-        bundledResource: .source("pi-aiterm-status.ts"),
-        promptFlag: [],
-        launchArguments: { Harness.pi.modelArguments(model: $0, reasoning: $1) },
-        modelArguments: { model, reasoning in
-            ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? [])
-        },
-        readOnlyLaunchArguments: nil,
-        readOnlyHeadless: { prompt, _, _, _, model, reasoning in
-            let effort = reasoning.flatMap { Harness.pi.fallbackEfforts.contains($0) ? $0 : nil }
-            // PI reads any path; `--` keeps a prompt starting with a dash the prompt.
-            return ["-p"] + piHeadlessOptions + ["--tools", piReadingTools.joined(separator: ",")]
-                + (model.isEmpty ? [] : Harness.pi.modelArguments(model: model, reasoning: effort)) + ["--", prompt]
-        },
-        readsAnswerFromFile: false,
-        headlessAnswer: { stdout, _ in stdout },
-        resumeArguments: { ["--session", $0] },    // a session id or file
-        models: .launch(sources: { PiModelCatalog.sources(home: $0) },
-                        list: { try PiModelCatalog.discover(executable: $0, runner: $1) }),
-        skillRoots: { home, project in
-            // PI runs a skill as `/skill:<name>`.
-            let user = home.appendingPathComponent(".pi/agent")
-            var roots = [SkillRoot(.skills(namespace: "skill"), user.appendingPathComponent("skills"), .user),
-                         SkillRoot(.skills(namespace: "skill"), home.appendingPathComponent(".agents/skills"), .user),
-                         SkillRoot(.commands(), user.appendingPathComponent("prompts"), .user)]
-            if let project {
-                roots += [SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".pi/skills"), .project),
-                          SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".agents/skills"), .project),
-                          SkillRoot(.commands(), project.appendingPathComponent(".pi/prompts"), .project)]
-            }
-            return roots
-        },
-        makeDriver: { home, port, source in source.map { PiDriver(home: home, daemonPort: port, source: $0) } })
-
     static let agy: Harness = Harness(
         agent: .agy, executable: "agy", displayName: "Antigravity", support: .basic,
         installCommand: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
@@ -206,4 +167,44 @@ extension Harness {
             return roots
         },
         makeDriver: { home, port, shim in shim.map { AgyDriver(home: home, daemonPort: port, shimPath: $0) } })
+
+    static let pi: Harness = Harness(
+        agent: .pi, executable: "pi", displayName: "PI", support: .basic,
+        installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
+        fallbackEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], defaultEffort: "medium",
+        noModelsExplanation: "No PI providers are signed in. Run /login in PI.",
+        skillSigil: "/", hookEndpoint: "/hook/pi",
+        bundledResource: .source("pi-aiterm-status.ts"),
+        promptFlag: [],
+        launchArguments: { Harness.pi.modelArguments(model: $0, reasoning: $1) },
+        modelArguments: { model, reasoning in
+            ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? [])
+        },
+        readOnlyLaunchArguments: nil,
+        readOnlyHeadless: { prompt, _, _, _, model, reasoning in
+            let effort = reasoning.flatMap { Harness.pi.fallbackEfforts.contains($0) ? $0 : nil }
+            // PI reads any path; `--` keeps a prompt starting with a dash the prompt.
+            return ["-p"] + piHeadlessOptions + ["--tools", piReadingTools.joined(separator: ",")]
+                + (model.isEmpty ? [] : Harness.pi.modelArguments(model: model, reasoning: effort)) + ["--", prompt]
+        },
+        readsAnswerFromFile: false,
+        headlessAnswer: { stdout, _ in stdout },
+        resumeArguments: { ["--session", $0] },    // a session id or file
+        models: .launch(sources: { PiModelCatalog.sources(home: $0) },
+                        list: { try PiModelCatalog.discover(executable: $0, runner: $1) }),
+        skillRoots: { home, project in
+            // PI runs a skill as `/skill:<name>`.
+            let user = home.appendingPathComponent(".pi/agent")
+            var roots = [SkillRoot(.skills(namespace: "skill"), user.appendingPathComponent("skills"), .user),
+                         SkillRoot(.skills(namespace: "skill"), home.appendingPathComponent(".agents/skills"), .user),
+                         SkillRoot(.commands(), user.appendingPathComponent("prompts"), .user)]
+            if let project {
+                roots += [SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".pi/skills"), .project),
+                          SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".agents/skills"), .project),
+                          SkillRoot(.commands(), project.appendingPathComponent(".pi/prompts"), .project)]
+            }
+            return roots
+        },
+        makeDriver: { home, port, source in source.map { PiDriver(home: home, daemonPort: port, source: $0) } })
+
 }
