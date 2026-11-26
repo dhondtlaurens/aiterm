@@ -69,7 +69,7 @@ import Testing
         let rows = SignalsSheetModel.rows(state: world.state, section: .operator,
                                           failure: { $0 == failing ? issue : nil }, now: world.now)
         let retry = SignalReadIssues.retry(at: world.now + SignalPoller.failureBackOff, from: world.now)
-        #expect(rows.first { $0.id == broken }?.issues == ["This version cannot run this signal."])
+        #expect(rows.first { $0.id == broken }?.issues == ["This signal can’t run as it is set up."])
         #expect(rows.first { $0.id == failing }?.issues == ["Can’t read Jira: The server answered 401. " + retry, "PAY-7: No project",
                                                             "PAY-9: No project"])
     }

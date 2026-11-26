@@ -125,6 +125,9 @@ old shape. `operator-session-0.58.json` is synthetic, derived from that file onc
 terminal. Neither is re-recorded by a test; neither holds a real person's data. `state.json` and the
 brief and tool fixtures were not touched.
 
+Both were removed on 26 Nov 2026 with that clearing: a workspace is now brought forward by update
+scripts (`AiTermCore/Updates/`), and one from before 1.0 is not read.
+
 ## Signal triggers, step 2
 
 18 Nov 2026. Signal triggers, step 2: a signal is a Start and a Done trigger (source, description, query)
@@ -179,3 +182,18 @@ Still fourteen tools.
   and `scheduleCursors` fields are absent while nil or empty, and the new `schedule` and `operator`
   sources and `run` item kind appear only in signals and tasks that use them
   (`SignalScheduleFormatTests`).
+
+## Workspace format 2.0.0
+
+26 Nov 2026. The workspace carries its format and is read in that format only; update scripts bring
+an older file forward (`AiTermCore/Updates/`). A deliberate format change, not a refactor.
+
+- The `state.json` that 1.5.0 wrote (unchanged since `v1.5.0`) is frozen as
+  `app/Tests/AiTermCoreTests/Updates/Fixtures/state-1.5.0.json`, the 2.0.0 script's input; it is
+  never re-recorded.
+- `state.json`: re-recorded by `AITERM_RECORD_SIGNAL_STATE=1 scripts/test.sh swift -- --filter SignalSavedFormatTests`.
+  It only gains `"version": "2.0.0"`, each task's `kind` and `takenOver`, each Jira ref's `source`,
+  each signal's `kind` (in `signals` and in every stage's copy), an empty `conversations`, and the
+  empty `operatorFolded` and `scheduleCursors` and the false `operatorOpen`, all now always written.
+- `Update2_0_0Tests.the150GoldenBecomesThe200Golden` proves the two agree: the 1.5.0 file, updated,
+  loads as `SignalSavedFormatTests.state()` and saves this file's bytes.

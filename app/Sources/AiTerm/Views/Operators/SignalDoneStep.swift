@@ -24,14 +24,13 @@ struct SignalDoneStep: View {
     }
     private var thenHelp: String {
         switch model.then {
-        case .unknown: "Choose a supported finish for this version."
         case .keep: "It stays in its project, with its window and worktree."
         case .archive: "Its window and worktree close. Branch and conversation stay in the Archive. Unsaved work keeps the worktree."
         case .remove: "The task and its worktree go. Unsaved work keeps the worktree."
         }
     }
     private static func thenLabel(_ then: SignalFinish.Then) -> String {
-        switch then { case .unknown: "Not supported by this version"; case .keep: "Keep the task"; case .archive: "Archive it"; case .remove: "Remove it" }
+        switch then { case .keep: "Keep the task"; case .archive: "Archive it"; case .remove: "Remove it" }
     }
 }
 
@@ -74,7 +73,6 @@ struct SignalDoneSummary: View {
             : query.isEmpty ? Text("its Done query matches")
             : Text("it matches ") + Text(query).fontWeight(.semibold)
         let ending = switch model.then {
-        case .unknown: "this version cannot finish it"
         case .keep: "its task is kept"
         case .archive: "its task is archived"
         case .remove: model.deleteMergedBranch ? "its task is removed, and its branch deleted only if it’s merged and unchanged" : "its task is removed"

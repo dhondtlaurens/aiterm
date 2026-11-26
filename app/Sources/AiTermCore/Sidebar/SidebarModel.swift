@@ -312,10 +312,16 @@ public enum SidebarModel {
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
 
-    /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, then the active test runs of
-    /// the tabs that ended their turn, as in `backgroundJobs`.
+    /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, each job naming its tab's
+    /// vendor, then the active test runs of the tabs that ended their turn, as in `backgroundJobs`.
     public static func displayJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { $0.work.map(\.displayJob) }
+        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { tab in
+            tab.work.map { item in
+                var job = item.displayJob
+                job.agent = tab.agent
+                return job
+            }
+        }
         let tests = tabs.filter(\.state.turnEnded).compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
@@ -379,7 +385,11 @@ public enum SidebarModel {
     }
 
     public static func avatars(for sessions: [SessionInfo], max: Int = avatarMax) -> AvatarGroup {
-        let ordered = sessions.sorted { $0.tabIndex < $1.tabIndex }.map(\.agent)
+        avatars(of: sessions.sorted { $0.tabIndex < $1.tabIndex }.map(\.agent), max: max)
+    }
+
+    /// Agents in their order as an avatar group: up to `max` marks, the last becoming `+n` once there are more.
+    public static func avatars(of ordered: [SessionAgent], max: Int = avatarMax) -> AvatarGroup {
         guard ordered.count > max else { return AvatarGroup(marks: ordered, overflow: 0) }
         return AvatarGroup(marks: Array(ordered.prefix(max - 1)), overflow: ordered.count - (max - 1))
     }
@@ -434,17 +444,14 @@ public enum SidebarModel {
         let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
                         terminals: Dictionary(grouping: state.terminals, by: \.projectId),
                         signalNames: Dictionary(state.signals.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }))
-        // A row only a newer build can draw is skipped, and does not count as an end to move towards.
-        let drawn = state.items.indices.filter { state.items[$0].isDrawn }
-        let first = drawn.first ?? 0, last = drawn.last ?? 0
-        return state.items.enumerated().compactMap { index, item in
+        let last = state.items.count - 1
+        return state.items.enumerated().map { index, item in
             switch item {
-            case .unknown: return nil
-            case .divider(let d): return .divider(DividerEntry(divider: d, canMoveUp: index > first, canMoveDown: index < last))
+            case .divider(let d): return .divider(DividerEntry(divider: d, canMoveUp: index > 0, canMoveDown: index < last))
             case .project(let project):
                 var section = section(project: project, rows: rows, tabs: tabs,
                                       branchByCwd: branchByCwd, projectBranch: projectBranch, diffByTask: diffByTask)
-                section.canMoveUp = index > first; section.canMoveDown = index < last
+                section.canMoveUp = index > 0; section.canMoveDown = index < last
                 return .project(section)
             }
         }
@@ -476,8 +483,6 @@ public enum SidebarModel {
                                 diffByTask: [UUID: DiffStat]) -> ProjectSection {
         let projectTasks = rows.tasks[project.id] ?? []
         // Keep both lanes in saved order, but never let a newly-created task land below reviews.
-        // `nil` is the legacy representation of a task, so only an explicit `.review` belongs in
-        // the second lane.
         let orderedTasks = projectTasks.filter { $0.kind != .review }
             + projectTasks.filter { $0.kind == .review }
         var tasks = orderedTasks.map {

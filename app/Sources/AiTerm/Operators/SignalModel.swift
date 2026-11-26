@@ -67,7 +67,7 @@ import AiTermCore
          save: @escaping @MainActor (Signal) async throws -> Void) {
         self.original = signal; self.createdAt = signal?.createdAt ?? at; self.projects = projects; self.context = context; self.seen = seen
         self.readPreview = preview; self.save = save
-        let kind = signal.map { $0.kind ?? .operator } ?? kind
+        let kind = signal?.kind ?? kind
         self.kind = kind
         // A project signal runs one agent: the first row.
         let choices = signal?.agents ?? ModelChoice.pair.compactMap { context.defaults[$0] }
@@ -280,7 +280,6 @@ import AiTermCore
     /// Whether the trigger's Write button can be pressed: it has a description and a source AiTerm reads.
     func canWrite(start: Bool) -> Bool {
         let trigger = start ? self.start : done
-        if case .unknown = trigger.source { return false }
         if trigger.source == .operator || trigger.source == .person { return false }
         return !trigger.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

@@ -77,7 +77,6 @@ public struct SignalTask: Codable, Equatable, Sendable {
         case .launching, .choosing, .working, .watching, .blocked: return true
         case .done: return !pendingStages.isEmpty || thenApplied != true
         case .archived: return !pendingStages.isEmpty
-        case .unknown: return false
         }
     }
 }
@@ -148,7 +147,6 @@ public enum TaskPhase: KindTaggedEnum, Equatable, Sendable {
     case blocked
     case done
     case archived
-    case unknown(JSONValue)
 
     static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
         switch kind {
@@ -173,7 +171,6 @@ public enum TaskPhase: KindTaggedEnum, Equatable, Sendable {
             case .blocked: return .known("blocked")
             case .done: return .known("done")
             case .archived: return .known("archived")
-            case .unknown(let value): return .unknown(value)
             }
         }
     }

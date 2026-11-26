@@ -519,7 +519,5 @@ pause opens it at the next start; a launch whose agent is already running is not
 Queued pick-ups are not saved: the first full read after a start decides them again. A failed read's
 count is kept in memory, so a restart counts three again before the banner.
 
-A build from before project signals drops a signal's kind when it saves the workspace, so a project
-signal becomes an Operator signal there; do not open this workspace with an older build.
-Switching between builds whose Operator records differ follows the release procedure's
-[Operator format](workflow/release.md#operator-format).
+A change to any of these records is a change to the saved workspace, brought forward by an update
+script ([Workspace format and update scripts](workflow/release.md#workspace-format-and-update-scripts)).

@@ -184,7 +184,8 @@ in the tab, forgets every child still counted. One lost `SubagentStop` would oth
 Each session carries one ordered `work` list (`work_items`). First comes what the last Claude Stop
 listed and still stands, each item marked `holdsTurn`: a subagent always, a shell once the turn has
 ended or while the background-shell reader lists it (with the reader's text), a monitor or task
-once the turn has ended. Then come the counted subagents of the tab's current conversation and the
+once the turn has ended. Agent work that is no counted child (a `workflow`, a `cloud session`, a `dream`) goes out as
+`agent` so the card can show it by its vendor, and holds the turn exactly as a task does. Then come the counted subagents of the tab's current conversation and the
 reader's shells that the Stop did not list, holding nothing. The sidebar's work card draws the whole
 list, also while the tab works or asks; the row's background status and the Operator read only
 `holdsTurn`. Optional `displayLabel` metadata enriches the card without changing raw `text`,
@@ -235,7 +236,7 @@ Code hands the completion to the agent as its next prompt. The reading is positi
 and for a teammate spawned before this daemon saw the conversation start, an entry stays as the
 Stop listed it. Only items that hold the turn spin the mark. The card's heading counts every item
 that is not idle, shown work that holds nothing included, and lists idle teammates after the running
-work, muted, under "Idle (can be messaged)".
+work, muted, each avatar wearing a `zzz` corner.
 
 Within a conversation, a Claude child can also die without a `SubagentStop`. Claude Code's stream
 watchdog kills a background child that has made no progress for 600 s ("Agent stalled"), and sends

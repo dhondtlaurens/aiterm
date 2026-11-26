@@ -297,7 +297,7 @@ import Testing
         #expect(invalidates(readsTheList(rows)) { controller.live.handle(.sessionChanged(event)) })
         let row = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }
         #expect(row?.status == before)
-        #expect(row?.background == [BackgroundJob(kind: .subagent, text: "Review")])
+        #expect(row?.background == [BackgroundJob(kind: .subagent, text: "Review", agent: event.agent)])
         event.work[0].displayLabel = "Inspect checkout changes"
         #expect(invalidates(readsTheList(rows)) { controller.live.handle(.sessionChanged(event)) })
         let renamed = rows.sections.flatMap(\.tasks).first { $0.id == Self.taskId }

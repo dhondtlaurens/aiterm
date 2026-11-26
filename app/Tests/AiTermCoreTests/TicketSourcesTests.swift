@@ -239,11 +239,12 @@ import Foundation
 
     // -- saves, prompts and publishing ----------------------------------------------------------
 
-    @Test func aSavedRefWithoutASourceIsJiraAndJiraIsWrittenWithoutOne() throws {
-        let old = try JSONDecoder().decode(JiraRef.self, from: Data(#"{"key":"FE-1","summary":"s","url":"u"}"#.utf8))
-        #expect(old.source == .jira)
-        let written = String(decoding: try JSONEncoder().encode(old), as: UTF8.self)
-        #expect(!written.contains("source"))
+    @Test func aRefSavesItsSourceAndRoundTrips() throws {
+        let jira = JiraRef(key: "FE-1", summary: "s", url: "u")
+        #expect(jira.source == .jira)
+        #expect(try JSONValue(encoding: jira)["source"] != nil)
+        #expect(try JSONDecoder().decode(JiraRef.self, from: JSONEncoder().encode(jira)) == jira)
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(JiraRef.self, from: Data(#"{"key":"FE-1","summary":"s","url":"u"}"#.utf8)) }
         let issue = JiraRef(key: "#53", summary: "s", url: "u", source: .gitLab(project: "ai/agentflow"))
         #expect(try JSONDecoder().decode(JiraRef.self, from: JSONEncoder().encode(issue)) == issue)
     }

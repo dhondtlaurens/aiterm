@@ -189,11 +189,12 @@ class RawSession:
 
 @dataclass(frozen=True, slots=True)
 class BackgroundJob:
-    """One piece of work running beside a Claude turn: a `shell` by its command, a `monitor`, a `subagent` or any other
-    `task` by its description. A subagent's `agent_id` names the child the status engine counts, any other job's
-    `task_id` Claude Code's id for it; neither is sent. `teammate`: a named agent of Claude Code's agent team, which a
-    Stop lists as running for as long as it lives, idle or not; its `text` is the description it was spawned with."""
-    kind: Literal["shell", "monitor", "task", "subagent"]
+    """One piece of work running beside a Claude turn: a `shell` by its command, a `monitor`, a `subagent`, an `agent`
+    (agent work that is no counted child: a workflow, a cloud session, a dream) or any other `task` by its description.
+    A subagent's `agent_id` names the child the status engine counts, any other job's `task_id` Claude Code's id for it;
+    neither is sent. `teammate`: a named agent of Claude Code's agent team, which a Stop lists as running for as long as
+    it lives, idle or not; its `text` is the description it was spawned with."""
+    kind: Literal["shell", "monitor", "task", "agent", "subagent"]
     text: str
     agent_id: str | None = None
     task_id: str | None = None
@@ -208,7 +209,7 @@ class BackgroundJob:
 class WorkItem:
     """One line of a session's work list (work_items). `holds_turn`: the last Stop listed it, so the agent takes the
     turn up again once it ends. `idle`: a teammate that finished its turn and waits for a message; it holds nothing."""
-    kind: Literal["shell", "monitor", "task", "subagent"]
+    kind: Literal["shell", "monitor", "task", "agent", "subagent"]
     text: str
     holds_turn: bool
     display_label: str | None = None
@@ -369,7 +370,7 @@ class SessionInfo:
     # conversation, so it goes with the agent's process (SessionRegistry).
     conversation_id: str | None = field(default=None, metadata={"process": True})
     # The terminal row this tab's window was opened for (TERMINAL_TAG), which the app adopts the
-    # window by; None for a task's tab and for a terminal opened by an app too old to send it.
+    # window by; None for a task's tab.
     terminal_id: str | None = None
     # The version of the agent CLI the tab runs, as the CLI's own files report it: Claude's session
     # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).

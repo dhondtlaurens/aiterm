@@ -67,12 +67,7 @@ public struct OracleRound: Codable, Equatable, Sendable, Identifiable {
     /// Only finished rounds are saved: an agreed worker answer about to be delivered, a critique waiting for a
     /// revised proposal, or a binding that went to the person.
     public enum Stage: String, Codable, CaseIterable, Sendable {
-        case ready, delivered
-        case unanswered = "unchallenged"
-    }
-    private enum CodingKeys: String, CodingKey {
-        case id, tool, stage, critique, askedEvidence, result, askedAt, round, reply
-        case unansweredReason = "unchallengedReason"
+        case ready, delivered, unanswered
     }
 
     public var id: String

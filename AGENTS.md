@@ -20,6 +20,9 @@ originals, never the links.
   as the person's default for every new session.
 - Preserve the Signal contracts during refactors, and never regenerate contract goldens to
   accommodate an incidental refactor.
+- The saved workspace has one format per build. A change to it ships as a major version with an
+  update script in `app/Sources/AiTermCore/Updates/Scripts/`; no decoder reads an older or a newer
+  format (`docs/workflow/release.md`).
 
 ## Where to look
 

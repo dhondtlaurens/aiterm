@@ -49,6 +49,9 @@ CLAUDE_MATCHABLE_TASK_TYPES = frozenset({"subagent", "shell", "monitor", "MCP ta
 # A named agent of the session's agent team (the Agent tool with a `name`). Claude Code lists one as `running` for as long
 # as it lives, idle and waiting for a message or not (2.1.332 sends no idle flag): the transcript tells them apart.
 CLAUDE_TEAMMATE_TASK_TYPE = "teammate"
+# Agent work Claude Code does not count as a child (Claude Code 2.1.332's names): a workflow runs its agents behind its
+# own id, a cloud session runs in the cloud, a dream consolidates memory. Sent as `agent`: the card shows it by its vendor.
+CLAUDE_AGENT_TASK_TYPES = frozenset({"workflow", "cloud session", "dream"})
 # The statuses Claude Code lists a task under while it is in flight.
 CLAUDE_IN_FLIGHT_TASK_STATUSES = frozenset({"running", "pending"})
 # How Claude Code describes the watch it keeps on an artifact it published or was asked to watch: a monitor with no
@@ -75,7 +78,8 @@ def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
         if kind != "subagent":
             label = nonempty_string(task.get("description"))
             label = " ".join(label.split()) if label else None
-            work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said,
+            work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor"
+                                      else "agent" if kind in CLAUDE_AGENT_TASK_TYPES else "task", said,
                                       task_id=nonempty_string(task.get("id")),
                                       display_label=label if label and (label != said or (
                                           kind == "shell" and not nonempty_string(task.get("command")))) else None,

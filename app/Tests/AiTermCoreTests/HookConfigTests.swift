@@ -119,16 +119,42 @@ import Foundation
         #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s").state == .current)
     }
 
-    @Test func testLegacyOwnedHeaderIsRenamedWithoutDuplicatingHooks() throws {
-        let old = Data(#"{"hooks":{"Stop":[{"hooks":[{"_aiterm":true,"type":"http","headers":{"X-AIterm-Hook":"1"}}]},{"hooks":[{"type":"http","headers":{"X-AIterm-Hook":"foreign"}}]}]}}"#.utf8)
-        let (merged, _) = try ClaudeSettings.merge(old, hookURL: "u", shimPath: "s")
-        let obj = try JSONSerialization.jsonObject(with: merged) as! [String: Any]
-        let stops = (obj["hooks"] as! [String: [[String: Any]]])["Stop"]!
-        #expect(stops.count == 2)
-        let ours = (stops[0]["hooks"] as! [[String: Any]])[0]["headers"] as! [String: String]
-        let foreign = (stops[1]["hooks"] as! [[String: Any]])[0]["headers"] as! [String: String]
-        #expect(ours == ["X-AiTerm-Hook": "1"])
-        #expect(foreign == ["X-AIterm-Hook": "foreign"])
+    /// A tool that re-saves `settings.json` through its own schema drops the `_aiterm` marker, and an http hook's
+    /// `async`. The copies it leaves are still AiTerm's: the probe calls the file outdated rather than missing, and a
+    /// repair folds them into one current hook per event, including an event AiTerm no longer manages, instead of
+    /// adding one more beside them each time. Hooks that only look alike stay.
+    @Test func hooksStrippedOfTheirMarkerAreStillOursAndARepairFoldsThem() throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let settings = home.appendingPathComponent(".claude/settings.json")
+        let url = "http://127.0.0.1:47821/hook/claude"
+        let curl = "curl -s -m 2 -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H 'Expect:' --data-binary @- " + url
+        let strippedHTTP: [String: Any] = ["type": "http", "url": url, "headers": ["X-AiTerm-Hook": "1"], "timeout": 3]
+        let strippedCommand: [String: Any] = ["type": "command", "command": curl, "timeout": 3, "async": true]
+        let lookalikeHeader: [String: Any] = ["type": "http", "url": url, "headers": ["X-AIterm-Hook": "foreign"]]
+        let lookalikeURL: [String: Any] = ["type": "http", "url": "https://example.com/hook/claude", "headers": ["X-AiTerm-Hook": "1"]]
+        func entries(_ hook: [String: Any], _ count: Int) -> [[String: Any]] { Array(repeating: ["matcher": "", "hooks": [hook]], count: count) }
+        let hooks: [String: Any] = [
+            "Stop": entries(strippedHTTP, 3) + [["matcher": "", "hooks": [strippedHTTP, lookalikeHeader]]],
+            "SessionStart": entries(strippedHTTP, 2) + entries(strippedCommand, 1),
+            "PostModelSwitch": entries(strippedHTTP, 2),
+            "Notification": entries(lookalikeURL, 1),
+        ]
+        try JSONSerialization.data(withJSONObject: ["hooks": hooks]).write(to: settings)
+        let driver = ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s")
+        #expect(driver.state == .outdated, "the stripped copies are AiTerm's, so the hooks are outdated, not missing")
+
+        try driver.install()
+        let repaired = try JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as! [String: Any]
+        let byEvent = repaired["hooks"] as! [String: [[String: Any]]]
+        func installed(_ event: String) -> [[String: Any]] { (byEvent[event] ?? []).flatMap { $0["hooks"] as! [[String: Any]] } }
+        for event in ClaudeSettings.events {
+            #expect(installed(event).filter(ClaudeSettings.isOurHook).count == 1, "one AiTerm hook for \(event)")
+        }
+        #expect(installed("Stop").count == 2 && installed("Stop").contains { ($0 as NSDictionary) == (lookalikeHeader as NSDictionary) })
+        #expect(installed("SessionStart").map { $0["type"] as? String } == ["command"])
+        #expect(byEvent["PostModelSwitch"] == nil, "an event AiTerm no longer manages keeps nothing of AiTerm's")
+        #expect(installed("Notification").contains { ($0 as NSDictionary) == (lookalikeURL as NSDictionary) })
+        #expect(driver.state == .current)
     }
 
     @Test func testCodexMergeAppendsOnceAndReplacesOwnBlock() {

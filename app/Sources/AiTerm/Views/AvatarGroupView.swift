@@ -20,11 +20,14 @@ struct AvatarGroupView: View {
     /// The signals glyph (O6), as the section headings' signals icon draws it.
     static let signalGlyph = "dot.radiowaves.left.and.right"
     @Environment(\.interfaceScale) private var scale
-    private var size: CGFloat { scale(Size.avatar) }
+    private var size: CGFloat { scale(markSize) }
     /// The group's fixed width: two stacked marks, which is all `SidebarModel.avatarMax` lets a row
     /// draw. A group with one mark still takes this width, so every row's title starts at the same x.
     static func columnWidth(_ scale: InterfaceScale) -> CGFloat { scale(Size.avatar) * 2 + scale(overlap) }
     let group: AvatarGroup
+    /// Each mark's diameter before scaling: `Size.avatar` on a row; the background-work card's heading draws the group
+    /// at `Size.vendorMark`, inside its `Size.chip` line, two marks wide at that size.
+    var markSize: CGFloat = Size.avatar
     /// Whether the first mark wears the signals disc.
     var signalDisc = false
     /// Replaces the `ring: Color` this view used to take. The ring is painted *over* the avatar
@@ -42,7 +45,8 @@ struct AvatarGroupView: View {
                     .frame(width: size, height: size).overlay(Circle().stroke(surface.occludingBackground, lineWidth: Self.ringWidth))
             }
         }
-        .frame(width: Self.columnWidth(scale), alignment: .leading)
+        // Two marks at this group's own size: `columnWidth` on a row, narrower in the background-work card's heading.
+        .frame(width: size * 2 + scale(Self.overlap), alignment: .leading)
         .overlay(alignment: .topLeading) {
             if signalDisc { disc }
         }

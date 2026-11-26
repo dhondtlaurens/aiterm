@@ -138,8 +138,7 @@ import Darwin
 
         var edited = AppState.empty
         edited.lastModelByAgent[.codex] = "gpt"
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        let outside = try encoder.encode(edited)
+        let outside = try store.encoded(edited)
         try outside.write(to: store.url)
         try store.save(.empty)
         #expect(try Data(contentsOf: store.backupURL) == outside)
@@ -214,16 +213,14 @@ import Darwin
         var duplicateTerminal = valid; duplicateTerminal.terminals.append(terminal)
         var orphanTask = valid; orphanTask.tasks[0].projectId = UUID()
         var orphanTerminal = valid; orphanTerminal.terminals[0].projectId = UUID()
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         for candidate in [duplicateProject, duplicateTask, duplicateTerminal, orphanTask, orphanTerminal] {
             #expect(throws: (any Error).self) { try store.save(candidate) }
             #expect(try Data(contentsOf: store.url) == original)
-            try encoder.encode(candidate).write(to: store.url)
+            try store.encoded(candidate).write(to: store.url)
             #expect(throws: (any Error).self) { try store.load() }
             try original.write(to: store.url)
         }
-        // The unchanged AppState encoding is the legacy fixture; no envelope is added.
-        try encoder.encode(valid).write(to: store.url)
+        try store.encoded(valid).write(to: store.url)
         #expect(try store.load() == valid)
         try Data("{broken".utf8).write(to: store.backupURL)
         let beforeRestore = try Data(contentsOf: store.url)
@@ -275,40 +272,44 @@ import Darwin
         #expect(throws: (any Error).self) { try StateStore(url: url).save(s) }
     }
 
-    /// `state.json` is shared by every build on the machine, so an older build meets values a newer
-    /// one wrote: an agent and a task kind it has no case for, and a sidebar row of a kind it has
-    /// never heard of. It opens the workspace, shows what it understands, and a save writes the
-    /// rest back as it came.
-    @Test func aWorkspaceFromANewerBuildLoadsAndSurvivesAResave() throws {
+    /// A save stamps the store's format beside the workspace's fields, and a load reads that format
+    /// only: an older file waits for the update scripts, a newer one is refused, and neither is
+    /// changed by the attempt.
+    @Test func aSaveIsStampedAndOnlyThatFormatLoads() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let store = StateStore(url: dir.appendingPathComponent("state.json"))
-        let project = Project.make(name: "Repo", path: "/tmp/repo")
-        let task = TaskItem.make(project: project.id, worktreePath: "/tmp/repo/.worktrees/work")
-        var known = AppState.empty
-        known.items = [.project(project)]; known.tasks = [task]
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(known)) as? [String: Any])
-        let folder: [String: Any] = ["kind": "folder", "folder": [
-            "id": UUID().uuidString, "name": "Clients", "count": 3, "ratio": 1.5, "open": true,
-            "tags": ["a", "b"], "parent": NSNull(), "nested": ["deep": [1, 2]]]]
-        json["items"] = try #require(json["items"] as? [Any]) + [folder]
-        var tasks = try #require(json["tasks"] as? [[String: Any]])
-        tasks[0]["agent"] = "gemini"; tasks[0]["kind"] = "spike"
-        json["tasks"] = tasks
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: json).write(to: store.url)
+        let store = StateStore(url: dir.appendingPathComponent("state.json"), format: ReleaseVersion(major: 3, minor: 0, patch: 0))
+        try store.save(.empty)
+        let saved = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: store.url))
+        #expect(saved["version"] == "3.0.0" && saved["items"] == [])
+        #expect(try store.load() == .empty)
 
-        let loaded = try store.load()
-        #expect(loaded.projects == [project])
-        #expect(loaded.items.count == 2 && loaded.items[0].project == project)
-        #expect(loaded.tasks.first?.agent == .claude && loaded.tasks.first?.kind == .task)
+        for (version, failure) in [("2.0.0", StateStore.Failure.needsUpdate(ReleaseVersion(major: 2, minor: 0, patch: 0))),
+                                   ("4.0.0", .newerWorkspace(ReleaseVersion(major: 4, minor: 0, patch: 0)))] {
+            var other = saved; other["version"] = .string(version)
+            let bytes = try JSONEncoder().encode(other)
+            try bytes.write(to: store.url)
+            #expect(throws: failure) { try store.load() }
+            #expect(try Data(contentsOf: store.url) == bytes)
+        }
+    }
 
-        try store.save(loaded)
-        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: store.url)) as? NSDictionary)
-        #expect((saved["items"] as? NSArray)?.lastObject as? NSDictionary == folder as NSDictionary)
-        let savedTask = try #require((saved["tasks"] as? [NSDictionary])?.first)
-        #expect(savedTask["agent"] as? String == "gemini" && savedTask["kind"] as? String == "spike")
-        #expect(try store.load() == loaded)
+    /// A backup in an older format can replace the primary, for the update scripts to bring forward;
+    /// one in a newer format cannot.
+    @Test func anOlderBackupIsCopiedForTheUpdateAndANewerOneRefused() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StateStore(url: dir.appendingPathComponent("state.json"), format: ReleaseVersion(major: 3, minor: 0, patch: 0))
+        try store.save(.empty)
+        let older = Data(#"{"version":"2.0.0","anything":"the update reads"}"#.utf8)
+        try older.write(to: store.backupURL)
+        #expect(store.hasValidBackup)
+        try store.replaceWithBackup()
+        #expect(try Data(contentsOf: store.url) == older)
+
+        try Data(#"{"version":"4.0.0"}"#.utf8).write(to: store.backupURL)
+        #expect(!store.hasValidBackup)
+        #expect(throws: StateStore.Failure.newerWorkspace(ReleaseVersion(major: 4, minor: 0, patch: 0))) { try store.replaceWithBackup() }
+        #expect(try Data(contentsOf: store.url) == older)
     }
 }

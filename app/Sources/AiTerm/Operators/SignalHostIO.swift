@@ -89,7 +89,7 @@ import AiTermCore
         case .gitHub:
             guard host.lowercased() == "github.com" else { throw ActionUnavailable("Its pull request is not on GitHub.") }
             return SignalRequestRef(remote: "https://github.com/" + remote.path, number: number)
-        case .jira, .schedule, .operator, .person, .unknown: throw ActionUnavailable("Only a GitLab or GitHub trigger reads a merge request.")
+        case .jira, .schedule, .operator, .person: throw ActionUnavailable("Only a GitLab or GitHub trigger reads a merge request.")
         }
     }
     /// Whether `done`'s query matches the task's own item now: for Jira, its ticket (a merge request task's from the key
@@ -122,7 +122,7 @@ import AiTermCore
             guard let request, let origin else { return false }
             let reference = try accountReference(item, number: request.iid, origin: origin, source: .gitHub, links: links)
             return try await GitHubAccount(config: gitHub, session: links.session).matches(try GitHubQuery.done(done.query), request: reference, branch: task.branch)
-        case .schedule, .unknown: throw ActionUnavailable("This version of AiTerm cannot read this Done trigger.")
+        case .schedule: throw ActionUnavailable("A schedule can only start a signal.")
         }
     }
     /// Whether the task's own branch has an open merge request on its host now, found by its known number or by the

@@ -52,20 +52,11 @@ public struct SignalStep: Codable, Equatable, Sendable {
 
 /// A prompt a signal composed that has still to reach its task's worker.
 public struct OwedPrompt: Codable, Equatable, Sendable {
-    public enum Kind: OpenStringEnum, Hashable, Sendable {
+    public enum Kind: String, Codable, Hashable, Sendable {
         /// The first prompt, given to a new agent at launch.
         case launch
         /// Typed into an existing conversation: a re-match, or a task you made that a signal matched.
         case delivery
-        case unknown(String)
-        static let knownCases: [Self] = [.launch, .delivery]
-        var savedName: String {
-            switch self {
-            case .launch: "launch"
-            case .delivery: "delivery"
-            case .unknown(let value): value
-            }
-        }
     }
     /// The composed prompt.
     public var text: String

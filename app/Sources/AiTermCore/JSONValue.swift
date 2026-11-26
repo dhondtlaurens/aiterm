@@ -52,9 +52,15 @@ public indirect enum JSONValue: Codable, Equatable, Sendable, ExpressibleByStrin
         return try decoder.decode(type, from: JSONEncoder().encode(self))
     }
 
-    /// The member `key` of an object; nil for anything else, or a member it does not have.
+    /// The member `key` of an object; nil for anything else, or a member it does not have. Setting
+    /// nil removes the member; setting on anything but an object changes nothing.
     public subscript(key: String) -> JSONValue? {
-        if case .object(let members) = self { members[key] } else { nil }
+        get { if case .object(let members) = self { members[key] } else { nil } }
+        set {
+            guard case .object(var members) = self else { return }
+            members[key] = newValue
+            self = .object(members)
+        }
     }
     public var stringValue: String? { if case .string(let v) = self { v } else { nil } }
     public var intValue: Int? { if case .int(let v) = self { v } else { nil } }

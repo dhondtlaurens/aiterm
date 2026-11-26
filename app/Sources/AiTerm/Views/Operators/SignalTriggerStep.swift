@@ -126,11 +126,11 @@ struct SignalTriggerStep: View {
         switch kind { case .query: "A query matches"; case .operatorDecides: "The Operator decides"; case .youDecide: "You decide" }
     }
     static func queryLabel(_ source: SignalTrigger.Source) -> String {
-        switch source { case .jira: "JQL"; case .gitLab: "GitLab query"; case .gitHub: "GitHub query"; case .schedule: "cron"; case .operator, .person, .unknown: "Query" }
+        switch source { case .jira: "JQL"; case .gitLab: "GitLab query"; case .gitHub: "GitHub query"; case .schedule: "cron"; case .operator, .person: "Query" }
     }
     /// Who checked a written query: Jira its JQL, AiTerm GitLab's syntax, GitHub its own.
     private static func checker(_ source: SignalTrigger.Source) -> String? {
-        switch source { case .jira: "Jira"; case .gitLab, .schedule: "AiTerm"; case .gitHub: "GitHub"; case .operator, .person, .unknown: nil }
+        switch source { case .jira: "Jira"; case .gitLab, .schedule: "AiTerm"; case .gitHub: "GitHub"; case .operator, .person: nil }
     }
     private static func describePlaceholder(_ source: SignalTrigger.Source, start: Bool) -> String {
         switch (source, start) {
@@ -142,7 +142,7 @@ struct SignalTriggerStep: View {
         case (.gitHub, false): "When I’ve reviewed it"
         case (.schedule, _): "Every Monday at 9am"
         case (.operator, _): "What done looks like, for the Operator and the Oracle"
-        case (.person, _), (.unknown, _): ""
+        case (.person, _): ""
         }
     }
     private static func queryPlaceholder(_ source: SignalTrigger.Source, start: Bool) -> String {
@@ -154,7 +154,7 @@ struct SignalTriggerStep: View {
         case (.gitHub, true): "is:open user-review-requested:@me"
         case (.gitHub, false): "-user-review-requested:@me"
         case (.schedule, _): "0 9 * * 1"
-        case (.operator, _), (.person, _), (.unknown, _): ""
+        case (.operator, _), (.person, _): ""
         }
     }
     private static func syntaxHelp(_ source: SignalTrigger.Source, start: Bool) -> String {
@@ -167,14 +167,13 @@ struct SignalTriggerStep: View {
         case (.schedule, _): "Minute, hour, day of month, month, weekday. Type your own, or describe it and let Claude write it."
         case (.operator, _): "Left empty: the prompt’s work is complete."
         case (.person, _): "No query: you decide when it’s done."
-        case (.unknown, _): "This version of AiTerm cannot read this source."
         }
     }
 }
 
 extension SignalTrigger.Source {
     var label: String {
-        switch self { case .jira: "Jira"; case .gitLab: "GitLab"; case .gitHub: "GitHub"; case .schedule: "Schedule"; case .operator: "Operator"; case .person: "You decide"; case .unknown(let value): value }
+        switch self { case .jira: "Jira"; case .gitLab: "GitLab"; case .gitHub: "GitHub"; case .schedule: "Schedule"; case .operator: "Operator"; case .person: "You decide" }
     }
     var mark: IconSource {
         switch self {
@@ -184,7 +183,6 @@ extension SignalTrigger.Source {
         case .schedule: .symbol("clock")
         case .operator: .symbol("checkmark.seal")
         case .person: .symbol("person")
-        case .unknown: .symbol("questionmark.circle")
         }
     }
 }
@@ -262,7 +260,7 @@ struct SignalMatchPreview: View {
         switch item {
         case .ticket(let ticket): ticket.key
         case .mergeRequest(let request): (model.start.source == .gitHub ? "#" : "!") + String(request.number)
-        case .run, .unknown: "Item"
+        case .run: "Item"
         }
     }
 }

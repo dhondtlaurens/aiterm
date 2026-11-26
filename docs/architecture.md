@@ -33,14 +33,15 @@ report truncation.
 them, and exposes `flush()` for boundaries that must be durable before proceeding. `StateStore`
 atomically writes the file and maintains recovery copies. Invalid records fail at this boundary;
 they are never silently discarded and then overwritten with a partial workspace. Recovery keeps
-the unreadable bytes available. A backup must itself decode to be usable. Switching between builds
-whose Operator records differ follows the release procedure's
-[Operator format](workflow/release.md#operator-format).
+the unreadable bytes available. A backup must itself decode to be usable, or be in an older format.
+The file is stamped with its format (`version`); `WorkspaceUpdater` runs the update scripts that
+bring an older file forward before it is read, and a newer one is refused
+([Workspace format and update scripts](workflow/release.md#workspace-format-and-update-scripts)).
 
 `AppState` stores projects, tasks (each with an optional `signalTask`, the Operator's record, or
 `signalOrigin`, the mark of the signal that started it), terminals, the archive, signals of both
 kinds, seen items, the projects folded in the Operator's section (`operatorFolded`) and one Operator
-session. Unknown keys round-trip, the retired `signalDividers` among them. Runtime jobs and sessions
+session. Runtime jobs and sessions
 stay separate. `LiveSessions`, `PerRow` and `SidebarProjection` scope observation to drawn facts;
 a row's piece of the Operator's status line and an open signal card are cells of their own, so an
 exchange redraws no row body. Project headings, in either section, compare `HeadingValue`; menus

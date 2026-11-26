@@ -6,8 +6,7 @@ import Testing
 @Suite struct SignalDomainTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    @Test(arguments: [TaskPhase.launching, .choosing, .working, .watching, .blocked,
-                      .done, .archived, .unknown(.string("future"))])
+    @Test(arguments: [TaskPhase.launching, .choosing, .working, .watching, .blocked, .done, .archived])
     func aTaskIsUnderTheOperatorExactlyWhenItHasARecord(_ phase: TaskPhase) throws {
         var world = SignalWorld()
         let id = world.workingTask(signal: world.signal())
@@ -78,7 +77,6 @@ import Testing
         Validity(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"), done: SignalTrigger(source: .gitLab, query: "reviewer:any"), valid: true),
         Validity(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"), done: SignalTrigger(source: .gitLab, query: "author:@me reviewer:@me"), valid: false),
         Validity(start: SignalTrigger(source: .gitHub, query: "user-review-requested:@me"), done: SignalTrigger(source: .gitHub, query: "is:issue"), valid: false),
-        Validity(start: SignalTrigger(source: .unknown("linear"), query: "mine"), valid: false),
         // Merge when ready only where the Start trigger's merge requests are the person's own.
         Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(mergesWhenReady: true), valid: true),
         Validity(start: SignalTrigger(source: .gitLab, query: "author:@me"), finish: SignalFinish(mergesWhenReady: true), valid: true),
@@ -89,7 +87,6 @@ import Testing
         // Remove offers a branch cleanup that still requires proof the branch was merged.
         Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(then: .remove, deletesMergedBranch: true), valid: true),
         Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(then: .archive, deletesMergedBranch: true), valid: false),
-        Validity(start: SignalTrigger(source: .jira, query: "labels = operator"), finish: SignalFinish(then: .unknown("later")), valid: false),
     ]
     @Test(arguments: validity) func aSignalRunsOnlyWithQueriesThatRunAndAFinishItsStartAllows(_ row: Validity) {
         var value = signal(); value.start = row.start; value.done = row.done; value.finish = row.finish
@@ -126,7 +123,6 @@ import Testing
             project("removed when done", valid: false) { $0.finish.then = .remove },
             project("its merged branch deleted", valid: false) { $0.finish = SignalFinish(then: .remove, deletesMergedBranch: true) },
             project("done when the Operator decides", valid: false) { $0.done = SignalTrigger(source: .operator, query: "") },
-            project("a kind from a newer build", valid: false) { $0.kind = .unknown("team") },
             KindValidity(name: "an Operator signal done when you decide", signal: operatorSignal, valid: false),
         ]
     }()
@@ -330,15 +326,6 @@ import Testing
         #expect(!FreshStartPolicy.shouldStart(session: OperatorSession(createdAt: now), now: now, contextTokens: 150000, idle: true))
     }
 
-    @Test func unknownAssociatedKindsRoundTripWithoutBecomingActionable() throws {
-        let json: JSONValue = ["kind": "future", "future": ["x": 9007199254740993]]
-        func check<T: Codable & Equatable>(_ type: T.Type) throws {
-            let decoded = try json.decode(type)
-            #expect(try JSONValue(encoding: decoded) == json)
-        }
-        try check(ItemRef.self); try check(TaskPhase.self); try check(JournalText.self)
-    }
-
     @Test func newWorkspaceKeysCoexistWithCurrentContracts() throws {
         var state = AppState.empty
         state.signals = [signal()]; state.operatorSession = OperatorSession(createdAt: now)
@@ -346,7 +333,7 @@ import Testing
         state.signalSeen = [SignalSeen(signal: state.signals[0].id, item: item, disposition: .started, at: now)]
         #expect(try JSONValue(encoding: state).decode(AppState.self) == state)
         let empty = try JSONValue(encoding: AppState.empty)
-        #expect(empty["signals"] == nil && empty["signalSeen"] == nil && empty["operatorSession"] == nil)
+        #expect(empty["signals"] == [] && empty["signalSeen"] == [] && empty["operatorSession"] == nil)
     }
 
     @Test func seenRetentionKeepsLiveItemsAndPrunesOldHistory() {
@@ -426,29 +413,15 @@ import Testing
         #expect(world.state.takeOver(other) == nil && world.state.archived(id: other)?.task.signalTask != nil, "An archived task is not taken over.")
     }
 
-    @Test func theTakenOverMarkRoundTripsAndIsAbsentFromATaskWithout() throws {
+    @Test func theTakenOverMarkRoundTrips() throws {
         var task = TaskItem.make(project: UUID(), branch: "work")
         let plain = try JSONEncoder().encode(task)
-        #expect(!String(decoding: plain, as: UTF8.self).contains("takenOver"))
+        #expect(try JSONValue(encoding: task)["takenOver"] == false)
         #expect(try JSONDecoder().decode(TaskItem.self, from: plain).takenOver == false)
         task.takenOver = true
         let marked = try JSONEncoder().encode(task)
         #expect(try JSONValue(encoding: task)["takenOver"] == true)
         #expect(try JSONDecoder().decode(TaskItem.self, from: marked) == task)
-    }
-
-    @Test func unsupportedFinishAndUnknownRecordsStayInertAndCanBePersisted() throws {
-        var s = signal(); s.done = SignalTrigger(source: .unknown("future"), query: "mine")
-        #expect(!s.isRunnable)
-        #expect(try JSONValue(encoding: s).decode(Signal.self) == s)
-        s.done.source = .jira; s.finish = SignalFinish(then: .unknown("future"))
-        #expect(!s.isRunnable)
-        #expect(try JSONValue(encoding: s).decode(Signal.self) == s)
-        var task = SignalTask(current: stage(s, .ticket(site: "https://jira.example", key: "PAY-1")), startedAt: now)
-        task.phase = .unknown(["kind": "future"])
-        #expect(throws: SignalTransitionError.self) {
-            try SignalTransitions.apply(.matched(stage(s, task.current.item)), to: task, at: now)
-        }
     }
 
     /// A task's line carries the triggers and finish its stage matched with; the signals list the current ones.
@@ -560,13 +533,6 @@ import Testing
         }
         let working = try SignalTransitions.apply(.workerStarted, to: launching, at: now)
         #expect(throws: SignalTransitionError.self) { try SignalTransitions.apply(.adopted, to: working, at: later) }
-    }
-
-    @Test func aSavedStoppedPhaseDecodesAsUnknownAndRoundTrips() throws {
-        let saved: JSONValue = ["kind": "stopped"]
-        let phase = try saved.decode(TaskPhase.self)
-        #expect(phase == .unknown(saved))
-        #expect(try JSONValue(encoding: phase) == saved)
     }
 
     @Test func aStageWaitsInChoosingUntilTheOperatorChoosesThenLaunchesUnderANewOwnership() throws {

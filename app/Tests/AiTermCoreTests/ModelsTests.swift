@@ -4,13 +4,6 @@ import Foundation
 @testable import AiTermTestSupport
 
 @Suite struct ModelsTests {
-    @Test func preservedWorkspaceValuesSaveBackByteIdentically() throws {
-        let bytes = Data(#"{"future":{"array":[null,true,9007199254740993,1.25,"text"]},"items":[],"lastAgentByProject":[],"lastModelByAgent":[],"tasks":[],"terminals":[]}"#.utf8)
-        let state = try JSONDecoder().decode(AppState.self, from: bytes)
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        #expect(try encoder.encode(state) == bytes)
-    }
-
     @Test func agentsAreOrderedClaudeCodexPiAntigravity() {
         #expect(AgentKind.allCases == [.claude, .codex, .pi, .agy])
         #expect(AgentKind.pi.displayName == "PI")
@@ -21,78 +14,6 @@ import Foundation
         // by their raw values alone.
         #expect(AgentKind.allCases.allSatisfy { $0.session.agentKind == $0 })
         #expect(SessionAgent.shell.agentKind == nil)
-    }
-
-    /// A provider a newer build saved decodes as a plain repository instead of failing the load.
-    @Test func anUnknownProviderDecodesAsGit() throws {
-        #expect(try JSONDecoder().decode(Provider.self, from: Data(#""bitbucket""#.utf8)) == .git)
-        #expect(try JSONDecoder().decode(Provider.self, from: Data(#""github""#.utf8)) == .github)
-        #expect(String(decoding: try JSONEncoder().encode(Provider.github), as: UTF8.self) == #""github""#)
-    }
-
-    @Test func anUnknownTaskKindReadsAsATaskAndIsWrittenBackAsSaved() throws {
-        var task = TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
-                            jira: nil, kind: .review, agent: .codex, model: "m", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
-        func decoded(agent: String, kind: String?) throws -> TaskItem {
-            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-            var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(task)) as? [String: Any])
-            json["agent"] = agent; json["kind"] = kind
-            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(TaskItem.self, from: JSONSerialization.data(withJSONObject: json))
-        }
-        func raw(_ task: TaskItem, _ key: String) throws -> String? {
-            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-            return (try JSONSerialization.jsonObject(with: encoder.encode(task)) as? [String: Any])?[key] as? String
-        }
-        var future = try decoded(agent: "gemini", kind: "spike")
-        #expect(future.kind == .task && future.kindName == "Task" && future.agent == .claude)
-        #expect(try raw(future, "kind") == "spike" && raw(future, "agent") == "gemini")
-        // Choosing a value of this build's own replaces the saved one.
-        future.agent = .pi; future.kind = .review
-        #expect(try raw(future, "kind") == "review" && raw(future, "agent") == "pi")
-        // Known values, and a missing kind, are untouched: a task saved without one reads as a task
-        // and is saved without one, as a task made here is; one that says "task" keeps saying it.
-        #expect(try decoded(agent: "pi", kind: "review").kind == .review)
-        let plain = try decoded(agent: "pi", kind: nil)
-        #expect(plain.kind == .task && plain.agent == .pi && plain.unrecognizedAgent == nil)
-        #expect(try raw(plain, "kind") == nil)
-        #expect(try raw(decoded(agent: "pi", kind: "task"), "kind") == "task")
-        task = TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
-                        jira: nil, agent: .codex, model: "m", reasoning: nil, firstPrompt: nil,
-                        appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
-        #expect(try raw(task, "kind") == nil && task.kind == .task)
-        task.kind = .task
-        #expect(try raw(task, "kind") == "task")
-    }
-
-    @Test func anUnknownSidebarItemKeepsItsPlaceAndIsNeverDrawnOrCounted() throws {
-        let a = Project(id: UUID(), name: "A", path: "/a", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        let b = Project(id: UUID(), name: "B", path: "/b", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
-        var state = AppState.empty
-        state.append(project: a)
-        state.items.append(try JSONDecoder().decode(SidebarItem.self, from: Data(#"{"kind":"folder","folder":{"n":1}}"#.utf8)))
-        state.append(project: b)
-        let hidden = state.items[1].id
-
-        #expect(state.projects == [a, b])
-        #expect(state.canMove(id: a.id, .down) && !state.canMove(id: a.id, .up))
-        #expect(!state.canMove(id: b.id, .down) && state.canMove(id: b.id, .up))
-        let moved = state.move(id: b.id, .up)
-        #expect(moved)
-        #expect(state.items.map(\.id) == [b.id, a.id, hidden])
-        let back = state.move(id: b.id, .down)
-        #expect(back)
-        #expect(state.items.map(\.id) == [a.id, b.id, hidden], "a move steps over drawn rows only")
-
-        let entries = SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
-        #expect(entries.map(\.id) == [a.id, b.id])
-        guard case .project(let first) = entries[0], case .project(let last) = entries[1] else { Issue.record("expected projects"); return }
-        #expect(!first.canMoveUp && first.canMoveDown && last.canMoveUp && !last.canMoveDown)
-
-        let again = try JSONDecoder().decode(AppState.self, from: JSONEncoder().encode(state))
-        #expect(again == state)
-        #expect(!again.items[2].isDrawn)
     }
 
     @Test func testAppStateRoundTripsThroughJSON() throws {
@@ -108,66 +29,6 @@ import Foundation
         let data = try JSONEncoder().encode(state)
         let back = try JSONDecoder().decode(AppState.self, from: data)
         #expect(back == state)
-    }
-
-    /// The remembered agent and model choices are only preferences: an entry for an agent this
-    /// build has never heard of, written by a newer one, is dropped rather than failing the load.
-    @Test func testRememberedChoicesForAnUnknownAgentAreDropped() throws {
-        let kept = UUID()
-        var state = AppState.empty
-        state.lastAgentByProject = [UUID(): .pi, kept: .codex]
-        state.lastModelByAgent = [.pi: "pi-model", .codex: "gpt-5.6"]
-        let json = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
-            .replacingOccurrences(of: "\"pi\"", with: "\"someday\"")
-        let back = try JSONDecoder().decode(AppState.self, from: Data(json.utf8))
-        #expect(back.lastAgentByProject == [kept: .codex])
-        #expect(back.lastModelByAgent == [.codex: "gpt-5.6"])
-    }
-
-    /// A task's agent from a newer build no longer fails the load: the task reads as a Claude task
-    /// and keeps the saved name for the next save (see `anUnknownTaskKindReadsAsATask…`).
-    @Test func testATaskForAnUnknownAgentLoadsAndKeepsItsSavedName() throws {
-        var state = AppState.empty
-        state.tasks = [TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main", jira: nil,
-                                agent: .pi, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                                createdAt: Date(timeIntervalSince1970: 1), windowId: nil)]
-        let json = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
-            .replacingOccurrences(of: "\"pi\"", with: "\"someday\"")
-        let back = try JSONDecoder().decode(AppState.self, from: Data(json.utf8))
-        #expect(back.tasks.first?.agent == .claude && back.tasks.first?.unrecognizedAgent == "someday")
-    }
-
-    /// A workspace saved while AiTerm drove Grok Build, which it no longer does: its task, conversation
-    /// and preferences, as that build wrote them.
-    private static let savedGrokWorkspace = """
-    {"items":[],"terminals":[],"tasks":[{"id":"1EB4C0DE-0000-0000-0000-000000000001",\
-    "projectId":"1EB4C0DE-0000-0000-0000-000000000002","title":"Work","branch":"feat/work",\
-    "worktreePath":"/repo/.worktrees/work","baseBranch":"main","agent":"grok","model":"grok-4.7",\
-    "appendTicket":false,"createdAt":0,"conversations":[{"agent":"grok","id":"g1"},{"agent":"claude","id":"c1"}]}],\
-    "lastAgentByProject":["1EB4C0DE-0000-0000-0000-000000000002","grok"],\
-    "lastModelByAgent":["grok","grok-4.7","codex","gpt-5.6"]}
-    """
-
-    /// A Grok task still loads, as any task for an agent this build does not know: as a Claude task
-    /// that writes its saved agent back. Its Grok conversation cannot be resumed and is dropped, and so
-    /// are the preferences that name Grok.
-    @Test func savedGrokTaskLoadsAsClaudeAndKeepsItsAgent() throws {
-        let state = try JSONDecoder().decode(AppState.self, from: Data(Self.savedGrokWorkspace.utf8))
-        let task = try #require(state.tasks.first)
-        #expect(task.agent == .claude && task.unrecognizedAgent == "grok")
-        let written = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(task)) as? [String: Any])
-        #expect(written["agent"] as? String == "grok")
-        #expect(task.conversations == [TaskConversation(agent: .claude, id: "c1")])
-        #expect(state.lastAgentByProject.isEmpty)
-        #expect(state.lastModelByAgent == [.codex: "gpt-5.6"])
-    }
-
-    /// A former Grok task's Claude conversation was opened by hand, so it resumes on Claude's defaults,
-    /// never with the Grok model the task was launched with.
-    @Test func formerGrokTaskResumesClaudeOnItsDefaults() throws {
-        let state = try JSONDecoder().decode(AppState.self, from: Data(Self.savedGrokWorkspace.utf8))
-        let task = try #require(state.tasks.first)
-        #expect(task.resumeCommands == [AgentCommand.resume(agent: .claude, conversation: "c1", model: nil, reasoning: nil)])
     }
 
     /// Saves carry the linked Jira projects as a list.
@@ -221,28 +82,6 @@ import Foundation
         #expect(Worktree(path: "/r/.worktrees/review-x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == .review)
         #expect(Worktree(path: "/r/.worktrees/x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == .task)
         #expect(Worktree(path: "/r/.worktrees/x-review-y", branch: "x", lockReason: "").importedKind == .task)
-    }
-
-    /// A field this build does not know survives decoding and saving alongside the task.
-    @Test func aKeyThisBuildDoesNotKnowOnATaskSurvivesASave() throws {
-        let json = """
-        {"id":"1EB4C0DE-0000-0000-0000-000000000001","projectId":"1EB4C0DE-0000-0000-0000-000000000002",\
-        "title":"Work","branch":"feat/work","worktreePath":"/repo/.worktrees/work","baseBranch":"main",\
-        "agent":"claude","model":"opus","appendTicket":true,"createdAt":"1970-01-01T00:00:01Z",\
-        "windowId":"w1","fromANewerBuild":"kept"}
-        """
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        let task = try decoder.decode(TaskItem.self, from: Data(json.utf8))
-        #expect(task.title == "Work" && task.windowId == "w1")
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        let encoded = try #require(JSONSerialization.jsonObject(with: encoder.encode(task)) as? [String: Any])
-        #expect(encoded["fromANewerBuild"] as? String == "kept")
-    }
-
-    @Test func aKeyThisBuildDoesNotKnowOnAWorkspaceSurvivesASave() throws {
-        let state = try JSONDecoder().decode(AppState.self, from: Data(#"{"items":[],"foldedRuns":["kept"]}"#.utf8))
-        let encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
-        #expect(encoded["foldedRuns"] as? [String] == ["kept"])
     }
 
     @Test func rowsAreFoundByTheirId() {
@@ -324,22 +163,6 @@ import Foundation
         #expect(closed && state.operatorSession?.window == nil && state.operatorSession?.lifecycle.isOpen == true)
     }
 
-    /// The regression guard for the whole saved workspace. Both new properties must stay `Optional`:
-    /// Swift's synthesized decoder uses `decodeIfPresent` for an Optional, but a non-optional with a
-    /// default value (`var isReview = false`) throws `keyNotFound` instead of falling back — which
-    /// would make every workspace saved before today unreadable.
-    @Test func testTaskItemDecodesWithoutKindOrMergeRequest() throws {
-        let json = """
-        {"id":"9F1C5B4E-3A2D-4C7F-8E10-2B6D9A0C1E33","projectId":"0A1B2C3D-4E5F-4071-8293-A4B5C6D7E8F9",
-         "title":"Add gift card","branch":"feat/gift","worktreePath":"/tmp/wt","baseBranch":"main",
-         "agent":"claude","model":"sonnet","appendTicket":true,"createdAt":0}
-        """
-        let task = try JSONDecoder().decode(TaskItem.self, from: Data(json.utf8))
-        #expect(task.kind == .task)
-        #expect(task.mr == nil)
-        #expect(task.title == "Add gift card")
-    }
-
     @Test func testTaskItemRoundTripsAReview() throws {
         let mr = MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4")
         var task = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
@@ -351,28 +174,7 @@ import Foundation
         #expect(decoded.mr == mr)
     }
 
-    /// What a reopen resumes is saved with the task: written only when there is some, so a workspace
-    /// without any reads and writes as before, and read leniently, so an agent this build does not know
-    /// costs its own entry, and a list it cannot read costs only the list, never the workspace.
-    @Test func aTasksConversationsAreSavedOnlyWhenItHasSomeAndReadLeniently() throws {
-        let base = """
-        {"id":"1EB4C0DE-0000-0000-0000-000000000001","projectId":"1EB4C0DE-0000-0000-0000-000000000002",\
-        "title":"Work","branch":"feat/work","worktreePath":"/repo/.worktrees/work","baseBranch":"main",\
-        "agent":"claude","model":"opus","appendTicket":true,"createdAt":0
-        """
-        let none = try JSONDecoder().decode(TaskItem.self, from: Data((base + "}").utf8))
-        #expect(none.conversations.isEmpty)
-        #expect(!String(decoding: try JSONEncoder().encode(none), as: UTF8.self).contains("conversations"))
-        let mixed = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":[{"agent":"gremlin","id":"x"},{"agent":"claude","id":"c-1"},{"agent":"codex","id":""}]}"#).utf8))
-        #expect(mixed.conversations == [TaskConversation(agent: .claude, id: "c-1")])
-        let flag = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":[{"agent":"claude","id":"--model"},{"agent":"codex","id":"t-1"}]}"#).utf8))
-        #expect(flag.conversations == [TaskConversation(agent: .codex, id: "t-1")], "an id the CLI would read as a flag is dropped")
-        let unreadable = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":"many"}"#).utf8))
-        #expect(unreadable.conversations.isEmpty)
-    }
-
-    /// `TaskItem`'s `Codable` is written by hand, so nothing but this keeps a field from being left
-    /// out of one half: every field set, each is written under its own key and read back as it was.
+    /// Every field set, each is written under its own key and read back as it was.
     @Test func aTaskWithEveryFieldSetRoundTripsWhole() throws {
         var task = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
                             worktreePath: "/tmp/wt", baseBranch: "develop",
@@ -382,22 +184,14 @@ import Foundation
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
                             conversations: [TaskConversation(agent: .codex, id: "t-1"), TaskConversation(agent: .claude, id: "c-2")])
         task.signalTask = SignalTask.make(item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
+        task.takenOver = true
+        task.signalOrigin = SignalOrigin.make(item: .ticket(site: "https://x.atlassian.net", key: "SHOP-1"), startedAt: Date())
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         #expect(Set(keys) == ["id", "projectId", "title", "branch", "worktreePath", "baseBranch", "jira", "kind", "mr", "agent",
                               "model", "reasoning", "firstPrompt", "appendTicket", "createdAt", "windowId", "conversations",
-                              "signalTask"])
+                              "signalTask", "takenOver", "signalOrigin"])
         #expect(try JSONDecoder().decode(TaskItem.self, from: data) == task)
-    }
-
-    /// A row with no `kind`, or one that is not a string, is a row this build cannot read, as one
-    /// of a kind it does not know is: it is kept as it came rather than failing the whole workspace.
-    @Test(arguments: [#"{"project":{"n":1}}"#, #"{"kind":7,"project":{"n":1}}"#, #"{"kind":null}"#])
-    func aSidebarItemWithoutAReadableKindIsKeptAsItCame(_ json: String) throws {
-        let item = try JSONDecoder().decode(SidebarItem.self, from: Data(json.utf8))
-        #expect(!item.isDrawn)
-        let written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? NSDictionary
-        #expect(written == (try JSONSerialization.jsonObject(with: Data(json.utf8)) as? NSDictionary))
     }
 
     private func project(_ name: String, id: UUID = UUID()) -> Project {
@@ -554,40 +348,9 @@ import Foundation
         #expect(world.state.signals.map(\.id) == [firstProject, operatorSignal, secondProject])
     }
 
-    /// Dividers an earlier build saved among the signals are no longer read, drawn or edited, but the file keeps them: a
-    /// workspace saved with them loads, and saves the same `signalDividers` value as it came (order, out-of-range
-    /// positions and fields this build never knew included), also after a signal is removed. One saved without them
-    /// gains none.
-    @Test func savedSignalDividersRoundTripUntouched() throws {
-        var world = SignalWorld()
-        let a = world.signal(name: "A"), b = world.signal(name: "B")
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        #expect(try decoder.decode(JSONValue.self, from: encoder.encode(world.state))["signalDividers"] == nil)
-
-        let dividers: JSONValue = [
-            ["id": .string(UUID().uuidString), "name": "Past", "position": 9],
-            ["id": .string(UUID().uuidString), "name": "", "position": -2, "colour": "amber"],
-            ["id": .string(UUID().uuidString), "name": "Reviews", "position": 1]
-        ]
-        guard case .object(var saved) = try decoder.decode(JSONValue.self, from: encoder.encode(world.state)) else {
-            Issue.record("a workspace is a JSON object"); return
-        }
-        saved["signalDividers"] = dividers
-        var state = try decoder.decode(AppState.self, from: encoder.encode(JSONValue.object(saved)))
-        #expect(state.signals.map(\.id) == [a, b])
-        #expect(try decoder.decode(JSONValue.self, from: encoder.encode(state))["signalDividers"] == dividers)
-
-        state.removeSignal(id: a)
-        #expect(state.signals.map(\.id) == [b])
-        let resaved = try decoder.decode(JSONValue.self, from: encoder.encode(state))
-        #expect(resaved["signalDividers"] == dividers)
-        #expect(try decoder.decode(AppState.self, from: encoder.encode(resaved)) == state)
-    }
-
-    @Test func theOperatorsFoldedProjectsAreSavedSortedAndOnlyWhenThereAreSome() throws {
+    @Test func theOperatorsFoldedProjectsAreSavedSorted() throws {
         var state = AppState.empty
-        #expect(try JSONValue(encoding: state)["operatorFolded"] == nil)
+        #expect(try JSONValue(encoding: state)["operatorFolded"] == [])
         let a = UUID(uuidString: "00000000-0000-4000-8000-00000000000A")!, b = UUID(uuidString: "00000000-0000-4000-8000-00000000000B")!
         state.operatorFolded = [b, a]
         #expect(try JSONValue(encoding: state)["operatorFolded"] == [.string(a.uuidString), .string(b.uuidString)])
@@ -614,16 +377,6 @@ import Foundation
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let back = try decoder.decode(AppState.self, from: encoder.encode(state))
         #expect(back == state)
-    }
-
-    /// An unrecognized workspace key survives a save without creating sidebar rows.
-    @Test func aProjectsKeyIsPreservedWithoutCreatingItems() throws {
-        let data = Data(#"{"projects":[{"name":"one","nested":{"count":2}}],"tasks":[],"terminals":[]}"#.utf8)
-        let state = try JSONDecoder().decode(AppState.self, from: data)
-        #expect(state.items.isEmpty)
-        let before = try JSONDecoder().decode(JSONValue.self, from: data)
-        let after = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(state))
-        #expect(after["projects"] == before["projects"])
     }
 
     /// A review of a branch opens in the row whose worktree git reports it checked out in — a
