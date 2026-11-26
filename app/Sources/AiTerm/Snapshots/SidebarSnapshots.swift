@@ -144,14 +144,16 @@ enum SidebarSnapshots {
          workCards("sidebar-work-cards-large.png", open: true, scale: .extraLarge),
          workCards("sidebar-work-cards-scroll.png", open: true, scale: .standard, many: true),
          workCards("sidebar-work-cards-idle.png", open: true, scale: .standard, idle: true),
-         workCards("sidebar-work-cards-idle-only.png", open: true, scale: .standard, idleOnly: true)]
+         workCards("sidebar-work-cards-idle-only.png", open: true, scale: .standard, idleOnly: true),
+         workCards("sidebar-work-cards-agents.png", open: true, scale: .standard, agents: true)]
     }
 
     /// The same existing card on working, background and needs-input marks, plus a terminal. `idle` adds two
-    /// teammates that wait for a message, listed after the running work under their own heading. `idleOnly` draws
-    /// a done row whose only work is three idle teammates: nothing runs, so its mark does not spin.
+    /// teammates that wait for a message, listed after the running work with a `zzz` corner. `idleOnly` draws
+    /// a done row whose only work is three idle teammates: nothing runs, so its mark does not spin. `agents` draws a
+    /// Claude subagent, a Codex one, a workflow and a shell: three agents at work, grouped in the heading as `C +2`.
     private static func workCards(_ file: String, open: Bool, scale: InterfaceScale, many: Bool = false,
-                                  idle: Bool = false, idleOnly: Bool = false) -> Snapshot {
+                                  idle: Bool = false, idleOnly: Bool = false, agents: Bool = false) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller()
             let hover = BackgroundCardHover(isOpen: open)
@@ -161,10 +163,16 @@ enum SidebarSnapshots {
                        BackgroundJob(kind: .monitor, text: "Watch the CI pipeline")]
                 + (many ? (1...4).map { BackgroundJob(kind: .subagent, text: "general-purpose",
                                                      displayLabel: "Inspect background task \($0)") } : [])
-            // One running job, the idle heading and two idle teammates: four lines, none scrolled away.
+            // One running job and two idle teammates: three lines, none scrolled away.
             let teammates = ["Build skin A", "Rework the copy to the style guide", "Tighten the hero spacing"]
                 .map { BackgroundJob(kind: .subagent, text: $0, idle: true) }
-            let jobs = idleOnly ? teammates : idle ? [all[0]] + teammates.prefix(2) : all
+            let mixed = [BackgroundJob(kind: .subagent, text: "general-purpose", displayLabel: "Review the diff for regressions",
+                                       agent: .claude),
+                         BackgroundJob(kind: .subagent, text: "Inspect fixture", agent: .codex),
+                         BackgroundJob(kind: .agent, text: "Review changes across dimensions", agent: .claude),
+                         BackgroundJob(kind: .shell, text: "npm run dev -- --port 5173"),
+                         teammates[0]]
+            let jobs = agents ? mixed : idleOnly ? teammates : idle ? [all[0]] + teammates.prefix(2) : all
             controller.focus.browse(.task(fixture.working.id))
             @MainActor func taskRow(_ status: TaskStatus) -> TaskRow {
                 var row = controller.rows.sections.flatMap(\.tasks).first { $0.id == fixture.working.id }!
@@ -174,7 +182,8 @@ enum SidebarSnapshots {
             let neighbours = controller.rows.sections.flatMap(\.tasks)
                 .filter { $0.id == fixture.other.id || $0.id == fixture.piTask.id }
             var terminal = controller.rows.sections.flatMap(\.terminals).first { $0.id == fixture.terminal.id }!
-            terminal.name = "Codex with a reviewer"; terminal.status = .working; terminal.background = [all[1]]
+            var reviewer = all[1]; reviewer.agent = .codex
+            terminal.name = "Codex with a reviewer"; terminal.status = .working; terminal.background = [reviewer]
             terminal.avatars = SidebarModel.avatars(for: [Fixture.session("work-codex", "w-work", fixture.codexTask.id,
                                                                          "codex", "working", 0)].compactMap { $0 })
             return SnapshotColumn(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset), spacing: Space.base,

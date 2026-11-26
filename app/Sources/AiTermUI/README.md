@@ -43,7 +43,7 @@ Inks and hairlines take a stronger value of their own under Increase Contrast; g
 
 A component reads `@Environment(\.surface)` for the ground beneath it, rather than taking a
 `selected` flag to derive colours. `Surface.sidebar`, `.hover`, `.hoverOnSheet`, `.washed`,
-`.washedHover`, `.selected`, `.selectedOnSheet`, `.accent` and `.sheet` supply ink, secondary ink, badge washes and
+`.washedHover`, `.selected`, `.selectedOnSheet`, `.accent`, `.sheet` and `.menu` (a popover's ground) supply ink, secondary ink, badge washes and
 occluding background. The container drawing the ground declares it: `RowPill`, `menuRowHighlight` or
 `PushButtonStyle`'s primary. The label does not repeat the selection decision.
 Selection is neutral: a selected row lifts its title to white and keeps every mark's colour; only the
@@ -176,7 +176,7 @@ explains ownership and the full reusable vocabulary.
 | `ArchiveSheet`, `ArchiveRow` | Search, restore and removal of archived tasks. |
 | `SignalsSheet`, `SignalsSheetRow` | A section's signals in priority order, as the Archive lists tasks: `RowPill(ground: .sheet)` rows with the source's `ProviderIcon`, the name in `Typography.bodyEmphasis`, Starts/Done/next-run lines as `HelpText` and issues in its warning tone; a switched-off row at `Opacity.disabled` with the pause glyph; the menu as a context menu and behind a trailing ellipsis; New Signal… and Done in the footer. |
 | `AvatarGroupView` (signals disc) | A task a signal started wears a `SymbolMark` of the signals glyph at `Size.cornerBadge` on its first mark's bottom-trailing corner, overhanging by `Space.hairline`, ringed in the surface's `occludingBackground` at the group's ring width; the column keeps its width, and a `Size.chip` square centred on the disc opens the signal card. With no agent listed, such a task draws its agent's mark at `Opacity.disabled` under the disc (`AvatarGroup.muted`); its ring stays whole. |
-| `SignalCardView`, `FloatingCardChrome` | The disc's card, in the background-work card's chrome (`FloatingCardChrome`: `menuChrome` at `Radius.control`, `.surface(.sheet)`): the signal's name as `HelpText`, one `Size.chip` line per signal that ran the task with its time (earlier ones `muted`), and the work going on now in `text`; anchored after the avatar column plus `Space.tight`. |
+| `SignalCardView`, `FloatingCardChrome` | The disc's card, in the background-work card's chrome (`FloatingCardChrome`: `menuChrome` at `Radius.control`, `.surface(.menu)`): the signal's name as `HelpText`, one `Size.chip` line per signal that ran the task with its time (earlier ones `muted`), and the work going on now in `text`; anchored after the avatar column plus `Space.tight`. |
 | `StatusLineSegment`, `StatusLineCell`, `StatusLineOverlay` | A row's piece of the Operator's status line behind its trailing slot, reaching half the list's gap (`Space.tight`, unscaled) to its row's edge: a `RingGeometry` stroke with round ends in `Palette.statusLine`, stopping `Space.base` from a mark's centre and `Size.statusStop` from a stop's; an exchange's stretch dotted in `text` (marching down for an act, up once for a wake, `Motion.march`), a question's `amber` and still; Reduce Motion and snapshots hold the dots still. Each row reads its own cell. |
 
 ## Human reference and proposals

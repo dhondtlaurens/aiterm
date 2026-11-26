@@ -312,10 +312,16 @@ public enum SidebarModel {
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
 
-    /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, then the active test runs of
-    /// the tabs that ended their turn, as in `backgroundJobs`.
+    /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, each job naming its tab's
+    /// vendor, then the active test runs of the tabs that ended their turn, as in `backgroundJobs`.
     public static func displayJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { $0.work.map(\.displayJob) }
+        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { tab in
+            tab.work.map { item in
+                var job = item.displayJob
+                job.agent = tab.agent
+                return job
+            }
+        }
         let tests = tabs.filter(\.state.turnEnded).compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
@@ -379,7 +385,11 @@ public enum SidebarModel {
     }
 
     public static func avatars(for sessions: [SessionInfo], max: Int = avatarMax) -> AvatarGroup {
-        let ordered = sessions.sorted { $0.tabIndex < $1.tabIndex }.map(\.agent)
+        avatars(of: sessions.sorted { $0.tabIndex < $1.tabIndex }.map(\.agent), max: max)
+    }
+
+    /// Agents in their order as an avatar group: up to `max` marks, the last becoming `+n` once there are more.
+    public static func avatars(of ordered: [SessionAgent], max: Int = avatarMax) -> AvatarGroup {
         guard ordered.count > max else { return AvatarGroup(marks: ordered, overflow: 0) }
         return AvatarGroup(marks: Array(ordered.prefix(max - 1)), overflow: ordered.count - (max - 1))
     }
