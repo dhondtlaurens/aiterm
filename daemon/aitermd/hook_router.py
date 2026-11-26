@@ -81,12 +81,13 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if tick.context_percent is not None or "context_window" in body or tick.state is not None:
+            if tick.context_percent is not None or "context_window" in body or tick.state is not None or tick.version:
                 async with self._in_order:
                     post = HookEvent(agent, None, tick.session_id, tick.cwd,
                                      iterm_session_id=tick.iterm_session_id,
                                      context_percent=tick.context_percent, context_tokens=tick.context_tokens, transcript=tick.transcript)
-                    ticked = await self._place_and_apply(post, body, statusline=True, tick_state=tick.state)
+                    ticked = await self._place_and_apply(post, body, statusline=True, tick_state=tick.state,
+                                                         cli_version=tick.version)
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
@@ -152,7 +153,7 @@ class HookRouter:
         return tab is not None and tab.agent == "shell"
 
     async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any], *, statusline: bool = False,
-                               tick_state: TickState | None = None) -> list[str] | None:
+                               tick_state: TickState | None = None, cli_version: str | None = None) -> list[str] | None:
         """The sessions `ev` changed, once placed on its tab; None when it places on none."""
         sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
@@ -170,6 +171,9 @@ class HookRouter:
                                              clear_context_tokens=statusline and own,
                                              conversation=ev.conversation_id if own and not statusline else None,
                                              transcript=ev.transcript if own else None)
+        # The version the CLI says it is, which delivery checks its verdict against, for its own tab only.
+        if cli_version is not None and own:
+            self.status.reg.set_cli_version(sid, cli_version)
         # What a status line says of the turn checks the hooks, for the tab it provably came from only.
         if tick_state is not None and own:
             changed += self.status.apply_evidence(sid, Evidence(tick_state, self.clock(), "agy_statusline"))

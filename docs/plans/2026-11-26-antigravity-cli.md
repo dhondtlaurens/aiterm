@@ -21,8 +21,12 @@ Findings: `docs/research/2026-11-26-antigravity-cli.md`.
 **Decided while grilling.**
 
 - The tier lives in code: each Swift `Harness` and each daemon `Harness` gets a `support` value.
-  `AgentCommand.workerAgents`, `DeliveryCheck.agents`, `OperatorSkills.agents` (the Signal sheet's
-  skill completions) and the compat script's messaged list are derived from it. A contract test keeps the Swift and daemon tiers equal. `ModelChoice.pair` stays
+  `AgentCommand.workerAgents` and `OperatorSkills.agents` (the Signal sheet's skill completions) are
+  derived from it. The delivery check's agents, and the compat script's messaged list, are the CLIs
+  whose screen AiTerm reads: the app's `Harness.messagingChecked`, the daemon's `MESSAGING_CHECKED`
+  (a harness row with an input-box marker). The full tier is a subset of them: an agent is checked
+  before it is full, and a pass is what makes it full. A contract test keeps the Swift and daemon
+  tiers, and the two messaging lists, equal. `ModelChoice.pair` stays
   `[claude, codex]`: it is about weekly usage, and agy reports none on the account tested, so agy
   never takes part in the 80% switch.
 - Every agy launch uses `--dangerously-skip-permissions`, as Codex tasks use their bypass flag. The
@@ -110,7 +114,9 @@ Worker
 - modify `daemon/tools/worker_guard_check.py`: check an agy worker.
 - agy's review tab (`readOnlyLaunchArguments`): `--dangerously-skip-permissions` with deny rules for
   file writes and git's write commands, in an unsaved `--settings`, as Claude's review denials are.
-  Found while building: without it an agy review worker could write.
+  Like Claude's review denials and Codex's read-only sandbox, it is the read-only launch no
+  production caller asks for yet (`readOnly`): today a review worker is kept from publishing by the
+  worker guard (`allowsPush` is false for a review), for every agent alike.
 
 Messaging
 - modify `daemon/aitermd/delivery.py`, `daemon/tools/delivery_check.py`: agy's markers, version and
@@ -150,23 +156,25 @@ Docs
 
 - [x] 1. Tier in code and docs: `support` on both harness tables, the lists derived from it, the
       parity test, the docs table. No behaviour changes.
-- [x] 2. Vendor mark proposal on the design-system page's Proposals tab, picked by the person. No
-      Swift yet.
-- [x] 3. agy at basic tier, part one: agent kind, harness row, launch, resume, model list, skills,
-      sidebar name, Settings card, and every exhaustive switch the new case reaches in the same
-      step: the picked vendor mark, and `WorkerTranscript` returning no transcript for agy (as for
-      PI) until step 8. Find the vendor's install command.
+- [x] 2. Vendor mark proposal on the design-system page's Proposals tab, picked by the person: the
+      white disc.
+- [x] 3. agy as an agent: agent kind, harness row, launch, resume, model list, skills, sidebar name,
+      Settings card, the vendor mark, and every exhaustive switch the new case reaches. The vendor's
+      install command is `curl -fsSL https://antigravity.google/cli/install.sh | bash`.
 - [x] 4. agy driver and daemon status from hooks, with the trust-dialog screen and Test.
 - [x] 5. Status-line tick: per-agent saved status-line commands, the shim, needs-input and context.
       (The CLI version the status line carries moved to step 9, which is what needs it.)
 - [x] 6. Oracle for agy through deny rules.
 - [x] 7. Design-system page synced to the Swift mark (`design-system` skill).
-- [ ] 8. Worker transcript and worker guard; prove the shims hold under
-      `--dangerously-skip-permissions` (a run that may need the person's approval). Built and unit
-      tested: the transcript reader, the `agy` guard shim and the review tab's deny rules. Open: the
-      live proof (`worker_guard_check.py` for agy).
-- [ ] 9. Messaging: screen markers, the status line's `version` as the tab's `cli_version`, and the
-      delivery check. The check's `AGENTS` is the full tier today (step 1), so it must cover agy before
-      agy is full: it becomes the agents the check can drive, the full tier a subset of them. Once it
-      passes, agy's tier becomes full, which makes it a worker.
-- [ ] 10. Compat capture, `verified.json`, fixtures, and the README, install and architecture docs.
+- [x] 8. Worker transcript and worker guard; prove the shims hold under
+      `--dangerously-skip-permissions`. Proven live by the opt-in `WorkerGuardAgyTests`
+      (`AITERM_AGY_GUARD_PROBE=1`, `worker_guard_check.py --cli agy`): a guarded agy worker's
+      `git push` lands, its `git push --no-verify` is refused by the guard, read from agy's transcript.
+- [x] 9. Messaging: agy's screen markers, the status line's `version` as the tab's `cli_version`, and
+      the delivery check, whose agents are the CLIs AiTerm reads the screen of (`MESSAGING_CHECKED`,
+      `Harness.messagingChecked`); the full tier is a subset of them. The check passed every scenario
+      for agy 1.5.18, and agy is full: it types into agy and the Operator can give it tasks.
+- [x] 10. Compat capture, `verified.json`, fixtures, and the README, install and architecture docs.
+      agy's latest release comes from its changelog (not npm); its capture installs the `aiterm` hook in
+      the scratch workspace and posts to the capture's listener; its own data folders are named
+      `/AGY_HOME/` in the capture, any other home path still refuses it. `verified.json`: agy 1.5.

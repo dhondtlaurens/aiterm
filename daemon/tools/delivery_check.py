@@ -49,7 +49,7 @@ from typing import Any, cast
 from aitermd.delivery import ESC, PASTE_END, PASTE_START, POLICY_PATH, Deliverer, Verdict, open_prompt, shows_input_box, shows_update_offer
 from aitermd.iterm_bridge import ItermBridge, ItermPort, ItermUnavailable
 from aitermd.keystrokes import TypingGuard
-from aitermd.models import FULL_SUPPORT, HARNESS_BY_AGENT, AgentKind, Frame
+from aitermd.models import HARNESS_BY_AGENT, MESSAGING_CHECKED, AgentKind, Frame
 from aitermd.sessions import SessionRegistry
 from tools.compat_preflight import command as checked_command
 
@@ -66,8 +66,8 @@ ITERM_CHECKS = ("keystrokesPassThrough", "backgroundWindow")
 # The order an agent's scenarios run in (check_agent); the first that fails ends the rest.
 RUN_ORDER = ("startupPaste", "updatePaste", "idleSubmit", "multiLine", "busyQueue", "takeover", "menuPaste",
              "approvalRace", "permissionPaste")
-# The CLIs the check covers: those with full support, which AiTerm types into.
-AGENTS: tuple[AgentKind, ...] = FULL_SUPPORT
+# The CLIs the check covers: every one whose screen AiTerm reads. A pass is what gives one full support.
+AGENTS: tuple[AgentKind, ...] = MESSAGING_CHECKED
 # Pasted into an open prompt: the keys that answer one -- Codex's y, a and p, and Claude's digits.
 HAZARD = "please wait 1 2 3 y a p"
 # The footer while a turn runs ("esc to interrupt"), without whitespace and case-folded: Codex's, and
@@ -81,6 +81,8 @@ WORKING = "tointerrupt"
 COMMANDS: dict[AgentKind, str] = {
     "claude": "claude --permission-mode default --model haiku --effort low",
     "codex": "codex -s workspace-write -a on-request -m gpt-6-luna -c model_reasoning_effort=low",
+    # Antigravity's flash model at low effort: its id names both. agent_command adds the settings.
+    "agy": "agy --model gemini-3.8-flash-low",
 }
 # What each scenario after the startup dialog does, as the check says it runs: each waits first for
 # the agent to be idle, up to STEP_SECONDS.
@@ -95,7 +97,10 @@ STEPS: dict[str, str] = {
 }
 # The option that trusts the scratch folder in each CLI's trust dialog, which the check answers itself
 # (answer_trust): Claude's opens on "No, exit", Codex's on this.
-TRUST_OPTION: dict[AgentKind, str] = {"claude": "Yes, I trust this folder", "codex": "Yes, allow Codex to work in this folder"}
+TRUST_OPTION: dict[AgentKind, str] = {"claude": "Yes, I trust this folder", "codex": "Yes, allow Codex to work in this folder",
+                                      "agy": "Yes, I trust this folder"}
+# What Antigravity allowed for good when the check started (agent_command), under the agent's scratch folder.
+AGY_ALLOW_BEFORE = "agy-allow-before.json"
 DOWN = "\x1b[B"
 # The story busyQueue asks for ends on this: its answer, which the prompt does not spell out.
 STORY_END = "FIN 7"
@@ -193,11 +198,30 @@ def scratch_claude_config(real: Path, state: Path, into: Path) -> Path:
     return home
 
 
+def agy_settings(home: Path) -> Path:
+    return home / ".gemini" / "antigravity-cli" / "settings.json"
+
+
+def agy_allowed(home: Path) -> list[str]:
+    """The rules Antigravity allows for good, as its own settings hold them."""
+    settings = read_json(agy_settings(home))
+    permissions = settings.get("permissions") if isinstance(settings, dict) else None
+    allow = permissions.get("allow") if isinstance(permissions, dict) else None
+    return [rule for rule in allow if isinstance(rule, str)] if isinstance(allow, list) else []
+
+
 def agent_command(agent: AgentKind, folder: Path, home: Path | None = None) -> str:
     """The command line the check types to start `agent`, on a scratch config made under `folder` from
-    the one in `home` (the person's): Codex's CODEX_HOME, Claude's CLAUDE_CONFIG_DIR with its login."""
+    the one in `home` (the person's): Codex's CODEX_HOME, Claude's CLAUDE_CONFIG_DIR with its login.
+    Antigravity keeps its sign-in in its home, so it runs on its own, with settings for this run only
+    (never saved) that trust the work folder and ask before every command; what it allowed for good
+    before is noted (AGY_ALLOW_BEFORE) for allow_rules."""
     home = home or Path.home()
     command = shlex.join(checked_command(shlex.split(COMMANDS[agent])))
+    if agent == "agy":
+        (folder / AGY_ALLOW_BEFORE).write_text(json.dumps(agy_allowed(home)), encoding="utf-8")
+        settings = {"permissions": {"ask": ["command(*)"]}, "trustedWorkspaces": [str(folder / "work")]}
+        return f"{command} --settings {shlex.quote(json.dumps(settings, sort_keys=True))}"
     if agent == "codex":
         codex_home = scratch_codex_home(home / ".codex", folder)
         return f"env CODEX_HOME={shlex.quote(str(codex_home))} {command}"
@@ -229,9 +253,15 @@ def screen_settings(config: str) -> str:
     return text
 
 
-def allow_rules(agent: AgentKind, folder: Path) -> list[str]:
+def allow_rules(agent: AgentKind, folder: Path, home: Path | None = None) -> list[str]:
     """Where an approval the paste gave for good would have been written, under an agent's scratch
-    folder: Codex's rules in its scratch CODEX_HOME, Claude's project settings in the work folder."""
+    folder: Codex's rules in its scratch CODEX_HOME, Claude's project settings in the work folder,
+    and a rule Antigravity's own settings gained since the check began."""
+    if agent == "agy":
+        before = read_json(folder / AGY_ALLOW_BEFORE)
+        known = set(before) if isinstance(before, list) else set()
+        home = home or Path.home()
+        return [f"{agy_settings(home)}: {rule}" for rule in agy_allowed(home) if rule not in known]
     place = folder / "codex-home" / "rules" if agent == "codex" else folder / "work" / ".claude" / "settings.local.json"
     if place.is_dir():
         return sorted(str(path) for path in place.rglob("*") if path.is_file())

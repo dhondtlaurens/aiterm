@@ -113,8 +113,8 @@ they do, the sidebar says AiTerm isn’t connected to iTerm2, and Settings › I
 Tell the person the following. Don't do any of it for them:
 
 - **Agent status needs hooks.** In *AiTerm › Settings › Agents*, press **Install** on the card for
-  each agent they use (Claude Code, Codex, Antigravity, PI). Claude Code and Codex are fully
-  supported, Antigravity and PI at a basic level; other providers, such as Grok, work through PI.
+  each agent they use (Claude Code, Codex, Antigravity, PI). Claude Code, Codex and Antigravity are
+  fully supported, PI at a basic level; other providers, such as Grok, work through PI.
   AiTerm writes those hooks itself and keeps a backup of every file it changes. Don't edit Claude's
   `settings.json` (in `~/.claude`, or the folder `$CLAUDE_CONFIG_DIR` names), `~/.codex/` or
   `~/.gemini/` by hand for this.

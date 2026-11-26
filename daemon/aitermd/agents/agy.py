@@ -66,6 +66,7 @@ def parse_agy_statusline(p: dict[str, Any], now: int) -> StatusLine:
         nonempty_string(p.get(ITERM_SESSION_FIELD)),
         clamped_percent(window.get("used_percentage")) if isinstance(window, dict) else None,
         state=state,
+        version=nonempty_string(p.get("version")),
     )
 
 

@@ -212,3 +212,23 @@ def test_the_persons_private_terms_are_read_from_their_own_file(tmp_path):
     assert private_terms(tmp_path / "missing.txt") == []
     found = secrets(HOME, "someone", SCRATCH, private_terms(terms))
     assert leaks("a skill for SOME ORG job posts", found) == ["a private term"]
+
+
+def test_antigravitys_google_cloud_project_is_an_account_value():
+    from tools.compat_capture import account_values
+    assert account_values(None, None, None, {"gcp": {"project": "gen-lang-client-1", "location": "global"}}) == [
+        ("agy gcp project", "gen-lang-client-1")]
+    assert account_values(None, None, None, {"model": "Gemini 4 Neon (High)"}) == []
+
+
+def test_antigravitys_own_data_folders_are_named_apart_and_nothing_else_of_the_home(tmp_path):
+    # agy runs in the person's home to stay signed in: the folders it keeps the capture's own
+    # conversation in are its, and named apart; any other home path still stops the capture.
+    from tools.compat_capture import agy_data_paths
+    home = tmp_path / "me"
+    text = (f'{{"transcriptPath": "{home}/.gemini/antigravity-cli/brain/c1/.system_generated/logs/transcript_full.jsonl", '
+            f'"transcript_path": "{home}/.gemini/antigravity/brain/c1/.system_generated/logs/transcript.jsonl", '
+            f'"other": "{home}/.gemini/config/hooks.json"}}')
+    named = agy_data_paths(text, home)
+    assert "/AGY_HOME/antigravity-cli/brain/c1/" in named and "/AGY_HOME/antigravity/brain/c1/" in named
+    assert f"{home}/.gemini/config/hooks.json" in named

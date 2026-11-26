@@ -1,5 +1,5 @@
 #!/bin/zsh
-# scripts/compat-check.sh [claude,codex,pi] — update Claude Code, Codex and PI: does AiTerm still
+# scripts/compat-check.sh [claude,codex,agy,pi] — update Claude Code, Codex, Antigravity and PI: does AiTerm still
 # work with it? Run from a worktree with iTerm2 open; it takes several minutes, opens iTerm2 windows
 # and spends a little of each CLI's quota on its cheapest model. Never part of the gate.
 #
@@ -18,7 +18,7 @@
 # It commits nothing: review the capture's diff (what the CLI changed) and commit it with the list.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-AGENTS="${1:-claude,codex,pi}"
+AGENTS="${1:-claude,codex,agy,pi}"
 PY="$ROOT/daemon/.venv/bin/python"
 [[ -x "$PY" ]] || { print -u2 "No daemon venv at $ROOT/daemon/.venv: run scripts/test.sh daemon once to create it"; exit 2; }
 work="$(mktemp -d -t aiterm-compat-check)"
@@ -36,8 +36,8 @@ print "1/4 Capturing $AGENTS"
     || failed+=("capture")
 [[ -s "$versions" ]] || { print -u2 "Nothing was captured."; exit 1; }
 
-# The CLIs AiTerm types into, among those asked for: the full tier (aitermd.models.FULL_SUPPORT).
-full="$(cd "$ROOT/daemon" && env -u PYTHONPATH "$PY" -c 'from aitermd.models import FULL_SUPPORT; print(" ".join(FULL_SUPPORT))')"
+# The CLIs the delivery check covers, among those asked for (aitermd.models.MESSAGING_CHECKED).
+full="$(cd "$ROOT/daemon" && env -u PYTHONPATH "$PY" -c 'from aitermd.models import MESSAGING_CHECKED; print(" ".join(MESSAGING_CHECKED))')"
 messaged=()
 for agent in ${=full}; do
     if [[ ",$AGENTS," == *",$agent,"* ]]; then messaged+=("$agent"); fi

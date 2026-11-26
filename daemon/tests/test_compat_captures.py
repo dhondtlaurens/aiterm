@@ -17,6 +17,7 @@ from aitermd.agents.claude import (
     FILE_STATUS, BackgroundTranscripts, ClaudeSessionFiles, SubagentTranscripts, parse_claude_hook, parse_claude_statusline,
 )
 from aitermd.agents.codex import CodexSessionFiles, has_spinner, parse_codex_hook, parse_codex_rate_limits
+from aitermd.agents.agy import parse_agy_hook, parse_agy_statusline
 from aitermd.agents.pi import parse_pi_hook
 
 CAPTURES = Path(__file__).parent / "fixtures" / "compat"
@@ -60,7 +61,7 @@ def first_prompt() -> str:
     return "Reply with only the word ALPHA followed by the result of 6 times 7."
 
 
-@pytest.mark.parametrize("agent", ["claude", "codex", "pi"])
+@pytest.mark.parametrize("agent", ["claude", "codex", "agy", "pi"])
 def test_each_capture_names_the_version_it_was_taken_from(agent):
     assert (CAPTURES / agent / "version.txt").read_text().strip() == note(agent)["version"]
 
@@ -229,3 +230,28 @@ def test_pi_extension_posts_read_with_session_and_context():
     assert all(event is not None and event.session_id and event.cwd for event in events), hooks("pi")
     assert events[0].kind == "sessionStart"
     assert any(event.context_percent is not None for event in events), "PI no longer reports its context"
+
+
+# -- Antigravity ---------------------------------------------------------------------------------------
+def test_agy_hooks_post_every_event_the_capture_raised():
+    raised = {body.get("hookEventName") for body in hooks("agy")}
+    missing = {"SessionStart", "PreInvocation", "Stop"} - raised
+    assert not missing, f"Antigravity no longer runs AiTerm's hook for {sorted(missing)}"
+
+
+def test_agy_hook_posts_read_as_turns_on_its_conversation():
+    events = [parse_agy_hook(body) for body in hooks("agy")]
+    assert all(event is not None and event.session_id and event.cwd and event.transcript for event in events), hooks("agy")
+    kinds = [event.kind for event in events if event is not None and event.kind]
+    assert kinds[0] == "sessionStart" and "working" in kinds and kinds[-1] == "done", kinds
+    assert len({event.session_id for event in events if event is not None}) == 1
+
+
+def test_agy_status_line_reads_its_state_context_and_version():
+    ticks = [parse_agy_statusline(body, 0) for route, body in posts("agy") if route == "/statusline/agy"]
+    assert ticks, "Antigravity's status line posted nothing"
+    assert {tick.state for tick in ticks} >= {"working", "done"}, [tick.state for tick in ticks]
+    assert any(tick.context_percent is not None for tick in ticks), "Antigravity no longer reports its context"
+    assert {tick.version for tick in ticks} == {note("agy")["version"]}
+    # The account's address its status line names never reaches a capture: the scrub replaces it.
+    assert all(body.get("email") in (None, "EMAIL") for _, body in posts("agy"))

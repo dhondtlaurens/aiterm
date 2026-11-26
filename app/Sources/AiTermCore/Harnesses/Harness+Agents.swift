@@ -32,7 +32,7 @@ extension Harness {
     static let claude = claude(config: ClaudeConfig())
 
     static func claude(config: ClaudeConfig) -> Harness { Harness(
-        agent: .claude, executable: "claude", displayName: "Claude Code", support: .full,
+        agent: .claude, executable: "claude", displayName: "Claude Code", support: .full, messagingChecked: true,
         installCommand: "curl -fsSL https://claude.ai/install.sh | bash",
         fallbackEfforts: ["low", "medium", "high"], defaultEffort: "high",
         noModelsExplanation: "No models are available.",
@@ -74,7 +74,7 @@ extension Harness {
         makeDriver: { home, port, shim in shim.map { ClaudeDriver(home: home, daemonPort: port, shimPath: $0, claudeConfig: config) } }) }
 
     static let codex: Harness = Harness(
-        agent: .codex, executable: "codex", displayName: "Codex", support: .full,
+        agent: .codex, executable: "codex", displayName: "Codex", support: .full, messagingChecked: true,
         installCommand: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
         fallbackEfforts: ["minimal", "low", "medium", "high", "xhigh"], defaultEffort: "medium",
         noModelsExplanation: "No models are available.",
@@ -121,7 +121,7 @@ extension Harness {
         makeDriver: { home, port, _ in CodexDriver(home: home, daemonPort: port) })
 
     static let agy: Harness = Harness(
-        agent: .agy, executable: "agy", displayName: "Antigravity", support: .basic,
+        agent: .agy, executable: "agy", displayName: "Antigravity", support: .full, messagingChecked: true,
         installCommand: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
         // Each model id names its effort (`gemini-4-neon-high`): there are no levels to pick.
         fallbackEfforts: [], defaultEffort: "",
@@ -169,7 +169,7 @@ extension Harness {
         makeDriver: { home, port, shim in shim.map { AgyDriver(home: home, daemonPort: port, shimPath: $0) } })
 
     static let pi: Harness = Harness(
-        agent: .pi, executable: "pi", displayName: "PI", support: .basic,
+        agent: .pi, executable: "pi", displayName: "PI", support: .basic, messagingChecked: false,
         installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
         fallbackEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], defaultEffort: "medium",
         noModelsExplanation: "No PI providers are signed in. Run /login in PI.",

@@ -86,6 +86,13 @@ import Testing
         try Self.check("drivers/codex-hooks.toml", Data(Self.codexBlock().utf8))
     }
 
+    /// The `aiterm` named hook as the app merges it, which the capture installs in its scratch workspace.
+    @Test func theAntigravityDriverTemplateIsWhatTheAppMerges() throws {
+        let hooks = try JSONSerialization.data(withJSONObject: [AgyHooks.name: AgyHooks.entry(hookURL: "http://127.0.0.1:\(Self.port)" + Harness.agy.hookEndpoint)],
+                                               options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        try Self.check("drivers/agy-hooks.json", hooks + Data("\n".utf8))
+    }
+
     // -- the captures, read as the app reads the CLI --
 
     static let captures = repo.appendingPathComponent("daemon/tests/fixtures/compat")
@@ -152,6 +159,14 @@ import Testing
         #expect(read.map(\.id).contains(try Self.capturedModel(.pi)))
     }
 
+    @Test func antigravitysModelListReadsAsEveryRow() throws {
+        let output = try Self.text(.agy, "list-models.txt")
+        let rows = output.split(whereSeparator: \.isNewline).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let read = try AgyModelCatalog.parse(output)
+        #expect(read.count == rows.count)
+        #expect(read.map(\.id).contains(try Self.capturedModel(.agy)))
+    }
+
     private static func ran(_ stdout: String) -> ProcessOutput { ProcessOutput(status: 0, stdout: stdout, stderr: "", timedOut: false) }
 
     @Test func eachHeadlessAnswerReadsAsTheAppReadsIt() throws {
@@ -162,6 +177,8 @@ import Testing
         #expect(codex?.contains("OK") == true, "codex exec's -o answer no longer reads: \(String(describing: codex))")
         let pi = OracleLaunch.critique(.pi, output: Self.ran(try Self.text(.pi, "headless/challenge.txt")), answerFile: nil)
         #expect(pi?.contains("OK") == true, "PI's -p answer no longer reads: \(String(describing: pi))")
+        let agy = OracleLaunch.critique(.agy, output: Self.ran(try Self.text(.agy, "headless/challenge.json")), answerFile: nil)
+        #expect(agy?.contains("OK") == true, "Antigravity's -p --output-format json answer no longer reads: \(String(describing: agy))")
     }
 
     /// Every option the app passes `agent`, from its templates: a word that starts with a dash, but

@@ -1,4 +1,9 @@
 {
+  "agy": {
+    "verified": "1.5",
+    "version": "1.5.18",
+    "checkedAt": "2026-11-26"
+  },
   "claude": {
     "verified": "2.1",
     "version": "2.1.330",

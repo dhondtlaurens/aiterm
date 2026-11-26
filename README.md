@@ -1,7 +1,7 @@
 # AiTerm
 
 Keep your coding agents organised across projects. AiTerm is a native macOS sidebar for
-**Claude Code and Codex** in real iTerm2 windows. Run tasks in separate Git worktrees, see which
+**Claude Code, Codex and Antigravity CLI** in real iTerm2 windows. Run tasks in separate Git worktrees, see which
 agents need your attention, and coordinate changes across repositories.
 
 [Download the latest release](https://github.com/dhondtlaurens/aiterm/releases/latest)
@@ -100,8 +100,9 @@ To start work automatically from Jira or a code host, [create a signal](docs/ope
 - **Open a shell:** **New Terminal…** (⌘T) starts in the project folder without creating a worktree.
 - **Bring local files along:** `.worktreeinclude` selects ignored files, such as `.env`, to copy
   into new task worktrees. [Worktree files](docs/configuration.md#files-in-task-worktrees).
-- **Use other providers:** Antigravity CLI and PI support manually started tasks and tabs, status,
-  context reporting and the Oracle; providers such as Grok run through PI.
+- **Use other providers:** Antigravity CLI has full support, as Claude Code and Codex do; PI supports
+  manually started tasks and tabs, status, context reporting and the Oracle, and providers such as
+  Grok run through PI.
   [Agents](docs/configuration.md#agents).
 - **Keep work running with the lid closed:** **Backpack Mode** (⌘B) joins your phone's hotspot and needs
   Lid sleep permission and Location access for network discovery. It stops at 10% battery and can

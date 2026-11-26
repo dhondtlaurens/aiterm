@@ -2,6 +2,7 @@
 """The delivery check's verdicts: what it writes for each run of scenarios, and that the daemon
 reads it as meant. Live dependencies are faked here; real iTerm2 and logged-in CLIs are checked by hand."""
 import json
+import shlex
 from aitermd.delivery import ESC, PASTE_START, PASTE_END
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.models import Frame, HARNESS_BY_AGENT
@@ -88,8 +89,39 @@ def test_the_version_is_read_from_the_clis_own_line(output, version):
 
 def test_only_the_known_clis_are_checked_in_their_order():
     assert chosen_agents("codex, claude") == ("claude", "codex")
+    assert chosen_agents("agy,claude") == ("claude", "agy")
     assert chosen_agents("claude,claude") == ("claude",)
     assert chosen_agents(" codex ") == ("codex",)
+
+
+def test_antigravity_starts_trusting_its_scratch_folder_and_asking_before_every_command(tmp_path):
+    # agy keeps its sign-in under ~/.gemini, so it is not moved to a scratch home: the folder is trusted
+    # and every command asked about through settings for this run only, which agy never saves.
+    real = tmp_path / "home"
+    settings = real / ".gemini" / "antigravity-cli" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"permissions": {"allow": ["command(git status)"]}}), encoding="utf-8")
+    folder = tmp_path / "scratch"
+    folder.mkdir()
+    command = check.agent_command("agy", folder, real)
+    words = shlex.split(command)
+    assert words[:3] == ["agy", "--model", "gemini-3.8-flash-low"] and words[3] == "--settings"
+    assert json.loads(words[4]) == {"permissions": {"ask": ["command(*)"]}, "trustedWorkspaces": [str(folder / "work")]}
+    # What it allowed for good before the check, so a rule a paste adds is found.
+    assert json.loads((folder / "agy-allow-before.json").read_text(encoding="utf-8")) == ["command(git status)"]
+
+
+def test_an_allow_rule_a_paste_saved_in_antigravitys_own_settings_is_found(tmp_path):
+    real = tmp_path / "home"
+    settings = real / ".gemini" / "antigravity-cli" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"permissions": {"allow": ["command(git status)"]}}), encoding="utf-8")
+    folder = tmp_path / "scratch"
+    folder.mkdir()
+    check.agent_command("agy", folder, real)
+    assert allow_rules("agy", folder, real) == []
+    settings.write_text(json.dumps({"permissions": {"allow": ["command(git status)", "command(touch)"]}}), encoding="utf-8")
+    assert allow_rules("agy", folder, real) == [f"{settings}: command(touch)"]
 
 
 def test_the_scratch_codex_home_gets_only_the_login_and_the_settings(tmp_path):

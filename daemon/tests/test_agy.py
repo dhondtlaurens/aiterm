@@ -109,6 +109,8 @@ def test_the_status_line_says_what_the_turn_is_doing(fields, state):
 def test_the_status_line_names_the_conversation_its_context_and_its_tab():
     tick = parse_agy_statusline(TICK, 1000)
     assert (tick.session_id, tick.cwd, tick.iterm_session_id) == ("c62469da", "/repo/wt", "w0t0p0:ABC")
+    # The CLI's own version: what a delivery-check pass is written for.
+    assert tick.version == "1.5.18"
     assert tick.context_percent == 1
     assert tick.usage is None and tick.transcript is None
     # Before the first conversation starts it names none.
@@ -162,11 +164,21 @@ async def test_a_missed_stop_is_mended_by_the_idle_status_line(agy_hooks):
     assert agy_hooks.state(sid) == "done"
 
 
-async def test_the_status_line_never_starts_a_turn_or_overrides_a_fresh_hook(agy_hooks):
+async def test_a_session_found_idle_mid_turn_recovers_its_state_from_the_status_line(agy_hooks):
+    # A restarted daemon finds every tab idle: an agy turn under way, or waiting on an approval, shows
+    # again from its next status line, as Claude's file and Codex's spinner show theirs.
+    [busy, asking] = agy_hooks.tabs(("s1", "agy", 132), ("s2", "agy", 137))
+    await agy_hooks.post("/statusline/agy", _tick(busy, agent_state="working"))
+    await agy_hooks.post("/statusline/agy", _tick(asking, agent_state="tool_use", tool_confirmation_pending=True))
+    assert (agy_hooks.state(busy), agy_hooks.state(asking)) == ("working", "needsInput")
+    # Idle and done readings of an idle tab change nothing.
+    [quiet] = agy_hooks.tabs(("s3", "agy", 138))
+    await agy_hooks.post("/statusline/agy", _tick(quiet, agent_state="idle"))
+    assert agy_hooks.state(quiet) == "idle"
+
+
+async def test_the_status_line_never_overrides_a_fresh_hook(agy_hooks):
     [sid] = agy_hooks.tabs(("s1", "agy", 132))
-    # Idle, a working status line is not a turn: only the hook starts one.
-    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working"))
-    assert agy_hooks.state(sid) == "idle"
     # A status line that raced its Stop hook still says working: it is the moment before, and ignored.
     await agy_hooks.post("/hook/agy", _hook(sid, "PreInvocation"))
     agy_hooks.clock.now += 5
@@ -184,3 +196,78 @@ async def test_a_permission_prompt_right_after_a_model_call_still_says_needs_inp
     agy_hooks.clock.now += 0.3
     await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="tool_use", tool_confirmation_pending=True))
     assert agy_hooks.state(sid) == "needsInput"
+
+
+async def test_the_status_line_records_the_tabs_cli_version(agy_hooks):
+    [sid] = agy_hooks.tabs(("s1", "agy", 134))
+    await agy_hooks.post("/statusline/agy", _tick(sid))
+    assert agy_hooks.registry.get(sid).cli_version == "1.5.18"
+
+
+# Screens as agy 1.5.18 draws them (docs/research/2026-11-26-antigravity-cli.md), trimmed.
+RULE = "─" * 60
+IDLE = f"probe-status\n{RULE}\n> Auto mode: edits & safe commands auto-approved (shift+tab to cycle)\n{RULE}\nprobe-status\n"
+PERMISSION = (f"● Ran (touch asked.txt) (ctrl+o to expand)\n{RULE}\nRequesting permission for:\n touch asked.txt\n"
+              "Run this command?\n> 1. Yes, run command\n 2. Yes, and always allow in this conversation for commands "
+              "that start with 'touch'\n 4. No, cancel\n ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command\n")
+TRUST = ("Accessing workspace:\n/repo/wt\nDo you trust the contents of this project?\n"
+         "Antigravity CLI requires permission to read, edit, and execute files here.\n> Yes, I trust this folder\n"
+         "  No, exit\n ↑/↓ Navigate · enter Confirm\n")
+
+
+def test_its_screens_are_read_for_delivery():
+    from aitermd.screens import open_prompt, shows_input_box
+    assert shows_input_box("agy", IDLE) and open_prompt("agy", IDLE) is None
+    assert open_prompt("agy", PERMISSION) == "permission"
+    assert open_prompt("agy", TRUST) == "startup"
+
+
+async def test_a_turn_that_ends_within_the_settle_window_without_its_stop_is_ended_by_the_tick(agy_hooks):
+    # The idle reading is held, not dropped: with no hook or newer reading after it, the tick applies it
+    # once the window has passed, so a lost Stop cannot leave the row working.
+    [sid] = agy_hooks.tabs(("s1", "agy", 135))
+    await agy_hooks.post("/hook/agy", _hook(sid, "PreInvocation"))
+    agy_hooks.clock.now += 0.4
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="idle"))
+    assert agy_hooks.state(sid) == "working"
+    assert agy_hooks.status.settle_held_ticks() == []
+    agy_hooks.clock.now += 1.0
+    assert agy_hooks.status.settle_held_ticks() == [sid]
+    assert agy_hooks.state(sid) == "done"
+
+
+async def test_a_held_reading_a_newer_reading_or_hook_replaced_is_never_applied(agy_hooks):
+    # A stale idle reading lands after the hook that started the turn; the turn's own working reading
+    # follows it, and the held idle is forgotten.
+    [sid] = agy_hooks.tabs(("s1", "agy", 136))
+    await agy_hooks.post("/hook/agy", _hook(sid, "PreInvocation"))
+    agy_hooks.clock.now += 0.3
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="idle"))
+    agy_hooks.clock.now += 0.3
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working"))
+    agy_hooks.clock.now += 2
+    assert agy_hooks.status.settle_held_ticks() == []
+    assert agy_hooks.state(sid) == "working"
+    # The same with a hook in place of the newer reading.
+    await agy_hooks.post("/hook/agy", _hook(sid, "PreInvocation"))
+    agy_hooks.clock.now += 0.3
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="idle"))
+    await agy_hooks.post("/hook/agy", _hook(sid, "PreInvocation"))
+    agy_hooks.clock.now += 2
+    assert agy_hooks.status.settle_held_ticks() == []
+    assert agy_hooks.state(sid) == "working"
+
+
+async def test_a_held_reading_never_revives_a_turn_the_person_has_since_seen(agy_hooks):
+    # Stop, then the moment-before working reading lands and is held; the person opens the finished
+    # row (done to idle) before the window passes. The held reading is of a row that has moved on.
+    [sid] = agy_hooks.tabs(("s1", "agy", 139))
+    await agy_hooks.post("/hook/agy", _hook(sid, "PreInvocation"))
+    agy_hooks.clock.now += 5
+    await agy_hooks.post("/hook/agy", _hook(sid, "Stop"))
+    agy_hooks.clock.now += 0.2
+    await agy_hooks.post("/statusline/agy", _tick(sid, agent_state="working"))
+    agy_hooks.registry.set_state(sid, "idle")      # what seeing the done row does
+    agy_hooks.clock.now += 2
+    assert agy_hooks.status.settle_held_ticks() == []
+    assert agy_hooks.state(sid) == "idle"

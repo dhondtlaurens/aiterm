@@ -178,3 +178,29 @@ def test_invalid_release_metadata_fails_closed(monkeypatch, payload):
     monkeypatch.setattr(preflight.urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO(json.dumps(payload).encode()))
     with pytest.raises(preflight.PreflightFailed, match="latest"):
         preflight.latest_version("pi")
+
+
+def test_antigravitys_latest_release_is_its_changelogs_first_version(monkeypatch):
+    # agy is not on npm: its changelog, which the CLI itself links, heads each release with its version.
+    import io
+
+    requested = []
+    changelog = (b"# Antigravity CLI Changelog\n\n<!-- disableFinding(LINE_OVER_80) -->\n\nThe terminal-first surface.\n\n"
+                 b"## 1.5.18\n\n- Fixed a thing.\n\n## 1.5.17\n\n- Fixed another.\n")
+
+    def lookup(url, timeout):
+        requested.append(url)
+        return io.BytesIO(changelog)
+
+    monkeypatch.setattr(preflight.urllib.request, "urlopen", lookup)
+    assert preflight.latest_version("agy") == "1.5.18"
+    assert requested == ["https://raw.githubusercontent.com/google-antigravity/antigravity-cli/refs/heads/main/CHANGELOG.md"]
+    assert preflight.update_command("agy", "/Users/me/.local/bin/agy") == ["/Users/me/.local/bin/agy", "update"]
+
+
+def test_a_changelog_that_names_no_release_fails_closed(monkeypatch):
+    import io
+
+    monkeypatch.setattr(preflight.urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO(b"# Changelog\n\n## Unreleased\n"))
+    with pytest.raises(preflight.PreflightFailed, match="latest"):
+        preflight.latest_version("agy")

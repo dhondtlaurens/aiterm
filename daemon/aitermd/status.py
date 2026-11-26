@@ -97,6 +97,11 @@ class StatusEngine:
         # The sessions whose row a folder-trust dialog holds at needs input. Not a turn's: the dialog
         # belongs to the tab until it closes, and comes before any conversation.
         self._trust_prompts: set[str] = set()
+        # Each tab's latest Antigravity status-line reading the settle window held back
+        # (STATUSLINE_SETTLE_SECONDS), with the row's state then: a hook or a newer reading replaces it,
+        # and the tick applies it once the window has passed (settle_held_ticks), so a lost Stop cannot
+        # leave a row working -- unless the row has moved on since, as a done row the person opened.
+        self._held_ticks: dict[str, tuple[Evidence, State]] = {}
 
     def turn(self, session_id: str) -> Turn | None:
         """What the engine remembers of the session's turn, if anything: a view for inspection, by a
@@ -120,6 +125,8 @@ class StatusEngine:
         `ev.running_subagents`, on a Claude Stop, the children still running."""
         if (kind := ev.kind) is None or self.reg.get(session_id) is None:
             return []
+        # A hook is newer than any status-line reading held back before it.
+        self._held_ticks.pop(session_id, None)
         turn = self._turn(session_id)
         if kind == "sessionStart":
             self.reset_turn(session_id)
@@ -181,11 +188,17 @@ class StatusEngine:
                 return []
         turn = self._turns.get(session_id)
         if source == "agy_statusline":
-            # It only moves a turn under way: to needs-input at a tool's approval and back once it is
-            # answered, which no hook reports, and to done when a Stop was missed. Only a hook starts a turn.
+            # Needs-input at a tool's approval and working again once it is answered, which no hook
+            # reports; done when a Stop was missed. An idle tab -- one a restarted daemon found mid-turn
+            # -- takes working or needs-input from it, as from Claude's file or Codex's spinner; a stale
+            # working reading after a Stop finds the row done, not idle. Done only ends a turn under way.
+            # A newer reading replaces a held one; one inside the window is held, not believed yet.
+            self._held_ticks.pop(session_id, None)
             if target != "needsInput" and turn is not None and at - turn.hook_at < STATUSLINE_SETTLE_SECONDS:
+                if target != "idle":  # tick evidence never says idle
+                    self._held_ticks[session_id] = (Evidence(target, at, source), s.state)
                 return []
-            allowed = {"needsInput": ("working",), "working": ("needsInput",), "done": ("working", "needsInput")}
+            allowed = {"needsInput": ("working", "idle"), "working": ("needsInput", "idle"), "done": ("working", "needsInput")}
             if s.state not in allowed[target]:
                 return []
         if source == "claude_file":
@@ -280,6 +293,19 @@ class StatusEngine:
         """Drops everything the engine keeps of a closed tab."""
         self.reset_turn(session_id)
         self._trust_prompts.discard(session_id)
+        self._held_ticks.pop(session_id, None)
+
+    def settle_held_ticks(self) -> list[str]:
+        """Applies each held status-line reading whose settle window has passed with no hook or newer
+        reading after it: it is then the tab's latest word on its turn. Run on every tick."""
+        now, changed = self._clock(), []
+        for session_id, (held, state_then) in list(self._held_ticks.items()):
+            turn = self._turns.get(session_id)
+            if turn is None or now - turn.hook_at >= STATUSLINE_SETTLE_SECONDS:
+                del self._held_ticks[session_id]
+                if (s := self.reg.get(session_id)) is not None and s.state == state_then:
+                    changed += self._apply_state(session_id, held.state, now, source=held.source)
+        return changed
 
     def reset_turn(self, session_id: str) -> None:
         """Forgets the subagents and deferred completion of a conversation that has ended: a new

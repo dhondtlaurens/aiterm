@@ -13,6 +13,9 @@ public struct Harness: Sendable {
     public let displayName: String
     /// How far AiTerm supports the agent (`SupportTier`); the daemon's harness row says the same.
     public let support: SupportTier
+    /// Whether the delivery check drives the CLI: AiTerm reads its screen (the daemon's harness row has
+    /// an input-box marker). A pass for its version is what lets an agent have full support.
+    public let messagingChecked: Bool
     /// The vendor's own installer, which Install runs through the login shell (`CLIInstaller`).
     public let installCommand: String
     /// The reasoning levels offered while no model is picked, and the one picked then.
@@ -114,6 +117,9 @@ public extension AgentKind {
     /// The agents with full support, in `allCases` order: the Operator's workers and the delivery
     /// check's CLIs.
     static var fullSupport: [AgentKind] { allCases.filter { $0.harness.support == .full } }
+
+    /// The agents the delivery check covers, in `allCases` order: every full one, and any on its way.
+    static var messagingChecked: [AgentKind] { allCases.filter { $0.harness.messagingChecked } }
 
     var harness: Harness {
         switch self {

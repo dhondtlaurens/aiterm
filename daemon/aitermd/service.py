@@ -367,6 +367,7 @@ class Service:
         for name, observe in observations:
             with _logged(name):
                 changed += await observe()
+        changed += self.status.settle_held_ticks()
         await self.codex_threads.remember(sessions)
 
     async def observe(self, plan: ReadPlan[T]) -> list[str]:
