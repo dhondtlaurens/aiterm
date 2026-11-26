@@ -98,8 +98,8 @@ public struct StoppedOn: Codable, Equatable, Sendable {
     public var isLimit: Bool { error == "rate_limit" }
 }
 
-/// One line of a tab's work (`SessionInfo.work`): a shell by its command, a monitor, a subagent or any other task by its
-/// description.
+/// One line of a tab's work (`SessionInfo.work`): a shell by its command, a monitor, a subagent, other agent work or any
+/// other task by its description.
 public struct WorkItem: Codable, Equatable, Sendable {
     public var kind: BackgroundJob.Kind, text: String
     /// Native short description for the card. Status and the Operator continue to read `text`.
@@ -125,20 +125,26 @@ public struct WorkItem: Codable, Equatable, Sendable {
     public var displayJob: BackgroundJob { BackgroundJob(kind: kind, text: text, displayLabel: displayLabel, idle: idle) }
 }
 
-/// A shell by its command, a monitor, a subagent or any other task by its description.
+/// A shell by its command, a monitor, a subagent, other agent work or any other task by its description.
 public struct BackgroundJob: Equatable, Hashable, Sendable {
     /// See `SessionAgent`'s decoding note: a kind this app does not know reads as `.task`.
     public enum Kind: String, Codable, LenientRawDecodable, Sendable {
-        case shell, monitor, task, subagent
+        /// `agent`: agent work that is no child the status engine counts — a workflow, a cloud session, a dream.
+        case shell, monitor, task, agent, subagent
         static var unrecognized: Self { .task }
+        /// Work an agent does, which the card shows by its vendor rather than as a tool.
+        public var isAgent: Bool { self == .subagent || self == .agent }
     }
     public var kind: Kind, text: String
     public var displayLabel: String?
     /// A teammate that finished its turn and waits for a message (`WorkItem.idle`): the card lists it apart, and it
     /// counts as no running work.
     public var idle: Bool
-    public init(kind: Kind, text: String, displayLabel: String? = nil, idle: Bool = false) {
-        self.kind = kind; self.text = text; self.displayLabel = displayLabel; self.idle = idle
+    /// The vendor of the tab it runs in, for the card's mark. Only `SidebarModel.displayJobs` names it; status and the
+    /// Operator never read it.
+    public var agent: SessionAgent?
+    public init(kind: Kind, text: String, displayLabel: String? = nil, idle: Bool = false, agent: SessionAgent? = nil) {
+        self.kind = kind; self.text = text; self.displayLabel = displayLabel; self.idle = idle; self.agent = agent
     }
     public var label: String {
         guard let displayLabel, !displayLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return text }

@@ -62,7 +62,8 @@ import Synchronization
         var second = session("s2", task: "t", agent: .claude, state: .working, tab: 1)
         second.work = [WorkItem(kind: .subagent, text: child.text, holdsTurn: true),
                        WorkItem(kind: .monitor, text: monitor.text, holdsTurn: false)]
-        #expect(SidebarModel.displayJobs(of: [second, first]) == [shell, child, monitor])
+        // The card names each job's vendor from its tab; status and the Operator never read it.
+        #expect(SidebarModel.displayJobs(of: [second, first]) == [shell, child, monitor].map { vendored($0, .claude) })
         #expect(SidebarModel.aggregate(tabs: [first]) == .done, "a shell no Stop listed wakes nothing")
         #expect(SidebarModel.backgroundJobs(of: [first]).isEmpty)
         #expect(SidebarModel.aggregate(tabs: [second, first]) == .working)
@@ -78,10 +79,17 @@ import Synchronization
         var ended = session("ended", task: "t", agent: .claude, state: .done, tab: 1)
         ended.work = [WorkItem(kind: .shell, text: "scripts/test.sh", holdsTurn: true)]
         ended.testActivity = TestActivity(runId: "queued", suite: "daemon", state: .queued)
-        #expect(SidebarModel.displayJobs(of: [active, ended]) == ended.work.map(\.job)
+        #expect(SidebarModel.displayJobs(of: [active, ended]) == ended.work.map { vendored($0.job, .claude) }
                 + [BackgroundJob(kind: .shell, text: ended.testActivity!.detail)])
         active.state = .done
-        #expect(SidebarModel.displayJobs(of: [active, ended]) == SidebarModel.backgroundJobs(of: [active, ended]))
+        #expect(SidebarModel.displayJobs(of: [active, ended]).map { vendored($0, nil) }
+                == SidebarModel.backgroundJobs(of: [active, ended]))
+    }
+
+    private func vendored(_ job: BackgroundJob, _ agent: SessionAgent?) -> BackgroundJob {
+        var job = job
+        job.agent = agent
+        return job
     }
 
     @Test func displayDescriptionsPreserveTabOrderAndRawBackgroundObligations() {

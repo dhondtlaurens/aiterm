@@ -4,12 +4,11 @@ import AiTermCore
 
 /// The existing ordered work list, with native short descriptions when available. Raw commands
 /// remain on each job for fallback/help; the visual and spoken descriptions use the same label.
-/// Idle teammates (`BackgroundJob.idle`) are alive but run nothing: they follow the running work under their own
-/// heading, and the count in the card's heading leaves them out.
+/// Idle teammates (`BackgroundJob.idle`) are alive but run nothing: they follow the running work, each wearing a `zzz`
+/// corner on its avatar, and the count in the card's heading leaves them out (proposal Background work with vendor
+/// avatars, B2 without its heading, 26 Nov 2026).
 struct BackgroundCard: Equatable {
     let jobs: [BackgroundJob]
-
-    static let idleHeading = "Idle (can be messaged)"
 
     var running: [BackgroundJob] { jobs.filter { !$0.idle } }
     var idle: [BackgroundJob] { jobs.filter(\.idle) }
@@ -22,15 +21,13 @@ struct BackgroundCard: Equatable {
         }
     }
 
-    /// One line of the card under its heading: a job, or the heading of the idle ones.
-    enum Line: Equatable {
-        case job(BackgroundJob)
-        case idleHeading
-    }
+    /// The card's lines under its heading: the running jobs, then the idle ones.
+    var lines: [BackgroundJob] { running + idle }
 
-    /// The running jobs, then the idle ones under their heading.
-    var lines: [Line] {
-        running.map(Line.job) + (idle.isEmpty ? [] : [.idleHeading] + idle.map(Line.job))
+    /// The agents at work as the task row's avatar group, from two up (C1): idle teammates and tools do not count.
+    var agents: AvatarGroup? {
+        let marks = running.filter(\.kind.isAgent).map(Self.mark)
+        return marks.count < 2 ? nil : SidebarModel.avatars(of: marks)
     }
 
     /// The card in words, the row's value for VoiceOver: every job, which the card may scroll or cut short.
@@ -53,16 +50,11 @@ struct BackgroundCard: Equatable {
         return parts.joined(separator: ". ")
     }
 
-    /// What each line is at a glance: a shell's command, an agent at work, an idle agent asleep until it is messaged, and
-    /// anything else that follows a live signal and reports back (a monitor, a workflow, an MCP task). Not `eye`: on
-    /// macOS that is the show/hide mark, a control rather than work.
-    static func glyph(_ job: BackgroundJob) -> String {
-        if job.idle { return "zzz" }
-        switch job.kind {
-        case .shell: return "apple.terminal"
-        case .subagent: return "sparkle"
-        case .monitor, .task: return "waveform.path.ecg"
-        }
+    /// Whose mark leads a line (A): agent work (a subagent, a teammate, a workflow, a cloud session, a dream) wears the
+    /// vendor of the tab it runs in, Claude unless the tab names another; everything else (a shell, a monitor, an MCP
+    /// task, a test run) the terminal's.
+    static func mark(_ job: BackgroundJob) -> SessionAgent {
+        job.kind.isAgent ? job.agent ?? .claude : .shell
     }
 }
 
@@ -126,9 +118,8 @@ struct BackgroundCardView: View {
     static let maximumVisibleJobs = 5
     static let cornerRadius = Radius.control
 
-    /// SF Symbols can be wider than their point size. Allow a third more width for the terminal
-    /// glyph; narrower symbols share the column. This allowance follows the mark, not the row gap.
-    private static let glyphColumnWidth = Size.inlineMark * 4 / 3
+    /// Every line's mark, agent or tool alike, at the size a vendor mark takes outside an avatar group (A).
+    private static let markSize = Size.vendorMark
 
     static func height(jobs: Int, scale: InterfaceScale) -> CGFloat {
         2 * scale(Space.base) + scale(Size.chip)
@@ -144,8 +135,12 @@ struct BackgroundCardView: View {
     var body: some View {
         let rows = min(card.lines.count, max(0, visibleJobs), Self.maximumVisibleJobs)
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
-                .frame(height: scale(Size.chip))
+            HStack(spacing: scale(Space.tight)) {
+                HelpText(card.heading, fixedVerticalSize: false).lineLimit(1)
+                Spacer(minLength: 0)
+                if let agents = card.agents { AvatarGroupView(group: agents, markSize: Size.vendorMark) }
+            }
+            .frame(height: scale(Size.chip))
             if rows > 0 {
                 Group {
                     // ImageRenderer does not materialise native scroll views. Static fixtures
@@ -164,33 +159,49 @@ struct BackgroundCardView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: Self.height(jobs: rows, scale: scale))
         .menuChrome(cornerRadius: scale(Self.cornerRadius))
-        .surface(.sheet)
+        .surface(.menu)
         .accessibilityHidden(true)
     }
 
     private var lines: some View {
         VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            ForEach(Array(card.lines.enumerated()), id: \.offset) { _, line in
-                Group {
-                    switch line {
-                    case .idleHeading:
-                        Text(BackgroundCard.idleHeading).font(Typography.help)
-                            .foregroundStyle(Palette.muted).lineLimit(1).truncationMode(.tail)
-                    case .job(let job):
-                        HStack(alignment: .center, spacing: scale(Space.tight)) {
-                            Icon(.symbol(BackgroundCard.glyph(job)), size: scale(Size.inlineMark), tint: Palette.muted)
-                                .frame(width: scale(Self.glyphColumnWidth))
-                            Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
-                                .foregroundStyle(job.idle ? Palette.muted : Palette.text).lineLimit(1).truncationMode(.tail)
-                                .help(job.kind == .shell && !job.isCommand ? job.text : "")
+            ForEach(Array(card.lines.enumerated()), id: \.offset) { _, job in
+                HStack(alignment: .center, spacing: scale(Space.tight)) {
+                    VendorMark(agent: BackgroundCard.mark(job), size: scale(Self.markSize))
+                        .overlay(alignment: .bottomTrailing) {
+                            if job.idle { IdleCorner().offset(x: scale(Space.hairline), y: scale(Space.hairline)) }
                         }
-                    }
+                    Text(job.label).font(job.isCommand ? Typography.mono : Typography.help)
+                        .foregroundStyle(job.idle ? Palette.muted : Palette.text).lineLimit(1).truncationMode(.tail)
+                        .help(job.kind == .shell && !job.isCommand ? job.text : "")
                 }
                 .frame(height: scale(Size.chip))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// An idle teammate's corner (B2): a `Size.cornerBadge` disc in `Palette.controlActive` with `zzz` in `Palette.text`,
+/// over the avatar's corner and overhanging it by `Space.hairline`, ringed in the card's ground so it reads apart from
+/// the avatar, as `Badge(corner:)`'s check is.
+private struct IdleCorner: View {
+    @Environment(\.interfaceScale) private var scale
+    @Environment(\.surface) private var surface
+
+    /// The glyph inside the disc, in proportion to it, as `SettledMark` draws its check.
+    private static let glyphShare: CGFloat = 0.6
+    /// The ring that cuts the disc from the avatar beneath, stroked under its fill so a one-point hairline shows outside
+    /// it. Unscaled, as every border is.
+    private static let ring: CGFloat = 2
+
+    var body: some View {
+        let size = scale(Size.cornerBadge)
+        Icon(.symbol("zzz"), size: size * Self.glyphShare, tint: Palette.text)
+            .frame(width: size, height: size)
+            .background(Circle().fill(Palette.controlActive))
+            .background { Circle().stroke(surface.occludingBackground, lineWidth: Self.ring) }
     }
 }
 

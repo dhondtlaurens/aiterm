@@ -171,6 +171,21 @@ def test_a_claude_stop_lists_the_background_work_still_running():
     assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "background_tasks": tasks}).background_work is None
 
 
+def test_agent_work_claude_code_does_not_count_as_a_child_is_sent_as_agent():
+    """A workflow, a cloud session and a dream run agents the card shows by their vendor, yet none is a child the
+    status engine counts: each goes out as `agent`, and holds the turn as a task does. Claude Code's own chores (a
+    memory save, an auto-mode scan) stay tasks. Type names from Claude Code 2.1.332."""
+    tasks = [{"id": "w1", "type": "workflow", "status": "running", "description": "Review changes across dimensions"},
+             {"id": "r1", "type": "cloud session", "status": "running", "description": "Port the parser"},
+             {"id": "d1", "type": "dream", "status": "running", "description": "Consolidate memory"},
+             {"id": "s1", "type": "memory save", "status": "running", "description": "Save memories"},
+             {"id": "q1", "type": "auto-mode scan", "status": "running", "description": "Scan the transcript"}]
+    event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
+    assert [job.kind for job in event.background_work] == ["agent", "agent", "agent", "task", "task"]
+    assert event.background_work[0].to_json() == {"kind": "agent", "text": "Review changes across dimensions"}
+    assert event.running_subagents is None
+
+
 def test_a_claude_stop_leaves_out_its_artifact_watches():
     """Claude Code watches every artifact it publishes or is asked to watch for comments, for the rest of the session:
     a monitor that never ends and that Claude Code itself counts as no activity. A monitor you armed still counts."""

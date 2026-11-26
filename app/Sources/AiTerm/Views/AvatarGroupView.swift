@@ -12,11 +12,14 @@ struct AvatarGroupView: View {
     /// The occluding ring every mark and the `+n` slot draw around themselves. A stroke, so it does not scale.
     static let ringWidth: CGFloat = 2
     @Environment(\.interfaceScale) private var scale
-    private var size: CGFloat { scale(Size.avatar) }
+    private var size: CGFloat { scale(markSize) }
     /// The group's fixed width: two stacked marks, which is all `SidebarModel.avatarMax` lets a row
     /// draw. A group with one mark still takes this width, so every row's title starts at the same x.
     private var columnWidth: CGFloat { size * 2 + scale(Self.overlap) }
     let group: AvatarGroup
+    /// Each mark's diameter before scaling: `Size.avatar` on a row; the background-work card's heading draws the group
+    /// at `Size.vendorMark`, inside its `Size.chip` line.
+    var markSize: CGFloat = Size.avatar
     /// Replaces the `ring: Color` this view used to take. The ring is painted *over* the avatar
     /// behind it, so it needs `Surface.occludingBackground` — an opaque colour — rather than a
     /// wash, which would let the stacked mark show through.
