@@ -24,7 +24,7 @@ require_full_gate() {
 
 # The workspace format a release saves (`AiTerm --workspace-format`, the newest update script's
 # version) is never newer than the release, and a format no tag has shipped yet ships as exactly
-# that version: a change to the saved workspace is a major release, its `.0.0`.
+# that version: a change to the saved workspace is released as its update script's version, at any level.
 check_workspace_format() {  # <format> <version> <latest tag's version, or empty>
     local format="$1" version="$2" latest="$3"
     [[ "$(printf '%s\n%s\n' "$format" "$version" | sort -V | tail -1)" == "$version" ]] ||

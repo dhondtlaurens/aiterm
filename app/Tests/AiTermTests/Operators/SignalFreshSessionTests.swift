@@ -96,7 +96,7 @@ import Testing
         #expect(daemon.requests("window.createTask").isEmpty, "A recovered handover with no workload retires without opening another chat.")
         root.stop()
     }
-    @Test func nativeHandoverClosesRevokesAndOpensWithCurrentContextAndTheSavedDigest() async throws {
+    @Test func nativeHandoverClosesRevokesAndOpensOnOneLineWithTheSavedStatus() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         var session = OperatorSession.open(createdAt: world.now, window: "old-window", conversation: "old-conversation")
         session.questions = [.init(id: "scope", task: id, text: "Which scope?", openedAt: world.now)]
@@ -123,8 +123,11 @@ import Testing
         let folder = OperatorLaunch.folder(home: ports.home)
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         let text = try files.filter { $0.pathExtension == "json" || $0.pathExtension == "md" }.map { try String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
-        #expect(text.contains("Which scope?") && text.contains("waiting-round"))
         #expect(!text.contains("old-conversation"))
+        // The fresh chat opens on one line; its first run_status reads the question and round the renewal kept.
+        #expect(try String(contentsOf: folder.appendingPathComponent(OperatorLaunch.firstMessageFile), encoding: .utf8) == OperatorLaunch.firstMessage)
+        let status = OperatorDigest(state: h.workspace.state, at: now, oracleOn: true)
+        #expect(status.questions.map(\.id) == ["scope"] && status.oracleRounds.map(\.id) == ["waiting-round"])
         root.stop()
     }
     @Test(arguments: [false, true]) func anOracleOffOnCycleDiscardsTheEarlierAnswer(shell: Bool) async throws {

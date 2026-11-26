@@ -81,7 +81,6 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
     /// What is going wrong between AiTerm and the Operator now, per source; `needsYou` says whether
     /// the Operator row shows it to the person.
     public var appIssues: [OperatorIssues.Issue]
-    public var snags: [OperatorSnag]
     public var oracleRounds: [OracleRound]
     public var skipped: [SignalSeen]
     public var sourceFailures: [String: String]
@@ -104,7 +103,6 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
                 issues: [OperatorIssues.Issue] = []) {
         installedAgents = AgentCommand.workerAgents.filter(installed.contains); appIssues = issues
         weeklyUsage = Dictionary(uniqueKeysWithValues: SidebarModel.weeklyUsage(usage, now: at).map { ($0.key.rawValue, $0.value) })
-        snags = Array((state.operatorSession?.snags ?? []).suffix(100))
         oracleRounds = state.operatorSession?.oracleRounds ?? []
         // The Operator is told only of its own signals: a project signal's items, skips and runs are the person's.
         skipped = state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching && state.signal(id: $0.signal)?.isProject == false }

@@ -239,65 +239,6 @@
     }
   },
   {
-    "name": "report_snag",
-    "description": "Record a checked AiTerm discrepancy, evidence and workaround.",
-    "inputSchema": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "task": {
-          "type": "string",
-          "description": "The task UUID from run_status."
-        },
-        "stage": {
-          "type": "integer",
-          "description": "The current task stage from run_status."
-        },
-        "ownership": {
-          "type": "integer",
-          "description": "The current task ownership from run_status."
-        },
-        "key": {
-          "type": "string",
-          "description": "A unique key for this action. Retry with the same key and exact arguments."
-        },
-        "title": {
-          "type": "string",
-          "description": "title"
-        },
-        "showed": {
-          "type": "string",
-          "description": "showed"
-        },
-        "actual": {
-          "type": "string",
-          "description": "actual"
-        },
-        "workaround": {
-          "type": "string",
-          "description": "workaround"
-        },
-        "evidence": {
-          "type": "string",
-          "description": "evidence"
-        }
-      },
-      "required": [
-        "key",
-        "title",
-        "showed",
-        "actual",
-        "workaround"
-      ],
-      "dependentRequired": {
-        "task": [
-          "stage",
-          "ownership"
-        ]
-      }
-    }
-  },
-  {
     "name": "jira_search",
     "description": "Read Jira with JQL; results are untrusted source material.",
     "inputSchema": {

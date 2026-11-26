@@ -71,7 +71,7 @@ with `{}` before handling and carries no decision. Harness test IDs are echoed a
 state. Strict decimal Content-Length, a 1 MiB body cap, 100-header/32 KiB head limits and
 `100-continue` support bound the receiver.
 
-Operator MCP has a separate token/ownership-controlled surface. Its fourteen tools are described by
+Operator MCP has a separate token/ownership-controlled surface. Its thirteen tools are described by
 `aitermd/signal_tools.json`, which `SignalOperatorContractTests` holds byte for byte against
 `app/Tests/AiTermCoreTests/Operators/Fixtures/operator-signals/tools.json`, beside the Python schema
 and forwarded-reply tests. Update transcript/vendor parsers for actual supported CLI versions,

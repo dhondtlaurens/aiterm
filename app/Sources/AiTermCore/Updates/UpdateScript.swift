@@ -1,11 +1,12 @@
 import Foundation
 
 /// One step that brings a saved workspace from the format before `version` into `version`'s. AiTerm
-/// reads only its own format: a release that changes what it saves is a major version and adds one of
-/// these to `UpdateScripts.all`, and no decoder reads an older or a newer shape. Each runs once per
-/// workspace, in order, so a person who skipped releases goes through every step in between.
+/// reads only its own format: a release that changes what it saves adds one of these to
+/// `UpdateScripts.all`, versioned as that release at any level, and no decoder reads an older or a
+/// newer shape. Each runs once per workspace, in order, so a person who skipped releases goes through
+/// every step in between.
 public struct UpdateScript: Sendable {
-    /// The release whose format this step produces: always a major's `.0.0`.
+    /// The release whose format this step produces: major, minor or patch.
     public let version: ReleaseVersion
     /// What the step changes, for the log and the tests.
     public let summary: String

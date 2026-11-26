@@ -112,9 +112,9 @@ import Testing
 
     private func keeper(_ h: SignalHarness, _ pause: ScriptedPause, wanted: @escaping @MainActor () -> Bool = { true },
                         opened: @escaping @MainActor () -> Void) -> OperatorSessionKeeper {
-        var ports = OperatorSessionKeeper.Ports(canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _, _ in opened(); return "chat-window" })
+        var ports = OperatorSessionKeeper.Ports(canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _ in opened(); return "chat-window" })
         ports.pause = pause.gate; ports.wanted = wanted
-        return OperatorSessionKeeper(workspace: h.workspace, now: { Date() }, oracleOn: { false }, ports: ports)
+        return OperatorSessionKeeper(workspace: h.workspace, now: { Date() }, ports: ports)
     }
 
     /// The Operator's own reconcile awaits `ensure`: while you type it returns at once, and the chat opens after your
@@ -285,7 +285,7 @@ import Testing
         let h = try SignalHarness(world); defer { h.cleanUp() }
         let pause = ScriptedPause([5])
         var keeperRef: OperatorSessionKeeper?, opened = 0, failures: [String] = []
-        var ports = OperatorSessionKeeper.Ports(canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _, _ in
+        var ports = OperatorSessionKeeper.Ports(canOpen: { true }, close: { _ in }, revoke: { _ in }, open: { _ in
             // As `OperatorChat.open` does in the turn.
             try await pause.gate.turn.take {
                 guard keeperRef?.chosenMeanwhile == true || pause.gate.isQuiet else { throw OperatorOpenDeferred() }
@@ -293,7 +293,7 @@ import Testing
             }
         })
         ports.pause = pause.gate
-        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { Date() }, oracleOn: { false }, ports: ports)
+        let keeper = OperatorSessionKeeper(workspace: h.workspace, now: { Date() }, ports: ports)
         keeperRef = keeper; keeper.failed = { failures.append($0) }
         let held = TestLatch(), release = TestLatch()
         let holder = Task { await pause.gate.turn.take { held.signal(); await release.wait() } }

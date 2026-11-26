@@ -28,8 +28,9 @@ snags are gone.
 - **Snags in the saved workspace.** Dropping them is a format change, so this branch adds
   `Update2_1_0`, which removes `operatorSession.snags`. The next release is 2.1.0.
 
-Decided while grilling: one fixed line rather than a temp file or a summary line; snags removed in
-total; scripts allowed at minor and patch versions, so snag removal ships as 2.1.0.
+The launch still hands the first message to Claude through `first-message.md` in the Operator's
+folder, read by the typed command; the file now holds the one line. Snags are removed in total, and
+scripts may ship at minor and patch versions, so snag removal ships as 2.1.0.
 
 ## Files
 
@@ -39,12 +40,18 @@ total; scripts allowed at minor and patch versions, so snag removal ships as 2.1
   durable" sentence, "fourteen" becomes "thirteen", the report_snag sentence and "report the snag"
   wording go, and so does the doc comment that mentions "the first JSON message".
 - Modify `app/Sources/AiTerm/Operators/OperatorSessionKeeper.swift` and the `open` port it calls,
-  with its live implementation: stop building a digest for the open.
+  with its live implementation: stop building a digest for the open. The keeper's `oracleOn`,
+  `sessions`, `instructions`, `usage` and `installedAgents` existed only for that digest and go with
+  it, as do `OperatorChat.Ports.instructions` and `oracleOn` and their wiring in
+  `SignalOperatorController.swift`.
 - Modify `app/Tests/AiTermTests/Operators/SignalSessionKeeperTests.swift`,
   `SignalOperatorLifetimeTests.swift` and `OperatorPauseTests.swift`: their `open` closures take
   the session only. The question-retention checks (`SignalSessionKeeperTests.swift:117–120`,
   `:144–145`) move from the digest to the saved session read inside the closure, which is what
   the fresh chat's first `run_status` reads.
+- Modify `app/Tests/AiTermTests/Operators/SignalFreshSessionTests.swift`: the renewal test looked
+  for the kept question and Oracle round in the first message's files; it now checks the one-line
+  first message and the status the fresh chat reads.
 
 **Snags**
 - Modify `app/Sources/AiTermCore/Operators/OperatorModels.swift`: delete `OperatorSnag`.

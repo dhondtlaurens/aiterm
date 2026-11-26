@@ -10,8 +10,6 @@ import AiTermCore
         /// Whether the daemon's snapshot of the tabs is current.
         var tabsKnown: @MainActor () -> Bool
         var profile: @MainActor () -> OperatorProfile
-        var instructions: @MainActor () -> String?
-        var oracleOn: @MainActor () -> Bool
         /// Whether a wake is pending, being typed or unread (`OperatorWaker.unread`): it reopens a chat you
         /// closed, and keeps the chat from retiring or renewing.
         var wakeUnread: @MainActor () -> Bool
@@ -33,24 +31,22 @@ import AiTermCore
         self.activity = activity; self.log = log; self.context = context
     }
     private func makeKeeper() -> OperatorSessionKeeper {
-        let keeper = OperatorSessionKeeper(workspace: workspace, now: ports.now,
-        oracleOn: context.oracleOn, ports: .init(
+        let keeper = OperatorSessionKeeper(workspace: workspace, now: ports.now, ports: .init(
             canOpen: { [weak self] in self.map { $0.context.running() && $0.context.tabsKnown() && $0.daemon() != nil && !$0.context.profile().model.isEmpty && $0.ports.installedAgents().contains(.claude) } ?? false },
             close: { [weak self] window in try await self?.closeOperator(window) },
             revoke: { [weak self] id in
                 guard let self, let daemon = self.daemon(), let session = self.workspace.state.operatorSession else { throw ActionUnavailable("The helper is unavailable.") }
                 try await daemon.revokeOperator(operatorId: id.uuidString, generation: session.generation)
-            }, open: { [weak self] session, digest in
+            }, open: { [weak self] session in
                 guard let self else { throw ActionUnavailable("The Operator stopped.") }
-                return try await self.open(session, digest: digest)
+                return try await self.open(session)
             }, existingWindow: { [weak self] session in
                 guard let self, let daemon = self.daemon() else { throw ActionUnavailable("The helper is unavailable.") }
                 let sessions = try await daemon.sessions()
                 guard self.context.running(), self.workspace.state.operatorSession?.id == session.id,
                       self.workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
                 return sessions.first { $0.taskUUID == session.id && $0.agent == .claude }?.windowId
-            }, sessions: { [weak self] in self?.live.sessions ?? [] }, instructions: { [weak self] in self?.context.instructions() }, usage: { [weak self] in self?.live.usage ?? .empty },
-            installedAgents: { [weak self] in self?.ports.installedAgents() ?? [] }, pause: ports.pause,
+            }, pause: ports.pause,
             wanted: { [weak self] in self?.workspace.state.operatorHasWork == true },
             start: { [work = ports.work] body in work.start(body) }))
         keeper.activity = activity
@@ -120,12 +116,11 @@ import AiTermCore
         throw ActionUnavailable(log.issues.current.first { $0.source == .session }?.text ?? "The Operator’s chat couldn’t open.")
     }
 
-    private func open(_ session: OperatorSession, digest: OperatorDigest) async throws -> String {
+    private func open(_ session: OperatorSession) async throws -> String {
         guard context.running(), let daemon = daemon() else { throw ActionUnavailable("The helper is unavailable.") }
         let home = ports.home, config = ports.claudeConfig, profile = OperatorProfileStore.saved(ports.preferences) ?? context.profile()
         let prepared = try await BackgroundWork.run {
-            try OperatorLaunch.prepare(session: session, profile: profile, digest: digest,
-                home: home, claudeConfig: config, resuming: session.conversation)
+            try OperatorLaunch.prepare(session: session, profile: profile, home: home, claudeConfig: config, resuming: session.conversation)
         }
         guard context.running(), workspace.state.operatorSession?.id == session.id, workspace.state.operatorSession?.generation == session.generation else { throw ActionUnavailable("The Operator session changed.") }
         try await daemon.registerOperator(operatorId: session.id.uuidString, token: prepared.token, generation: session.generation)

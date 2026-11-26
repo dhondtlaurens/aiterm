@@ -54,18 +54,6 @@ extension SignalOperatorToolHandler {
             }
             try questions.resolveQuestion(key: question, answer: try call.string("answer"))
             return ["status": "resolved"]
-        case .reportSnag:
-            let snag = OperatorSnag(key: key!, title: try call.string("title"), showed: try call.string("showed"),
-                actual: try call.string("actual"), workaround: try call.string("workaround"), evidence: call.optionalString("evidence"),
-                task: task?.id, branch: task?.branch, appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development", at: now())
-            if let old = workspace.state.operatorSession?.snags.first(where: { $0.key == key! }) {
-                guard old.title == snag.title, old.showed == snag.showed, old.actual == snag.actual,
-                      old.workaround == snag.workaround, old.evidence == snag.evidence, old.task == snag.task else {
-                    throw ToolRefusal("That snag key already names a different report.")
-                }
-            } else { workspace.mutate { $0.operatorSession?.snags.append(snag) } }
-            guard workspace.flush() else { throw ToolRefusal("The snag couldn’t be saved.") }
-            return ["status": "recorded"]
         case .jiraSearch:
             let result = try await ports.jiraSearch(try call.string("jql"))
             guard allowed() else { throw ToolRefusal("The Operator session changed while Jira was read.") }

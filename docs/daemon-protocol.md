@@ -72,7 +72,7 @@ A finite percentage and valid window size provide an estimate only when exact us
 Null is unknown. Counts are never promoted to sibling tabs and are cleared when the process changes.
 
 The single Operator's `operator.request` carries the session's `operatorId` and the token's
-`generation`; the app checks both before acting. The token serves fourteen Signal tools. Task
+`generation`; the app checks both before acting. The token serves thirteen Signal tools. Task
 actions also carry stage/ownership; the shell gate is a separate private route. A missing/revoked
 token always denies `/operator/gate`, including revocation while waiting for the app. The app also
 returns a real gate denial for stale session/claim data. An unavailable Oracle follows the explicit
