@@ -16,7 +16,7 @@ public extension AppState {
               question.ownership.map({ $0 == record.ownership }) != false else { return false }
         switch record.phase {
         case .launching, .choosing, .working, .watching, .blocked: return true
-        case .done, .archived, .unknown: return false
+        case .done, .archived: return false
         }
     }
     var currentOperatorQuestions: [OperatorSession.Question] {
@@ -36,7 +36,6 @@ public extension AppState {
             case .launching, .choosing, .working, .watching, .blocked: return true
             case .done: return record.thenApplied != true || !record.pendingStages.isEmpty
             case .archived: return !record.pendingStages.isEmpty
-            case .unknown: return false
             }
         }
     }

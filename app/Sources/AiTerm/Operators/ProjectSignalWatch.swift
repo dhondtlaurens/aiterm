@@ -121,8 +121,8 @@ import AiTermCore
                 finish(task.id, note: note)
                 changed(signal.id, "Couldn’t archive " + task.title + ": " + note)
             }
-        // A project signal saves neither; an unknown Then waits for the version that knows it.
-        case .remove, .unknown: return
+        // A project signal never saves Remove.
+        case .remove: return
         }
     }
 

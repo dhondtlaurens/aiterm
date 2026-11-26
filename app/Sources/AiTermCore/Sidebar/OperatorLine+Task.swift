@@ -49,7 +49,6 @@ public extension TaskRow {
                 status = .needsInput
             case .done, .archived:
                 operatorLine = OperatorLine("done", look: .ended); if !busy { status = .idle }
-            case .unknown: break
             }
         }
     }

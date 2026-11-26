@@ -1,13 +1,11 @@
 # Signals by section
 
-**Do not open this workspace with an older AiTerm once you have made a project signal.** An older
-build that saves the workspace forgets a signal's kind: a project signal with a Done query becomes
-an Operator signal there, and one with **You decide** stops running. Everything else, including
-the marks on tasks a signal started, is kept.
+**This release updates your workspace once, at first launch, and an earlier AiTerm must not open it
+afterwards** ([Update scripts](2026-11-update-scripts.md)).
 
-Nothing needs doing to upgrade. Your signals are Operator signals, as before, and your tasks, the
-Archive and saved conversations are all there. Dividers you had made between signals are no longer
-drawn; they stay in the saved workspace.
+Nothing else needs doing to upgrade. Your signals are Operator signals, as before, and your tasks,
+the Archive and saved conversations are all there. Dividers you had made between signals are gone:
+the update removes them from the workspace.
 
 ## What changes
 

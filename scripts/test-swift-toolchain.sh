@@ -110,7 +110,6 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
 
         "$ROOT/scripts/test-test-queue.sh"
         "$ROOT/scripts/test-test-history.sh"
-        "$ROOT/scripts/test-reset-operator-state.sh"
 
         # A run waits while another holds the test lock, and gets it once that one ends; a run
         # started inside one that holds it (as these fixture runs are) does not wait at all.

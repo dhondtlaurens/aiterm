@@ -119,18 +119,6 @@ import Foundation
         #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "s").state == .current)
     }
 
-    @Test func testLegacyOwnedHeaderIsRenamedWithoutDuplicatingHooks() throws {
-        let old = Data(#"{"hooks":{"Stop":[{"hooks":[{"_aiterm":true,"type":"http","headers":{"X-AIterm-Hook":"1"}}]},{"hooks":[{"type":"http","headers":{"X-AIterm-Hook":"foreign"}}]}]}}"#.utf8)
-        let (merged, _) = try ClaudeSettings.merge(old, hookURL: "u", shimPath: "s")
-        let obj = try JSONSerialization.jsonObject(with: merged) as! [String: Any]
-        let stops = (obj["hooks"] as! [String: [[String: Any]]])["Stop"]!
-        #expect(stops.count == 2)
-        let ours = (stops[0]["hooks"] as! [[String: Any]])[0]["headers"] as! [String: String]
-        let foreign = (stops[1]["hooks"] as! [[String: Any]])[0]["headers"] as! [String: String]
-        #expect(ours == ["X-AiTerm-Hook": "1"])
-        #expect(foreign == ["X-AIterm-Hook": "foreign"])
-    }
-
     /// A tool that re-saves `settings.json` through its own schema drops the `_aiterm` marker, and an http hook's
     /// `async`. The copies it leaves are still AiTerm's: the probe calls the file outdated rather than missing, and a
     /// repair folds them into one current hook per event, including an event AiTerm no longer manages, instead of

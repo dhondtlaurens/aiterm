@@ -36,14 +36,10 @@ import Testing
     @Test func theFallbackIsTheFirstChoosableRowInTheListOrder() {
         #expect(AgentChoiceNeed.choose(rows: [codex, opus], projects: nil).fallback == codex)
     }
-    @Test func aDecidedChoiceRoundTripsAndToleratesANewerDecision() throws {
+    @Test func aDecidedChoiceRoundTrips() throws {
         let record = AgentChoiceRecord(row: codex, project: first, reason: "Claude is at 91% this week.", decided: .oracleAgreed,
                                        round: 2, note: nil, at: Date(timeIntervalSince1970: 1_800_000_000))
         let data = try JSONEncoder().encode(record)
         #expect(try JSONDecoder().decode(AgentChoiceRecord.self, from: data) == record)
-        var object = try #require(JSONValue(encoding: record).objectValue); object["decided"] = "from-a-newer-build"
-        let future = try JSONValue.object(object).decode(AgentChoiceRecord.self)
-        #expect(future.decided == .unknown("from-a-newer-build"))
-        #expect(try JSONValue(encoding: future)["decided"] == "from-a-newer-build")
     }
 }

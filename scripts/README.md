@@ -41,12 +41,6 @@ their identifier, workspace, socket and hook port. This is a live switch; do not
 another run must remain undisturbed. A stable signing identity preserves automation/Keychain grants
 across rebuilds.
 
-`reset-operator-state.sh [path]` clears `operatorSession` and active/archived tasks' `signalTask`
-records, preserves takeover marks on the tasks, and keeps every other saved value with a dated copy
-before editing. Run it with AiTerm quit before switching between the installed app and a development
-build while their Operator records differ in shape. Upgrading needs no command: the app clears the
-previous release's records itself on its first load.
-
 ## Test
 
 ```sh
@@ -76,8 +70,8 @@ never change the command's verdict or activity record. Release still requires a 
 
 `test-history.py` writes that history, and `release.sh` asks it (`require-full`) for the full pass.
 `test-queue.sh` is the sourced shim into `test-queue.py`. `test-swift-toolchain.sh` proves the pin and
-runs the queue guard (`test-test-queue.sh`), the history guard (`test-test-history.sh`), the workspace
-reset guard (`test-reset-operator-state.sh`) and the build and bundle checks in `scripts/fixtures/`.
+runs the queue guard (`test-test-queue.sh`), the history guard (`test-test-history.sh`) and the build
+and bundle checks in `scripts/fixtures/`.
 `test-test-select.sh` guards fixture
 readers and routing. `test.sh` creates `daemon/.venv` with the `dev` extra when needed, runs pytest,
 then its own venv's mypy/ruff over implementation, tests and tools. `PYTEST` can override the pytest
@@ -151,7 +145,9 @@ invalidate reuse; the latest full attempt across equivalent contents decides, in
 Before running another full suite, use the [read-only proof check](../docs/testing.md).
 It redraws the README picture and commits and pushes it to `main` when changed; that picture-only
 commit reuses the existing full pass at the second proof check.
-It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
+It refuses a version older than the workspace format the built bundle saves
+(`AiTerm --workspace-format`), and one that brings a new update script under any version but that
+script's. It stamps the built bundle, creates/pushes the version tag, uploads the DMG to a draft, then
 publishes. The development bundle marker is refused. Choosing the version and finishing an
 interrupted release are in
 [releasing](../docs/workflow/release.md). A build/test command never implies permission to release.

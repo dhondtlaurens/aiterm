@@ -39,13 +39,12 @@ struct SignalFreshDigestTests {
         #expect(digest.skipped.map(\.signal) == [signal])
         #expect(digest.nextRuns.map { Set($0.keys) } == [scheduled.uuidString])
     }
-    @Test func anUnansweredOracleRoundKeepsItsSavedAndStatusWords() throws {
+    @Test func anUnansweredOracleRoundSavesUnderItsOwnName() throws {
         let round = OracleRound(id: "no-answer", tool: "answer_worker", stage: .unanswered,
                                 unansweredReason: "The Oracle is off.", askedAt: Date(timeIntervalSince1970: 0))
         let json = try JSONValue(encoding: round)
-        #expect(json["stage"] == "unchallenged")
-        #expect(json["unchallengedReason"] == "The Oracle is off.")
-        #expect(json["unansweredReason"] == nil)
+        #expect(json["stage"] == "unanswered")
+        #expect(json["unansweredReason"] == "The Oracle is off.")
         #expect(try json.decode(OracleRound.self) == round)
     }
 }

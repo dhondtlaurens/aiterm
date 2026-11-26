@@ -67,13 +67,13 @@ import Foundation
         #expect(s.reservedWorktreeSlugs(projectId: UUID()).isEmpty)
     }
 
-    @Test func theArchiveRoundTripsAndAnEmptyOneIsNotWritten() throws {
+    @Test func theArchiveRoundTripsAndAnEmptyOneIsWritten() throws {
         let a = task("a", created: 1), b = task("b", created: 2)
         var s = state(a, b)
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let empty = try JSONSerialization.jsonObject(with: encoder.encode(s)) as? [String: Any]
-        #expect(empty?["archive"] == nil, "a workspace with nothing archived is written as it always was")
+        #expect((empty?["archive"] as? [Any])?.isEmpty == true)
         s.moveToArchive(taskId: b.id, branch: b.branch, at: Date(timeIntervalSince1970: 9))
         #expect(try decoder.decode(AppState.self, from: encoder.encode(s)) == s)
     }

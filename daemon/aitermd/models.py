@@ -358,7 +358,7 @@ class SessionInfo:
     # conversation, so it goes with the agent's process (SessionRegistry).
     conversation_id: str | None = field(default=None, metadata={"process": True})
     # The terminal row this tab's window was opened for (TERMINAL_TAG), which the app adopts the
-    # window by; None for a task's tab and for a terminal opened by an app too old to send it.
+    # window by; None for a task's tab.
     terminal_id: str | None = None
     # The version of the agent CLI the tab runs, as the CLI's own files report it: Claude's session
     # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).

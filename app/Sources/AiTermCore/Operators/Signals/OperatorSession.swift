@@ -107,12 +107,8 @@ public extension OperatorSession {
         case open(since: Date, wake: Wake?)
         case closing(then: Then)
         case revoking(then: Then)
-        /// Written by a newer build: inert.
-        case unknown(JSONValue)
 
         private struct Opened: Codable { var since: Date; var wake: Wake? }
-
-        static let preservesInvalidValue = true
 
         static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
             switch kind {
@@ -134,16 +130,15 @@ public extension OperatorSession {
                 case .open(let since, let wake): return .known("open", try JSONValue(encoding: Opened(since: since, wake: wake)))
                 case .closing(let then): return .known("closing", .string(then.rawValue))
                 case .revoking(let then): return .known("revoking", .string(then.rawValue))
-                case .unknown(let value): return .unknown(value)
                 }
             }
         }
 
         public var isOpen: Bool { if case .open = self { true } else { false } }
-        /// Opening, closing, revoking, or unknown: no chat serves the workload now.
+        /// Opening, closing or revoking: no chat serves the workload now.
         public var isChanging: Bool {
             switch self {
-            case .opening, .closing, .revoking, .unknown: true
+            case .opening, .closing, .revoking: true
             case .idle, .open: false
             }
         }

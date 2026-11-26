@@ -28,7 +28,6 @@ public enum TaskJournal {
 public enum JournalText: KindTaggedEnum, Equatable, Sendable {
     case ours(String)
     case quoted(SignalQuote)
-    case unknown(JSONValue)
 
     static func savedCase(kind: String?, value: SavedEnumValue) throws -> Self? {
         switch kind {
@@ -45,7 +44,6 @@ public enum JournalText: KindTaggedEnum, Equatable, Sendable {
             switch self {
             case .ours(let value): return .known("ours", try JSONValue(encoding: value))
             case .quoted(let value): return .known("quoted", try JSONValue(encoding: value))
-            case .unknown(let value): return .unknown(value)
             }
         }
     }

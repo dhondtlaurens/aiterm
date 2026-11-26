@@ -3,18 +3,8 @@ import Foundation
 public struct Signal: Codable, Equatable, Identifiable, Sendable {
     /// Who runs the tasks a signal starts. An Operator signal hands them to the Operator; a project signal starts an
     /// ordinary task or review in its project, with its prompt and one agent, and leaves the rest to the person.
-    public enum Kind: OpenStringEnum, Hashable, Sendable, CaseIterable {
+    public enum Kind: String, Codable, Hashable, Sendable, CaseIterable {
         case `operator`, project
-        case unknown(String)
-        public static let allCases: [Self] = [.operator, .project]
-        static let knownCases: [Self] = allCases
-        var savedName: String {
-            switch self {
-            case .operator: "operator"
-            case .project: "project"
-            case .unknown(let value): value
-            }
-        }
     }
     public var id: UUID
     public var name: String
@@ -29,28 +19,25 @@ public struct Signal: Codable, Equatable, Identifiable, Sendable {
     /// A schedule's earliest time to fire: set when it is created, switched on or its schedule edited, so a time from
     /// before then never starts a run. Nil for a signal that starts from items.
     public var scheduledFrom: Date?
-    /// Nil is an Operator signal, and is what one always saves, so signals saved before kinds, and every stage's copy of
-    /// one, are written as they were.
-    public var kind: Kind?
+    public var kind: Kind
     public init(id: UUID = UUID(), name: String, createdAt: Date, enabled: Bool = true, collapsed: Bool = false,
                 start: SignalTrigger, done: SignalTrigger, work: SignalWork, agents: [AgentChoice], finish: SignalFinish,
-                scheduledFrom: Date? = nil, kind: Kind? = nil) {
+                scheduledFrom: Date? = nil, kind: Kind = .operator) {
         self.id = id; self.name = name; self.createdAt = createdAt; self.enabled = enabled; self.collapsed = collapsed
         self.start = start; self.done = done; self.work = work; self.agents = agents; self.finish = finish
-        self.scheduledFrom = scheduledFrom; self.kind = kind == .operator ? nil : kind
+        self.scheduledFrom = scheduledFrom; self.kind = kind
     }
     /// Whether it starts ordinary tasks in its project rather than handing them to the Operator.
     public var isProject: Bool { kind == .project }
     /// Whether it starts on a schedule rather than from items a query finds.
     public var isScheduled: Bool { start.source == .schedule }
     public var isRunnable: Bool { enabled && isValid }
-    /// Whether this version can run the signal as configured, switched on or not: its kind is known, both queries can
-    /// run, Then is known, the branch is deleted only by a removal, and a merge only where the Start trigger offers one.
+    /// Whether the signal can run as configured, switched on or not: both queries can run, the branch is deleted only
+    /// by a removal, and a merge only where the Start trigger offers one.
     /// A project signal runs one agent row, merges nothing, keeps or archives its task, and has no Operator to decide
     /// Done; only a project signal leaves Done to the person.
     public var isValid: Bool {
-        if case .unknown = kind { return false }
-        guard start.isValid(start: true), done.isValid(start: false), SignalFinish.Then.allCases.contains(finish.then) else { return false }
+        guard start.isValid(start: true), done.isValid(start: false) else { return false }
         if finish.deletesMergedBranch && finish.then != .remove { return false }
         if finish.mergesWhenReady && !start.offersMerge { return false }
         // A run has no ticket for a Jira query to match.
@@ -89,19 +76,8 @@ public struct SignalWork: Codable, Equatable, Sendable {
 }
 
 public struct SignalFinish: Codable, Equatable, Sendable {
-    public enum Then: OpenStringEnum, Hashable, Sendable, CaseIterable {
+    public enum Then: String, Codable, Hashable, Sendable, CaseIterable {
         case keep, archive, remove
-        case unknown(String)
-        public static let allCases: [Self] = [.keep, .archive, .remove]
-        static let knownCases: [Self] = allCases
-        var savedName: String {
-            switch self {
-            case .keep: "keep"
-            case .archive: "archive"
-            case .remove: "remove"
-            case .unknown(let value): value
-            }
-        }
     }
     public var then: Then
     public var mergesWhenReady: Bool
