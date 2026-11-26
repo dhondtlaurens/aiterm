@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from .agents import HOOK_PARSERS, STATUSLINE_PARSERS, USAGE_PARSERS
+from .agents.agy import AgyReading, AgyTranscripts, is_subagent_post
 from .agents.codex import CodexThreads
 from .hook_events import HookEvent, TickState
 from .models import AgentKind
+from .offload import run_detached
 from .publisher import Publisher
 from .resolver import SessionResolver
 from .status import Evidence, StatusEngine
@@ -23,6 +26,8 @@ RETICK_SECONDS = 1.0
 # classified as its agent. iTerm2 can take a few polls to name the job a launch typed: PI runs its
 # launch prompt the moment it starts, and its `agent_start` would otherwise be lost for the turn.
 PLACE_SECONDS = 5.0
+# How long an Antigravity Stop waits for its transcript to say what still runs, read off the event loop.
+AGY_READ_SECONDS = 1.0
 
 
 def _first_line(prompt: str | None) -> str:
@@ -39,8 +44,10 @@ class HookRouter:
     def __init__(self, resolver: SessionResolver, codex_threads: CodexThreads, status: StatusEngine, usage: UsageStore,
                  clock: Callable[[], float], publisher: Publisher,
                  tick: Callable[[], Awaitable[None]] | None = None, retick_seconds: float = RETICK_SECONDS,
-                 place_seconds: float = PLACE_SECONDS):
+                 place_seconds: float = PLACE_SECONDS, agy_transcripts: AgyTranscripts | None = None):
         self.resolver, self.codex_threads = resolver, codex_threads
+        # Shared with the tick's reading, which carries on from where a Stop's read stopped.
+        self.agy_transcripts = agy_transcripts or AgyTranscripts(lambda: self.clock())
         self.status, self.usage, self.clock, self.publisher = status, usage, clock, publisher
         # `tick` re-reads iTerm2 into the registry: the service's own, which already shares one pass
         # between callers that ask together.
@@ -81,13 +88,14 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            if tick.context_percent is not None or "context_window" in body or tick.state is not None or tick.version:
+            if (tick.context_percent is not None or "context_window" in body or tick.state is not None or tick.version
+                    or tick.task_count is not None):
                 async with self._in_order:
                     post = HookEvent(agent, None, tick.session_id, tick.cwd,
                                      iterm_session_id=tick.iterm_session_id,
                                      context_percent=tick.context_percent, context_tokens=tick.context_tokens, transcript=tick.transcript)
                     ticked = await self._place_and_apply(post, body, statusline=True, tick_state=tick.state,
-                                                         cli_version=tick.version)
+                                                         cli_version=tick.version, task_count=tick.task_count)
                 if ticked:
                     await self.publisher.session_changed(ticked)
             return None
@@ -153,11 +161,15 @@ class HookRouter:
         return tab is not None and tab.agent == "shell"
 
     async def _place_and_apply(self, ev: HookEvent, body: dict[str, Any], *, statusline: bool = False,
-                               tick_state: TickState | None = None, cli_version: str | None = None) -> list[str] | None:
+                               tick_state: TickState | None = None, cli_version: str | None = None,
+                               task_count: int | None = None) -> list[str] | None:
         """The sessions `ev` changed, once placed on its tab; None when it places on none."""
         sid, direct = await self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
             return None
+        tab = self.status.reg.get(sid)
+        if not statusline and is_subagent_post(ev, tab.conversation_id if tab is not None else None):
+            return self._apply_agy_subagent(sid, ev)
         # Placed by evidence -- the agent's pid, or the tab id its hook carries -- rather than by a pin or
         # the directory, either of which can name a sibling tab.
         # The post came from the agent itself, so its cwd is the agent's — the only source
@@ -177,6 +189,12 @@ class HookRouter:
         # What a status line says of the turn checks the hooks, for the tab it provably came from only.
         if tick_state is not None and own:
             changed += self.status.apply_evidence(sid, Evidence(tick_state, self.clock(), "agy_statusline"))
+        if task_count is not None and own:
+            changed += self.status.apply_task_count(sid, task_count)
+        # An Antigravity Stop names no work; its transcript says what still runs when the Stop says something does.
+        if ev.agent == "agy" and ev.event_name == "Stop" and ev.fully_idle is False and own and ev.transcript:
+            if (reading := await self._read_agy(ev.transcript)) is not None:
+                ev = replace(ev, background_work=self.status.agy_stop_work(sid, reading))
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != direct
@@ -187,6 +205,28 @@ class HookRouter:
         if ev.event_name == "UserPromptSubmit":
             changed += self._note_prompt(sid, ev.prompt)
         return changed
+
+    def _apply_agy_subagent(self, sid: str, ev: HookEvent) -> list[str]:
+        """An Antigravity subagent's post, from its parent's tab (agents.agy.is_subagent_post): a child of the tab's
+        turn, never the tab's own conversation or state. It counts from its start or any model call, and ends with a
+        Stop that leaves nothing of its own running; one that does (`fullyIdle: false`) keeps it counted."""
+        child = ev.session_id
+        if ev.kind in ("sessionStart", "working"):
+            return [] if child in self.status.child_ids(sid) else self.status.subagent_started(sid, child)
+        if ev.event_name == "Stop" and ev.fully_idle is True:
+            return self.status.subagent_stopped(sid, child)
+        return []
+
+    async def _read_agy(self, path: str) -> AgyReading | None:
+        """An Antigravity transcript, read off the event loop; None if it cannot be read in AGY_READ_SECONDS."""
+        reading = run_detached(lambda: self.agy_transcripts.read(path))
+        # A read that outlives the wait still settles; its failure is retrieved here, not reported as unretrieved.
+        reading.add_done_callback(lambda done: done.cancelled() or done.exception())
+        done, _ = await asyncio.wait({reading}, timeout=AGY_READ_SECONDS)
+        if not done or reading.exception() is not None:
+            log.warning("reading the Antigravity transcript %s failed or took over %.0f s", path, AGY_READ_SECONDS)
+            return None
+        return reading.result()
 
     def forget_session(self, sid: str) -> None:
         self._prompted.discard(sid)

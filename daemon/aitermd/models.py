@@ -197,7 +197,7 @@ class RawSession:
 
 @dataclass(frozen=True, slots=True)
 class BackgroundJob:
-    """One piece of work running beside a Claude turn: a `shell` by its command, a `monitor`, a `subagent`, an `agent`
+    """One piece of work running beside a Claude or Antigravity turn: a `shell` by its command, a `monitor`, a `subagent`, an `agent`
     (agent work that is no counted child: a workflow, a cloud session, a dream) or any other `task` by its description.
     A subagent's `agent_id` names the child the status engine counts, any other job's `task_id` Claude Code's id for it;
     neither is sent. `teammate`: a named agent of Claude Code's agent team, which a Stop lists as running for as long as
@@ -386,7 +386,8 @@ class SessionInfo:
     cli_version: str | None = field(default=None, compare=False, metadata={"process": True})
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
-    # What its agent's last Stop listed as still running (`background_tasks`), which wakes it again: a turn ended with
+    # What its agent's last Stop listed as still running (Claude's `background_tasks`, or what an Antigravity Stop's
+    # transcript names when it says work runs), which wakes it again: a turn ended with
     # this is paused, not finished. Empty once a new turn starts. A subagent stays on it while the status engine counts it.
     stop_work: tuple[BackgroundJob, ...] = field(default=(), metadata={"process": True})
     # What runs beside the turn as read live: the counted subagents of the tab's current conversation, and the

@@ -11,8 +11,12 @@ from .screens import shows_trust_prompt as shows_trust_prompt
 from .sessions import SessionRegistry
 
 if TYPE_CHECKING:
+    from .agents.agy import AgyReading, AgyTask
     from .agents.claude import ShellReading, TranscriptTail
 
+# How long Antigravity's status line can take to count a command after it went to the background: agy 1.5.18 took
+# about two seconds (docs/research/2026-11-26-antigravity-background-work.md).
+AGY_COUNT_LAG_SECONDS = 5.0
 # The states a tick's evidence can claim of a turn.
 EvidenceState = Literal["working", "needsInput", "done"]
 # Where tick evidence comes from: Claude's session file, the spinner in a Codex tab's title, a turn
@@ -81,6 +85,13 @@ class Turn:
     shell_snapshot: tuple[BackgroundJob, ...] | None = None
     shell_snapshot_at: float = float("-inf")
     shell_snapshot_valid: bool = True
+    # Antigravity's status line counts the background commands (`task_count`) but names none. The commands the
+    # transcript listed last (AgyTask, by when this daemon first read each), and the moment before which a reading that
+    # counted none has ended every command seen, killed or not, whatever the transcript still lists. The count lags a
+    # command going to the background by seconds (AGY_COUNT_LAG_SECONDS): a reading that counts none says nothing of
+    # a command seen just before it.
+    agy_tasks: tuple[AgyTask, ...] = ()
+    agy_ended_before: float = float("-inf")
 
 
 class StatusEngine:
@@ -461,6 +472,67 @@ class StatusEngine:
                                or task.job.task_id in expected)
         changed = self.reg.set_shown_shells(session_id, shells) or changed
         return [session_id] if changed else []
+
+    def apply_task_count(self, session_id: str, count: int) -> list[str]:
+        """What an Antigravity status line counts of the tab's background commands. One that counts none ends every
+        command seen more than AGY_COUNT_LAG_SECONDS before it: had it still run, the count would include it. They
+        leave the Stop's work and the shown shells. A command seen since, which the count may not include yet, stays."""
+        if self.reg.get(session_id) is None or count > 0:
+            return []
+        turn = self._turn(session_id)
+        turn.agy_ended_before = max(turn.agy_ended_before, self._clock() - AGY_COUNT_LAG_SECONDS)
+        return [session_id] if self._keep_running_commands(session_id) else []
+
+    def _keep_running_commands(self, session_id: str) -> bool:
+        """Takes each Antigravity command that no longer runs (its end in the transcript, or ended by a count) out of the
+        Stop's work and the shown shells; says whether that changed the session."""
+        s, turn = self.reg.get(session_id), self._turns.get(session_id)
+        if s is None or turn is None:
+            return False
+        running = {task.task_id for task in turn.agy_tasks if task.seen_at > turn.agy_ended_before}
+        changed = self.reg.set_stop_work(session_id, tuple(job for job in s.stop_work
+                                                           if job.kind != "shell" or job.task_id in running))
+        if s.shown_shells:
+            changed = self.reg.set_shown_shells(session_id, tuple(
+                job for job in s.shown_shells if job.task_id in running)) or changed
+        return changed
+
+    def agy_running_commands(self, session_id: str, reading: AgyReading) -> tuple[BackgroundJob, ...]:
+        """The background commands an Antigravity transcript reading lists that the status line has not since
+        counted ended (apply_task_count)."""
+        turn = self._turn(session_id)
+        turn.agy_tasks = reading.tasks
+        return tuple(BackgroundJob("shell", task.command, task_id=task.task_id)
+                     for task in reading.tasks if task.seen_at > turn.agy_ended_before)
+
+    def agy_stop_work(self, session_id: str, reading: AgyReading) -> tuple[BackgroundJob, ...]:
+        """What an Antigravity Stop that says work still runs (`fullyIdle: false`) waits on: the transcript's running
+        commands, then its subagents, each by the prompt it was given and its role. Only a subagent this engine
+        still counts holds anything (_apply_event)."""
+        return self.agy_running_commands(session_id, reading) + tuple(
+            BackgroundJob("subagent", child.prompt, child.conversation, display_label=child.role)
+            for child in reading.subagents)
+
+    def apply_agy_reading(self, session_id: str, reading: AgyReading | None) -> list[str]:
+        """Refreshes an Antigravity tab's shown shells from its transcript, working or ended, takes a command its
+        transcript shows ended out of the Stop's work, and names its counted subagents by their role. None while the
+        transcript cannot be read. The state stays."""
+        session, turn = self.reg.get(session_id), self._turns.get(session_id)
+        if session is None or turn is None:
+            return []
+        shells = self.agy_running_commands(session_id, reading) if reading is not None else None
+        changed = self.reg.set_shown_shells(session_id, shells)
+        if reading is not None:
+            changed = self._keep_running_commands(session_id) or changed
+            for child in reading.subagents:
+                if (counted := turn.children.get(child.conversation)) is not None and child.role:
+                    counted.display_label = child.role
+        return [session_id] if self._show_children(session_id) or changed else []
+
+    def child_ids(self, session_id: str) -> frozenset[str]:
+        """The subagents counted now for the session's turn."""
+        turn = self._turns.get(session_id)
+        return frozenset(turn.children) if turn is not None else frozenset()
 
     def apply_transcript_work(self, session_id: str, work: TranscriptWork | None) -> list[str]:
         """Refreshes what the transcript says of the Stop's work (SessionInfo.transcript_work), None while the reading

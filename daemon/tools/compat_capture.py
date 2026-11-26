@@ -82,6 +82,10 @@ PROMPTED = frozenset({"UserPromptSubmit", "agent_start", "PreInvocation"})
 # The event a CLI's driver posts as it starts, and how long an idle screen must hold without one.
 SESSION_START = frozenset({"SessionStart", "session_start"})
 IDLE_HOLD = 5.0
+# What agy 1.5.18 draws over its input box on start to announce a model, until Esc dismisses it.
+AGY_BANNER = "esc to dismiss"
+# How long agy's background turns may take: a command or subagent that sleeps, and the turn its end starts.
+AGY_BACKGROUND_SECONDS = 240.0
 # The event that ends a turn, as each CLI's driver posts it.
 TURN_END: dict[AgentKind, frozenset[str]] = {
     "claude": frozenset({"Stop", "StopFailure"}),
@@ -577,16 +581,23 @@ async def open_session(live: Live, listener: Listener, agent: AgentKind, folder:
         await live.bridge.send_text(sid, f" {command}\n")
         deadline = time.monotonic() + START_SECONDS
         idle_since: float | None = None
+        started = False
         while time.monotonic() < deadline:
             screen = await session.look()
             if not session.running:
                 await asyncio.sleep(0.5)
                 continue
+            if not started:
+                # A loaded machine can spend the budget on the shell alone: the CLI gets its own once it runs.
+                started, deadline = True, max(deadline, time.monotonic() + START_SECONDS)
             prompt = open_prompt(agent, screen) if agent != "pi" else None
             if agent == "pi" and listener.count(frozenset({"session_start"})):
                 await asyncio.sleep(2)
                 return session
-            if prompt == "startup" and shows_update_offer(agent, screen):
+            if agent == "agy" and AGY_BANNER in screen:
+                await live.bridge.send_text(sid, ESC)
+                await asyncio.sleep(1.5)
+            elif prompt == "startup" and shows_update_offer(agent, screen):
                 await live.bridge.send_text(sid, ESC)
                 await asyncio.sleep(1.5)
             elif prompt == "startup":
@@ -868,17 +879,37 @@ async def capture_agy(live: Live, listener: Listener, port: int, scratch: Path, 
     values = {"model": model, "reasoning": reasoning}
     templates = launches()["agy"]
     launch = fill(templates["task"], values) + ["--settings", settings]
-    turns = ["plain", "shellCommand"]
+    turns = ["plain", "shellCommand", "backgroundCommand", "subagent", "clear"]
     session = await open_session(live, listener, "agy", work, shlex.join(checked_command(launch)))
     try:
         say("agy: a plain turn")
         await session.turn("Reply with only the word ALPHA followed by the result of 6 times 7.")
         say("agy: a turn that runs a command")
         await session.turn("Run exactly this shell command and nothing else: echo BRAVO-$((20+22))")
+        say("agy: a command left in the background")
+        # Its turn stops while the command runs; the command's end starts a turn of its own.
+        await session.turn("Use run_command to run exactly `sleep 20; echo CHARLIE` with WaitMsBeforeAsync set to 2000, so "
+                           "it moves to the background. Do not wait for it or check on it: once it is in the background, "
+                           "end your turn with the single word WAITING. When it finishes, reply with its output only.",
+                           ends=2, seconds=AGY_BACKGROUND_SECONDS)
+        say("agy: a subagent")
+        await agy_subagent_turn(session)
+        say("agy: /clear, then a prompt")
+        await session.settle()
+        await session.type("/clear")
+        await asyncio.sleep(3)
+        await session.turn("Reply with only the word ECHO.")
     finally:
         await close(session)
     # Its status line names the signed-in account's address, which the scrub replaces as any email.
     files: dict[str, str] = {"posts.jsonl": agy_data_paths(listener.jsonl(), Path.home())}
+    # The transcript of the conversation that ran the background command and the subagent: what AiTerm reads
+    # their work from (agents.agy.AgyTranscripts).
+    stops = [post["body"] for post in listener.posts if Listener.event(post["body"]) == "Stop"
+             and post["body"].get("fullyIdle") is False and post["body"].get("lastUserInput")]
+    if not stops or (transcript := read_text(Path(stops[0]["transcriptPath"]))) is None:
+        raise CaptureFailed("agy: no transcript of the conversation that left work running")
+    files["transcript.jsonl"] = agy_data_paths(transcript, Path.home())
     files["list-models.txt"] = run(["agy", "models"], cwd=work, seconds=60).stdout
     say("agy: a headless run")
     challenge = run(fill(templates["challenge"], values | {"prompt": "Reply with only the word OK.", "folder": str(work),
@@ -887,6 +918,28 @@ async def capture_agy(live: Live, listener: Listener, port: int, scratch: Path, 
     files["help.txt"] = help_text("agy", {})
     files["capture.json"] = capture_note("agy", version, launch, turns)
     return files
+
+
+async def agy_subagent_turn(session: Session) -> None:
+    """Asks agy for one subagent and waits until it has ended and its parent took its answer. agy 1.5.18 can end
+    the parent's last turn (`fullyIdle: false`) a moment before the subagent's own last Stop (`fullyIdle: true`), and
+    send nothing after it: so the wait is for both, not for an idle parent."""
+    await session.settle()
+    start = len(session.listener.posts)
+    parent = next((post["body"].get("conversationId") for post in reversed(session.listener.posts)
+                   if Listener.event(post["body"]) == "SessionStart"), None)
+    await session.type("Invoke exactly one subagent with invoke_subagent, whose task is: run `sleep 15` with run_command, "
+                       "then reply with the single word DELTA. Do not wait for it or check on it: end your turn right after "
+                       "launching it with the single word LAUNCHED. When its answer arrives, reply with that answer only.")
+    deadline = time.monotonic() + AGY_BACKGROUND_SECONDS
+    while time.monotonic() < deadline:
+        stops = [post["body"] for post in session.listener.posts[start:] if Listener.event(post["body"]) == "Stop"]
+        child_done = any(stop.get("conversationId") != parent and stop.get("fullyIdle") is True for stop in stops)
+        if child_done and sum(1 for stop in stops if stop.get("conversationId") == parent) >= 2:
+            return
+        await asyncio.sleep(0.5)
+    raise CaptureFailed(f"agy: the subagent and its parent did not both end within {AGY_BACKGROUND_SECONDS:g} seconds",
+                        await session.look())
 
 
 CAPTURE: dict[AgentKind, Callable[[Live, Listener, int, Path, str], Awaitable[dict[str, str]]]] = {

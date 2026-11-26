@@ -43,6 +43,10 @@ class HookEvent:
     stop_error: str | None = None
     subagent_label: str | None = None
     display_shells: tuple[BackgroundJob, ...] | None = None
+    # An Antigravity Stop's `fullyIdle`: False when a background command or subagent still runs. None elsewhere.
+    fully_idle: bool | None = None
+    # An Antigravity post's `lastUserInput`, empty for a subagent's conversation (agents.agy.is_subagent_post).
+    user_input: str | None = None
 
     @property
     def conversation_id(self) -> str | None:
@@ -89,6 +93,9 @@ class StatusLine(NamedTuple):
     state: TickState | None = None
     # The CLI's own version, where its status line says it (Antigravity's): the tab's `cli_version`.
     version: str | None = None
+    # How many background commands the status line says run (Antigravity's `task_count`, 0 when absent); None for a
+    # status line that does not count them.
+    task_count: int | None = None
 
 
 HookParser = Callable[[dict[str, Any]], HookEvent | None]
