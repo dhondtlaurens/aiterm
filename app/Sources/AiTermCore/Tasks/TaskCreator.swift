@@ -123,6 +123,38 @@ public enum TaskCreator {
         return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
     }
 
+    /// A merge request of the account's own as a signal picks it up: `source` checked out in a worktree named as a
+    /// review's (`checkOutRequest`), `target` as its base, the row a `.task` that carries the request and the draft's
+    /// ticket. A branch another worktree has checked out is git's to refuse.
+    public static func createOnRequest(draft: ReviewDraft, project: Project, source: String, target: String,
+                                       reserved: Set<String> = [], git: any GitRunning) throws -> Made {
+        guard isNamed(draft.title) else { throw Failure.emptyTitle }
+        guard !draft.model.isEmpty else { throw Failure.emptyModel }
+        guard !source.trimmingCharacters(in: .whitespaces).isEmpty,
+              try BranchNaming.isValid(source, git: git) else { throw Failure.invalidBranch(source) }
+        let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: source, worktreePath: "", baseBranch: target,
+                            jira: draft.ticket.map(JiraRef.init),
+                            mr: draft.mr.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },
+                            agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
+                            firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket,
+                            createdAt: Date(), windowId: nil)
+        return try checkOutRequest(task, project: project, source: source, target: target, reserved: reserved,
+                                   copiesIncludes: draft.copiesWorktreeInclude, git: git)
+    }
+
+    /// `task` on a request's `source` branch, in a worktree named as a review's (`Repository.addReviewWorktree`), `target`
+    /// as its base, and what `.worktreeinclude` selects copied in when `copiesIncludes`.
+    public static func checkOutRequest(_ task: TaskItem, project: Project, source: String, target: String, reserved: Set<String> = [],
+                                       copiesIncludes: Bool = true, git: any GitRunning) throws -> Made {
+        let repository = Repository(project.path, git: git)
+        let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: source), in: project.path, reserved: reserved,
+                                       registered: try repository.registeredWorktreeFolders())
+        var checkedOut = task
+        checkedOut.worktreePath = try repository.addReviewWorktree(slug: slug, branch: source)
+        checkedOut.baseBranch = target
+        return Made(task: checkedOut, worktreeInclude: copyIncludes(copiesIncludes, from: repository, into: checkedOut.worktreePath))
+    }
+
     /// An operator's worker's worktree, made when AiTerm starts the task: a new branch from `start` — the
     /// default branch, or a stacked task's parent's accepted commit — origin's copy of it when `fromOrigin` and origin has
     /// one. A relaunch adopts what an earlier attempt left: the worktree it made for the branch, or the branch it made,

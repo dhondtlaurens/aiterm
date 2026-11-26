@@ -1,91 +1,61 @@
 import Foundation
 import AiTermCore
 
-struct SignalSection: Equatable, Identifiable {
-    var signal: Signal
-    var tasks: [TaskRow]
-    var skipped: [String] = []
-    /// A schedule's next run; nil for a signal that starts from items, or one that runs no more.
-    var nextRun: Date?
-    var failure: String?
-    var removed = false
-    var id: UUID { signal.id }
-    var removedFolded = false
-    /// Whether Move Up and Move Down have a live neighbour; always false on a removed signal's heading.
-    var canMoveUp = false, canMoveDown = false
-    var collapsed: Bool { (removed ? removedFolded : signal.collapsed) || tasks.isEmpty }
-}
-
-/// One row of the Operator section's level, in drawn order: a signal's heading with its tasks, or a divider.
-enum OperatorEntry: Equatable, Identifiable {
-    case signal(SignalSection), divider(DividerEntry)
-    var id: UUID {
-        switch self {
-        case .signal(let section): return section.id
-        case .divider(let divider): return divider.id
-        }
-    }
-}
-
-/// Reuses the project's exact task rows. Moving ownership changes only which heading holds them.
-/// `acts` are the acts the Operator runs on tasks now (`OperatorActivityTracker.actsByTask`); `skipped` each
-/// signal's skipped-item sentences (`skipped(in:)`).
+/// The Operator's section and the projects', from one derivation of the projects' entries (`SidebarModel.entries`).
+/// Reuses the project's exact task rows: moving ownership changes only which section holds them.
+/// `acts` are the acts the Operator runs on tasks now (`OperatorActivityTracker.actsByTask`).
 struct SignalSidebar {
-    var signals: [SignalSection]
-    /// `signals` with the dividers between the live ones (`AppState.operatorSlots`), the removed signals' headings last.
-    var entries: [OperatorEntry]
+    /// What the Operator's section draws under its row, in the projects' order: each project with a task the Operator
+    /// runs, holding only those tasks (`presentingOperator`), no terminals and no moves, folded by
+    /// `AppState.operatorFolded`; a divider only while a project of it follows before the next divider.
+    var operatorEntries: [SidebarEntry]
+    /// The projects' entries without the tasks the Operator runs, which are drawn in its section.
     var projects: [SidebarEntry]
-    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:], skipped: [UUID: [String]] = [:],
-         nextRuns: [UUID: Date] = [:], foldedRemovedSignals: Set<UUID> = []) {
-        let held = state.tasks.filter { $0.isUnderOperator }
-        let ids = Set(held.map(\.id))
-        let rows = Dictionary(entries.flatMap { entry -> [TaskRow] in
-            if case .project(let section) = entry { return section.tasks }; return []
-        }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var definitions = state.signals
-        for task in held {
-            if let record = task.signalTask, !definitions.contains(where: { $0.id == record.current.signal }) {
-                definitions.append(record.current.configuration)
+    /// The projects among `operatorEntries`.
+    var operatorSections: [ProjectSection] {
+        operatorEntries.compactMap { if case .project(let section) = $0 { return section }; return nil }
+    }
+    init(state: AppState, entries: [SidebarEntry], acts: [UUID: String] = [:]) {
+        let held = Dictionary(state.tasks.filter(\.isUnderOperator).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let level = entries.compactMap { entry -> SidebarEntry? in
+            switch entry {
+            case .divider(var divider):
+                divider.canMoveUp = false; divider.canMoveDown = false
+                return .divider(divider)
+            case .project(var section):
+                section.tasks = section.tasks.compactMap { row in
+                    held[row.id].map { row.presentingOperator(task: $0, state: state, act: acts[$0.id]) }
+                }
+                guard !section.tasks.isEmpty else { return nil }
+                section.terminals = []; section.canMoveUp = false; section.canMoveDown = false
+                section.project.collapsed = state.operatorFolded.contains(section.project.id)
+                return .project(section)
             }
         }
-        signals = definitions.map { signal in
-            var section = SignalSection(signal: signal, tasks: held.filter { $0.signalTask?.current.signal == signal.id }.compactMap { task in
-                rows[task.id].map { $0.presentingOperator(task: task, state: state, act: acts[task.id]) }
-            })
-            section.skipped = skipped[signal.id] ?? []
-            section.nextRun = nextRuns[signal.id]
-            section.failure = state.operatorSession?.sourceFailures?[signal.id.uuidString]
-            section.removed = state.signal(id: signal.id) == nil
-            section.removedFolded = foldedRemovedSignals.contains(signal.id)
-            section.canMoveUp = state.canMove(signalId: signal.id, .up)
-            section.canMoveDown = state.canMove(signalId: signal.id, .down)
-            return section
+        operatorEntries = level.indices.compactMap { index in
+            guard case .divider = level[index] else { return level[index] }
+            guard index + 1 < level.count, case .project = level[index + 1] else { return nil }
+            return level[index]
         }
-        let sections = Dictionary(signals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let live = state.operatorSlots.compactMap { slot -> OperatorEntry? in
-            switch slot {
-            case .signal(let signal): return sections[signal.id].map(OperatorEntry.signal)
-            case .divider(let divider):
-                return .divider(DividerEntry(divider: SidebarDivider(id: divider.id, name: divider.name),
-                                             canMoveUp: state.canMove(signalDividerId: divider.id, .up),
-                                             canMoveDown: state.canMove(signalDividerId: divider.id, .down)))
-            }
-        }
-        self.entries = live + signals.filter(\.removed).map(OperatorEntry.signal)
         projects = entries.map { entry in
             guard case .project(var section) = entry else { return entry }
-            section.tasks.removeAll { ids.contains($0.id) }
+            section.tasks.removeAll { held[$0.id] != nil }
             return .project(section)
         }
     }
-    /// Each signal's skipped items as its heading's tooltip lists them, sorted: "PAY-1: No project".
+    /// Each signal's skipped items as the signals sheet lists them and a section's amber icon says the first, sorted: "PAY-1: No project",
+    /// "!12: …" for a merge request ("#12" for a GitHub pull request).
     /// A schedule's last skipped run reads by its time: "Run of 30 Nov 2026 09:00: The last run is still unfinished."
     static func skipped(in state: AppState, calendar: Calendar = .autoupdatingCurrent) -> [UUID: [String]] {
         Dictionary(grouping: state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching }, by: \.signal)
             .mapValues { $0.map { seen in
                 let name: String
-                if case .run(let run) = seen.item { name = "Run of " + ScheduleDecision.runTime(run.at, calendar: calendar) }
-                else { name = seen.item.identity ?? "Item" }
+                switch seen.item {
+                case .run(let run): name = "Run of " + ScheduleDecision.runTime(run.at, calendar: calendar)
+                case .mergeRequest(let request):
+                    name = (state.signal(id: seen.signal)?.start.source == .gitHub ? "#" : "!") + String(request.number)
+                default: name = OperatorDigest.itemName(seen.item)
+                }
                 return name + ": " + (seen.reason ?? "No project")
             }.sorted() }
     }
@@ -100,8 +70,8 @@ struct SignalSidebar {
 /// Only drawn facts: repeated activity events redraw this row without changing task rows.
 struct SignalOperatorRowValue: Equatable, Identifiable {
     var id: UUID { OperatorSession.rowID }
-    /// What the Operator holds: "3 tasks · 2 signals", or "No tasks". Its heading already says "Operator".
-    var title = Self.title(tasks: 0, signals: 0)
+    /// What the Operator runs: "Running 3 tasks", or "No tasks". Its heading already says "Operator".
+    var title = Self.title(tasks: 0)
     var line: OperatorLine
     var status: TaskStatus
     var paused: Bool
@@ -113,10 +83,10 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
     /// It waits on you only while it needs input: a question for you, or its chat asking.
     var needsYou: Bool { status == .needsInput }
     static let empty = Self(line: OperatorLine("watching"), status: .idle, paused: false, shown: false)
-    /// Every workload task has a signal task, so a task always counts at least one signal.
-    static func title(tasks: Int, signals: Int) -> String {
+    /// "Running 1 task", "Running 3 tasks", or "No tasks".
+    static func title(tasks: Int) -> String {
         guard tasks > 0 else { return "No tasks" }
-        return "\(tasks) \(tasks == 1 ? "task" : "tasks") · \(signals) \(signals == 1 ? "signal" : "signals")"
+        return "Running \(tasks) \(tasks == 1 ? "task" : "tasks")"
     }
     /// `latestAct` is the most recent act the Operator runs on a task (`OperatorActivityTracker.latestAct`).
     static func make(state: AppState, sessions: [SessionInfo], issue: String? = nil, activity: OperatorActivity? = nil,
@@ -125,7 +95,6 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         let workload = state.operatorWorkTasks
         let questions = state.currentOperatorQuestions
         let tasks = workload.count
-        let signals = Set(workload.compactMap { $0.signalTask?.current.signal }).count
         // A closed generation's last snapshot must not resurrect its row or permission prompt.
         let own = session.flatMap { session in
             session.window.flatMap { window in sessions.first { $0.taskUUID == session.id && $0.agent == .claude && $0.windowId == window } }
@@ -154,7 +123,7 @@ struct SignalOperatorRowValue: Equatable, Identifiable {
         let status: TaskStatus = line.look == .needsYou ? .needsInput : line.look == .acting ? .working : .idle
         let shown = tasks > 0 || !questions.isEmpty || own?.state == .needsInput || own?.state == .working || issue != nil
             || session?.lifecycle.isRetiring == true || (session?.window != nil && activity?.line != nil)
-        return Self(title: Self.title(tasks: tasks, signals: signals), line: shown ? line : Self.empty.line, status: shown ? status : .idle, paused: session?.paused == true,
+        return Self(title: Self.title(tasks: tasks), line: shown ? line : Self.empty.line, status: shown ? status : .idle, paused: session?.paused == true,
                     shown: shown, event: shown ? activity?.id : nil,
                     completedActivity: shown && line.look != .needsYou && session?.paused != true
                         && session?.lifecycle.isChanging != true ? activity?.completed : nil)

@@ -23,6 +23,22 @@ struct SignalFreshDigestTests {
         #expect(json["tasks"]?.arrayValue?.first?["pendingReplies"]?["main"] != nil)
         #expect(json["skipped"]?.arrayValue?.count == 1)
     }
+    /// The Operator is told only of its own signals: a project signal, its skipped items and its next run are the
+    /// person's.
+    @Test func theDigestHasNoProjectSignalSkipOrNextRun() throws {
+        var world = SignalWorld(); let signal = world.signal(), scheduled = world.scheduled()
+        let project = world.projectSignal()
+        let projectRun = Signal.project(name: "Weekly audit", start: SignalTrigger(source: .schedule, query: "0 9 * * 1", project: world.project.id))
+        world.state.signals.append(projectRun)
+        world.state.signalSeen = [
+            .init(signal: signal, item: world.ticket("NOPE-1").item, disposition: .skipped, at: world.now, reason: "No linked project"),
+            .init(signal: project, item: world.ticket("NOPE-2").item, disposition: .skipped, at: world.now, reason: "No linked project"),
+        ]
+        let digest = OperatorDigest(state: world.state, at: world.now, oracleOn: false)
+        #expect(digest.signals.map(\.id) == [signal, scheduled])
+        #expect(digest.skipped.map(\.signal) == [signal])
+        #expect(digest.nextRuns.map { Set($0.keys) } == [scheduled.uuidString])
+    }
     @Test func anUnansweredOracleRoundKeepsItsSavedAndStatusWords() throws {
         let round = OracleRound(id: "no-answer", tool: "answer_worker", stage: .unanswered,
                                 unansweredReason: "The Oracle is off.", askedAt: Date(timeIntervalSince1970: 0))

@@ -103,6 +103,40 @@ import Testing
         poller.stop()
     }
 
+    /// Each registration may read on its own rule: a read key is due only while a signal sharing it may read, and its
+    /// observation, or its failure, names only those that still may once the read is back.
+    @Test func aReadKeyIsReadForAndReportedToOnlyTheSignalsThatMayRead() async {
+        let clock = SignalPollClock(), reader = SignalPollReader(), work = OperatorWork()
+        let poller = SignalPoller(work: work, now: { clock.date })
+        let project = UUID(), paused = UUID(), alone = UUID()
+        var allowed: Set<UUID> = [project]
+        poller.mayRead = { allowed.contains($0) }
+        var batches: [[UUID]] = [], failures: [[UUID]] = []
+        poller.onPass = { batches.append($0.flatMap(\.signals)) }
+        poller.onFailure = { ids, _ in failures.append(ids) }
+        poller.replace([.init(id: project, sourceHost: "jira", readKey: "shared", isJira: true, reader: reader),
+                        .init(id: paused, sourceHost: "jira", readKey: "shared", isJira: true, reader: reader),
+                        .init(id: alone, sourceHost: "jira", readKey: "other", isJira: true, reader: reader)])
+        poller.tick(); await work.settled()
+        #expect(await reader.calls.count == 1, "The key no signal may read is not due.")
+        #expect(batches == [[project]])
+
+        clock.date += 61
+        await reader.setFailing(true)
+        poller.tick(); await work.settled()
+        #expect(failures == [[project]])
+
+        // Allowed when the read starts, no longer when it is back: nothing is published and nothing is due early.
+        let entered = TestLatch(), release = TestLatch()
+        let held = SignalHeldReader(entered: entered, release: release)
+        poller.replace([.init(id: project, sourceHost: "gitlab", readKey: "threads", isJira: false, reader: held)])
+        poller.tick(); await entered.wait()
+        allowed = []
+        release.signal(); await work.settled()
+        #expect(batches.count == 1 && failures.count == 1)
+        poller.stop()
+    }
+
     @Test func stopDropsALateReadAndOverlappingTicksStartNoDuplicate() async {
         let clock = SignalPollClock(), entered = TestLatch(), release = TestLatch(), work = OperatorWork()
         let reader = SignalHeldReader(entered: entered, release: release)

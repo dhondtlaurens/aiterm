@@ -37,6 +37,28 @@ import Testing
         #expect(issues.map { $0.isStale(in: withoutProject) } == [false, true])
     }
 
+    /// A failing source's banner names the signal and the source, says the error and the retry, and offers Open Signals
+    /// and Settings…; it asks nothing, and it is stale once its signal has gone.
+    @Test func aFailingSourcesBannerAndItsStaleness() {
+        var state = AppState.empty
+        let signal = Signal(name: "Reviews for me", createdAt: Date(timeIntervalSince1970: 0),
+                            start: SignalTrigger(source: .gitLab, query: "reviewer:@me"), done: SignalTrigger(source: .person, query: ""),
+                            work: SignalWork(prompt: "/psg:peer-review"), agents: [AgentChoice(agent: .claude, model: "m", reasoning: nil)],
+                            finish: SignalFinish(then: .keep), kind: .project)
+        state.signals = [signal]
+        let issue = OperationIssue.signalRead(signal: signal.id, name: "Reviews for me", source: "GitLab",
+                                              reason: "The server answered 401", retry: "AiTerm tries again at 14:05.")
+        #expect(issue.title == "“Reviews for me” can’t read GitLab.")
+        #expect(issue.reason == "The server answered 401. AiTerm tries again at 14:05.")
+        #expect(issue.actions.map(\.title) == ["Open Signals", "Settings…"])
+        #expect(issue.signal == signal.id && !issue.isQuestion && issue.subject == nil)
+        #expect(OperationIssue.signalRead(signal: signal.id, name: "R", source: "Jira", reason: "Timed out.", retry: "X.").reason == "Timed out. X.")
+        #expect(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(UUID())]).isQuestion)
+        #expect(!issue.isStale(in: state))
+        #expect(issue.isStale(in: .empty))
+        #expect(!OperationIssue(title: "Settings", actions: [.openSettings]).isStale(in: .empty))
+    }
+
     /// A pull that found the branches diverged offers the rebase; any other failure is reported
     /// with its error and no way out.
     @Test func onlyADivergedPullOffersTheRebase() {

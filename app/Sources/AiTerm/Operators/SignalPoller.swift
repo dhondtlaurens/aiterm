@@ -30,7 +30,11 @@ final class SignalPoller {
     private var generation = UUID()
     /// How often the network has come back, so a read that was already waiting then and fails afterwards is not held back.
     private var networkReturns = 0
+    /// Whether any read may run now: the Operator stopped or the workspace locked stops them all.
     var canPoll: @MainActor () -> Bool = { true }
+    /// Whether a signal's source may be read now. A read key is due only while a signal sharing it may read, and its
+    /// observation or failure names only those that still may once it is back.
+    var mayRead: @MainActor (UUID) -> Bool = { _ in true }
     var onPass: @MainActor ([SignalObservation]) -> Void = { _ in }
     var onFailure: @MainActor ([UUID], String) -> Void = { _, _ in }
 
@@ -64,7 +68,8 @@ final class SignalPoller {
     private func tick(host: String) {
         let groups = Dictionary(grouping: registrations.filter { $0.sourceHost == host }, by: \.readKey)
         let at = now()
-        let due = groups.values.compactMap(\.first).filter { at >= (progress[host + ":" + $0.readKey]?.next ?? .distantPast) }
+        let due = groups.values.compactMap { $0.first(where: { mayRead($0.id) }) }
+            .filter { at >= (progress[host + ":" + $0.readKey]?.next ?? .distantPast) }
             .sorted { $0.id.uuidString < $1.id.uuidString }
         guard !due.isEmpty else { return }
         let generation = generation
@@ -89,16 +94,21 @@ final class SignalPoller {
         do {
             let read = try await registration.reader.poll(since: full ? nil : before.cursor, full: full)
             guard !Task.isCancelled, self.generation == generation, canPoll() else { return nil }
+            // Those that may read now: one paused meanwhile is not told, and a read none may have advances nothing.
+            let readers = sharing.map(\.id).filter(mayRead)
+            guard !readers.isEmpty else { return nil }
             guard read.complete else { throw IncompleteRead("signal matches") }
             progress[key] = Progress(cursor: read.cursor ?? at, lastFull: full ? at : before.lastFull,
                                      next: at.addingTimeInterval(OperatorTiming.reconcileInterval))
-            return SignalObservation(signals: sharing.map(\.id), read: read)
+            return SignalObservation(signals: readers, read: read)
         } catch {
             guard !Task.isCancelled, self.generation == generation, canPoll() else { return nil }
+            let readers = sharing.map(\.id).filter(mayRead)
+            guard !readers.isEmpty else { return nil }
             var next = before
             next.next = networkReturns == returns ? at.addingTimeInterval(Self.failureBackOff) : .distantPast
             progress[key] = next
-            onFailure(sharing.map(\.id), error.localizedDescription)
+            onFailure(readers, error.localizedDescription)
             return nil
         }
     }

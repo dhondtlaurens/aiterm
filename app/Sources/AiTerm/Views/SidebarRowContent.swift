@@ -3,16 +3,23 @@ import AiTermUI
 import AiTermCore
 
 /// The three sidebar rows' grid. The column keeps its own content and layout priority;
-/// the trailing mark keeps its own click target and background-card behavior.
+/// the trailing mark keeps its own click target and background-card behavior. A task a signal started wears the
+/// signals disc on its avatar, which opens its signal card.
 struct SidebarRowContent<Column: View, Mark: View>: View {
     let avatars: AvatarGroup
+    var signalDisc = false
     @ViewBuilder let column: () -> Column
     @ViewBuilder let mark: () -> Mark
     @Environment(\.interfaceScale) private var scale
 
+    init(avatars: AvatarGroup, signalDisc: Bool = false, @ViewBuilder column: @escaping () -> Column,
+         @ViewBuilder mark: @escaping () -> Mark) {
+        self.avatars = avatars; self.signalDisc = signalDisc; self.column = column; self.mark = mark
+    }
+
     var body: some View {
         HStack(spacing: scale(Space.inset)) {
-            AvatarGroupView(group: avatars)
+            AvatarGroupView(group: avatars, signalDisc: signalDisc)
             column()
             Spacer(minLength: scale(Space.tight))
             mark()

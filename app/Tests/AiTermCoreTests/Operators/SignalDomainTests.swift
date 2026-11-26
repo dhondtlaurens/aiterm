@@ -98,6 +98,80 @@ import Testing
         #expect(!value.isRunnable)
     }
 
+    struct KindValidity: CustomTestStringConvertible, Sendable {
+        var name: String
+        var signal: Signal
+        var valid: Bool
+        var testDescription: String { name }
+    }
+    static let kindValidity: [KindValidity] = {
+        let base = Signal.project()
+        func project(_ name: String, valid: Bool, _ change: (inout Signal) -> Void) -> KindValidity {
+            var signal = base; change(&signal); return KindValidity(name: name, signal: signal, valid: valid)
+        }
+        var operatorSignal = Signal.make(); operatorSignal.done = SignalTrigger(source: .person, query: "")
+        return [
+            project("a project signal on one row, done when you decide", valid: true) { _ in },
+            project("archived when done by a query", valid: true) {
+                $0.finish.then = .archive; $0.done = SignalTrigger(source: .gitLab, query: "reviewer:any")
+            },
+            project("on a schedule", valid: true) {
+                $0.start = SignalTrigger(source: .schedule, query: "0 9 * * 1", project: UUID())
+            },
+            project("two agent rows", valid: false) { $0.agents = Build.agents },
+            project("no agent row", valid: false) { $0.agents = [] },
+            project("merge when ready", valid: false) {
+                $0.start = SignalTrigger(source: .gitLab, query: "author:@me"); $0.finish.mergesWhenReady = true
+            },
+            project("removed when done", valid: false) { $0.finish.then = .remove },
+            project("its merged branch deleted", valid: false) { $0.finish = SignalFinish(then: .remove, deletesMergedBranch: true) },
+            project("done when the Operator decides", valid: false) { $0.done = SignalTrigger(source: .operator, query: "") },
+            project("a kind from a newer build", valid: false) { $0.kind = .unknown("team") },
+            KindValidity(name: "an Operator signal done when you decide", signal: operatorSignal, valid: false),
+        ]
+    }()
+    @Test(arguments: kindValidity) func aProjectSignalRunsOneRowAndNoOperatorStepsAndOnlyItLeavesDoneToYou(_ row: KindValidity) {
+        #expect(row.signal.isValid == row.valid)
+    }
+    @Test func youDecideOnlyWhenASignalIsDone() throws {
+        let person = SignalTrigger(source: .person, query: "")
+        #expect(person.refusal(start: true)?.message == "You decide only when a signal is done.")
+        #expect(person.refusal(start: false) == nil && !person.source.readsItems && person.startRole == nil)
+        #expect(try JSONValue(encoding: person.source) == "person")
+    }
+
+    /// Stages keep no history, so the task's record keeps the chain: a continued stage adds the one it leaves, and a
+    /// dropped stage takes it off again, the task back on that stage since it started.
+    @Test func aContinuedStageJoinsTheChainAndADroppedOneLeavesIt() throws {
+        let item = ItemRef.ticket(site: "https://jira.example", key: "PAY-1")
+        let ship = signal("Ship"), review = signal("Review"), later = now.addingTimeInterval(60)
+        var task = SignalTask(current: stage(ship, item), startedAt: now); task.phase = .done
+        #expect(task.earlier == nil)
+        let continued = try SignalTransitions.apply(.matched(stage(review, item)), to: task, at: later)
+        #expect(continued.earlier == [SignalStep(signal: ship.id, name: "Ship", at: now)] && continued.startedAt == later)
+        let dropped = try SignalTransitions.apply(.dropped, to: continued, at: later.addingTimeInterval(60))
+        #expect(dropped.current.signal == ship.id && dropped.earlier == nil && dropped.startedAt == now)
+        var ran = try SignalTransitions.apply(.workerStarted, to: continued, at: later); ran.phase = .done
+        let third = try SignalTransitions.apply(.matched(stage(signal("Notes"), item)), to: ran, at: later.addingTimeInterval(120))
+        #expect(third.earlier == [SignalStep(signal: ship.id, name: "Ship", at: now), SignalStep(signal: review.id, name: "Review", at: later)])
+    }
+
+    /// Take Over leaves the task marked with the signal it was taken from, its live name, item, start and chain; a
+    /// removed signal is named as its stage saved it.
+    @Test func takeOverLeavesTheTaskMarkedWithItsSignalAndChain() throws {
+        var world = SignalWorld(); let s = world.signal(name: "Ship"), id = world.workingTask(signal: s)
+        let earlier = [SignalStep(signal: UUID(), name: "Plan tickets", at: now.addingTimeInterval(-600))]
+        world.state.updateSignalTask(id) { $0.earlier = earlier; $0.startedAt = now.addingTimeInterval(-60) }
+        world.state.signals[0].name = "Ship it"
+        var removed = world
+        world.state.takeOver(id)
+        let origin = try #require(world.state.task(id: id)?.signalOrigin)
+        #expect(origin == SignalOrigin(signal: s, name: "Ship it", item: world.ticket().item, startedAt: now.addingTimeInterval(-60), earlier: earlier))
+        removed.state.signals = []
+        removed.state.takeOver(id)
+        #expect(removed.state.task(id: id)?.signalOrigin?.name == "Ship")
+    }
+
     @Test func aStartQueryNamesItsRole() {
         #expect(SignalTrigger(source: .gitLab, query: "reviewer:@me -author:@me").startRole == .reviewer)
         #expect(SignalTrigger(source: .gitHub, query: "is:open AUTHOR:@ME").startRole == .author)
@@ -280,6 +354,20 @@ import Testing
         let seen = SignalSeen(signal: s.id, item: item, disposition: .started, at: now.addingTimeInterval(-91 * 86400))
         #expect(SignalSeen.pruned([seen], liveItems: [], now: now).isEmpty)
         #expect(SignalSeen.pruned([seen], liveItems: Set([item.identity!]), now: now) == [seen])
+    }
+
+    /// A project signal's started record of an item that still matches is kept past 90 days, so a removed task's
+    /// item never starts again while it matches; one that stopped matching, or another signal's, ages out.
+    @Test func aStillMatchingProjectRecordOutlivesTheRetention() {
+        var world = SignalWorld(); let projectSignal = world.projectSignal(), operatorSignal = world.signal()
+        let old = world.now.addingTimeInterval(-91 * 86400), item = world.ticket().item
+        let kept = SignalSeen(signal: projectSignal, item: item, disposition: .started, at: old)
+        var left = kept; left.isMatching = false
+        let skipped = SignalSeen(signal: projectSignal, item: item, disposition: .skipped, at: old, reason: "No project")
+        let operatorRecord = SignalSeen(signal: operatorSignal, item: item, disposition: .started, at: old)
+        world.state.signalSeen = [kept, left, skipped, operatorRecord]
+        world.state.pruneOperator(at: world.now)
+        #expect(world.state.signalSeen == [kept])
     }
 
     @Test func identityContinuesOrdinaryTaskByTicketOrRequest() {

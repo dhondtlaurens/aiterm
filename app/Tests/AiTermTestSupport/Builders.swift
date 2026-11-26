@@ -43,6 +43,22 @@ extension Signal {
                done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "/psg:plan"),
                agents: agents, finish: SignalFinish(then: .keep))
     }
+    /// A project signal that reviews the merge requests asking for the account's review, on its one agent row, and
+    /// leaves Done to the person.
+    static func project(id: UUID = UUID(), name: String = "Reviews for me", createdAt: Date = Build.epoch,
+                        start: SignalTrigger = SignalTrigger(source: .gitLab, query: "reviewer:@me"),
+                        done: SignalTrigger = SignalTrigger(source: .person, query: ""),
+                        agent: AgentChoice = Build.agents[0], then: SignalFinish.Then = .keep) -> Signal {
+        Signal(id: id, name: name, createdAt: createdAt, start: start, done: done, work: SignalWork(prompt: "/psg:peer-review"),
+               agents: [agent], finish: SignalFinish(then: then), kind: .project)
+    }
+}
+
+extension SignalOrigin {
+    /// The mark `signal` leaves on a task it started on `item`.
+    static func make(signal: Signal = .project(), item: ItemRef, startedAt: Date = Build.epoch) -> SignalOrigin {
+        SignalOrigin(signal: signal.id, name: signal.name, item: item, startedAt: startedAt)
+    }
 }
 
 extension SignalTask {

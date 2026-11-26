@@ -67,7 +67,8 @@ import Testing
         return sidebar
     }
 
-    @Test func expandedSignalHeadersIgnoreLedgersAndTheirChildStatusChanges() throws {
+    /// An open project heading in the Operator's section redraws neither for a ledger entry nor for its task's status.
+    @Test func expandedOperatorProjectHeadersIgnoreLedgersAndTheirChildStatusChanges() throws {
         let sidebar = try hostedSidebar(); defer { sidebar.window.orderOut(nil) }
         let signal = Signal(name: "Tickets", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "Work"),
             agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(then: .keep))
@@ -77,7 +78,10 @@ import Testing
             state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Date())
             state.tasks[0].signalTask = record; state.operatorOpen = true
         }
-        sidebar.settleRows(); sidebar.counter.reset()
+        sidebar.settleRows()
+        let heading = OperatorSession.projectRowID(sidebar.project.id)
+        #expect(sidebar.counter.counts[heading] != nil, "the Operator's heading for the project is drawn, under its own id")
+        sidebar.counter.reset()
         sidebar.controller.workspace.mutate { $0.operatorSession?.remember(key: "result", result: "ok", at: Date()) }
         sidebar.settleRows()
         #expect(sidebar.counter.counts.isEmpty, "A ledger entry is not a header or row change.")
@@ -85,8 +89,60 @@ import Testing
         let tab = OperatorServiceFixtures.session("worker", tag: sidebar.tasks[0].id, state: .needsInput)
         sidebar.controller.live.handle(.sessionOpened(tab))
         sidebar.settleRows { sidebar.counter.counts[sidebar.tasks[0].id] != nil }
-        #expect(sidebar.counter.counts[signal.id] == nil, "An expanded heading has no status counts to redraw.")
+        #expect(sidebar.counter.counts[heading] == nil, "An expanded heading has no status counts to redraw.")
     }
+    /// The Operator running tasks 0, 1, 2 and 4, its section open: its row, Repo's heading over tasks 0–2, Other
+    /// repo's heading over task 4. Returns the rows on its status line, in order.
+    private func operatorLine(_ sidebar: Sidebar) -> [UUID] {
+        let signal = Signal(name: "Tickets", createdAt: Date(), start: SignalTrigger(source: .jira, query: "labels = operator"), done: SignalTrigger(source: .jira, query: "status = Done"), work: SignalWork(prompt: "Work"),
+            agents: [.init(agent: .claude, model: "opus", reasoning: nil)], finish: SignalFinish(then: .keep))
+        sidebar.controller.focus.browse(nil)
+        sidebar.controller.workspace.mutate { state in
+            state.signals = [signal]; state.operatorSession = OperatorSession(createdAt: Date()); state.operatorOpen = true
+            for index in [0, 1, 2, 4] {
+                var record = SignalTask.make(signal: signal, item: .ticket(site: "https://jira.example", key: "PAY-\(index)"), startedAt: Date())
+                record.phase = .working
+                state.tasks[index].signalTask = record
+            }
+        }
+        let other = sidebar.controller.state.projects[1].id
+        let line = [OperatorSession.rowID, OperatorSession.projectRowID(sidebar.project.id), sidebar.tasks[0].id, sidebar.tasks[1].id,
+                    sidebar.tasks[2].id, OperatorSession.projectRowID(other), sidebar.tasks[4].id]
+        sidebar.settleRows { line.allSatisfy { sidebar.controller.rows.statusLine[$0] != nil } }
+        #expect(Set(sidebar.counter.lines.keys).isSuperset(of: line), "each row on the line draws its piece")
+        return line
+    }
+
+    /// A piece of the status line changing — a task's wake marching up its stretch — redraws the line's cells on that
+    /// stretch and no row's body.
+    @Test func aStatusLinePieceRedrawsNoRowBody() throws {
+        let sidebar = try hostedSidebar(); defer { sidebar.window.orderOut(nil); sidebar.controller.shutdown() }
+        let line = operatorLine(sidebar)
+        sidebar.counter.reset()
+        let activity = sidebar.controller.signalController.activity
+        activity.pulseLength = .seconds(3600)
+        activity.woke(task: sidebar.tasks[1].id)
+        sidebar.settleRows { sidebar.counter.lines[sidebar.tasks[1].id] != nil }
+        #expect(sidebar.controller.rows.statusLine[line[0]]?.below == .waking)
+        #expect(sidebar.counter.counts.isEmpty, "redrawn row bodies: \(sidebar.counter.counts.count)")
+        #expect(Set(sidebar.counter.lines.keys) == Set(line.prefix(4)), "only the line cells on the woken task's stretch")
+    }
+
+    /// An act on the third task redraws that task's row (its line says the act) and the Operator's (its caption), and
+    /// no other row's body; of the line, only the cells on the stretch from the Operator's mark to that task's.
+    @Test func anActOnTheThirdTaskRedrawsItsRowTheOperatorsAndItsStretch() throws {
+        let sidebar = try hostedSidebar(); defer { sidebar.window.orderOut(nil); sidebar.controller.shutdown() }
+        let line = operatorLine(sidebar)
+        sidebar.counter.reset()
+        let third = sidebar.tasks[2].id
+        let act = sidebar.controller.signalController.activity.begin(task: third, act: "answering its worker")
+        sidebar.settleRows { sidebar.counter.counts[third] != nil && sidebar.counter.lines[third] != nil }
+        #expect(sidebar.controller.rows.statusLine[third] == StatusLinePiece(above: .acting, below: .rest, node: .mark))
+        #expect(Set(sidebar.counter.counts.keys) == [third, OperatorSession.rowID], "redrawn row bodies: \(sidebar.counter.counts.count)")
+        #expect(Set(sidebar.counter.lines.keys) == Set(line.prefix(5)), "redrawn line cells: \(sidebar.counter.lines.count)")
+        sidebar.controller.signalController.activity.end(act)
+    }
+
     @Test func anArrowKeyRedrawsOnlyTheRowItLeavesAndTheRowItReaches() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }

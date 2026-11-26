@@ -169,9 +169,9 @@ RefusalCode = Literal[
     "replaced",            # another process now runs in the session
     "notChecked",          # the CLI's version has no pass from the delivery check
     "unsupported",         # prompts cannot be read off this CLI's screen
-    "typing",              # you are typing (a wake line only)
-    "unsentInput",         # unsent text waits in the input (a wake line only)
-    "keysUnwatched",       # no keystroke monitor, so your typing cannot be seen (a wake line only)
+    "typing",              # you are typing (a wake line, or a guarded delivery)
+    "unsentInput",         # unsent text waits in the input (a wake line, or a guarded delivery)
+    "keysUnwatched",       # no keystroke monitor, so your typing cannot be seen (a wake line, or a guarded delivery)
     "screenUnread",        # the screen could not be read, or came back empty
     "prompt",              # a prompt is open: it waits on the person
     "unrecognisedScreen",  # the screen shows no input box
@@ -181,6 +181,11 @@ RefusalCode = Literal[
     "itermRefused",        # iTerm2 did not take the text, or the Enter
     "pasteOnly",           # pasted, the Enter left to the person
 ]
+
+
+# What a session's input holds, read without typing (Deliverer.input_state): nothing, text not yet sent, or
+# nothing tells.
+InputState = Literal["empty", "unsent", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +239,8 @@ class Deliverer:
     screen read and no prompt open -- pastes the text bracketed, waits SUBMIT_DELAY, checks again, and
     only then presses Enter. Anything that changed in between holds the Enter back: the result is
     `partial`, and the text waits in the input for whoever looks next. An operator's wake line is held
-    to every check but the delivery check's pass (`_ready`). Deliveries to one session take turns, so
+    to every check but the delivery check's pass (`_ready`); a guarded delivery (`guard_input`), any other
+    text, to the delivery check's pass and to the same checks of you. Deliveries to one session take turns, so
     two pastes never interleave with their Enters. Which Operator session and task a tab belongs to, and whether
     that Operator session is active, is the app's to check before it asks."""
 
@@ -269,6 +275,30 @@ class Deliverer:
     def _turn(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
 
+    async def input_state(self, session_id: str) -> InputState:
+        """What the session's input holds, read and never typed into, nor noted (session.inputState): what an
+        automatic close would lose. `unsent` while you type there, or when its screen shows typed text, or, on a
+        screen with no input to read, when keys were seen typed there and not sent; `empty` when the keys seen leave
+        it empty, its screen shows it empty, or it has closed; `unknown` otherwise -- a screen that could not be
+        read, or no input to read and its key history unknown (no keystroke monitor, or none seen since it began)."""
+        async with self._turn(session_id):
+            if self.registry.get(session_id) is None:
+                return "empty"
+            if self.typing.is_typing(session_id, self._monotonic()):
+                return "unsent"
+            if not self.typing.has_unsent_input(session_id):
+                return "empty"
+            try:
+                screen = await self.iterm.typed_screen(session_id)
+            except ItermUnavailable:
+                screen = None
+            else:
+                if screen is None or (session := self.registry.get(session_id)) is None:
+                    return "empty"
+                if (held := input_text(session.agent, screen.text, screen.typed)) is not None:
+                    return "unsent" if held else "empty"
+            return "unsent" if self.typing.typed_unsent(session_id) else "unknown"
+
     async def close_idle(self, session_id: str, ownership: int, conversation: str) -> DeliveryResult:
         """Replace only an ended CLI, under the same ownership/input checks as a wake.
 
@@ -276,7 +306,7 @@ class Deliverer:
         recycled terminal can never authorize closing the replacement process.
         """
         async with self._turn(session_id):
-            ready = await self._check(session_id, ownership, True)
+            ready = await self._check(session_id, ownership, True, True)
             if isinstance(ready, Refusal):
                 return _refused(ready)
             session, _ = ready
@@ -291,24 +321,29 @@ class Deliverer:
             return DeliveryResult("delivered")
 
     async def deliver(self, session_id: str, text: str, ownership: int, *, wake: bool = False,
-                      worktree: str | None = None) -> DeliveryResult:
+                      guard_input: bool = False, worktree: str | None = None) -> DeliveryResult:
         """Types `text` into the session. `ownership` is the task's generation as the caller knew it;
         `wake` marks an operator's wake line, which waits while you type and needs no pass from the
-        delivery check; `worktree` is where a message too long to paste is left."""
+        delivery check; `guard_input` holds any other text to the same checks of you -- refused while
+        you type there, while its input may hold text not yet sent, and without a keystroke monitor --
+        with the delivery check's pass still needed and no wake grammar (a project signal's prompt,
+        typed into a conversation that is the person's too); `worktree` is where a message too long to
+        paste is left."""
         async with self._turn(session_id):
-            result = await self._deliver(session_id, text, ownership, wake, worktree)
+            result = await self._deliver(session_id, text, ownership, wake, wake or guard_input, worktree)
             if result.result == "partial":
                 # The text waits in the input: a wake line pasted after it would be sent with it.
                 self.typing.mark_unsent(session_id)
             return result
 
-    async def _deliver(self, session_id: str, text: str, ownership: int, wake: bool, worktree: str | None) -> DeliveryResult:
+    async def _deliver(self, session_id: str, text: str, ownership: int, wake: bool, guarded: bool,
+                       worktree: str | None) -> DeliveryResult:
         # A session no generation was set for takes the first send's: until the app sets one, a
         # send is as current as anything known. A newer one becomes the session's.
         if ownership < self._ownership.setdefault(session_id, ownership):
             return _refused(Refusal("ownership", "the task changed hands after this message was written"))
         self._ownership[session_id] = ownership
-        if isinstance(ready := await self._check(session_id, ownership, wake), Refusal):
+        if isinstance(ready := await self._check(session_id, ownership, wake, guarded), Refusal):
             return _refused(ready)
         session, policy = ready
         if not (body := pasteable(text)).strip():
@@ -327,7 +362,7 @@ class Deliverer:
                 return _refused(Refusal("messageFile", f"the message file could not be written: {exc}"))
             # The write took a worker thread's while: everything checked before it is checked again,
             # right before the paste. A refusal now leaves the file behind, unread and out of git.
-            if isinstance(again := await self._check(session_id, ownership, wake, process=session), Refusal):
+            if isinstance(again := await self._check(session_id, ownership, wake, guarded, process=session), Refusal):
                 return _refused(again)
             session, policy = again  # a verdict that changed to paste-only meanwhile keeps the Enter back
         try:
@@ -342,7 +377,7 @@ class Deliverer:
             return _partial(Refusal("pasteOnly", f"pasted without Enter: this {session.agent} version is checked paste-safe only, "
                                                  "so you press Enter"))
         await self._sleep(SUBMIT_DELAY)
-        if (why := await self._changed(session, ownership, wake)) is not None:
+        if (why := await self._changed(session, ownership, wake, guarded)) is not None:
             return _partial(why)
         try:
             await self.iterm.send_text(session_id, SUBMIT)
@@ -350,28 +385,28 @@ class Deliverer:
             return _partial(Refusal("itermRefused", f"the Enter could not be sent ({exc}); the text waits unsent in the input"))
         return DeliveryResult("delivered")
 
-    async def _check(self, session_id: str, ownership: int, wake: bool, *,
+    async def _check(self, session_id: str, ownership: int, wake: bool, guarded: bool, *,
                      process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
         typed into. Made before anything is typed, and again right before the paste when a message
         file was written in between, `process` then the session as the first check found it."""
-        ready = await self._ready_reading_input(session_id, ownership, wake, process=process)
+        ready = await self._ready_reading_input(session_id, ownership, wake, guarded, process=process)
         if isinstance(ready, Refusal):
             return ready
         session, _policy = ready
         if (why := await self._ineligible(session_id)) is not None:
             return why
-        return await self._ready_reading_input(session_id, ownership, wake, process=session)
+        return await self._ready_reading_input(session_id, ownership, wake, guarded, process=session)
 
-    async def _ready_reading_input(self, session_id: str, ownership: int, wake: bool, *,
+    async def _ready_reading_input(self, session_id: str, ownership: int, wake: bool, guarded: bool, *,
                                    process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
-        """`_ready`, with a wake line it refuses because the keys leave the input unknown (`unsentInput`) held to what
-        the screen shows the input holds (`input_text`): typed text keeps the refusal; an input empty on screen is known
-        empty from then (TypingGuard.note_empty) and the checks run again; a screen with no input to read refuses for
-        what it shows instead -- a prompt, an unrecognised or unread screen -- or, showing none of those, keeps the
-        refusal, as nothing tells what its input holds. Before Enter the line just pasted is in the input, which the
-        screen shows as text."""
-        ready = self._ready(session_id, ownership, wake, process=process)
+        """`_ready`, with a wake line or a guarded delivery it refuses because the keys leave the input unknown
+        (`unsentInput`) held to what the screen shows the input holds (`input_text`): typed text keeps the refusal; an
+        input empty on screen is known empty from then (TypingGuard.note_empty) and the checks run again; a screen
+        with no input to read refuses for what it shows instead -- a prompt, an unrecognised or unread screen -- or,
+        showing none of those, keeps the refusal, as nothing tells what its input holds. Before Enter the line just
+        pasted is in the input, which the screen shows as text."""
+        ready = self._ready(session_id, ownership, wake, guarded, process=process)
         if not (isinstance(ready, Refusal) and ready.code == "unsentInput"):
             return ready
         read_at = self._monotonic()
@@ -387,9 +422,9 @@ class Deliverer:
         if held:
             return ready
         self.typing.note_empty(session_id, read_at)
-        return self._ready(session_id, ownership, wake, process=process)
+        return self._ready(session_id, ownership, wake, guarded, process=process)
 
-    def _ready(self, session_id: str, ownership: int, wake: bool, *,
+    def _ready(self, session_id: str, ownership: int, wake: bool, guarded: bool, *,
                process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
         if self._ownership.get(session_id) != ownership:
             return Refusal("ownership", "the task changed hands after this message was written")
@@ -417,14 +452,14 @@ class Deliverer:
                 # one whose files have not named their version yet, gets nothing until it is checked.
                 return Refusal("notChecked",
                                f"{session.agent} {session.cli_version or '(version unknown)'} has not passed the delivery check")
-        if wake and not self.typing.watching():
+        if guarded and not self.typing.watching():
             # Without the keystroke monitor nothing shows that you are not typing there: the line is not typed.
             return Refusal("keysUnwatched", "iTerm2 gives AiTerm no keys to watch, so whether you are typing there is unknown")
-        if wake and self.typing.is_typing(session_id, self._monotonic()):
+        if guarded and self.typing.is_typing(session_id, self._monotonic()):
             # Not lost: the operator sees the news at its next run_status.
             return Refusal("typing", "you are typing")
-        if wake and self.typing.has_unsent_input(session_id):
-            # Pasted after words not yet sent, the wake line's Enter would send them with it.
+        if guarded and self.typing.has_unsent_input(session_id):
+            # Pasted after words not yet sent, the line's Enter would send them with it.
             return Refusal("unsentInput", "unsent text waits in its input")
         return session, policy
 
@@ -461,14 +496,15 @@ class Deliverer:
             return Refusal("unrecognisedScreen", "unrecognised screen")
         return None
 
-    async def _changed(self, session: SessionInfo, ownership: int, wake: bool) -> Refusal | None:
+    async def _changed(self, session: SessionInfo, ownership: int, wake: bool, guarded: bool) -> Refusal | None:
         """What holds the Enter back: anything that changed while the paste settled."""
-        ready = await self._check(session.session_id, ownership, wake, process=session)
+        ready = await self._check(session.session_id, ownership, wake, guarded, process=session)
         if isinstance(ready, Refusal):
             if ready.code == "ownership":
                 return Refusal("ownership", "you took the task over before Enter; the text waits unsent in the input")
             if ready.code == "typing":
-                return Refusal("typing", "you started typing before Enter; the wake line waits unsent in the input")
+                line = "the wake line" if wake else "the text"
+                return Refusal("typing", f"you started typing before Enter; {line} waits unsent in the input")
             return Refusal(ready.code, f"before Enter, {ready.reason}; the text waits unsent in the input")
         if ready[1] != "auto":
             return Refusal("pasteOnly", "before Enter, automatic submission is no longer checked safe")

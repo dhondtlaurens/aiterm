@@ -190,6 +190,34 @@ import Testing
         #expect(fixture.controller.teardown.leaving.isEmpty && fixture.controller.teardown.state(of: task.id) == nil)
     }
 
+    /// A failing source's banner, raised through the controller's port, waits behind the Rebase question; once it shows,
+    /// Open Signals opens the signals sheet of its signal's section and the banner stays; it goes with its signal.
+    @Test func aFailingSourcesBannerWaitsForTheQuestionAndOpensItsSignalsSheet() async throws {
+        let (fixture, _) = try await askingRebase()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let signal = Signal.project(name: "Reviews for me", createdAt: Date(), start: SignalTrigger(source: .gitLab, query: "reviewer:@me"),
+                                    done: SignalTrigger(source: .person, query: ""),
+                                    agent: AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: nil), then: .keep)
+        controller.workspace.mutate { $0.signals = [signal] }
+        let banner = OperationIssue.signalRead(signal: signal.id, name: signal.name, source: "GitLab", reason: "Timed out.",
+                                               retry: "AiTerm tries again at 14:05.")
+        let question = controller.issue
+
+        controller.signalController.readIssueBanner.raise(banner)
+        #expect(controller.issue == question)
+        controller.notices.dismissIssue()
+        #expect(controller.issue == banner)
+
+        await controller.perform(.openSignals(signal: signal.id))
+        guard case .signals(let model)? = controller.sheet else { Issue.record("no signals sheet"); return }
+        #expect(model.section == .projects)
+        #expect(controller.issue == banner)
+
+        controller.workspace.mutate { $0.signals = [] }
+        #expect(controller.issue == nil)
+    }
+
     /// A task, and the banner asking whether to rebase the project's default branch, about the task
     /// so that it goes with its row. `answers` are for what the test asks after.
     private func askingRebase(answering answers: String...) async throws -> (RaceFixture, TaskItem) {

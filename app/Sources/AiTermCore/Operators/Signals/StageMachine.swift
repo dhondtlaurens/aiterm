@@ -6,6 +6,8 @@ public enum SignalTransitions {
         if case .unknown = task.phase { throw SignalTransitionError.invalidEdge }
         func continueStage(_ stage: SignalStage) {
             next.previousStage = EarlierStage(of: next)
+            next.earlier = (next.earlier ?? []) + [SignalStep(signal: next.current.signal, name: next.current.configuration.name,
+                                                              at: next.startedAt)]
             next.current = stage; next.stage += 1; next.ownership += 1; next.startedAt = at; next.thenApplied = nil
             next.phase = .launching; next.launch = nil; next.blockedReason = nil
             next.choice = nil; next.choosableRows = nil; next.waitingOn = nil; next.doneMatched = nil; next.merge = nil
@@ -49,6 +51,9 @@ public enum SignalTransitions {
                 throw SignalTransitionError.invalidEdge
             }
             next.current = previous.stage; next.previousStage = nil; next.blockedReason = nil
+            // The task is that stage's again: its step leaves the chain, and it started when the step says.
+            if let step = next.earlier?.popLast() { next.startedAt = step.at }
+            if next.earlier?.isEmpty == true { next.earlier = nil }
             next.phase = previous.phase == .watching ? .watching : .done
             next.doneMatched = previous.doneMatched; next.waitingOn = previous.waitingOn; next.merge = previous.merge
             next.launch = previous.launch; next.choice = previous.choice

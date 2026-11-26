@@ -106,7 +106,8 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         weeklyUsage = Dictionary(uniqueKeysWithValues: SidebarModel.weeklyUsage(usage, now: at).map { ($0.key.rawValue, $0.value) })
         snags = Array((state.operatorSession?.snags ?? []).suffix(100))
         oracleRounds = state.operatorSession?.oracleRounds ?? []
-        skipped = state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching && state.signal(id: $0.signal) != nil }
+        // The Operator is told only of its own signals: a project signal's items, skips and runs are the person's.
+        skipped = state.signalSeen.filter { $0.disposition == .skipped && $0.isMatching && state.signal(id: $0.signal)?.isProject == false }
         sourceFailures = state.operatorSession?.sourceFailures ?? [:]
         generation = state.operatorSession?.generation; paused = state.operatorSession?.paused == true
         standingInstructions = instructions
@@ -117,8 +118,9 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
                               conversation: session.conversationId, contextTokens: session.contextTokens, contextPercent: session.contextPercent,
                               backgroundJobs: session.work.filter(\.holdsTurn).count)
         }
-        generatedAt = at; self.oracleOn = oracleOn; signals = state.signals
-        let runs = state.signals.filter { $0.isScheduled && $0.isRunnable }.reduce(into: [String: Date]()) { runs, signal in
+        let operatorSignals = state.signals.filter { !$0.isProject }
+        generatedAt = at; self.oracleOn = oracleOn; signals = operatorSignals
+        let runs = operatorSignals.filter { $0.isScheduled && $0.isRunnable }.reduce(into: [String: Date]()) { runs, signal in
             runs[signal.id.uuidString] = ScheduleDecision.nextRun(of: signal, cursor: state.scheduleCursors[signal.id], now: at,
                                                                   calendar: .autoupdatingCurrent)
         }

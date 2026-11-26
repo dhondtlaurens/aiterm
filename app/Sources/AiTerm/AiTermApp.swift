@@ -197,9 +197,10 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func newTask() { if let project = controller.targetProject { controller.sheets.presentNewTask(project: project) } }
     @objc func newReview() { if let project = controller.targetProject { controller.sheets.presentNewReview(project: project) } }
     @objc func newTerminal() { if let project = controller.targetProject { controller.sheets.presentNewTerminal(project: project) } }
-    @objc func newSignal() { controller.presentNewSignal() }
+    @objc func newSignal() { controller.presentNewSignalInOpenSection() }
     @objc func addProject() { Task { await controller.projects.addProject() } }
-    @objc func addDivider() { controller.presentNewDividerInOpenSection() }
+    /// File › Add Divider… (⌘D): always between projects, whichever section is open.
+    @objc func addDivider() { controller.sheets.presentNewDivider() }
     @objc func zoomIn() { changeInterfaceSize(to: controller.preferences.interfaceSize.bigger) }
     @objc func zoomOut() { changeInterfaceSize(to: controller.preferences.interfaceSize.smaller) }
     @objc func actualSize() { changeInterfaceSize(to: .standard) }
@@ -228,9 +229,7 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(newTask), #selector(newReview): return controller.canCreateTask
         case #selector(newTerminal): return controller.canCreateTerminal
         case #selector(newSignal): return controller.canPresentNewSignal
-        case #selector(addProject): return controller.canUseFileMenu
-        // Into the open section: with the Operator's open and no signal to stand beside, there is nothing to add.
-        case #selector(addDivider): return controller.canUseFileMenu && (!controller.rows.operatorOpen || controller.canAddSignalDivider)
+        case #selector(addProject), #selector(addDivider): return controller.canUseFileMenu
         case #selector(zoomIn): return zoomable && controller.preferences.interfaceSize.bigger != nil
         case #selector(zoomOut): return zoomable && controller.preferences.interfaceSize.smaller != nil
         case #selector(actualSize): return zoomable && controller.preferences.interfaceSize != .standard

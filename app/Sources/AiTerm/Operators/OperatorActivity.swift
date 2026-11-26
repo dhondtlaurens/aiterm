@@ -1,5 +1,6 @@
 import Foundation
 import AiTermCore
+import AiTermUI
 
 /// Runtime identity, not saved chat state. Equal words from different events decode again.
 struct OperatorActivity: Equatable {
@@ -16,12 +17,17 @@ struct OperatorAct: Equatable {
     var words: String
 }
 
-/// What the Operator is doing now, runtime only: its row's activity (`during`) and each task's acts (`acting`).
+/// What the Operator is doing now, runtime only: its row's activity (`during`), each task's acts (`acting`) and the
+/// tasks that have just woken it (`woke`).
 @MainActor final class OperatorActivityTracker {
     private(set) var event = OperatorActivity()
     private var running: [(id: UUID, line: OperatorLine)] = []
     /// The acts running on tasks, oldest first.
     private var acts: [(id: UUID, act: OperatorAct)] = []
+    /// The tasks whose wake marches up their stretch of the status line now, each with the wake that started it.
+    private var pulses: [UUID: UUID] = [:]
+    /// How long a wake's march lasts: `Motion.pulse`; a test shortens it.
+    var pulseLength: Duration = .seconds(Motion.pulse)
     /// Whether any activity or act runs.
     var isRunning: Bool { !running.isEmpty || !acts.isEmpty }
     var changed: () -> Void = {}
@@ -34,6 +40,22 @@ struct OperatorAct: Equatable {
     }
     /// The most recent act still running, for the Operator's row.
     var latestAct: OperatorAct? { acts.last?.act }
+    /// The tasks that woke the Operator within the last `pulseLength`: their stretch of the status line marches up.
+    var waking: Set<UUID> { Set(pulses.keys) }
+    /// `task` woke the Operator (its worker ended its turn, or its stage is blocked): its stretch marches up, once,
+    /// for `pulseLength`, then ends by itself. A second wake within it starts the march again.
+    func woke(task: UUID) {
+        let id = UUID()
+        pulses[task] = id
+        changed()
+        let length = pulseLength
+        Task { [weak self] in
+            try? await Task.sleep(for: length)
+            guard let self, self.pulses[task] == id else { return }
+            self.pulses[task] = nil
+            self.changed()
+        }
+    }
     /// `body` run as `task`'s act, shown on its row while it runs; a nested act shows until it ends.
     func acting<Result>(task: UUID, act words: String, _ body: @MainActor () async throws -> Result) async rethrows -> Result {
         let id = begin(task: task, act: words)

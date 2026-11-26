@@ -3,11 +3,11 @@ import AiTermCore
 import AiTermUI
 
 /// A Start or Done trigger. Each opens with its two-way row, Starts on (An item · A schedule) or Done when (A query
-/// matches · The Operator decides). An item's or a query's trigger is the source it reads, the person's description with
-/// its Write button on the label's row, and the query that runs, in short mono editors; a schedule's is the description,
-/// its cron, its project and its next runs; the Operator's Done is an optional description of done. ⇥ in an empty
-/// query writes its example in. The help under a
-/// query names the syntax, says Claude wrote it, or, in warning ink, why the write failed or why AiTerm refuses it.
+/// matches · The Operator decides, or You decide on a project signal). An item's or a query's trigger is the source it
+/// reads, the person's description with its Write button on the label's row, and the query that runs, in short mono
+/// editors; a schedule's is the description, its cron, its project and its next runs; the Operator's Done is an optional
+/// description of done, You decide a line of help. ⇥ in an empty query writes its example in. The help under a query
+/// names the syntax, says Claude wrote it, or, in warning ink, why the write failed or why AiTerm refuses it.
 struct SignalTriggerStep: View {
     @Bindable var model: SignalModel
     let start: Bool
@@ -22,11 +22,16 @@ struct SignalTriggerStep: View {
             if model.isScheduled { scheduleFields } else { queryFields }
         } else {
             FormField("Done when") {
-                SegmentedControl(values: [SignalModel.DoneKind.query, .operatorDecides], selection: $model.doneKind) { kind, _ in
-                    Text(kind == .query ? "A query matches" : "The Operator decides")
+                SegmentedControl(values: model.doneKinds, selection: $model.doneKind) { kind, _ in
+                    Text(Self.doneLabel(kind))
                 }
+                if model.doneKind == .youDecide { HelpText(youDecideHelp) }
             }
-            if model.doneKind == .operatorDecides { operatorFields } else { queryFields }
+            switch model.doneKind {
+            case .operatorDecides: operatorFields
+            case .youDecide: EmptyView()
+            case .query: queryFields
+            }
         }
     }
     @ViewBuilder private var queryFields: some View {
@@ -54,6 +59,11 @@ struct SignalTriggerStep: View {
             HelpText("Each run starts a task here, on a branch of its own.")
         }
         if model.startRefusal == nil, !model.nextRuns.isEmpty { SignalNextRuns(model: model) }
+    }
+    /// You decide reads nothing; a schedule waits for the last run's task (O3).
+    private var youDecideHelp: String {
+        "AiTerm reads no query: its task is done when you say so. A merged or closed merge request still ends it."
+            + (model.isScheduled ? " A run is skipped until the last run’s task is archived." : "")
     }
     @ViewBuilder private var operatorFields: some View {
         FormField("What done looks like (optional)") {
@@ -112,12 +122,15 @@ struct SignalTriggerStep: View {
         }
         return (Self.syntaxHelp(source, start: start), .secondary)
     }
+    static func doneLabel(_ kind: SignalModel.DoneKind) -> String {
+        switch kind { case .query: "A query matches"; case .operatorDecides: "The Operator decides"; case .youDecide: "You decide" }
+    }
     static func queryLabel(_ source: SignalTrigger.Source) -> String {
-        switch source { case .jira: "JQL"; case .gitLab: "GitLab query"; case .gitHub: "GitHub query"; case .schedule: "cron"; case .operator, .unknown: "Query" }
+        switch source { case .jira: "JQL"; case .gitLab: "GitLab query"; case .gitHub: "GitHub query"; case .schedule: "cron"; case .operator, .person, .unknown: "Query" }
     }
     /// Who checked a written query: Jira its JQL, AiTerm GitLab's syntax, GitHub its own.
     private static func checker(_ source: SignalTrigger.Source) -> String? {
-        switch source { case .jira: "Jira"; case .gitLab, .schedule: "AiTerm"; case .gitHub: "GitHub"; case .operator, .unknown: nil }
+        switch source { case .jira: "Jira"; case .gitLab, .schedule: "AiTerm"; case .gitHub: "GitHub"; case .operator, .person, .unknown: nil }
     }
     private static func describePlaceholder(_ source: SignalTrigger.Source, start: Bool) -> String {
         switch (source, start) {
@@ -129,7 +142,7 @@ struct SignalTriggerStep: View {
         case (.gitHub, false): "When I’ve reviewed it"
         case (.schedule, _): "Every Monday at 9am"
         case (.operator, _): "What done looks like, for the Operator and the Oracle"
-        case (.unknown, _): ""
+        case (.person, _), (.unknown, _): ""
         }
     }
     private static func queryPlaceholder(_ source: SignalTrigger.Source, start: Bool) -> String {
@@ -141,7 +154,7 @@ struct SignalTriggerStep: View {
         case (.gitHub, true): "is:open user-review-requested:@me"
         case (.gitHub, false): "-user-review-requested:@me"
         case (.schedule, _): "0 9 * * 1"
-        case (.operator, _), (.unknown, _): ""
+        case (.operator, _), (.person, _), (.unknown, _): ""
         }
     }
     private static func syntaxHelp(_ source: SignalTrigger.Source, start: Bool) -> String {
@@ -153,6 +166,7 @@ struct SignalTriggerStep: View {
         case (.gitLab, false), (.gitHub, false): "Checked against each task’s own merge request. A task without one isn’t done."
         case (.schedule, _): "Minute, hour, day of month, month, weekday. Type your own, or describe it and let Claude write it."
         case (.operator, _): "Left empty: the prompt’s work is complete."
+        case (.person, _): "No query: you decide when it’s done."
         case (.unknown, _): "This version of AiTerm cannot read this source."
         }
     }
@@ -160,7 +174,7 @@ struct SignalTriggerStep: View {
 
 extension SignalTrigger.Source {
     var label: String {
-        switch self { case .jira: "Jira"; case .gitLab: "GitLab"; case .gitHub: "GitHub"; case .schedule: "Schedule"; case .operator: "Operator"; case .unknown(let value): value }
+        switch self { case .jira: "Jira"; case .gitLab: "GitLab"; case .gitHub: "GitHub"; case .schedule: "Schedule"; case .operator: "Operator"; case .person: "You decide"; case .unknown(let value): value }
     }
     var mark: IconSource {
         switch self {
@@ -169,6 +183,7 @@ extension SignalTrigger.Source {
         case .gitHub: .brand(Palette.github)
         case .schedule: .symbol("clock")
         case .operator: .symbol("checkmark.seal")
+        case .person: .symbol("person")
         case .unknown: .symbol("questionmark.circle")
         }
     }

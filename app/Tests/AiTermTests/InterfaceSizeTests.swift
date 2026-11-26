@@ -63,7 +63,7 @@ struct InterfaceSizeTests {
     @Test func zoomItemsAreDisabledWhileASheetIsOpen() throws {
         let app = AiTermApp(controller: try controller())
         app.controller.preferences.interfaceSize = .large
-        app.controller.sheet = .newDivider(.projects)
+        app.controller.sheet = .newDivider
         for action in [#selector(AiTermApp.zoomIn), #selector(AiTermApp.zoomOut), #selector(AiTermApp.actualSize)] {
             #expect(!app.validateMenuItem(NSMenuItem(title: "", action: action, keyEquivalent: "")))
         }

@@ -377,7 +377,7 @@ import Testing
 
         await #expect {
             try await controller.launcher.createTask(draft: fixture.draft("Second"), project: fixture.project)
-        } throws: { ($0 as? ActionUnavailable)?.message == "A task or review is already being created in Repo. Try again once it is." }
+        } throws: { ($0 as? CreationBusy)?.localizedDescription == "A task or review is already being created in Repo. Try again once it is." }
         server.release()
         try await first.value
         #expect(controller.state.tasks.map(\.title) == ["First"])
@@ -474,7 +474,7 @@ import Testing
         }
         let preparing = try #require(controller.sheets.preparingSheet)
 
-        controller.sheet = .newDivider(.projects)
+        controller.sheet = .newDivider
         await preparing.value
 
         #expect(controller.sheet?.id == "divider-new")

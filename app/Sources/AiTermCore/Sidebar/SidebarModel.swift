@@ -50,7 +50,12 @@ public extension SessionInfo {
 /// draws its own agents, as any task does: the Operator speaks on its line (`OperatorLine`).
 public struct AvatarGroup: Equatable, Sendable {
     public var marks: [SessionAgent]; public var overflow: Int
-    public init(marks: [SessionAgent], overflow: Int) { self.marks = marks; self.overflow = overflow }
+    /// Whether the marks stand for no running agent: a task a signal started with no agent listed draws its agent's mark
+    /// faded (`SidebarModel.mutedAvatars`), so the signals disc rests on an avatar rather than on nothing.
+    public var muted = false
+    public init(marks: [SessionAgent], overflow: Int, muted: Bool = false) {
+        self.marks = marks; self.overflow = overflow; self.muted = muted
+    }
 }
 /// A row's branch line (design canvas, "Branch awareness · 17 Sep"): the branch of the tab you are
 /// looking at, how many *other* branches the same window has open, and whether that branch is not
@@ -92,6 +97,10 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// Whether a folded heading counts it in the finished chip: finished and drawing the finished mark. A finished task
     /// you continue (its Then kept it) is counted by what its row draws while its worker asks or works.
     public var countsAsFinished: Bool { finished && mark == .ended }
+    /// The signal that started the task or runs it now, by name, for a task a signal started (`TaskItem.signalOrigin`)
+    /// or the Operator holds (`signalTask`): its live name, or "<saved name> (removed)" once the signal is gone. Its
+    /// avatar wears the signals disc and VoiceOver says "Started by …"; nil for a task you made.
+    public var startedBySignal: String? = nil
     /// "Task" or "Review", as its menu names it.
     public var kindName = "Task"
     public var worktreePath = ""
@@ -433,7 +442,8 @@ public enum SidebarModel {
         // rows by project once, rather than filtered again for every project.
         let tabs = Tabs(sessions)
         let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
-                        terminals: Dictionary(grouping: state.terminals, by: \.projectId))
+                        terminals: Dictionary(grouping: state.terminals, by: \.projectId),
+                        signalNames: Dictionary(state.signals.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }))
         // A row only a newer build can draw is skipped, and does not count as an end to move towards.
         let drawn = state.items.indices.filter { state.items[$0].isDrawn }
         let first = drawn.first ?? 0, last = drawn.last ?? 0
@@ -459,7 +469,8 @@ public enum SidebarModel {
         }
     }
     /// The workspace's tasks and terminals by project, in workspace order.
-    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]] }
+    /// And each signal's live name, which a task's `startedBySignal` says.
+    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]], signalNames: [UUID: String] }
 
     /// The project-only view of `entries`, for the callers that never draw a divider.
     public static func sections(state: AppState, sessions: [SessionInfo],
@@ -479,7 +490,9 @@ public enum SidebarModel {
         // the second lane.
         let orderedTasks = projectTasks.filter { $0.kind != .review }
             + projectTasks.filter { $0.kind == .review }
-        var tasks = orderedTasks.map { taskRow($0, tabs: tabs, branchByCwd: branchByCwd, diffByTask: diffByTask) }
+        var tasks = orderedTasks.map {
+            taskRow($0, tabs: tabs, branchByCwd: branchByCwd, diffByTask: diffByTask, signalNames: rows.signalNames)
+        }
         // SignalSidebar draws Operator-owned rows elsewhere. They do not count towards either
         // edge of a project's group, even while they are still in this intermediate list.
         var previous: Int?
@@ -506,7 +519,7 @@ public enum SidebarModel {
     /// One task's row: its tabs' agents, branch, status and the mark and "needs you" a task of your own has. A driven
     /// task's line, status, mark and "needs you" are `TaskRow.presentingOperator`'s to set over these.
     static func taskRow(_ task: TaskItem, tabs: Tabs, branchByCwd: [String: String],
-                        diffByTask: [UUID: DiffStat]) -> TaskRow {
+                        diffByTask: [UUID: DiffStat], signalNames: [UUID: String] = [:]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
         var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
@@ -518,7 +531,28 @@ public enum SidebarModel {
         row.needsYou = row.status.needsAttention
         row.kindName = task.kindName; row.worktreePath = task.worktreePath; row.savedBranch = task.branch
         row.windowOpen = task.windowId != nil; row.underOperator = task.isUnderOperator
+        row.startedBySignal = startedBySignal(task, names: signalNames)
+        if row.startedBySignal != nil, row.avatars.marks.isEmpty, row.avatars.overflow == 0 { row.avatars = mutedAvatars(for: task) }
         return row
+    }
+
+    /// The faded mark a task a signal started draws while no agent of its is listed, under its disc: the agent of its
+    /// first saved conversation, else its own agent row, which a signal's launch sets to the signal's or the stage's.
+    public static func mutedAvatars(for task: TaskItem) -> AvatarGroup {
+        AvatarGroup(marks: [(task.conversations.first?.agent ?? task.agent).session], overflow: 0, muted: true)
+    }
+
+    /// The name of the signal that runs `task` now (its Operator stage's) or started it (its origin's), as `names` has
+    /// it live, else its saved name marked removed; nil for a task no signal started.
+    public static func startedBySignal(_ task: TaskItem, names: [UUID: String]) -> String? {
+        if let record = task.signalTask { return signalName(record.current.signal, saved: record.current.configuration.name, names: names) }
+        if let origin = task.signalOrigin { return signalName(origin.signal, saved: origin.name, names: names) }
+        return nil
+    }
+
+    /// A signal's live name, or `saved` marked removed once `names` no longer has it.
+    public static func signalName(_ id: UUID, saved: String, names: [UUID: String]) -> String {
+        names[id] ?? saved + " (removed)"
     }
 
     /// Only a diff with something in it extends the badge; no base, no answer yet, or nothing

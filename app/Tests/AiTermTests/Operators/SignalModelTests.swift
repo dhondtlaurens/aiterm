@@ -55,7 +55,7 @@ import Testing
         let model = SignalModel(projects: [], context: context, preview: { _ in previewed += 1; return SignalRead(items: [], complete: true) },
                                 save: { _ in })
         #expect(model.start == SignalTrigger(source: .jira, query: "") && model.prompt.isEmpty)
-        #expect(!model.isEditing && model.title == "New signal")
+        #expect(!model.isEditing && model.title == "New Operator signal")
         model.name = "Tickets"
         #expect(!model.canAdvance(step: SignalModel.startStep), "No query would match every ticket the account can see.")
         await model.loadPreview()
@@ -102,7 +102,7 @@ import Testing
         var saved: Signal?
         let model = SignalModel(signal: original, projects: world.state.projects, context: context,
                                 preview: { _ in SignalRead(items: [world.ticket()], complete: false) }, save: { saved = $0 })
-        #expect(model.isEditing && model.title == "Edit signal")
+        #expect(model.isEditing && model.title == "Edit Operator signal")
         #expect(model.start == original.start && model.done == original.done)
         await model.loadPreview()
         #expect(model.startCount == nil && model.previewItems.isEmpty && model.previewError != nil)
@@ -247,5 +247,69 @@ import Testing
         let signal = try #require(saved.first)
         #expect(signal.start.description == "My sprint tickets" && signal.done.description == "When it's done")
         #expect(SignalModel(signal: signal, projects: [], context: context, save: { _ in }).start.description == "My sprint tickets")
+    }
+
+    // -- a project signal (where New Signal… was chosen decides its kind) -------------------------------------------------
+    /// Claude and Codex both installed: an Operator signal lists both rows, a project signal only the first.
+    var pair: SignalContext {
+        let codex = AgentChoice(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        return SignalContext(models: [.claude: [AgentModel(id: choice.model, label: "Opus", detail: nil, efforts: ["medium", "high"], defaultEffort: "high")],
+                                      .codex: [AgentModel(id: codex.model, label: "gpt-6-astra", detail: nil, efforts: ["medium"], defaultEffort: "medium")]],
+                             defaults: [.claude: choice, .codex: codex])
+    }
+    @Test func aNewProjectSignalSavesItsKindOneAgentAndAFinishItCanRun() async throws {
+        let world = SignalWorld()
+        var saved: [Signal] = []
+        let model = SignalModel(kind: .project, projects: world.state.projects, context: pair, save: { saved.append($0) })
+        #expect(model.isProject && model.title == "New project signal" && model.stepNames[SignalModel.agentsStep - 1] == "Agent")
+        #expect(model.agentRows.map(\.choice) == [choice], "one row, the first")
+        model.addAgent()
+        #expect(model.agentRows.count == 1, "a project signal has no Add")
+        #expect(model.doneKinds == [.query, .youDecide] && model.thenValues == [.keep, .archive])
+        model.name = "Reviews for me"
+        #expect(model.canAdvance(step: SignalModel.nameStep) && !model.canAdvance(step: SignalModel.startStep))
+        model.start = SignalTrigger(source: .gitLab, query: "author:@me")
+        #expect(model.canAdvance(step: SignalModel.startStep) && model.canAdvance(step: SignalModel.agentsStep))
+        #expect(!model.offersMerge, "a project signal merges nothing, even on the person's own merge requests")
+        model.mergeWhenReady = true; model.deleteMergedBranch = true
+        #expect(!model.canAdvance(step: SignalModel.promptStep))
+        model.prompt = "/psg:review"
+        #expect(model.canAdvance(step: SignalModel.promptStep))
+        #expect(model.doneKind == .query && !model.canAdvance(step: SignalModel.doneStep), "A query matches needs its query")
+        model.doneKind = .youDecide
+        #expect(model.done.source == .person && model.canAdvance(step: SignalModel.doneStep))
+        model.doneKind = .operatorDecides
+        #expect(model.doneKind == .youDecide, "the Operator does not decide a project signal's Done")
+        #expect(await model.create())
+        let signal = try #require(saved.first)
+        #expect(signal.kind == .project && signal.agents == [choice] && signal.isValid)
+        #expect(signal.finish == SignalFinish(then: .archive), "no merge and no branch deletion")
+    }
+    @Test func editingAProjectSignalKeepsItsKind() async throws {
+        var world = SignalWorld(); let id = world.projectSignal(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"))
+        let original = try #require(world.state.signal(id: id))
+        var saved: Signal?
+        // The caller's kind is for a new signal only: editing reads the signal's own.
+        let model = SignalModel(signal: original, kind: .operator, projects: world.state.projects, context: pair, save: { saved = $0 })
+        #expect(model.isProject && model.title == "Edit project signal" && model.doneKind == .youDecide)
+        #expect(model.agentRows.map(\.choice) == original.agents)
+        model.name = "Reviews, renamed"
+        #expect(await model.create())
+        #expect(saved?.kind == .project && saved?.id == original.id && saved?.done.source == .person)
+    }
+    @Test func anOperatorSignalStillSavesNoKind() async throws {
+        var saved: [Signal] = []
+        let model = SignalModel(projects: [], context: pair, save: { saved.append($0) })
+        #expect(!model.isProject && model.agentRows.count == 2 && model.doneKinds == [.query, .operatorDecides])
+        #expect(model.thenValues == SignalFinish.Then.allCases && model.stepNames == SignalModel.stepNames)
+        model.doneKind = .youDecide
+        #expect(model.doneKind == .query, "only a project signal leaves Done to the person")
+        model.name = "Tickets"; model.prompt = "Fix it."
+        model.start.query = "labels = ready"; model.done.query = "status = Done"
+        #expect(await model.create())
+        let signal = try #require(saved.first)
+        #expect(signal.kind == nil && signal.agents.count == 2)
+        let edited = SignalModel(signal: signal, kind: .project, projects: [], context: pair, save: { _ in })
+        #expect(!edited.isProject && edited.title == "Edit Operator signal")
     }
 }

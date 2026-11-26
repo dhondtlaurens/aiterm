@@ -45,14 +45,33 @@ public struct TaskWorkflow: Sendable {
 
     /// `reserved` is the worktree folders archived rows come back to, which a new one must not take.
     public func create(draft: TaskDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
-        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
-        return try await checkOut(draft, prompt: prompt, in: project) { try TaskCreator.create(draft: draft, project: project, reserved: reserved, git: $0) }
+        try await checkOut(draft, prompt: Self.prompt(of: draft), in: project) { try TaskCreator.create(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
     public func createReview(draft: ReviewDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
-        // The ticket, when one was picked and step 3's checkbox kept, so the reviewer reads it too.
-        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket, request: draft.mr, appendRequest: draft.appendRequest)
-        return try await checkOut(draft, prompt: prompt, in: project) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
+        try await checkOut(draft, prompt: Self.prompt(of: draft), in: project) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
+    }
+
+    /// A merge request of the account's own, as a signal picks it up: the request's `source` branch in a worktree named as
+    /// a review's, `target` as its base, the row a `.task` (`TaskCreator.createOnRequest`). Its agent command is built as
+    /// a sheet's create builds it: the ordinary launch, never a worker's.
+    public func createOnRequest(draft: ReviewDraft, project: Project, source: String, target: String,
+                                reserved: Set<String> = []) async throws -> Created {
+        try await checkOut(draft, prompt: Self.prompt(of: draft), in: project) {
+            try TaskCreator.createOnRequest(draft: draft, project: project, source: source, target: target, reserved: reserved, git: $0)
+        }
+    }
+
+    /// The first prompt a task's draft starts its agent with: its text, and the ticket's description when its switch is on.
+    public static func prompt(of draft: TaskDraft) -> String? {
+        AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
+    }
+
+    /// A review's, or an own request's, first prompt: as a task's, and the request's description when its switch is on.
+    /// The ticket, when one was picked and step 3's checkbox kept, so the reviewer reads it too.
+    public static func prompt(of draft: ReviewDraft) -> String? {
+        AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket,
+                                   request: draft.mr, appendRequest: draft.appendRequest)
     }
 
     /// Creates or adopts a worker checkout on its repository's lane, as manual tasks are. A new branch's baseline is the
@@ -75,13 +94,7 @@ public struct TaskWorkflow: Sendable {
                                 reserved: Set<String> = []) async throws -> TaskCreator.Made {
         let git = git
         return try await BackgroundWork.run(on: Self.lane(of: project)) {
-            let repository = Repository(project.path, git: git)
-            let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: source), in: project.path, reserved: reserved,
-                                           registered: try repository.registeredWorktreeFolders())
-            var checkedOut = task
-            checkedOut.worktreePath = try repository.addReviewWorktree(slug: slug, branch: source)
-            checkedOut.baseBranch = target
-            return TaskCreator.Made(task: checkedOut, worktreeInclude: WorktreeInclude.copy(from: repository, into: checkedOut.worktreePath))
+            try TaskCreator.checkOutRequest(task, project: project, source: source, target: target, reserved: reserved, git: git)
         }
     }
 
@@ -89,11 +102,21 @@ public struct TaskWorkflow: Sendable {
     /// checked out: no checkout is made, so nothing exists that a failure here would have to keep,
     /// and it is thrown rather than turned into a launch warning.
     public func reviewCommand(draft: ReviewDraft, in task: TaskItem) async throws -> String {
-        let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket, request: draft.mr, appendRequest: draft.appendRequest)
+        let prompt = Self.prompt(of: draft)
         let git = git
         return try await BackgroundWork.run(on: GitLanes.shared.lane(for: task.worktreePath)) {
             try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
                                    prompt: prompt, worktreePath: task.worktreePath, git: git)
+        }
+    }
+
+    /// The ordinary agent command `prompt` starts `task`'s agent with, built as a sheet's create builds it: the task's
+    /// agent, model and reasoning, never a worker's flags. `resuming` continues that conversation with the prompt.
+    public func command(for task: TaskItem, prompt: String, resuming: String? = nil) async throws -> String {
+        let git = git
+        return try await BackgroundWork.run(on: GitLanes.shared.lane(for: task.worktreePath)) {
+            try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
+                                   worktreePath: task.worktreePath, git: git, resuming: resuming)
         }
     }
 

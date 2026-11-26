@@ -17,7 +17,7 @@ struct SignalOperatorRow: View {
         let _ = bodyCounter?.count(row)
         #endif
         let line = value.line
-        SelectableRow(id: row, selected: controller.focus.isSelected(row), washed: true,
+        SelectableRow(id: row, selected: controller.focus.isSelected(row), washed: true, statusLine: controller.rows,
                       activate: { controller.choose(.operatorChat) }) {
             SidebarRowContent(avatars: AvatarGroup(marks: [.claude], overflow: 0)) {
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {

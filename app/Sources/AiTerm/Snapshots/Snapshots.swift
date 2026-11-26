@@ -46,7 +46,7 @@ enum Snapshots {
         SidebarSnapshots.rows + SheetSnapshots.all + SettingsSnapshots.all + [SidebarSnapshots.marks]
             + SidebarSnapshots.states + SheetSnapshots.initialization
             + SidebarSnapshots.backgroundWorkCards + SignalSnapshots.all + SignalSidebarSnapshots.all + SignalSettingsSnapshots.all
-            + SignalSnapshots.scheduled
+            + SignalSnapshots.scheduled + SignalSnapshots.project + SheetSnapshots.projectSignalsSheets + SignalSidebarSnapshots.errors + SignalSidebarSnapshots.cards + SignalSidebarSnapshots.line
     }
 
     static func runIfRequested() -> Bool {

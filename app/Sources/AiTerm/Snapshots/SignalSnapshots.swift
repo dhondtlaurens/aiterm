@@ -67,9 +67,25 @@ import AiTermUI
         ]
         return values
     }
-    /// A weekly schedule in the one project, done when the Operator decides, its cron written by Claude.
-    static func scheduleModel() -> SignalModel {
-        let model = model(.jira, matched: false)
+    /// A project signal's sheets: a GitLab review signal at each step, and a weekly schedule's Done when on You decide.
+    /// Drawn after every other signal image so none of those moves.
+    static var project: [Snapshot] {
+        var values: [Snapshot] = []
+        for step in SignalModel.stepNames.indices.map({ $0 + 1 }) {
+            values.append(Snapshot("signal-project-gitLab-\(step).png") {
+                let model = model(.gitLab, kind: .project); model.then = .archive
+                return SignalSheet(model: model).seeded(step: step)
+            })
+        }
+        values.append(Snapshot("signal-project-schedule-5.png") {
+            SignalSheet(model: scheduleModel(kind: .project)).seeded(step: SignalModel.doneStep)
+        })
+        return values
+    }
+    /// A weekly schedule in the one project, done when the Operator decides (You decide on a project signal), its cron
+    /// written by Claude.
+    static func scheduleModel(kind: Signal.Kind = .operator) -> SignalModel {
+        let model = model(.jira, kind: kind, matched: false)
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
         model.calendar = calendar; model.now = { Snapshots.clock.now }
         model.name = "Weekly dependency update"
@@ -88,7 +104,7 @@ import AiTermUI
         return SignalSheet(model: model).seeded(step: SignalModel.startStep)
     }
     /// A signal of `source` with both triggers described and written by Claude; `matched` with its match preview read.
-    static func model(_ source: SignalTrigger.Source, matched: Bool = true) -> SignalModel {
+    static func model(_ source: SignalTrigger.Source, kind: Signal.Kind = .operator, matched: Bool = true) -> SignalModel {
         let jira = JiraProjectRef(id: "pay", key: "PAY", name: "Payments", siteURL: URL(string: "https://jira.example")!)
         let remote = "https://gitlab.example.com/shop/webshop"
         let project = Project(id: UUID(), name: "webshop", path: "/synthetic/webshop", provider: .gitlab,
@@ -112,7 +128,7 @@ import AiTermUI
         }
         let context = SignalContext(models: models, defaults: [.claude: .init(agent: .claude, model: "claude-opus-5-5", reasoning: "high"),
                                                               .codex: .init(agent: .codex, model: "gpt-6-astra", reasoning: "medium")])
-        let model = SignalModel(projects: [project], context: context, at: Snapshots.clock.now, preview: { _ in read }, save: { _ in })
+        let model = SignalModel(kind: kind, projects: [project], context: context, at: Snapshots.clock.now, preview: { _ in read }, save: { _ in })
         if source == .jira {
             model.name = "Sprint tickets"
             model.start = SignalTrigger(source: .jira, description: "My tickets in my open sprints, labelled ai, that nobody started yet",

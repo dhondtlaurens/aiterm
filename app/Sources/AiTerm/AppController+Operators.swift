@@ -32,7 +32,7 @@ extension AppController {
     }
 
     /// A chip on the folded OPERATOR or PROJECTS heading: the section opens, folding the other, at the row the chip
-    /// stands for (`SidebarProjection.firstRow(in:chip:)`), whose signal or project unfolds, and the row is selected, its window shown as the arrows show one.
+    /// stands for (`SidebarProjection.firstRow(in:chip:)`), whose project unfolds in that section, and the row is selected, its window shown as the arrows show one.
     @discardableResult
     func openSection(_ section: SidebarSection, at chip: ChipTarget) -> Task<Void, Never>? {
         guard let first = rows.firstRow(in: section, chip: chip) else { return nil }
@@ -59,6 +59,16 @@ extension AppController {
         return true
     }
 
+    /// A project's heading in the Operator's section, clicked or ↩: it folds or unfolds there, apart from the
+    /// project's own fold (`AppState.operatorFolded`). Nothing while the Operator runs no task of it.
+    func toggleOperatorFold(_ project: Project) {
+        guard canChangeWorkspace, state.project(id: project.id) != nil,
+              state.tasks.contains(where: { $0.projectId == project.id && $0.isUnderOperator }) else { return }
+        workspace.mutate { state in
+            if !state.operatorFolded.insert(project.id).inserted { state.operatorFolded.remove(project.id) }
+        }
+    }
+
     /// Stored even while there is nothing to fold, when the projection ignores it: a new signal opens the
     /// section before its rows are derived.
     func setOperatorOpen(_ open: Bool) {
@@ -73,24 +83,20 @@ extension AppController {
     }
 
     /// A row selected through a notification, Focus View or a folded heading's chip opens its section, folding the
-    /// other, then its signal or project; tasks under the Operator open their signal, a terminal its project.
+    /// other, then its project there: a task under the Operator unfolds its project in the Operator's section and
+    /// leaves the project's own fold, any other task or a terminal its project.
     func reveal(_ row: RowSelection) {
         guard canChangeWorkspace else { return }
         if rows.operatorHeading.folds {
             let underOperator = switch row {
-            case .operatorChat, .signal: true
+            case .operatorChat, .operatorProject: true
             case .task(let id): state.task(id: id)?.isUnderOperator == true
             case .project, .terminal: false
             }
             if underOperator != rows.operatorOpen { setOperatorOpen(underOperator) }
         }
-        if case .task(let id) = row, let task = state.task(id: id), task.isUnderOperator, let record = task.signalTask {
-            if let signal = state.signal(id: record.current.signal) {
-                if signal.collapsed { toggleCollapsed(signal) }
-            } else {
-                rows.openRemovedSignal(record.current.signal)
-                refreshRows()
-            }
+        if case .task(let id) = row, let task = state.task(id: id), task.isUnderOperator {
+            if state.operatorFolded.contains(task.projectId) { workspace.mutate { _ = $0.operatorFolded.remove(task.projectId) } }
         } else if case .task(let id) = row, let task = state.task(id: id),
                 let project = state.project(id: task.projectId), project.collapsed { projects.toggleCollapsed(project) }
         else if case .terminal(let id) = row, let terminal = state.terminal(id: id),

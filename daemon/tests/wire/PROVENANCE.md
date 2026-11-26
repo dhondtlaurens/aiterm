@@ -53,3 +53,8 @@ work item gaining `"idle": false`. Re-captured through the same synthetic Servic
 with `AITERM_UPDATE_WIRE_FIXTURES=1 .venv/bin/pytest tests/test_wire_contract.py`; the reader's
 teammate states are covered by `tests/test_claude_teammates.py`. No compatibility capture or
 Operator contract golden was regenerated.
+
+On 25 Nov 2026 the project signals' Archive added `session.inputState`, a read-only answer of what a
+session's input holds (`empty`, `unsent`, `unknown`). Only its reply frame (the last request, so no
+earlier request id moved) and the manifest's method list were captured, with the same scripted run;
+every other frame kept its bytes.

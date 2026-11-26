@@ -31,6 +31,23 @@ enum SignalQuestionNotification {
     }
 }
 
+/// A project signal's turn in its task's worker that ended or asks: one note per task, the task's title over its signal's
+/// name, what it says and its project. Its click chooses the task's row.
+enum SignalTurnNotification {
+    enum Reason: Equatable { case ready, asks }
+    static func id(_ task: UUID) -> String { "aiterm.signal.turn." + task.uuidString }
+    static func make(task: TaskItem, reason: Reason, state: AppState) -> OperatorNote? {
+        guard let origin = task.signalOrigin else { return nil }
+        let name = state.signal(id: origin.signal)?.name ?? origin.name
+        // As drawn for the pick: the signal's name heads it; the body names the item and the task, then what it wants.
+        let says = reason == .ready ? "is ready for you" : "asks you something"
+        let project = state.project(id: task.projectId).map { ", in " + $0.name } ?? ""
+        let ref = task.mr.map { "!\($0.iid)" } ?? task.jira?.key
+        let what = [ref, task.title].compactMap { $0 }.joined(separator: " ")
+        return OperatorNote(id: id(task.id), title: name, body: what + " " + says + project + ".", target: .task(task.id))
+    }
+}
+
 @MainActor protocol OperatorNotifications: AnyObject {
     func requestAuthorization()
     func post(_ note: OperatorNote)

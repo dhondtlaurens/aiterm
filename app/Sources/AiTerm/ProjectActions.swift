@@ -238,21 +238,24 @@ final class ProjectActions {
         workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
     }
 
-    /// Whether the project has its own task or terminal rows to fold; tasks under the Operator are drawn under their signal.
+    /// Whether the project has its own task or terminal rows to fold; tasks under the Operator are drawn in its section.
     func hasRows(_ project: Project) -> Bool {
         return state.tasks.contains(where: { $0.projectId == project.id && !$0.isUnderOperator })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
-    /// Stores Focus View's or List View's collapsed project states in one workspace change.
-    /// Saves only if a state changed; a locked workspace refuses the change.
+    /// Stores Focus View's or List View's folds in one workspace change: the projects' collapsed states and the
+    /// Operator section's own (`AppState.operatorFolded`). Saves only if a state changed; a locked workspace refuses
+    /// the change.
     @discardableResult
-    func setCollapsed(_ layout: [UUID: Bool]) -> Bool {
+    func setCollapsed(_ layout: ViewLayout) -> Bool {
         guard canChangeWorkspace else { return false }
         workspace.mutate { state in
-            for (id, collapsed) in layout {
-                if let index = state.signals.firstIndex(where: { $0.id == id }) { state.signals[index].collapsed = collapsed }
-                else { state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } } }
+            for (id, collapsed) in layout.projects {
+                state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
+            }
+            for (id, folded) in layout.operator where state.project(id: id) != nil {
+                if folded { state.operatorFolded.insert(id) } else { state.operatorFolded.remove(id) }
             }
         }
         return true

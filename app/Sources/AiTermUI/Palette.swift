@@ -278,6 +278,9 @@ public enum Palette {
     /// A faint ring drawn around an item that is idle or inactive: the third ink, declared as an
     /// alias.
     public static let idleRing = tertiary
+    /// The Operator's status line at rest, from its mark through the marks of the tasks it runs: the idle ring's grey,
+    /// declared as an alias. An exchange inks its stretch `text`, a question `amber`.
+    public static let statusLine = idleRing
     /// The background track behind an active spinner or progress indicator's stroke.
     public static let spinnerTrack = Color(white: 0.56, opacity: 0.28)
     /// The active stroke of a spinner or progress indicator; shares `muted` so it reads as

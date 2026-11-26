@@ -254,4 +254,171 @@ struct BackgroundCardTests {
         #expect(hover.isOpen)
         #expect(open == closed, "open \(open) vs closed \(closed)")
     }
+
+    // -- the signal card (step 11) ---------------------------------------------------
+
+    /// A row as `SidebarModel.taskRow` and `presentingOperator` would give it, its `status` and Operator `line`.
+    private func row(_ id: UUID, status: TaskStatus = .working, line: OperatorLine? = nil) -> TaskRow {
+        TaskRow(id: id, title: "Work", jiraKey: nil, jiraUrl: nil, mr: nil, branch: .none,
+                avatars: AvatarGroup(marks: [.claude], overflow: 0), status: status, operatorLine: line)
+    }
+
+    private func card(_ world: SignalWorld, _ id: UUID, status: TaskStatus = .working, line: OperatorLine? = nil) throws -> SignalCard {
+        let task = try #require(world.state.task(id: id))
+        return try #require(SignalCard.make(task: task, row: row(id, status: status, line: line), state: world.state))
+    }
+
+    /// The Operator's task: its heading and one step are its signal, and its last line the Operator's act, or what its
+    /// line says, with the line's whole sentence as help.
+    @Test func anOperatorTasksCardSaysItsActOrItsLine() throws {
+        var world = SignalWorld()
+        let signal = world.signal(name: "Plan tickets")
+        let id = world.workingTask(signal: signal)
+        let acting = try card(world, id, line: OperatorLine("Operator answering its worker", look: .acting))
+        #expect(acting.heading == "Plan tickets")
+        #expect(acting.steps == [SignalCard.Step(name: "Plan tickets", at: world.now, isCurrent: true)])
+        #expect(acting.current == SignalCard.Current(text: "Operator answering its worker"))
+        let waiting = try card(world, id, status: .waiting, line: OperatorLine("status = Done", tooltip: "Waits until: status = Done"))
+        #expect(waiting.current == SignalCard.Current(text: "status = Done", help: "Waits until: status = Done"))
+        #expect(try card(world, id, status: .needsInput).current.text == "Needs input", "a worker asking has no line")
+        let mine = try #require(world.state.task(id: id).map { task -> TaskItem in var task = task; task.signalTask = nil; return task })
+        #expect(SignalCard.make(task: mine, row: row(id), state: world.state) == nil, "a task you made has no card")
+    }
+
+    /// A project signal's task in each state: its prompt owed with no window, owed to a worker in its window (held, the
+    /// helper's refusal as help), at work, and done, kept or archived, with why an archive did not happen.
+    @Test func aProjectTasksCardSaysWhatItsWorkWaitsFor() throws {
+        var world = SignalWorld()
+        let signal = world.projectSignal(name: "Reviews for me", then: .archive)
+        let id = world.markedTask(signal: signal)
+        let index = try #require(world.state.tasks.firstIndex { $0.id == id })
+        let item = try #require(world.state.tasks[index].signalOrigin?.item), now = world.now
+
+        world.state.tasks[index].signalOrigin?.owed = OwedPrompt(text: "/review", at: now, kind: .launch)
+        world.state.tasks[index].windowId = nil
+        #expect(try card(world, id, status: .idle).current == SignalCard.Current(text: "waiting for your pause to open its window"))
+
+        world.state.tasks[index].windowId = "task-window"
+        world.state.tasks[index].signalOrigin?.owed = OwedPrompt(text: "/review", at: now, kind: .delivery)
+        #expect(try card(world, id, status: .done).current == SignalCard.Current(text: "waiting for its worker to be idle"))
+        world.state.signalSeen = [SignalSeen(signal: signal, item: item, disposition: .skipped, at: world.now,
+                                             reason: "Its prompt couldn’t be typed: the session is read-only.")]
+        #expect(try card(world, id, status: .done).current
+                == SignalCard.Current(text: "waiting for its worker to be idle", help: "Its prompt couldn’t be typed: the session is read-only."))
+
+        world.state.tasks[index].signalOrigin?.owed = nil
+        #expect(try card(world, id, status: .working).current == SignalCard.Current(text: "Working"))
+        #expect(try card(world, id, status: .needsInput).current == SignalCard.Current(text: "Needs input"))
+
+        world.state.tasks[index].signalOrigin?.doneAt = now
+        #expect(try card(world, id, status: .done).current == SignalCard.Current(text: "Done · archived"))
+        world.state.tasks[index].signalOrigin?.thenNote = "Its worktree has unsaved changes."
+        #expect(try card(world, id, status: .done).current
+                == SignalCard.Current(text: "Done · kept", help: "Its worktree has unsaved changes."))
+        world.state.signals[0].finish.then = .keep
+        world.state.tasks[index].signalOrigin?.thenNote = nil
+        #expect(try card(world, id, status: .done).current == SignalCard.Current(text: "Done · kept"))
+    }
+
+    /// A chain of three, oldest first, each with when, the earlier ones not current; a signal since removed is named
+    /// as removed, in the chain and as the heading; a task taken over keeps its chain and says its status.
+    @Test func aChainOfThreeAndARemovedSignal() throws {
+        var world = SignalWorld()
+        let triage = world.signal(name: "Triage"), plan = world.signal(name: "Plan tickets")
+        let reviews = world.projectSignal(name: "Reviews for me")
+        let id = world.markedTask(signal: reviews)
+        let index = try #require(world.state.tasks.firstIndex { $0.id == id }), now = world.now
+        world.state.tasks[index].signalOrigin?.earlier = [SignalStep(signal: triage, name: "Triage then", at: now - 7200),
+                                                         SignalStep(signal: plan, name: "Plan tickets", at: now - 3600)]
+        world.state.removeSignal(id: triage)
+        let chain = try card(world, id)
+        #expect(chain.heading == "Reviews for me")
+        #expect(chain.steps == [SignalCard.Step(name: "Triage then (removed)", at: world.now - 7200, isCurrent: false),
+                                SignalCard.Step(name: "Plan tickets", at: world.now - 3600, isCurrent: false),
+                                SignalCard.Step(name: "Reviews for me", at: world.now, isCurrent: true)])
+        world.state.removeSignal(id: reviews)
+        #expect(try card(world, id).heading == "Reviews for me (removed)")
+
+        let held = world.workingTask(signal: plan)
+        world.state.takeOver(held)
+        let takenOver = try card(world, held, status: .idle)
+        #expect(takenOver.heading == "Plan tickets" && takenOver.steps.count == 1)
+        #expect(takenOver.current == SignalCard.Current(text: "Idle"))
+    }
+
+    @Test func aStepSaysWhenItsSignalStartedOnTheTask() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let now = Date(timeIntervalSince1970: 1_773_230_400)  // Wednesday 11 Mar 2026, 12:00 UTC
+        #expect(SignalCard.when(now - 300, now: now, calendar: calendar) == "11:55")
+        #expect(SignalCard.when(now - 86_400, now: now, calendar: calendar) == "Tue 12:00")
+        #expect(SignalCard.when(now - 6 * 86_400, now: now, calendar: calendar) == "Thu 12:00")
+        #expect(SignalCard.when(now - 7 * 86_400, now: now, calendar: calendar) == "4 Mar")
+    }
+
+    /// The disc's hover is a second `BackgroundCardHover`, on the same delays: resting on the disc opens its card after
+    /// `openDelay` and leaves the trailing mark's alone; leaving both closes it after `closeDelay`.
+    @Test func theDiscsHoverOpensAndClosesOnItsOwnDelays() async {
+        let slept = SleepLog()
+        let disc = BackgroundCardHover(sleep: { await slept.record($0) }), mark = BackgroundCardHover(sleep: { await slept.record($0) })
+        disc.mark(true)
+        await settle()
+        #expect(disc.isOpen && !mark.isOpen)
+        disc.mark(false)
+        disc.card(true)
+        await settle()
+        #expect(disc.isOpen, "crossing to the card keeps it")
+        disc.card(false)
+        await settle()
+        #expect(!disc.isOpen && !mark.isOpen)
+        let durations = await slept.durations
+        #expect(durations.first == BackgroundCardHover.openDelay && durations.last == BackgroundCardHover.closeDelay)
+        #expect(Set(durations) == [BackgroundCardHover.openDelay, BackgroundCardHover.closeDelay])
+    }
+
+    private actor SleepLog {
+        var durations: [Duration] = []
+        func record(_ duration: Duration) { durations.append(duration) }
+    }
+
+    /// A task row a signal started opens its card from the disc's seeded hover, over the row without growing it; a row
+    /// you made has no disc and opens nothing.
+    @Test(arguments: [false, true])
+    func theDiscOpensTheSignalCardOverItsRow(started: Bool) async throws {
+        var world = SignalWorld()
+        let signal = world.projectSignal(name: "Reviews for me")
+        let id = world.markedTask(signal: signal)
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        let state = world.state
+        controller.workspace.mutate { $0 = state }
+        if !started { controller.workspace.mutate { $0.tasks[0].signalOrigin = nil } }
+        let row = try #require(controller.rows.sections.flatMap(\.tasks).first { $0.id == id })
+        #expect((row.startedBySignal != nil) == started)
+        let hover = BackgroundCardHover(isOpen: true)
+        func image(_ open: Bool) throws -> NSBitmapImageRep {
+            let renderer = ImageRenderer(content: TaskRowView(row: row, controller: controller)
+                .environment(\.seededHover, open ? SeededHover(signalCard: hover) : nil)
+                .environment(\.motionStill, .snapshot).frame(width: 320, height: 160, alignment: .top).background(Palette.sidebar))
+            return NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+        }
+        let closed = try image(false), opened = try image(true)
+        var changed = 0
+        for y in 0..<closed.pixelsHigh {
+            for x in 0..<closed.pixelsWide {
+                let a = try #require(closed.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let b = try #require(opened.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                if abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
+                    + abs(a.blueComponent - b.blueComponent) > 0.1 { changed += 1 }
+            }
+        }
+        #expect(started ? changed > 1000 : changed == 0, "\(changed) pixels")
+        let size = { (open: Bool) in
+            NSHostingController(rootView: TaskRowView(row: row, controller: controller)
+                .environment(\.seededHover, open ? SeededHover(signalCard: hover) : nil))
+                .sizeThatFits(in: CGSize(width: 320, height: 400))
+        }
+        #expect(size(true) == size(false), "the open card leaves the row its size")
+    }
 }

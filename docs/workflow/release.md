@@ -35,6 +35,23 @@ A run that stops after pushing the tag is finished by hand with the two `gh rele
 the end of `scripts/release.sh`, using that run's `build/AiTerm-<version>.dmg`. A draft that was not
 published: `gh release edit v<version> --repo dhondtlaurens/aiterm --draft=false`.
 
+## Operator format
+
+The saved workspace carries the Operator's records: signals, each task's `signalTask` or
+`signalOrigin`, and the Operator's folds. A change to them is a change to the saved workspace, so ship
+proposes a major version and the change brings a note in `docs/release-notes/` saying what an older
+build does with a workspace this one saved.
+
+- `TaskItem` and `AppState` keep keys they do not know (`PreservedFields`), so an older build writes
+  a newer task's `signalOrigin`, `operatorFolded` and saved `signalDividers` back unchanged.
+- `Signal` (and the copy each stage keeps) has no such store: an older build that saves the workspace
+  drops a field it does not know. A project signal then loses its `kind` and becomes an Operator
+  signal there, and one whose Done is "You decide" (`person`) decodes it as unknown and stops running.
+- Opening such a workspace with the older build is therefore not supported. To go back, remove the
+  project signals first, or expect them to come back as Operator signals.
+- Going forward needs nothing: a newer build reads every older record, and its own new fields are
+  optional and left out while empty, so `operator-signals/state.json` keeps its bytes.
+
 ## Checks
 
 - `gh release view v<version> --repo dhondtlaurens/aiterm`: published, not a draft, with the DMG

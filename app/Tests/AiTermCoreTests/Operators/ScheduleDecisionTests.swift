@@ -15,10 +15,21 @@ import Testing
         return (world, id)
     }
 
-    func decide(_ world: SignalWorld, now: String, mayAct: Bool = true) -> ScheduleDecision.Outcome {
+    func decide(_ world: SignalWorld, now: String, mayAct: @escaping (Signal) -> Bool = { _ in true },
+                pending: Set<UUID> = []) -> ScheduleDecision.Outcome {
         ScheduleDecision.decide(signals: world.state.signals, cursors: world.state.scheduleCursors,
-                                tasks: world.state.tasks + world.state.archive.map(\.task), projects: world.state.projects,
-                                now: Self.at(now), calendar: Self.calendar, mayAct: mayAct)
+                                tasks: world.state.tasks, archive: world.state.archive.map(\.task), projects: world.state.projects,
+                                now: Self.at(now), calendar: Self.calendar, mayAct: mayAct, pending: pending)
+    }
+
+    /// A project signal on the same Monday-9:00 schedule in the world's project, done when the person decides.
+    func projectSchedule(_ world: inout SignalWorld, from: String = "2026-11-23 08:00") -> UUID {
+        var signal = Signal.project(name: "Weekly review", createdAt: Self.at(from),
+                                    start: SignalTrigger(source: .schedule, query: "0 9 * * 1", project: world.project.id),
+                                    agent: SignalWorld.agent)
+        signal.scheduledFrom = Self.at(from)
+        world.state.signals.append(signal)
+        return signal.id
     }
 
     @Test func aTimeIsDueOnceItPasses() {
@@ -61,7 +72,7 @@ import Testing
 
     @Test func pausedRunsNothingAndResumingRunsTheLatestMissOnce() {
         let (world, id) = world()
-        let paused = decide(world, now: "2026-11-23 09:00", mayAct: false)
+        let paused = decide(world, now: "2026-11-23 09:00", mayAct: { _ in false })
         #expect(paused.due.isEmpty && paused.cursors.isEmpty)
         let resumed = decide(world, now: "2026-12-01 12:00")
         #expect(resumed.due.map(\.run.at) == [Self.at("2026-11-30 09:00")] && resumed.cursors[id] == Self.at("2026-11-30 09:00"))
@@ -110,6 +121,51 @@ import Testing
         world.state.updateSignalTask(task) { $0.scheduledRun = SignalRunRef(signal: id, at: Self.at("2026-11-16 09:00")) }
         world.state.takeOver(task)
         #expect(decide(world, now: "2026-11-23 09:00").due.count == 1)
+    }
+
+    /// The scheduler's gate is per signal: a paused Operator holds its own schedules, cursor and all, and a project
+    /// signal's runs carry on.
+    @Test func aPausedOperatorStopsOnlyOperatorSchedules() {
+        var (world, operatorSignal) = world()
+        let projectSignal = projectSchedule(&world)
+        let outcome = decide(world, now: "2026-11-23 09:00", mayAct: { $0.isProject })
+        #expect(outcome.due.map(\.signal) == [projectSignal] && outcome.skipped.isEmpty)
+        #expect(outcome.cursors[operatorSignal] == nil && outcome.cursors[projectSignal] == Self.at("2026-11-23 09:00"))
+    }
+
+    /// A project signal's run is unfinished until its Done is reached or its task is archived (O3).
+    @Test func aMarkedRunBlocksItsSignalUntilDoneOrArchived() throws {
+        var world = SignalWorld()
+        let id = projectSchedule(&world)
+        let task = world.markedTask(signal: id, item: .run(SignalRunRef(signal: id, at: Self.at("2026-11-16 09:00"))))
+        let blocked = decide(world, now: "2026-11-23 09:00")
+        #expect(blocked.due.isEmpty && blocked.skipped.map(\.reason) == ["The last run is still unfinished."])
+        #expect(blocked.cursors[id] == Self.at("2026-11-23 09:00"))
+
+        var done = world
+        done.state.updateSignalItem(task) { $0.signalOrigin?.doneAt = Self.at("2026-11-20 10:00") }
+        #expect(decide(done, now: "2026-11-23 09:00").due.map(\.signal) == [id])
+
+        var archived = world
+        let branch = try #require(archived.state.task(id: task)?.branch)
+        _ = archived.state.moveToArchive(taskId: task, branch: branch, at: Self.at("2026-11-20 10:00"))
+        #expect(decide(archived, now: "2026-11-23 09:00").due.map(\.signal) == [id])
+    }
+
+    @Test func aTakenOverMarkedRunDoesNotBlock() {
+        var world = SignalWorld()
+        let id = projectSchedule(&world)
+        let task = world.markedTask(signal: id, item: .run(SignalRunRef(signal: id, at: Self.at("2026-11-16 09:00"))))
+        world.state.updateSignalItem(task) { $0.takenOver = true }
+        #expect(decide(world, now: "2026-11-23 09:00").due.map(\.signal) == [id])
+    }
+
+    /// A run queued or being created has no task yet, and still holds the next one back.
+    @Test func aPendingRunBlocks() {
+        var world = SignalWorld()
+        let id = projectSchedule(&world)
+        let outcome = decide(world, now: "2026-11-23 09:00", pending: [id])
+        #expect(outcome.due.isEmpty && outcome.skipped.map(\.reason) == ["The last run is still unfinished."])
     }
 
     @Test func aProjectThatIsGoneSkipsTheFiring() {

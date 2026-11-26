@@ -128,6 +128,22 @@ import AiTermCore
         #expect(!open)
     }
 
+    /// Edit Signal… from the signals sheet takes the list's place in the one sheet slot (O8): the list closes and the
+    /// signal's own sheet opens on that signal; the list does not come back.
+    @Test func editFromTheSignalsSheetReplacesTheList() async throws {
+        var world = SignalWorld(); let id = world.signal(name: "Plan tickets")
+        let controller = AppController(preferences: .scratch())
+        try controller.workspace.load()
+        defer { controller.shutdown() }
+        controller.workspace.mutate { $0 = world.state }
+        controller.presentSignals(.operator)
+        guard case .signals(let list)? = controller.sheet else { Issue.record("no signals sheet"); return }
+        list.edit(id)
+        #expect(await eventually(describing: "the signal's sheet") { if case .signal = controller.sheet { true } else { false } })
+        guard case .signal(let model)? = controller.sheet else { return }
+        #expect(model.isEditing && model.name == "Plan tickets")
+    }
+
     @Test func settingsSavesAndDismissesAfterTheEvent() {
         var sizes: [InterfaceSize] = []
         let settings = SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: HarnessSettingsModel.preview(),

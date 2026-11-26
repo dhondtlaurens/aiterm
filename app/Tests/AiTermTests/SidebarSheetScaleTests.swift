@@ -16,7 +16,7 @@ struct SidebarSheetScaleTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.workspace.load()
-        let host = testHost(SidebarSheet(kind: .newDivider(.projects), controller: controller).interfaceScale(scale), size: CGSize(width: Sheet.width, height: Sheet.height))
+        let host = testHost(SidebarSheet(kind: .newDivider, controller: controller).interfaceScale(scale), size: CGSize(width: Sheet.width, height: Sheet.height))
         host.appearance = NSAppearance(named: .darkAqua)
         host.layoutSubtreeIfNeeded()
         // The title band only: below it sits a text field, whose caret would make two renders differ.

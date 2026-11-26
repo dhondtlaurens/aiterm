@@ -93,6 +93,9 @@
         "reply.session.deliver.json",
         "reply.session.deliver.refused.json"
       ],
+      "session.inputState": [
+        "reply.session.inputState.json"
+      ],
       "session.setOwnership": [
         "reply.session.setOwnership.json"
       ],
@@ -145,6 +148,7 @@
     "session.activate",
     "session.closeIdle",
     "session.deliver",
+    "session.inputState",
     "session.setOwnership",
     "sessions.list",
     "sessions.markSeen",

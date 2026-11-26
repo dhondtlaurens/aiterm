@@ -43,6 +43,15 @@ final class DaemonOperatorWireTests {
         #expect(params()["ownership"] as? Int == 3)
         #expect(params()["wake"] as? Bool == true)
         #expect(params()["worktree"] as? String == "/wt")
+        #expect(params()["guardInput"] == nil, "an unguarded delivery's request reads as before")
+    }
+
+    @Test func aGuardedDeliveryAsksForTheGuard() async throws {
+        try connect { _ in ["result": "refused", "reason": "you are typing", "code": "typing"] }
+        let delivery = try await client.deliver(sessionId: "s1", text: "hi", ownership: 0, wake: false, guardInput: true, worktree: "/wt")
+        #expect(delivery == Delivery(result: .refused, reason: "you are typing", code: .typing))
+        #expect(params()["guardInput"] as? Bool == true)
+        #expect(params()["wake"] as? Bool == false)
     }
 
     /// What the delivery check vouches for, per agent: a policy a newer daemon names reads as off, and a

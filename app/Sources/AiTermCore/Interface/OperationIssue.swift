@@ -11,10 +11,25 @@ public struct OperationIssue: Equatable, Sendable {
     public enum Action: Equatable, Sendable {
         /// Replay the project's local default branch on origin's, after a pull found them diverged.
         case rebaseDefault(UUID)
+        /// The signals sheet of the section that holds this signal, whose source fails to read.
+        case openSignals(signal: UUID)
+        /// Settings › Integrations, where a source's connection is set.
+        case openSettings
 
         public var title: String {
             switch self {
             case .rebaseDefault: "Rebase"
+            case .openSignals: "Open Signals"
+            case .openSettings: "Settings…"
+            }
+        }
+
+        /// Whether choosing it answers a question the banner asks, rather than leading somewhere: a question holds the
+        /// banner against plain and background reports.
+        public var answers: Bool {
+            switch self {
+            case .rebaseDefault: true
+            case .openSignals, .openSettings: false
             }
         }
     }
@@ -31,6 +46,15 @@ public struct OperationIssue: Equatable, Sendable {
                 detail: String? = nil) {
         self.title = title; self.reason = reason; self.actions = actions; self.subject = subject
         self.detail = detail
+    }
+
+    /// Whether it asks the person something, by an action that answers it (Rebase): such a banner waits for its answer.
+    public var isQuestion: Bool { actions.contains(where: \.answers) }
+
+    /// The signal it is about, a failing source's banner: the signal its Open Signals opens.
+    public var signal: UUID? {
+        for action in actions { if case .openSignals(let id) = action { return id } }
+        return nil
     }
 
     /// What names this issue while the banner shows it: its subject and its title. A driven task blocked by
@@ -55,6 +79,8 @@ public struct OperationIssue: Equatable, Sendable {
         return actions.contains { action in
             switch action {
             case .rebaseDefault(let id): state.project(id: id) == nil
+            case .openSignals(let id): state.signal(id: id) == nil
+            case .openSettings: false
             }
         }
     }
@@ -85,6 +111,13 @@ public struct OperationIssue: Equatable, Sendable {
         let title = "Couldn’t rebase the default branch."
         guard case WorktreeError.rebaseConflicted(_, let gitWords) = error else { return OperationIssue(title: title, error: error) }
         return OperationIssue(title: title, reason: reason(of: error), detail: gitWords)
+    }
+
+    /// A signal whose source failed three reads in a row: "“Reviews for me” can’t read GitLab.", the error, and when
+    /// AiTerm tries again (`retry`, `SignalReadIssues.retry`), with Open Signals and Settings….
+    public static func signalRead(signal: UUID, name: String, source: String, reason: String, retry: String) -> OperationIssue {
+        OperationIssue(title: SignalReadIssues.sentence(name: name, source: source), reason: SignalReadIssues.reason(reason, retry: retry),
+                       actions: [.openSignals(signal: signal), .openSettings])
     }
 
     /// What a Rebase offered for a diverged branch does, said after how far apart the two are — the
