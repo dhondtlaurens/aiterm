@@ -47,7 +47,7 @@ from typing import Any
 from aitermd.delivery import ESC, open_prompt, shows_update_offer
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermBridge
-from aitermd.models import FULL_SUPPORT, AgentKind, Frame, classify_agent
+from aitermd.models import MESSAGING_CHECKED, AgentKind, Frame, classify_agent
 
 from tools.delivery_check import (Live, answer_trust, idle, parse_version, read_json, scratch_claude_config, scratch_codex_home,
                                   screen_settings)
@@ -60,11 +60,13 @@ SHIM = REPO / "hooks" / "claude-statusline-shim.sh"
 PI_EXTENSION = REPO / "hooks" / "pi-aiterm-status.ts"
 # What stands for a value in compat/drivers/ (CompatContractTests).
 PORT_WORD, SHIM_WORD = "__AITERM_HOOK_PORT__", "__AITERM_SHIM__"
-AGENTS: tuple[AgentKind, ...] = ("claude", "codex", "pi")
+AGENTS: tuple[AgentKind, ...] = ("claude", "codex", "agy", "pi")
 # Each CLI's cheapest model, at low effort: the capture reads what the CLI sends, which no model changes.
 MODELS: dict[AgentKind, tuple[str, str]] = {
     "claude": ("haiku", "low"),
     "codex": ("gpt-6-luna", "low"),
+    # Its id names the effort: it takes no reasoning word.
+    "agy": ("gemini-3.8-flash-low", ""),
     "pi": ("openai-codex/gpt-6-luna", "low"),
 }
 # How long one turn may take, and a CLI to start.
@@ -76,7 +78,7 @@ HOOK_REVIEW, HOOK_TRUST, HOOK_LIST = "hooks need review", "Trust all and continu
 # The footer of one event's hooks, opened from that list: closed with Esc.
 HOOK_DETAIL = "space/enter toggle · esc back"
 # The event a driver posts when a prompt is submitted.
-PROMPTED = frozenset({"UserPromptSubmit", "agent_start"})
+PROMPTED = frozenset({"UserPromptSubmit", "agent_start", "PreInvocation"})
 # The event a CLI's driver posts as it starts, and how long an idle screen must hold without one.
 SESSION_START = frozenset({"SessionStart", "session_start"})
 IDLE_HOLD = 5.0
@@ -84,6 +86,7 @@ IDLE_HOLD = 5.0
 TURN_END: dict[AgentKind, frozenset[str]] = {
     "claude": frozenset({"Stop", "StopFailure"}),
     "codex": frozenset({"Stop"}),
+    "agy": frozenset({"Stop"}),
     "pi": frozenset({"agent_settled"}),
 }
 # Flags AiTerm passes that a CLI's --help leaves out, each proved instead by a headless run whose
@@ -117,8 +120,8 @@ def merged_verified(existing: Any, versions: Mapping[str, str], day: str) -> dic
     return dict(sorted(entries.items()))
 
 
-# The CLIs the delivery check covers (delivery_check.AGENTS), the full tier: Messaging is part of their verdict.
-MESSAGED: tuple[AgentKind, ...] = FULL_SUPPORT
+# The CLIs the delivery check covers (delivery_check.AGENTS): Messaging is part of their verdict.
+MESSAGED: tuple[AgentKind, ...] = MESSAGING_CHECKED
 
 
 def delivery_problems(policy: Any, versions: Mapping[str, str], since: str) -> list[str]:
@@ -169,11 +172,15 @@ def _jwt_claims(token: Any) -> dict[str, Any]:
     return claims if isinstance(claims, dict) else {}
 
 
-def account_values(claude_state: Any, codex_auth: Any, pi_auth: Any) -> list[tuple[str, str]]:
+def account_values(claude_state: Any, codex_auth: Any, pi_auth: Any, agy_settings: Any = None) -> list[tuple[str, str]]:
     """Every account detail the CLIs' own files hold, as (kind, value): Claude's account in
-    ~/.claude.json, Codex's login and its token's claims, PI's sign-ins. The tokens are among them,
-    though no CLI writes one where the capture reads: a capture that held one must never be written."""
+    ~/.claude.json, Codex's login and its token's claims, PI's sign-ins, the Google Cloud project
+    Antigravity signs in through. The tokens are among them, though no CLI writes one where the capture
+    reads: a capture that held one must never be written."""
     found: list[tuple[str, str]] = []
+    gcp = agy_settings.get("gcp") if isinstance(agy_settings, dict) else None
+    if isinstance(gcp, dict) and isinstance(project := gcp.get("project"), str) and project:
+        found.append(("agy gcp project", project))
     account = claude_state.get("oauthAccount") if isinstance(claude_state, dict) else None
     if isinstance(account, dict):
         for key in ("emailAddress", "displayName", "fullName", "organizationName", "accountUuid", "organizationUuid"):
@@ -414,11 +421,16 @@ class Listener:
         if self.server:
             await self.server.stop()
 
+    @staticmethod
+    def event(body: dict[str, Any]) -> Any:
+        """A post's event name: `hook_event_name`, or Antigravity's camelCase `hookEventName`."""
+        return body.get("hook_event_name", body.get("hookEventName"))
+
     def count(self, events: frozenset[str]) -> int:
-        return sum(1 for post in self.posts if post["body"].get("hook_event_name") in events)
+        return sum(1 for post in self.posts if self.event(post["body"]) in events)
 
     def names(self) -> set[str]:
-        return {name for post in self.posts if isinstance(name := post["body"].get("hook_event_name"), str)}
+        return {name for post in self.posts if isinstance(name := self.event(post["body"]), str)}
 
     def jsonl(self) -> str:
         return "".join(json.dumps(post, sort_keys=True) + "\n" for post in self.posts)
@@ -827,8 +839,56 @@ async def capture_pi(live: Live, listener: Listener, port: int, scratch: Path, v
     return files
 
 
+def agy_data_paths(text: str, home: Path) -> str:
+    """Antigravity's own data folders, where it keeps the capture's conversation, named apart from the
+    home folder (`/AGY_HOME/`): agy runs in the person's home to stay signed in, so they are its, not a
+    file of the person's it read. Any other path in the home folder still refuses the capture."""
+    for folder in ("antigravity-cli", "antigravity"):
+        text = text.replace(f"{home}/.gemini/{folder}/", f"/AGY_HOME/{folder}/")
+    return text
+
+
+async def capture_agy(live: Live, listener: Listener, port: int, scratch: Path, version: str) -> dict[str, str]:
+    """Antigravity keeps its sign-in in its home, so it runs there; AiTerm's driver goes where the
+    capture alone reads it: its named hook in the scratch workspace's `.agents/hooks.json`, which agy
+    loads for a trusted folder, and a status line that posts to the capture, in settings for this run
+    only. Both post to the capture's listener, never the daemon."""
+    work = scratch / "work"
+    (work / ".agents").mkdir(parents=True)
+    template = (COMPAT / "drivers" / "agy-hooks.json").read_text(encoding="utf-8")
+    (work / ".agents" / "hooks.json").write_text(template.replace(PORT_WORD, str(port)), encoding="utf-8")
+    statusline = ("curl -s -m 1 -o /dev/null -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' "
+                  "-H \"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\" -H 'Expect:' --data-binary @- "
+                  f"http://127.0.0.1:{port}/statusline/agy")
+    settings = json.dumps({"statusLine": {"command": statusline, "type": "command"}, "trustedWorkspaces": [str(work)]},
+                          sort_keys=True)
+    model, reasoning = MODELS["agy"]
+    values = {"model": model, "reasoning": reasoning}
+    templates = launches()["agy"]
+    launch = fill(templates["task"], values) + ["--settings", settings]
+    turns = ["plain", "shellCommand"]
+    session = await open_session(live, listener, "agy", work, shlex.join(checked_command(launch)))
+    try:
+        say("agy: a plain turn")
+        await session.turn("Reply with only the word ALPHA followed by the result of 6 times 7.")
+        say("agy: a turn that runs a command")
+        await session.turn("Run exactly this shell command and nothing else: echo BRAVO-$((20+22))")
+    finally:
+        await close(session)
+    # Its status line names the signed-in account's address, which the scrub replaces as any email.
+    files: dict[str, str] = {"posts.jsonl": agy_data_paths(listener.jsonl(), Path.home())}
+    files["list-models.txt"] = run(["agy", "models"], cwd=work, seconds=60).stdout
+    say("agy: a headless run")
+    challenge = run(fill(templates["challenge"], values | {"prompt": "Reply with only the word OK.", "folder": str(work),
+                                                           "project": str(work), "answer": ""}), cwd=work)
+    files["headless/challenge.json"] = challenge.stdout
+    files["help.txt"] = help_text("agy", {})
+    files["capture.json"] = capture_note("agy", version, launch, turns)
+    return files
+
+
 CAPTURE: dict[AgentKind, Callable[[Live, Listener, int, Path, str], Awaitable[dict[str, str]]]] = {
-    "claude": capture_claude, "codex": capture_codex, "pi": capture_pi}
+    "claude": capture_claude, "codex": capture_codex, "agy": capture_agy, "pi": capture_pi}
 
 
 def chosen_agents(text: str) -> tuple[AgentKind, ...]:
@@ -845,7 +905,8 @@ PRIVATE_TERMS = Path.home() / ".config" / "aiterm" / "compat-private.txt"
 def private_values(scratch: Path, outside: Path) -> tuple[Secret, ...]:
     home = Path.home()
     accounts = account_values(read_json(home / ".claude.json"), read_json(home / ".codex" / "auth.json"),
-                              read_json(home / ".pi" / "agent" / "auth.json")) + private_terms(PRIVATE_TERMS)
+                              read_json(home / ".pi" / "agent" / "auth.json"),
+                              read_json(home / ".gemini" / "antigravity-cli" / "settings.json")) + private_terms(PRIVATE_TERMS)
     return secrets(home, os.environ.get("USER") or home.name, scratch, accounts, outside)
 
 

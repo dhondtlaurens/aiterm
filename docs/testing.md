@@ -146,7 +146,7 @@ AiTerm's driver installed from `compat/drivers/` and pointed at a listener of it
 the running app, and nothing lands in the person's own CLI config or AiTerm's support folder. It
 saves what the CLI sent and wrote into `daemon/tests/fixtures/compat/<agent>/` in place of the last
 capture, once scrubbed of the home folder, user name, scratch folder and every account detail; a
-capture still holding one is not written. The delivery check runs for Claude Code and Codex beside
+capture still holding one is not written. The delivery check runs for Claude Code, Codex and Antigravity beside
 it, and its verdict is read back from its file. Only when that passed and the contract suites below
 pass does `compat/verified.json` record each CLI's major and minor: the line each Settings › Agents
 card shows. Review the capture's diff, which is what the CLI changed, and commit both.

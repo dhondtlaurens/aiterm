@@ -1,0 +1,25 @@
+{
+  "aiterm" : {
+    "PreInvocation" : [
+      {
+        "command" : "curl -s -m 1 -o /dev/null -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H \"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\" -H 'Expect:' --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/agy; echo '{}'",
+        "timeout" : 5,
+        "type" : "command"
+      }
+    ],
+    "SessionStart" : [
+      {
+        "command" : "curl -s -m 1 -o /dev/null -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H \"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\" -H 'Expect:' --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/agy; echo '{}'",
+        "timeout" : 5,
+        "type" : "command"
+      }
+    ],
+    "Stop" : [
+      {
+        "command" : "curl -s -m 1 -o /dev/null -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H \"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\" -H 'Expect:' --data-binary @- http://127.0.0.1:__AITERM_HOOK_PORT__/hook/agy; echo '{}'",
+        "timeout" : 5,
+        "type" : "command"
+      }
+    ]
+  }
+}

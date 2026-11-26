@@ -1,12 +1,17 @@
-"""Drive real Codex with scripted local Responses through an AiTerm worker launcher.
+"""Drive a real agent CLI through an AiTerm worker launcher: Codex with scripted local Responses, or
+Antigravity (`--cli agy`) with a real model asked to run the command.
 
-Only temporary CODEX_HOME/config and synthetic git repositories are used. No account or model.
-The caller writes launcher/agent files through WorkerGuardLaunch, so this checks the actual PATH
-shims rather than a second implementation of their environment.
+Codex uses only a temporary CODEX_HOME/config and synthetic git repositories: no account or model.
+Antigravity has no local model to script, so it runs signed in, on its smallest model, with
+--dangerously-skip-permissions as a worker does: one short turn of quota. Either way the caller
+writes launcher/agent files through WorkerGuardLaunch, so this checks the actual PATH shims rather
+than a second implementation of their environment, and judges the push by the repository, not by
+what the model says.
 """
 import argparse
 import json
 import os
+import pwd
 from pathlib import Path
 import shlex
 import shutil
@@ -23,7 +28,11 @@ def main() -> None:
     parser.add_argument("--agent", type=Path, required=True)
     parser.add_argument("--cwd", required=True)
     parser.add_argument("--command", required=True)
+    parser.add_argument("--cli", choices=["codex", "agy"], default="codex")
     args = parser.parse_args()
+    if args.cli == "agy":
+        check_agy(args)
+        return
     requests: list[dict[str, Any]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -83,6 +92,43 @@ def main() -> None:
         if result.returncode:
             print(result.stderr[-2000:])
         assert result.returncode == 0 and len(requests) == 2
+
+
+def check_agy(args: argparse.Namespace) -> None:
+    """One headless Antigravity turn, launched as a worker is, told to run the command once."""
+    if not shutil.which("agy"):
+        raise RuntimeError("Antigravity CLI is not installed")
+    settings = json.dumps({"trustedWorkspaces": [args.cwd]})
+    words = ["agy", "-p", f"Run exactly this shell command once, then stop and report its output: {args.command}",
+             "--dangerously-skip-permissions", "--model", "gemini-3.8-flash-low", "--output-format", "json",
+             "--settings", settings]
+    # agy keeps its sign-in under the account's home, which a hermetic test environment replaces: it
+    # alone gets the real one back. The git it runs keeps the guard's config, carried in GIT_CONFIG_*.
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    args.agent.write_text("#!/bin/sh\nexec env HOME=" + shlex.quote(home) + " " + shlex.join(words) + "\n")
+    args.agent.chmod(0o700)
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("ITERM_",))}
+    result = subprocess.run(["/bin/sh", "-c", args.launcher], env=env, cwd=args.cwd, capture_output=True, text=True, timeout=180)
+    print(json.dumps({"exit": result.returncode, "stdout": result.stdout[-4000:],
+                      "commands": agy_commands(Path(home), result.stdout)}))
+    if result.returncode:
+        print(result.stderr[-2000:])
+    assert result.returncode == 0
+
+
+def agy_commands(home: Path, stdout: str) -> list[str]:
+    """What each command the turn ran printed, read from the conversation's transcript rather than from
+    what the model says of it: the steps after each run_command call, as agy recorded them."""
+    try:
+        conversation = json.loads(stdout).get("conversation_id") or ""
+    except ValueError:
+        return []
+    transcript = home / ".gemini/antigravity-cli/brain" / conversation / ".system_generated/logs/transcript.jsonl"
+    if not conversation or not transcript.is_file():
+        return []
+    steps = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [str(step.get("content") or step.get("error") or "") for step in steps
+            if step.get("type") == "GENERIC" and step.get("source") == "MODEL"]
 
 
 if __name__ == "__main__":

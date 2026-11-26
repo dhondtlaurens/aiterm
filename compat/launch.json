@@ -21,7 +21,21 @@
       "--model",
       "{model}"
     ],
+    "review" : [
+      "agy",
+      "--dangerously-skip-permissions",
+      "--settings",
+      "{\"permissions\":{\"deny\":[\"write_file(*)\",\"command(git commit)\",\"command(git checkout)\",\"command(git switch)\",\"command(git reset)\",\"command(git rebase)\",\"command(git merge)\",\"command(git stash)\",\"command(git add)\"]}}",
+      "--model",
+      "{model}"
+    ],
     "task" : [
+      "agy",
+      "--dangerously-skip-permissions",
+      "--model",
+      "{model}"
+    ],
+    "worker" : [
       "agy",
       "--dangerously-skip-permissions",
       "--model",

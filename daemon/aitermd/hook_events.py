@@ -87,6 +87,8 @@ class StatusLine(NamedTuple):
     # What the status line says the turn is doing, for a harness whose status line knows (Antigravity's
     # `agent_state`): tick evidence (status.Evidence), which may only move a turn already under way.
     state: TickState | None = None
+    # The CLI's own version, where its status line says it (Antigravity's): the tab's `cli_version`.
+    version: str | None = None
 
 
 HookParser = Callable[[dict[str, Any]], HookEvent | None]

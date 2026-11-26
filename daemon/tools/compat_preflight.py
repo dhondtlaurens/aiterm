@@ -1,7 +1,8 @@
 """Update the requested CLIs before a compatibility run and pin every fresh launch to those checks.
 
 Only scripts/compat-check.sh invokes prepare; importing the command helper never updates anything.
-The public npm latest tags name releases for all three CLIs, including native installations.
+The public npm latest tags name releases for Claude Code, Codex and PI, including native installations;
+Antigravity's changelog, which the CLI itself links, heads each release with its version.
 """
 from __future__ import annotations
 
@@ -18,6 +19,10 @@ import urllib.request
 from pathlib import Path
 
 PACKAGES = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "pi": "@earendil-works/pi-coding-agent"}
+CHANGELOGS = {"agy": "https://raw.githubusercontent.com/google-antigravity/antigravity-cli/refs/heads/main/CHANGELOG.md"}
+# Every CLI a run checks, in AiTerm's order: launched through its checked launcher.
+CHECKED = ("claude", "codex", "agy", "pi")
+RELEASE_HEADING = re.compile(r"^## (\d+\.\d+\.\d+)\s*$", re.MULTILINE)
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 
 
@@ -27,7 +32,7 @@ class PreflightFailed(Exception):
 
 def command(argv: list[str]) -> list[str]:
     """Use the run's checked launcher, also in fresh iTerm shells with a different PATH or HOME."""
-    if (directory := os.environ.get("AITERM_COMPAT_BIN")) and argv[0] in PACKAGES:
+    if (directory := os.environ.get("AITERM_COMPAT_BIN")) and argv[0] in CHECKED:
         launcher = Path(directory) / argv[0]
         if not launcher.is_file():
             raise PreflightFailed(f"{argv[0]}: not checked for this compatibility run")
@@ -37,6 +42,12 @@ def command(argv: list[str]) -> list[str]:
 
 def latest_version(agent: str) -> str:
     try:
+        if agent in CHANGELOGS:
+            with urllib.request.urlopen(CHANGELOGS[agent], timeout=30) as response:
+                heading = RELEASE_HEADING.search(response.read().decode("utf-8", "replace"))
+            if heading is None:
+                raise ValueError("the changelog names no release")
+            return heading[1]
         with urllib.request.urlopen(f"https://registry.npmjs.org/{PACKAGES[agent]}/latest", timeout=30) as response:
             version = json.load(response).get("version")
         if not isinstance(version, str) or not VERSION.fullmatch(version):
@@ -122,14 +133,14 @@ def prepare(agents: tuple[str, ...], into: Path) -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--agents", default=",".join(PACKAGES))
+    parser.add_argument("--agents", default=",".join(CHECKED))
     parser.add_argument("--bin", type=Path, required=True, help="new directory for this run's checked launchers")
     ns = parser.parse_args(argv)
     wanted = {name.strip() for name in ns.agents.split(",") if name.strip()}
-    if not wanted or wanted - PACKAGES.keys():
-        parser.error("--agents must name one or more of claude,codex,pi")
+    if not wanted or wanted - set(CHECKED):
+        parser.error("--agents must name one or more of " + ",".join(CHECKED))
     try:
-        prepare(tuple(agent for agent in PACKAGES if agent in wanted), ns.bin)
+        prepare(tuple(agent for agent in CHECKED if agent in wanted), ns.bin)
     except (PreflightFailed, OSError) as error:
         print(f"Preflight failed: {error}. Compatibility checks have not started.", file=sys.stderr, flush=True)
         return 1

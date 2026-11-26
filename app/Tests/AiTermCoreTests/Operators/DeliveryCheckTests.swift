@@ -60,7 +60,7 @@ import Foundation
 
     @Test func onlyClaudeAndCodexAreChecked() {
         let file = Self.file(["claude": Self.agent("2.1.301"), "codex": Self.agent("0.160.0")])
-        #expect(DeliveryCheck.agents == [.claude, .codex])
+        #expect(DeliveryCheck.agents == [.claude, .codex, .agy])
         #expect(DeliveryCheck.messaging(.pi, file: file, installed: "1.0.0") == nil)
     }
 

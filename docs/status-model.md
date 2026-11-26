@@ -62,7 +62,7 @@ its status line:
 | `SessionStart` hook | metadata | Fires with the first prompt, not at launch: until then a tab says nothing, and its folder-trust dialog is read from the screen, as PI's is. |
 | `PreInvocation` hook | working | Before each model call of a turn. |
 | `Stop` hook | done | However the turn ended: finished, cancelled or failed. |
-| status line `agent_state` | tick evidence | `working`, `tool_use` and `reviewing` say working, `idle` says done, and `tool_confirmation_pending` says needs input: the one sign Antigravity gives that a tool waits for approval. It only moves a turn under way (working to needs input and back, or to done when a Stop was missed), never starts one. A working or done reading within a second of a hook is not believed: it may describe the moment before. |
+| status line `agent_state` | tick evidence | `working`, `tool_use` and `reviewing` say working, `idle` says done, and `tool_confirmation_pending` says needs input: the one sign Antigravity gives that a tool waits for approval. It moves working to needs input and back, ends a turn whose Stop was missed, and brings an idle row back to working or needs input, as a restarted daemon finds every tab idle. A working or done reading within a second of a hook is held, not believed: it may describe the moment before. A hook or a newer reading replaces it; otherwise the tick applies it once the second has passed, so a lost Stop cannot leave the row working. |
 
 These extension events use the existing urgency and unread rules; PI does not introduce a fifth
 state. In particular, `agent_settled` stays Done until the row is seen, just like Claude Code and

@@ -79,8 +79,9 @@ public enum DeliveryReadiness: Equatable, Sendable {
 /// into a CLI only once the check has written a pass for its version, and Settings › Agents shows that
 /// as each card's Messaging check, with Run check one click away.
 public enum DeliveryCheck {
-    /// The CLIs the check covers (its `AGENTS`): those with full support (`SupportTier`).
-    public static var agents: [AgentKind] { AgentKind.fullSupport }
+    /// The CLIs the check covers (its `AGENTS`): every one whose screen AiTerm reads. A pass is what
+    /// lets one have full support (`SupportTier`).
+    public static var agents: [AgentKind] { AgentKind.messagingChecked }
     /// What each verdict needs, in the check's own order (`PASTE_SAFE`, `SUBMIT_SAFE`, `ITERM_CHECKS`).
     public static let pasteSafeScenarios = ["permissionPaste", "startupPaste", "menuPaste", "updatePaste", "approvalRace"]
     public static let submitSafeScenarios = ["idleSubmit", "multiLine", "busyQueue", "takeover"]

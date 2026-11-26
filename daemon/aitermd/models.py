@@ -88,7 +88,12 @@ HARNESSES: tuple[Harness, ...] = (
             input_box=("›",)),
     # Command hooks in its hooks.json, and a status-line shim whose `agent_state` checks them. Its
     # folder-trust dialog comes before any hook loads, as PI's does.
-    Harness("agy", "/hook/agy", statusline_route="/statusline/agy", trust_prompt=AGY_TRUST_PROMPT),
+    Harness("agy", "/hook/agy", support="full", statusline_route="/statusline/agy", trust_prompt=AGY_TRUST_PROMPT,
+            # 1.5.18's approval, its trust dialog, and the footer every one of its selection lists draws.
+            permission_prompt=("Requesting permission for:", "Run this command?"),
+            startup_prompt=AGY_TRUST_PROMPT, menu_prompt=("↑/↓ Navigate",),
+            # Its input sits in a ruled frame and its lists number their options under the same arrow, as Claude's do.
+            input_box=(">",), numbered_menus=True),
     # An in-process extension. Its folder-trust dialog comes before the extension's first post, so
     # the screen is the only sign of it, as for Claude.
     Harness("pi", "/hook/pi", trust_prompt=PI_TRUST_PROMPT),
@@ -97,8 +102,11 @@ HARNESSES: tuple[Harness, ...] = (
 HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}
 AGENT_BINARIES: frozenset[AgentKind] = frozenset(HARNESS_BY_AGENT)
 USAGE_VENDORS: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.reports_usage)
-# The agents with full support: the delivery check's CLIs, and the ones the compat check gates on it.
+# The agents with full support: AiTerm types into them and the Operator gives them tasks.
 FULL_SUPPORT: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.support == "full")
+# The CLIs whose screen AiTerm can read (an input-box marker): the delivery check drives these, the
+# compat check gates them on it, and a pass is what an agent needs before it can have full support.
+MESSAGING_CHECKED: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.input_box)
 # The payload field the hook server puts X-AiTerm-iTerm-Session in, and discards from a body: a
 # trusted private field, which only the header may set.
 ITERM_SESSION_FIELD = "_aiterm_iterm_session_id"
