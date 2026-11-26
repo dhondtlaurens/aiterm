@@ -27,20 +27,22 @@ public struct HoverChip: View {
 }
 
 extension View {
-    /// Raises `chip` above this view while `shown`: centered on this view, its foot `Space.hairline`
-    /// clear of this view's head. It takes no clicks, so the pointer stays on what raised it.
-    public func raisingHoverChip(_ chip: HoverChip?, shown: Bool) -> some View {
-        modifier(RaisesHoverChip(chip: chip, shown: shown))
+    /// Raises `chip` above this view while `shown`: centered on this view, or with its trailing edge on this view's
+    /// when `alignment` is `.trailing` (a mark at a row's end, whose chip would otherwise run past the sheet), its foot
+    /// `Space.hairline` clear of this view's head. It takes no clicks, so the pointer stays on what raised it.
+    public func raisingHoverChip(_ chip: HoverChip?, shown: Bool, alignment: HorizontalAlignment = .center) -> some View {
+        modifier(RaisesHoverChip(chip: chip, shown: shown, alignment: alignment))
     }
 }
 
 private struct RaisesHoverChip: ViewModifier {
     let chip: HoverChip?
     let shown: Bool
+    let alignment: HorizontalAlignment
     @Environment(\.interfaceScale) private var scale
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .top) {
+        content.overlay(alignment: Alignment(horizontal: alignment, vertical: .top)) {
             if shown, let chip {
                 chip
                     .offset(y: -(scale(Size.chip) + scale(Space.hairline)))

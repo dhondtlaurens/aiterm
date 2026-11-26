@@ -28,8 +28,10 @@ Creation keys are disabled while a sheet is open or the workspace cannot change.
 needs a compatible project; a terminal also accepts a plain folder. Row menus keep Rename, Open in…,
 Pull, Archive and Remove. The Operator heading's context menu has Pause Operator, or Resume Operator
 while paused; its + has New Signal…. The Projects heading's + has Add Project…, New Signal… and Add Divider…. Each
-heading's signals icon opens its signals sheet, whose rows' menus have Edit Signal…, Switch Off/On, Move Up/Move Down
-and Remove Signal…; a double-click edits. A divider's menu, under Projects, has Rename…, Move Up/Move Down and Remove
+heading's signals icon opens its signals sheet, whose rows' menus, behind each row's gear, have Edit Signal…, Switch
+Off/On, Move Up/Move Down and Remove Signal…; a double-click edits. Its search field keeps the keyboard: ↑/↓ moves the
+highlight with wrap, ⌘Delete asks Remove Signal's question for the highlighted signal, Escape clears a search before
+closing, and ⌘Return is Done. A divider's menu, under Projects, has Rename…, Move Up/Move Down and Remove
 Divider; in the Operator's section a divider and a project heading have no menu. Take Over
 is on the menu of a task still under the Operator; there is no Hand Back.
 

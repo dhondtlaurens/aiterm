@@ -79,8 +79,9 @@ not the stacked snapshots, prove the seams (`StatusLineSeamTests`).
 A task a signal started wears the signals disc on its first avatar mark's corner (`AvatarGroupView`), a
 `SymbolMark` of the signals glyph at `Size.cornerBadge`, as a badge wears its corner check; the column keeps its
 width. Resting on the disc opens `SignalCardView` through the same presenter and hover delays as the work card,
-one card at a time, anchored after the avatar column: the signal's name, each signal that ran the task (earlier ones
-muted, a removed one marked so) with when, and the work going on now.
+one card at a time, anchored after the avatar column: each signal that ran the task (earlier ones muted, a removed
+one marked so) with when, a rule, and the work going on now beside the row's own mark, so it reads as a state rather
+than another signal.
 
 The dashed ring, turning once every six seconds, means waiting on something that moves by itself or on
 someone: a turn's background work that wakes the agent again (`background`), or a driven task that waits
@@ -98,7 +99,9 @@ is past pausing; a done task with closeout outstanding is paused with the worklo
 
 `TaskRowMarkView`, `StatusMark`, `SettledMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`, `BranchLabelView`
 and `QuietBadgeLine` share the status/agent/branch vocabulary. `BackgroundCardView` reuses the work
-list under a background/working/input mark, only with verified work. Display evidence does not
+list under a background/working/input mark, only with verified work: each line its mark `Space.inset` from its words, a
+description in the system face with its first letter raised, a raw command as “Shell” and the command in a quiet mono
+chip that cuts at its end. Display evidence does not
 change persisted state or Operator readiness. Amber means the person needs to act.
 
 The work card floats in a borderless nonactivating child panel owned by the sidebar. Its heading
@@ -171,12 +174,17 @@ explains behavior; only the Oracle's disabled fields fade, with their values kep
 `PromptEditor`. `TabBar`/`TabShortcuts` own Settings' command-number navigation. `SettingsGroup`,
 `SettingsSwitch`, `SettingsTone` and native controls remain the shared settings vocabulary.
 
-`ArchiveSheet`/`ArchiveRow` restore or remove tasks. Search retains keyboard ownership; there are
-no broadcast records. `SignalsSheet` follows the same list pattern for one section's signals: each
-`SignalsSheetRow` in a sheet-ground `RowPill` with its source mark, name, Starts and Done lines and issues in the
-warning tone, a switched-off one faded with the pause glyph, its menu (Edit Signal…, Switch Off/On, Move Up/Down,
-Remove Signal…) as a context menu and behind a trailing ellipsis; no switch per row; New Signal… and Done in the
-footer. A source failing three reads in a row also raises `IssueBanner` with Open Signals and Settings…. `Notice` offers useful actions and one amber attention mark. `CheckChip`
+`ListSheet` is the one list sheet: the title, a search field that keeps the keyboard, rows under optional group
+headings (`SidebarHeading`), the empty and no-match lines, and the footer; ↑ ↓ move the highlight, ⌘⌫ asks the row's
+Remove question, ⎋ clears a search then closes, a double-click runs the row's first command, ⌘↩ the footer's primary.
+`ListSheetRow` is the task row's grid: the leading mark, the title over one `Size.chip` line, both cut at the end; an
+optional state column, a glyph centred on the row whose words rise in a trailing `HoverChip`; and the trailing column
+with the row's menu behind `gearshape`, drawn as the headings' + (`AddMenu`). `ArchiveSheet`/`ArchiveRow` restore or
+remove tasks, grouped by date (`ArchiveDate.group`), each row the sidebar's task row without a diff, which an archived
+task does not keep; there are no broadcast records. `SignalsSheet`/`SignalsSheetRow` list one section's signals: the
+source's mark, the name, the Start's description (or its query in the mono face), the state column (an issue in amber,
+a schedule's clock, a switched-off signal's pause, the row faded); its menu (Edit Signal…, Switch Off/On, Move Up/Down,
+Remove Signal…) behind the gear and as a context menu; no switch per row; New Signal… and Done in the footer. A source failing three reads in a row also raises `IssueBanner` with Open Signals and Settings…. `Notice` offers useful actions and one amber attention mark. `CheckChip`
 and `CheckFailureDetails` show check status and failure details.
 
 The [design reference](design-system.html) mirrors shipped components; Proposals holds only future

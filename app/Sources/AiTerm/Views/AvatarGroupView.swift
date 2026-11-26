@@ -18,7 +18,7 @@ struct AvatarGroupView: View {
     /// The occluding ring every mark and the `+n` slot draw around themselves. A stroke, so it does not scale.
     static let ringWidth: CGFloat = 2
     /// The signals glyph (O6), as the section headings' signals icon draws it.
-    static let signalGlyph = "dot.radiowaves.left.and.right"
+    static let signalGlyph = "dot.radiowaves.right"
     @Environment(\.interfaceScale) private var scale
     private var size: CGFloat { scale(markSize) }
     /// The group's fixed width: two stacked marks, which is all `SidebarModel.avatarMax` lets a row

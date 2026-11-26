@@ -56,4 +56,29 @@ struct HoverChipTests {
         let bottom = try #require((0..<bitmap.pixelsHigh).last { bitmap.colorAt(x: middle, y: $0) != background })
         #expect(abs(top - CGFloat(bottom + 1) / factor - scale(Space.hairline)) <= 1)
     }
+
+    /// Trailing, the chip's trailing edge meets its target's, so a mark at a row's end raises its words over the row
+    /// rather than past the sheet's edge; it still stands `Space.hairline` above the target.
+    @Test(arguments: InterfaceScale.all)
+    func aTrailingChipEndsWhereItsTargetEnds(scale: InterfaceScale) throws {
+        let top: CGFloat = 40, leading: CGFloat = 200, width: CGFloat = 12
+        let bounds = CGRect(x: 0, y: 0, width: 320, height: 60)
+        let host = NSHostingView(rootView: Color.clear.frame(width: width, height: 12)
+            .raisingHoverChip(HoverChip("Next run Mon 30 Nov 09:00"), shown: true, alignment: .trailing)
+            .padding(.leading, leading).padding(.top, top)
+            .frame(width: bounds.width, height: bounds.height, alignment: .topLeading)
+            .background(Palette.sidebar).interfaceScale(scale))
+        host.appearance = NSAppearance(named: .darkAqua)
+        host.frame = bounds
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: bounds))
+        host.cacheDisplay(in: bounds, to: bitmap)
+        let factor = CGFloat(bitmap.pixelsWide) / bounds.width
+        let y = Int((top - scale(Space.hairline) - scale(Size.chip) / 2) * factor)
+        let background = try #require(bitmap.colorAt(x: 0, y: y))
+        let span = (0..<bitmap.pixelsWide).filter { bitmap.colorAt(x: $0, y: y) != background }
+        let left = try #require(span.first), right = try #require(span.last)
+        #expect(abs(CGFloat(right + 1) / factor - (leading + width)) <= 1, "right \(CGFloat(right + 1) / factor), left \(CGFloat(left) / factor), \(bitmap.pixelsWide) px")
+        #expect(CGFloat(left) / factor < leading, "the chip grows towards the leading side")
+    }
 }

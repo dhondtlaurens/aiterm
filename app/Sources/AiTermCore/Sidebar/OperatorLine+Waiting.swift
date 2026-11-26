@@ -15,8 +15,12 @@ public extension OperatorLine {
         if let blockers = facts?.mergeBlockers { return merging(request ?? "the request", blockers) }
         let description = done.description.trimmingCharacters(in: .whitespacesAndNewlines)
         let words = description.isEmpty ? done.query.trimmingCharacters(in: .whitespacesAndNewlines) : description
-        return OperatorLine(fitted(words), tooltip: "Waiting for its Done trigger: " + words)
+        return OperatorLine(fitted(words), tooltip: doneTriggerTooltip + words)
     }
+
+    /// How a line waiting on its Done trigger's own words starts its tooltip: those words are the person's, or a query,
+    /// so whoever shows them never recases them.
+    public static let doneTriggerTooltip = "Waiting for its Done trigger: "
 
     /// Merge when ready holds the task: `waiting to merge · checks`, naming what the merge still lacks.
     private static func merging(_ request: String, _ blockers: [SignalWaitFacts.MergeBlocker]) -> OperatorLine {

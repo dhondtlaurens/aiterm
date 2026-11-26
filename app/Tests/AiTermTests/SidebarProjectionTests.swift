@@ -343,12 +343,12 @@ import Testing
         #expect(rows.signalCard(for: .task(Self.taskId))?.steps.map(\.name) == ["Triage (removed)", "Reviews for me"])
         #expect(try row(Self.taskId) == marked)
         controller.workspace.mutate { $0.tasks[0].signalOrigin?.owed = OwedPrompt(text: "/review", at: Date(), kind: .delivery) }
-        #expect(rows.signalCard(for: .task(Self.taskId))?.current.text == "waiting for its worker to be idle")
+        #expect(rows.signalCard(for: .task(Self.taskId))?.current.text == "Waiting for its worker to be idle")
         #expect(try row(Self.taskId) == marked)
 
         controller.workspace.mutate { $0.removeSignal(id: signal.id) }
         #expect(try row(Self.taskId).startedBySignal == "Reviews for me (removed)")
-        #expect(rows.signalCard(for: .task(Self.taskId))?.heading == "Reviews for me (removed)")
+        #expect(rows.signalCard(for: .task(Self.taskId))?.steps.last?.name == "Reviews for me (removed)")
         #expect(try row(other.id) == untouched)
     }
 

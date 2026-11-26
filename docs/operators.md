@@ -95,11 +95,11 @@ again.
 
 A task a signal started wears a small disc with the signals glyph on its avatar's corner, under
 either section; a task you made has none, and its row keeps its two lines. Rest the pointer on the
-disc for its card, in the background-work card's chrome and with its timing: the signal's name, then
-each signal that ran the task, oldest first, with when (a removed one says so), and last the work
-going on now. On a task the Operator runs that is the Operator's act (`Operator answering its
-worker`) or its line; on a project signal's task it is `waiting for your pause to open its window`,
-`waiting for its worker to be idle` (hover it for why), its status, or `Done · kept` or `Done ·
+disc for its card, in the background-work card's chrome and with its timing: each signal that ran
+the task, oldest first, with when (a removed one says so), a rule, and last the work going on now
+beside the row's own mark. On a task the Operator runs that is the Operator's act (`Operator answering its
+worker`) or its line; on a project signal's task it is `Waiting for your pause to open its window`,
+`Waiting for its worker to be idle` (hover it for why), its status, or `Done · kept` or `Done ·
 archived`. VoiceOver reads the row as started by its signal.
 
 ### The status line

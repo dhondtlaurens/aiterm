@@ -117,8 +117,8 @@ import AiTermUI
             let width = min(available.maxX, row.maxX + SidebarRowLayout.trailingInset(scale)) - leading
             guard width > 0 else { return nil }
             let steps = SignalCardView.visibleSteps(total: card.steps.count, availableHeight: available.height, scale: scale)
-            guard SignalCardView.height(lines: 1, scale: scale) <= available.height else { return nil }
-            let height = SignalCardView.height(lines: steps + 1, scale: scale)
+            guard steps > 0 else { return nil }
+            let height = SignalCardView.height(steps: steps, scale: scale)
             return (NSRect(x: leading, y: top(height), width: width, height: height),
                     AnyView(SignalCardView(card: card, visibleSteps: steps)))
         }

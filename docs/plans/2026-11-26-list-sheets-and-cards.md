@@ -28,15 +28,18 @@ Picked in grilling, round by round on the Proposals tab:
   when it has none; one line, cut at the end. No words beside the title: no running count, no issue text.
 - **State column.** `Size.slot` wide, centred on the row before the trailing column; both text lines are
   cut before it. Issue: `exclamationmark.circle.fill` in `amber` (`Notice`'s mark), its chip "Can’t read
-  GitLab: the server answered 401 Unauthorized. Tries again at 12:05." Schedule: `clock` in `tertiary`,
-  "Next run Mon 30 Nov 09:00". Switched off: `pause.fill` in `tertiary`, the row at `Opacity.disabled`,
+  GitLab. AiTerm tries again at 12:05.": a failing read's gist, the source and the retry, never the server's
+  error, which can run past the sheet; with more issues, "And N more."; every issue whole is the glyph's help
+  and its VoiceOver value. Schedule: `clock` in `tertiary`,
+  "Next run: 30 Nov 2026 09:00" (`SignalSummary.nextRun`'s words, as the heading's tooltip says it). Switched off: `pause.fill` in `tertiary`, the row at `Opacity.disabled`,
   "Switched off". An issue outranks the clock. The chip aligns its trailing edge with the glyph's.
 - **Settings button (2A, glyph A).** Outline `gearshape`, drawn exactly as `AddMenu` draws the +
   (`Typography.label`, the surface's secondary ink, no ground, `Size.slot` square, `trailingInset`), always
   there; it opens the row's menu, the same groups as the context menu and VoiceOver actions.
 - **One list sheet with search (3C).** Signals search name, description, query and source; the Archive
   keeps its search. ↑ ↓ move the highlight from the search field (passing over group headings), a
-  double-click is the row's first command (Edit Signal…, Restore), ⌘↩ the footer's primary (Done on a
+  double-click is the row's first command (a signals sheet's highlight starts on nothing, the Archive's on its
+  newest row, as today) (Edit Signal…, Restore), ⌘↩ the footer's primary (Done on a
   signals sheet, Restore on the Archive), ⌘⌫ the row's Remove question, ⎋ clears the search then closes.
 - **Archive.** Rows are the sidebar's task row (the task's agent mark in `AvatarGroupView`'s column, title,
   ticket and request badges, branch, then the project in the help ink; badges drop whole, the branch cuts in
@@ -44,7 +47,8 @@ Picked in grilling, round by round on the Proposals tab:
   worktree is gone, so the row shows none rather than reading a stale or missing one; the workspace format
   stays as it is), the gear where the status mark sits (Restore, Remove…). The date leaves the row for
   `SidebarHeading` groups: Today, Yesterday, This week, then each month, with the year when not this
-  year. Search shows matches under their groups; an empty group is left out.
+  year. A search lists its matches best first, as `ArchiveSearch` ranks them, under no heading: grouping
+  them by date would undo the ranking.
 - **Signal card (A).** No heading. Each signal that ran the task on a `Size.chip` line, oldest first,
   name cut at the end and its time never, the current one in `text`, earlier ones `muted`; a `Hairline`;
   then the work beside a `StatusMark` at `Size.statusMark` in the secondary ink, sentence case ("Waiting
@@ -68,16 +72,19 @@ signals sheets' and the Archive's actions do.
 - `app/Sources/AiTerm/Views/SidebarRows.swift` (modify): `AddMenu` takes a symbol, `plus` by default.
 - `app/Sources/AiTermUI/HoverChip.swift` (modify): `raisingHoverChip` takes an alignment, centred by
   default, trailing for the state column.
+- `app/Sources/AiTermUI/Hairline.swift` (modify): `Hairline.thickness`, which the signal card's height reads.
+- `app/Sources/AiTerm/Views/BackgroundCardPresenter.swift` (modify): the signal card's new height.
 - `app/Sources/AiTerm/SignalsSheetModel.swift` (modify): `Row` carries description (or query), a state
   (issue words, next run, switched off) instead of the Starts/Next run/Done lines and the issue list;
   a query, the filtered rows and the highlight.
 - `app/Sources/AiTerm/Views/SignalsSheet.swift` (modify): a `ListSheet` configuration; `SignalsSheetRow`
-  goes.
+  stays, as the signal's `ListSheetRow`.
 - `app/Sources/AiTerm/ArchiveSheetModel.swift` (modify): grouped rows, highlight across groups.
 - `app/Sources/AiTerm/Views/ArchiveSheet.swift` (modify): a `ListSheet` configuration; `ArchiveRow`
   becomes the task row with the gear.
 - `app/Sources/AiTermCore/Tasks/ArchiveDate.swift` (modify): the group a date falls in and its heading.
-- `app/Sources/AiTerm/Views/SignalCard.swift` (modify): layout A; the waiting sentences in sentence case.
+- `app/Sources/AiTerm/Views/SignalCard.swift` (modify): layout A; the card drops its heading and carries the row's
+  mark; the waiting sentences in sentence case (`docs/operators.md` says them).
 - `app/Sources/AiTerm/Views/BackgroundCard.swift` (modify): layout C, spacing, capitalisation, help tags.
 - `app/Sources/AiTerm/Views/AvatarGroupView.swift`, `app/Sources/AiTerm/Views/SidebarHeadings.swift`
   (modify): the glyph from one constant.
@@ -104,17 +111,18 @@ signals sheets' and the Archive's actions do.
 - `HoverChipTests`: the trailing alignment keeps the chip inside the glyph's trailing edge.
 - `DesignRulesTests` stays green: every value from `Palette` and `Metrics`.
 - Hosted native snapshots (`AITERM_SNAPSHOT_HOSTED=1 AITERM_SNAPSHOT_NATIVE_CAPTURE=1 scripts/snapshots.sh`)
-  compared with the drawings on the Proposals tab; then the app itself (`scripts/run-dev.sh`): open each
-  sheet, search, move with ↑ ↓, hover a state glyph and a gear, open both cards.
+  compared with the drawings on the Proposals tab. Agents never run the app (`docs/workflow/verify.md`): the
+  live check is the maintainer's: open each sheet, search, move with ↑ ↓, hover a state glyph and a gear,
+  open both cards.
 - The gate, `scripts/test.sh`.
 
 ## To-dos
 
-- [ ] `AddMenu` takes a symbol; `raisingHoverChip` takes an alignment; their tests.
-- [ ] The signals glyph from one constant, `dot.radiowaves.right`; the sidebar snapshots.
-- [ ] `ListSheet` and `ListSheetRow`, with the state column, keys and highlight.
-- [ ] Operator and Project signals on `ListSheet`: model rows, search, the gear menu; tests and snapshots.
-- [ ] The Archive on `ListSheet`: task rows, date groups, the gear menu; tests and snapshots.
-- [ ] The signal card, layout A; test and snapshots.
-- [ ] The background-work card, layout C; tests and snapshots.
-- [ ] README inventory, `ui-patterns.md`, `keyboard.md`; the design page synced and the proposals removed.
+- [x] `AddMenu` takes a symbol; `raisingHoverChip` takes an alignment; their tests.
+- [x] The signals glyph from one constant, `dot.radiowaves.right`; the sidebar snapshots.
+- [x] `ListSheet` and `ListSheetRow`, with the state column, keys and highlight.
+- [x] Operator and Project signals on `ListSheet`: model rows, search, the gear menu; tests and snapshots.
+- [x] The Archive on `ListSheet`: task rows, date groups, the gear menu; tests and snapshots.
+- [x] The signal card, layout A; test and snapshots.
+- [x] The background-work card, layout C; tests and snapshots.
+- [x] README inventory, `ui-patterns.md`, `keyboard.md`; the design page synced and the proposals removed.

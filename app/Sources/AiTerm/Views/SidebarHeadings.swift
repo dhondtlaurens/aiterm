@@ -252,7 +252,7 @@ struct SectionSignalsButton: View {
         let label = Self.label(section: section, count: count)
         Button(action: open) {
             HStack(spacing: scale(Space.tight)) {
-                Image(systemName: "dot.radiowaves.left.and.right").font(Typography.chip)
+                Image(systemName: AvatarGroupView.signalGlyph).font(Typography.chip)
                 Text("\(count)").font(Typography.chip.tabular)
             }
             .foregroundStyle(issue != nil && !surface.isOnAccent ? Palette.amber : surface.secondaryInk)

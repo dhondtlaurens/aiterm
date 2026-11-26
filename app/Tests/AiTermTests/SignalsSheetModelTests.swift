@@ -38,40 +38,71 @@ import Testing
         #expect(projects.rows.first?.canMoveUp == false && projects.rows.first?.canMoveDown == false)
     }
 
-    /// A query's Starts and Done, a schedule's words with its next run, and **You decide**.
-    @Test func theLinesSayEachTriggerAndASchedulesNextRun() {
+    /// The second line is the Start's description, or its query in the mono face when it has none; a schedule wears the
+    /// clock with its next run.
+    @Test func theSecondLineIsTheDescriptionOrTheQuery() {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Brussels")!
         let monday = calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 8))!
         var world = SignalWorld()
+        world.signal(name: "Described", start: SignalTrigger(source: .jira, description: "My tickets labelled operator", query: "labels = operator"))
         world.signal(name: "Query")
         world.scheduled(from: monday)
         world.projectSignal()
         let operatorRows = SignalsSheetModel.rows(state: world.state, section: .operator, failure: { _ in nil }, now: monday, calendar: calendar)
-        #expect(operatorRows.map(\.lines) == [
-            ["Starts: labels = operator", "Done: status = Done"],
-            ["Starts: At 09:00 on Monday (0 9 * * 1)", "Next run: 23 Nov 2026 09:00", "Done: The Operator decides"],
-        ])
-        #expect(operatorRows.map(\.mark) == [ProviderIcon.source(of: .jira), ProviderIcon.source(of: .schedule)])
+        #expect(operatorRows.map(\.detail) == ["My tickets labelled operator", "labels = operator", "0 9 * * 1"])
+        #expect(operatorRows.map(\.detailIsQuery) == [false, true, true])
+        #expect(operatorRows.map(\.state) == [nil, nil, .schedule("Next run: 23 Nov 2026 09:00")])
+        #expect(operatorRows.map(\.mark) == [ProviderIcon.source(of: .jira), ProviderIcon.source(of: .jira), ProviderIcon.source(of: .schedule)])
         let projectRows = SignalsSheetModel.rows(state: world.state, section: .projects, failure: { _ in nil }, now: monday, calendar: calendar)
-        #expect(projectRows.map(\.lines) == [["Starts: labels = review", "Done: You decide"]])
-        #expect(operatorRows.allSatisfy(\.issues.isEmpty) && projectRows.allSatisfy(\.issues.isEmpty))
+        #expect(projectRows.map(\.detail) == ["labels = review"])
     }
 
-    /// What needs the person, in order: a signal this version cannot run, its source's failing read, each skipped item.
-    @Test func theIssueLinesSayWhatCannotRunWhatFailsAndWhatWasSkipped() {
+    /// What needs the person is the amber mark's: its chip says the first issue's gist (a failing read: the source and
+    /// the retry, never the server's whole error) and counts the rest; its help and spoken value say every issue whole:
+    /// a signal this version cannot run, its source's failing read, then each skipped item. A switched-off signal says only that; a schedule
+    /// with a skipped run wears the amber mark, not its clock.
+    @Test func theStateSaysTheIssueFirstAndCountsTheRest() {
         var world = SignalWorld()
         let broken = world.signal(name: "Broken", done: SignalTrigger(source: .person, query: ""))
         let failing = world.signal(name: "Failing")
+        let off = world.signal(name: "Off")
+        world.state.signals[2].enabled = false
+        let schedule = world.scheduled()
         world.state.signalSeen = ["PAY-9", "PAY-7"].map {
             SignalSeen(signal: failing, item: .ticket(site: "https://jira.example", key: $0), disposition: .skipped, at: world.now, reason: "No project")
-        }
+        } + [SignalSeen(signal: schedule, item: .run(SignalRunRef(signal: schedule, at: world.now - 86_400)), disposition: .skipped,
+                        at: world.now, reason: "The last run is still unfinished.")]
         let issue = SignalReadIssues.Issue(signal: failing, text: "The server answered 401.", since: world.now, attempts: 1)
         let rows = SignalsSheetModel.rows(state: world.state, section: .operator,
                                           failure: { $0 == failing ? issue : nil }, now: world.now)
         let retry = SignalReadIssues.retry(at: world.now + SignalPoller.failureBackOff, from: world.now)
-        #expect(rows.first { $0.id == broken }?.issues == ["This signal can’t run as it is set up."])
-        #expect(rows.first { $0.id == failing }?.issues == ["Can’t read Jira: The server answered 401. " + retry, "PAY-7: No project",
-                                                            "PAY-9: No project"])
+        #expect(rows.first { $0.id == broken }?.state == .issue("This signal can’t run as it is set up.",
+                                                                 detail: ["This signal can’t run as it is set up."]))
+        #expect(rows.first { $0.id == failing }?.state == .issue("Can’t read Jira. " + retry + " And 2 more.",
+                                                                  detail: ["Can’t read Jira: The server answered 401. " + retry,
+                                                                           "PAY-7: No project", "PAY-9: No project"]))
+        #expect(rows.first { $0.id == off }?.state == .switchedOff)
+        guard case .issue? = rows.first(where: { $0.id == schedule })?.state else { Issue.record("the skipped run is the schedule's state"); return }
+    }
+
+    /// The search field finds a signal by its name, description, query or source, ignoring case and accents; ↑ ↓ move
+    /// a highlight that starts on nothing and wraps, and a new search drops it.
+    @Test func theSearchFindsByNameDescriptionQueryOrSourceAndTheHighlightMoves() {
+        var world = SignalWorld()
+        let plan = world.signal(name: "Plan & Implement", start: SignalTrigger(source: .jira, description: "Tickets nobody started", query: "labels = operator"))
+        let review = world.signal(name: "Review", start: SignalTrigger(source: .gitLab, query: "reviewer:@me draft:no"))
+        let rows = SignalsSheetModel.rows(state: world.state, section: .operator, failure: { _ in nil }, now: world.now)
+        let model = SignalsSheetModel(section: .operator, rows: { rows })
+        #expect(model.visibleRows.map(\.id) == [plan, review])
+        #expect(model.highlighted == nil)
+        model.move(by: 1); #expect(model.highlighted?.id == plan)
+        model.move(by: 1); model.move(by: 1); #expect(model.highlighted?.id == plan, "wraps")
+        model.query = "nobody"; #expect(model.visibleRows.map(\.id) == [plan]); #expect(model.highlighted == nil)
+        model.query = "DRAFT"; #expect(model.visibleRows.map(\.id) == [review])
+        model.query = "gitlab"; #expect(model.visibleRows.map(\.id) == [review])
+        model.query = "implément"; #expect(model.visibleRows.map(\.id) == [plan])
+        model.query = "zzz"; #expect(model.visibleRows.isEmpty)
+        #expect(model.clearQuery()); #expect(!model.clearQuery())
     }
 
     /// Move Up passes the signal of its kind above, over a project signal between them, and that order is the priority;
