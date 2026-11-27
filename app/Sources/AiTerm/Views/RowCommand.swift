@@ -10,6 +10,9 @@ struct RowCommand {
 
     var accessibilityTitle: String { title.hasSuffix("…") ? String(title.dropLast()) : title }
 
+    /// Whether a menu of `groups` has anything to choose: without, its gear greys.
+    static func anyEnabled(in groups: [[Self]]) -> Bool { groups.contains { $0.contains(where: \.enabled) } }
+
     static func accessible(in groups: [[Self]]) -> [Self] {
         groups.flatMap { $0 }.filter(\.enabled)
     }
