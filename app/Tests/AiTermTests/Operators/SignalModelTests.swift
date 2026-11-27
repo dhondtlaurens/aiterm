@@ -337,7 +337,7 @@ import Testing
         #expect(model.agentRows.map(\.choice) == [choice], "one row, the first")
         model.addAgent()
         #expect(model.agentRows.count == 1, "a project signal has no Add")
-        #expect(model.doneKinds == [.query, .youDecide] && model.thenValues == [.keep, .archive])
+        #expect(model.doneKinds == [.query, .youDecide])
         model.name = "Reviews for me"
         #expect(model.canAdvance(step: SignalModel.nameStep) && !model.canAdvance(step: SignalModel.startStep))
         model.start = SignalTrigger(source: .gitLab, query: "author:@me")
@@ -357,6 +357,19 @@ import Testing
         #expect(signal.kind == .project && signal.agents == [choice] && signal.isValid)
         #expect(signal.finish == SignalFinish(then: .archive), "no merge and no branch deletion")
     }
+    /// A project signal removes its task as an Operator signal does, and keeps Delete its branch once merged only with
+    /// Remove.
+    @Test(arguments: [SignalFinish.Then.remove, .archive]) func aProjectSignalSavesItsBranchDeletionOnlyWithRemove(_ then: SignalFinish.Then) async throws {
+        let world = SignalWorld()
+        var saved: [Signal] = []
+        let model = SignalModel(kind: .project, projects: world.state.projects, context: pair, save: { saved.append($0) })
+        model.name = "Reviews for me"; model.start = SignalTrigger(source: .gitLab, query: "author:@me")
+        model.prompt = "/psg:review"; model.doneKind = .youDecide
+        model.then = then; model.deleteMergedBranch = true
+        #expect(await model.create())
+        let signal = try #require(saved.first)
+        #expect(signal.isValid && signal.finish == SignalFinish(then: then, deletesMergedBranch: then == .remove))
+    }
     @Test func editingAProjectSignalKeepsItsKind() async throws {
         var world = SignalWorld(); let id = world.projectSignal(start: SignalTrigger(source: .gitLab, query: "reviewer:@me"))
         let original = try #require(world.state.signal(id: id))
@@ -373,7 +386,7 @@ import Testing
         var saved: [Signal] = []
         let model = SignalModel(projects: [], context: pair, save: { saved.append($0) })
         #expect(!model.isProject && model.agentRows.count == 2 && model.doneKinds == [.query, .operatorDecides])
-        #expect(model.thenValues == SignalFinish.Then.allCases && model.stepNames == SignalModel.stepNames)
+        #expect(model.stepNames == SignalModel.stepNames)
         model.doneKind = .youDecide
         #expect(model.doneKind == .query, "only a project signal leaves Done to the person")
         model.name = "Tickets"; model.prompt = "Fix it."
