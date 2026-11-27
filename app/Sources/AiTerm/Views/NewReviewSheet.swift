@@ -62,6 +62,7 @@ struct NewReviewSheet: View {
                                       help: "When it has one, under the merge request’s.")
                 }
             }
+            .task(id: model.owningTask?.worktreePath) { await model.loadSkills(existingWorktree: model.owningTask?.worktreePath) }
         }
     }
     /// Every step needs a name and a branch, which the first step asks for: a review derives neither.

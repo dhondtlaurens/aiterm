@@ -9,7 +9,7 @@ extension AppController {
         guard canPresentNewSignal else { return }
         let controller = signalController, ports = controller.ports
         let context = SignalContext(installed: ports.installedAgents, harness: agents.harnessSettingsModel())
-        let home = ports.home, config = ports.claudeConfig, paths = state.projects.map(\.path)
+        let home = ports.home, config = ports.claudeConfig, skills = agents.nativeSkills, paths = state.projects.map(\.path)
         let model = SignalModel(signal: signal, kind: kind, projects: self.state.projects, context: context, seen: self.state.signalSeen,
             at: ports.now(), preview: { trigger in
                 let links = await controller.connections()
@@ -37,9 +37,7 @@ extension AppController {
         model.checkReadiness = { [weak self] in await self?.checkSignalReadiness() }
         model.loadCompletions = { [weak model] in
             let found = await BackgroundWork.run {
-                OperatorSkills.listed(at: paths.isEmpty ? [nil] : paths.map(Optional.some)) {
-                    SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: config)
-                }
+                OperatorSkills.listed(at: paths.isEmpty ? [nil] : paths.map(Optional.some), home: home, config: config, skills: skills)
             }
             guard !Task.isCancelled else { return }; model?.completions.all = found
         }

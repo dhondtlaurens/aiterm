@@ -30,7 +30,7 @@ public struct HarnessCommandRunner: Sendable {
     /// CLIs found through `locator`, which keeps what it found, and run with their `bin` on the
     /// `PATH`.
     public init(locator: LoginShellLocator) {
-        self.init(locate: { locator.locate($0) }, run: Self.launch, forgetLocations: { locator.forget() })
+        self.init(locate: { locator.locate($0) }, run: { try Self.launch($0, $1, $2, $3) }, forgetLocations: { locator.forget() })
     }
 
     /// The app's: CLIs found where the launch's probe found them, through the shared locator.
@@ -42,12 +42,12 @@ public struct HarnessCommandRunner: Sendable {
         throw HarnessProcessError.launchFailed("\(executable) is not installed.")
     })
 
-    private static let launch: @Sendable (String, [String], [String: String], TimeInterval) throws -> ProcessOutput = {
-        executable, arguments, overrides, timeout in
+    static func launch(_ executable: String, _ arguments: [String], _ overrides: [String: String], _ timeout: TimeInterval,
+                       in directory: URL? = nil, input: Data? = nil, limit: Int? = nil) throws -> ProcessOutput {
         let environment = ProcessRunner.inheritedEnvironment.merging(
             ProcessRunner.environment(runningCLI: executable, overrides: overrides), uniquingKeysWith: { _, override in override })
         do {
-            return try ProcessRunner.run(URL(fileURLWithPath: executable), arguments, environment: environment, timeout: timeout)
+            return try ProcessRunner.run(URL(fileURLWithPath: executable), arguments, environment: environment, in: directory, input: input, timeout: timeout, limit: limit)
         } catch {
             throw HarnessProcessError.launchFailed(error.localizedDescription)
         }

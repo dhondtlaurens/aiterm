@@ -19,6 +19,8 @@ struct PromptStep<Extra: View>: View {
     /// Whether ⇥ in the empty editor writes the placeholder in: for a query, whose example is often what is wanted.
     let tabFillsPlaceholder: Bool
     let extra: () -> Extra
+    /// Snapshots can supply a fixed popup while the editor continues to handle its own input.
+    @Environment(PromptCompletions.self) private var exampleCompletions: PromptCompletions?
     @State private var editorFocused: Bool = false
 
     init(text: @autoclosure @escaping () -> Binding<String>, agent: AgentKind, completions: PromptCompletions,
@@ -50,7 +52,7 @@ struct PromptStep<Extra: View>: View {
                     PromptPlaceholder(text: text, placeholder: placeholder)
                 }
                 .overlay(alignment: .topLeading) {
-                    CompletionPopup(completions: completions,
+                    CompletionPopup(completions: exampleCompletions ?? completions,
                                     width: Sheet.width - 2 * Space.margin - Self.completionPopupTrim)
                 }
                 if let help { HelpText(help, tone: helpTone) } else { CompletionHint() }

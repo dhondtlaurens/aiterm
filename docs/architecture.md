@@ -210,7 +210,7 @@ it started: one a crash left holding the socket is ended, and the app starts its
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
 | conversation | each agent's own hooks — Claude's and Codex's `session_id`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop names none, and it goes with the agent's process. Codex's proven thread and process ID are also kept on its iTerm tab (`CodexThreads`); a fresh helper recovers them only for that same Codex process, then reads the CLI version from its rollout before allowing delivery |
 | a worker stopped on an API error | Claude Code's `StopFailure` hook, in place of `Stop`: its `error` (`rate_limit`, `billing_error`, `authentication_failed`...), and for a limit when it resets, read only from the transcript's own record of it (`apiErrorParams.rate_limit_info.resetsAt`) within 30 s of the hook. Cleared on a new prompt, a clean Stop, or parent transcript activity newer than the failure and last hook. While children run, a busy session file alone proves no parent recovery; the stopped marker stays until its parent carries on. A stopped worker's transcript tail is parsed again only once the file changes. the worker status reports the stopped reason; its task blocks with the usage-limit reason |
-| skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
+| skills & commands | the prompt step reads agent and project files, Antigravity's enabled plugin list, and Pi's offline project command list |
 
 ## What AiTerm writes, and where
 

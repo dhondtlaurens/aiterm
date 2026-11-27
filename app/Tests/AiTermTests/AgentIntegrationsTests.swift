@@ -16,6 +16,19 @@ struct AgentIntegrationsTests {
         return (controller, root)
     }
 
+    /// The test process hook reports any CLI launched synchronously by an unmarked test.
+    @Test func aScratchControllersNativeSkillReadsStayOnDisk() throws {
+        let (controller, root) = try controller()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let manifest = home.appendingPathComponent(".agents/skills/example/SKILL.md")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Example".write(to: manifest, atomically: true, encoding: .utf8)
+        let skills = controller.agents.nativeSkills
+        #expect(skills.antigravityPlugins(home: home).isEmpty)
+        #expect(skills.discover(agent: .pi, projectPath: root.path, home: home).map(\.name) == ["skill:example"])
+    }
+
     /// A CLI installed from Settings is offered by the New Task sheet already open, without a
     /// relaunch: the sheet's model reads the CLIs live, and what draws them redraws.
     @Test func anOpenCreationSheetOffersACLISettingsInstalled() throws {
@@ -188,6 +201,19 @@ extension AgentIntegrationsTests {
 }
 
 extension AgentIntegrationsTests {
+    @Test func aSignalLoadsThePluginListOnceForAllProjects() throws {
+        let launches = Mutex(0)
+        let skills = NativeSkills { _, _, _ in
+            launches.withLock { $0 += 1 }
+            return #"[{"name":"example","enabled":true,"skills":["plan"]}]"#
+        }
+        let home = try ScratchFolder.make()
+        let found = OperatorSkills.listed(at: [home.path, home.appendingPathComponent("another").path],
+                                          home: home, config: ClaudeConfig(), skills: skills)
+        #expect(found.map(\.name) == ["example:plan"])
+        #expect(launches.withLock { $0 } == 1)
+    }
+
     /// Settings › Operator's `/` lists Claude's skills from the configured folder in the harness home.
     @Test func operatorSettingsListClaudesSkillsFromTheConfiguredFolder() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

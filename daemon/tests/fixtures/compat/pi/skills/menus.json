@@ -1,0 +1,30 @@
+[
+  {
+    "name": "enabled",
+    "global_settings": "{\"packages\": [\"/SCRATCH/skill-catalogue/fixture-pack\"], \"theme\": \"dark\", \"lastChangelogVersion\": \"1.6.1\"}",
+    "project": "{\"enableSkillCommands\": true}",
+    "trust": true,
+    "visible": true
+  },
+  {
+    "name": "project disables",
+    "global_settings": "{\"packages\": [\"/SCRATCH/skill-catalogue/fixture-pack\"], \"theme\": \"dark\", \"lastChangelogVersion\": \"1.6.1\"}",
+    "project": "{\"enableSkillCommands\": false}",
+    "trust": true,
+    "visible": false
+  },
+  {
+    "name": "denied override",
+    "global_settings": "{\"packages\": [\"/SCRATCH/skill-catalogue/fixture-pack\"], \"theme\": \"dark\", \"lastChangelogVersion\": \"1.6.1\"}",
+    "project": "{\"enableSkillCommands\": false}",
+    "trust": false,
+    "visible": true
+  },
+  {
+    "name": "undecided override",
+    "global_settings": "{\"packages\": [\"/SCRATCH/skill-catalogue/fixture-pack\"], \"theme\": \"dark\", \"lastChangelogVersion\": \"1.6.1\"}",
+    "project": "{\"enableSkillCommands\": false}",
+    "trust": null,
+    "visible": true
+  }
+]

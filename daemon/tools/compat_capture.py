@@ -52,6 +52,7 @@ from aitermd.models import MESSAGING_CHECKED, AgentKind, Frame, classify_agent
 from tools.delivery_check import (Live, answer_trust, idle, identity, parse_version, read_json, scratch_claude_config, scratch_codex_home,
                                   screen_settings)
 from tools.compat_preflight import command as checked_command
+from tools.skill_capture import capture_skills
 
 REPO = Path(__file__).resolve().parents[2]
 COMPAT = REPO / "compat"
@@ -996,6 +997,13 @@ def private_values(scratch: Path, outside: Path) -> tuple[Secret, ...]:
     return secrets(home, os.environ.get("USER") or home.name, scratch, accounts, outside)
 
 
+def skill_files(agent: AgentKind, scratch: Path, version: str) -> dict[str, str]:
+    try:
+        return capture_skills(agent, scratch, version)
+    except (RuntimeError, subprocess.SubprocessError, OSError) as error:
+        raise CaptureFailed(f"skill discovery failed: {error}") from error
+
+
 async def capture(agents: tuple[AgentKind, ...], into: Path) -> dict[AgentKind, str]:
     """Captures each of `agents` installed, and writes each capture; the versions written."""
     bridge = ItermBridge()
@@ -1020,6 +1028,8 @@ async def capture(agents: tuple[AgentKind, ...], into: Path) -> dict[AgentKind, 
                     scratch = Path(folder)
                     (scratch / "outside").symlink_to(outside)
                     files = await CAPTURE[agent](live, listener, port, scratch, version)
+                    if agent in ("agy", "pi"):
+                        files.update({f"skills/{name}": text for name, text in skill_files(agent, scratch, version).items()})
                     files["version.txt"] = version + "\n"
                     write_capture(files, into / agent, private_values(scratch, Path(outside)))
             except Leak as error:
@@ -1045,6 +1055,9 @@ def main(argv: list[str] | None = None) -> int:
     take.add_argument("--agents", default=",".join(AGENTS), help=f"comma-separated, from {', '.join(AGENTS)}")
     take.add_argument("--into", type=Path, default=CAPTURES, help="where the captures go (default: the test fixtures)")
     take.add_argument("--written", type=Path, help="a file to write the captured versions into, as JSON")
+    skills = commands.add_parser("capture-skills", help="capture only native skill inputs, offline in a scratch home")
+    skills.add_argument("--agents", default="agy,pi")
+    skills.add_argument("--into", type=Path, default=CAPTURES)
     gate = commands.add_parser("gate", help="whether the delivery check run alongside passed each CLI captured")
     gate.add_argument("--policy", type=Path, required=True)
     gate.add_argument("--versions", type=Path, required=True, help="the capture's --written file")
@@ -1066,6 +1079,23 @@ def main(argv: list[str] | None = None) -> int:
         agents = chosen_agents(ns.agents)
     except ValueError as error:
         parser.error(str(error))
+    if ns.command == "capture-skills":
+        failed = False
+        for agent in agents:
+            if agent not in ("agy", "pi") or (version := cli_version(agent)) is None:
+                parser.error(f"No installed skill capture target: {agent}")
+            with tempfile.TemporaryDirectory(prefix="aiterm-skills-") as folder:
+                scratch = Path(folder)
+                try:
+                    files = skill_files(agent, scratch, version)
+                except CaptureFailed as error:
+                    print(f"{agent}: FAILED -- {error}", flush=True)
+                    failed = True
+                    continue
+                target = ns.into / agent / "skills"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                write_capture(files, target, private_values(scratch, scratch))
+        return int(failed)
     written = asyncio.run(capture(agents, ns.into))
     if ns.written:
         ns.written.write_text(json.dumps(written, indent=2, sort_keys=True) + "\n", encoding="utf-8")

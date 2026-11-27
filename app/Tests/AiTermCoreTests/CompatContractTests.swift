@@ -129,6 +129,36 @@ import Testing
     /// What the capture's own model is, as the capture note names it.
     static func capturedModel(_ agent: AgentKind) throws -> String { try object(captured(agent, "capture.json"))["model"] as? String ?? "" }
 
+    @Test func nativeSkillQueriesMatchTheCapturedTerminalCatalogues() throws {
+        struct Probe: Decodable { let arguments: [String], request: String? }
+        struct MenuCase: Decodable { let name: String, global_settings: String, project: String, trust: Bool?, visible: Bool }
+        for agent in [AgentKind.agy, .pi] {
+            let probe = try JSONDecoder().decode(Probe.self, from: Self.captured(agent, "skills/probe.json"))
+            #expect(agent.harness.skillListArguments == probe.arguments)
+            let output = try Self.text(agent, "skills/commands.jsonl")
+            let reader = NativeSkills { _, _, _ in output }
+            let home = try ScratchFolder.make()
+            if agent == .agy {
+                #expect(reader.antigravityPlugins(home: home).map(\.name) == ["fixture-pack:fixture-check"])
+                continue
+            }
+            #expect(probe.request == NativeSkills.request)
+            let cases = try JSONDecoder().decode([MenuCase].self, from: Self.captured(.pi, "skills/menus.json"))
+            let project = try ScratchFolder.make()
+            let global = home.appendingPathComponent(".pi/agent")
+            let local = project.appendingPathComponent(".pi")
+            for folder in [global, local] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+            for entry in cases {
+                try Data(entry.global_settings.utf8).write(to: global.appendingPathComponent("settings.json"))
+                try Data(entry.project.utf8).write(to: local.appendingPathComponent("settings.json"))
+                let decisions = entry.trust.map { [CanonicalPath.of(project.path): $0] } ?? [:]
+                try JSONEncoder().encode(decisions).write(to: global.appendingPathComponent("trust.json"))
+                let skills = reader.discover(agent: .pi, projectPath: project.path, home: home)
+                #expect(skills.contains { $0.name == "skill:fixture-check" } == entry.visible, "Pi menu: \(entry.name)")
+            }
+        }
+    }
+
     @Test func claudesCatalogueReadsAsItsOwnModelsAndEfforts() throws {
         let folder = Self.captures.appendingPathComponent("claude/model-catalog")
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix("-cc.json") }

@@ -127,7 +127,7 @@ extension Harness {
         // model and its levels (`AgyModelCatalog`), and the launch joins the two again.
         fallbackEfforts: [], defaultEffort: "",
         noModelsExplanation: "No Antigravity models are available. Run agy to sign in.",
-        skillSigil: "/", hookEndpoint: "/hook/agy",
+        skillSigil: "/", skillListArguments: ["plugin", "list", "--json"], hookEndpoint: "/hook/agy",
         bundledResource: .script("agy-statusline-shim.sh"),
         // Every launch approves its own tools, as a Codex task bypasses its approvals.
         promptFlag: ["-i"],
@@ -174,7 +174,7 @@ extension Harness {
         installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
         fallbackEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], defaultEffort: "medium",
         noModelsExplanation: "No PI providers are signed in. Run /login in PI.",
-        skillSigil: "/", hookEndpoint: "/hook/pi",
+        skillSigil: "/", skillListArguments: ["--offline", "--mode", "rpc", "--no-session", "--no-extensions", "--no-mcp"], hookEndpoint: "/hook/pi",
         bundledResource: .source("pi-aiterm-status.ts"),
         promptFlag: [],
         launchArguments: { Harness.pi.modelArguments(model: $0, reasoning: $1) },
@@ -193,19 +193,19 @@ extension Harness {
         resumeArguments: { ["--session", $0] },    // a session id or file
         models: .launch(sources: { PiModelCatalog.sources(home: $0) },
                         list: { try PiModelCatalog.discover(executable: $0, runner: $1) }),
-        skillRoots: { home, project in
-            // PI runs a skill as `/skill:<name>`.
-            let user = home.appendingPathComponent(".pi/agent")
-            var roots = [SkillRoot(.skills(namespace: "skill"), user.appendingPathComponent("skills"), .user),
-                         SkillRoot(.skills(namespace: "skill"), home.appendingPathComponent(".agents/skills"), .user),
-                         SkillRoot(.commands(), user.appendingPathComponent("prompts"), .user)]
-            if let project {
-                roots += [SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".pi/skills"), .project),
-                          SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".agents/skills"), .project),
-                          SkillRoot(.commands(), project.appendingPathComponent(".pi/prompts"), .project)]
-            }
-            return roots
-        },
+        skillRoots: { home, project in piSkillRoots(home: home, project: project, agentDirectory: home.appendingPathComponent(".pi/agent")) },
         makeDriver: { home, port, source in source.map { PiDriver(home: home, daemonPort: port, source: $0) } })
+
+    static func piSkillRoots(home: URL, project: URL?, agentDirectory user: URL) -> [SkillRoot] {
+        var roots = [SkillRoot(.skills(namespace: "skill"), user.appendingPathComponent("skills"), .user),
+                     SkillRoot(.skills(namespace: "skill"), home.appendingPathComponent(".agents/skills"), .user),
+                     SkillRoot(.commands(), user.appendingPathComponent("prompts"), .user)]
+        if let project {
+            roots += [SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".pi/skills"), .project),
+                      SkillRoot(.skills(namespace: "skill"), project.appendingPathComponent(".agents/skills"), .project),
+                      SkillRoot(.commands(), project.appendingPathComponent(".pi/prompts"), .project)]
+        }
+        return roots
+    }
 
 }
