@@ -6,8 +6,8 @@ import AiTermUI
 /// the title, a search field that keeps the keyboard, the rows under optional group headings, and `SheetFooter`'s
 /// actions. The Operator's and the projects' signals sheets and the Archive are configurations of it.
 ///
-/// The sheet owns how a list behaves, the model what it holds: ↑ ↓ move the model's highlight, ⌘⌫ asks the
-/// highlighted row's Remove question, ⎋ clears a search and then closes, a click highlights a row and a double-click
+/// The sheet owns how a list behaves, the model what it holds: ↑ ↓ move the model's highlight, ↩ opens the highlighted
+/// row's menu below its gear with the first enabled item highlighted, ⌘⌫ asks the highlighted row's Remove question, ⎋ clears a search and then closes, a click highlights a row and a double-click
 /// runs its first command. The footer's primary answers ⌘↩. Nothing archived or listed yet is the `empty` content; a
 /// search that matches nothing says so with the query.
 struct ListSheet<Item: Identifiable, Row: View, Empty: View, Footer: View>: View where Item.ID == UUID {
@@ -25,7 +25,7 @@ struct ListSheet<Item: Identifiable, Row: View, Empty: View, Footer: View>: View
     let highlight: (UUID) -> Void
     /// A double-click: the row's first command.
     let activate: (UUID) -> Void
-    /// The search field's commands, before the field sees them: the model's ↑ ↓, ⌘⌫ and ⎋.
+    /// The search field's commands, before the field sees them: the model's ↑ ↓, ⌘⌫ and ⎋. ↩ is the sheet's own.
     let command: (Selector) -> Bool
     let commands: (Item) -> [[RowCommand]]
     @ViewBuilder let row: (Item) -> Row
@@ -33,13 +33,16 @@ struct ListSheet<Item: Identifiable, Row: View, Empty: View, Footer: View>: View
     @ViewBuilder let footer: () -> Footer
     @State private var focused = true
     @State private var hovered: UUID?
+    /// ↩'s request to open a row's menu, until that row's gear has opened it: a row scrolled out of the lazy list has no
+    /// gear, so the request waits for the scroll that brings it back.
+    @State private var menuRequest: ListMenuRequest?
 
     var body: some View {
         let items = groups.flatMap(\.items)
         SheetLayout(title: title, height: .fixed(Sheet.height), contentVerticalPadding: items.isEmpty ? Space.margin : Space.base) {
             HStack(spacing: Space.base) {
                 Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
-                SearchField(placeholder: placeholder, text: $query, focused: $focused, onCommand: command)
+                SearchField(placeholder: placeholder, text: $query, focused: $focused, onCommand: handle)
             }
             .fieldChrome(focused: focused)
             // A field, not a line of the title: `Space.base` further from it than a subtitle.
@@ -67,16 +70,43 @@ struct ListSheet<Item: Identifiable, Row: View, Empty: View, Footer: View>: View
                                     .onTapGesture { highlight(item.id) }
                                     .accessibilityAddTraits(item.id == highlighted ? .isSelected : [])
                                     .modifier(RowCommandContextMenu(groups: groups))
+                                    .environment(\.rowMenuOpening, opening(for: item.id))
                             }
                         }
                     }
-                    .onChange(of: highlighted) { _, id in if let id { scroller.scrollTo(id) } }
+                    .onChange(of: highlighted) { _, id in
+                        // A request is for the row it was made on; moving the highlight drops it.
+                        menuRequest = nil
+                        if let id { scroller.scrollTo(id) }
+                    }
+                    .onChange(of: menuRequest) { _, request in if let request { scroller.scrollTo(request.id) } }
                 }
             }
         } footer: {
             footer()
         }
     }
+
+    /// ↩ opens the highlighted row's menu; everything else is the sheet's `command`. With no row to open, ↩ stays the
+    /// field's.
+    private func handle(_ selector: Selector) -> Bool {
+        let item = groups.lazy.flatMap(\.items).first { $0.id == highlighted }
+        guard let next = ListMenuRequest.on(selector, after: menuRequest, highlighted: item?.id,
+                                            commands: item.map(commands) ?? []) else { return command(selector) }
+        menuRequest = next
+        return true
+    }
+
+    /// What `id`'s row hears of ↩'s request: the request when it is the row's own and not yet served.
+    private func opening(for id: UUID) -> RowMenuOpening? {
+        guard let request = menuRequest, request.id == id else { return nil }
+        return RowMenuOpening(count: request.count) { if menuRequest == request { menuRequest = nil } }
+    }
+}
+
+extension EnvironmentValues {
+    /// ↩'s pending request to open this list sheet row's menu, nil on every row it is not for.
+    @Entry var rowMenuOpening: RowMenuOpening? = nil
 }
 
 /// A run of a list sheet's rows under an optional heading: the Archive's dates, or one unheaded group.
@@ -121,7 +151,7 @@ struct ListRowState: Equatable {
 
 /// A list sheet's row, `Size.row` tall: the leading mark, the title over one `Size.chip` line, both cut at the end before
 /// the columns; then, with `stateColumn`, a `Size.slot` column whose glyph raises its words; then the trailing column a
-/// task row gives its status mark, with the row's menu behind `gearshape`, drawn as the headings' + (`AddMenu`).
+/// task row gives its status mark, with the row's menu behind `gearshape` (`RowMenuButton`), drawn as the headings' +.
 /// `dimmed` fades the mark and the lines, as a switched-off signal is. Inked from the `Surface` its pill declares.
 struct ListSheetRow<Mark: View, Detail: View>: View {
     let title: String
@@ -134,6 +164,7 @@ struct ListSheetRow<Mark: View, Detail: View>: View {
     @ViewBuilder let detail: () -> Detail
     @State private var stateHovered = false
     @Environment(\.interfaceScale) private var scale
+    @Environment(\.rowMenuOpening) private var menuOpening
 
     var body: some View {
         HStack(spacing: Space.inset) {
@@ -161,10 +192,8 @@ struct ListSheetRow<Mark: View, Detail: View>: View {
                     }
                 }
             }
-            AddMenu(help: "Actions for \(title)", enabled: commands.contains { $0.contains(where: \.enabled) }, symbol: "gearshape") {
-                RowCommandMenu(groups: commands)
-            }
-            .accessibilityLabel("Actions for \(title)")
+            RowMenuButton(help: "Actions for \(title)", commands: commands, opening: menuOpening)
+                .accessibilityLabel("Actions for \(title)")
         }
         .padding(.leading, Space.base).padding(.vertical, Space.base)
         .padding(.trailing, SidebarRowLayout.trailingInset(scale))

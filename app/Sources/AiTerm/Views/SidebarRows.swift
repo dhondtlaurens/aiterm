@@ -19,14 +19,13 @@ enum SidebarRowLayout {
     static func chevronWidth(_ scale: InterfaceScale) -> CGFloat { scale(Size.chevron) }
 }
 
-/// The add glyph of the OPERATOR and PROJECTS headings and a project's header, and the settings glyph of a list sheet's row, drawn identically wherever it appears. `.borderlessButton` hands the label to
+/// The add glyph of the OPERATOR and PROJECTS headings and a project's header, drawn identically wherever it appears; a
+/// list sheet row's gear is drawn the same way (`RowMenuButton`). `.borderlessButton` hands the label to
 /// an AppKit pop-up button, which draws the same `Image` a point larger than a `Button` does;
 /// `.button` + `.plain` keeps the menu's click and gives back the button's own rendering.
 struct AddMenu<Items: View>: View {
     let help: String?
     let enabled: Bool
-    /// The glyph: `plus` on a heading, `gearshape` on a list sheet's row, drawn the same way.
-    var symbol = "plus"
     @ViewBuilder let items: () -> Items
     @Environment(\.interfaceScale) private var scale
     /// A selected project header's "+" sits on the selection, in its secondary ink.
@@ -34,7 +33,7 @@ struct AddMenu<Items: View>: View {
 
     var body: some View {
         Menu(content: items) {
-            Image(systemName: symbol).font(Typography.label).foregroundStyle(surface.secondaryInk)
+            Image(systemName: "plus").font(Typography.label).foregroundStyle(surface.secondaryInk)
         }
         .disabled(!enabled)
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
