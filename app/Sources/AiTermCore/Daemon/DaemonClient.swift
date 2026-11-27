@@ -464,7 +464,7 @@ public final class DaemonClient: Sendable {
     struct CreateTaskResult: Decodable { var windowId: String; var commandError: String? }
     struct CreateTabResult: Decodable { var sessionId: String; var commandError: String? }
     struct ChangedResult: Decodable { var changed: Int }
-    struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool }
+    struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool; var worker: Bool? }
     /// `guardInput` is sent only when set, so an unguarded request reads as before.
     struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var guardInput: Bool?; var worktree: String? }
     struct SessionParams: Encodable { var sessionId: String }
@@ -485,7 +485,7 @@ public final class DaemonClient: Sendable {
     }
     struct CreateTerminalParams: Encodable { var projectId, terminalId, cwd, title: String; var frame: Frame }
     struct WindowParams: Encodable { var windowId: String; var frame: Frame? }
-    struct CreateTabParams: Encodable { var windowId, cwd: String; var agentCommand, tabKey: String?; var background: Bool }
+    struct CreateTabParams: Encodable { var windowId, cwd: String; var agentCommand, tabKey: String?; var background: Bool; var worker: Bool? }
     struct SessionTitlesParams: Encodable { var titles: [SessionTitle] }
     struct TaskParams: Encodable { var taskId: String }
     struct InterfaceParams: Encodable { var matchItermBackground: Bool }
@@ -528,19 +528,24 @@ public final class DaemonClient: Sendable {
     /// `background` opens the window behind the person's work: iTerm2 is not activated and the
     /// window not raised.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame,
-                                 background: Bool) async throws -> Opening {
+                                 background: Bool, worker: Bool) async throws -> Opening {
         let result = try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
-                                                                                    frame: frame, background: background), as: CreateTaskResult.self)
+                                                                                    frame: frame, background: background, worker: worker ? true : nil), as: CreateTaskResult.self)
         return Opening(id: result.windowId, commandError: result.commandError)
     }
     public func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
         try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, terminalId: terminalId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
     /// A tab in an existing window, carrying that window's task or project tag.
     /// `tabKey` identifies an extra worker tab; `background` keeps it behind the person's work.
-    public func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening {
+    public func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool, worker: Bool) async throws -> Opening {
         let result = try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: tabKey,
-                                                              background: background), as: CreateTabResult.self)
+                                                              background: background, worker: worker ? true : nil), as: CreateTabResult.self)
         return Opening(id: result.sessionId, commandError: result.commandError)
+    }
+    public func setWorkerSessions(taskId: String, sessionIds: [String], released: Bool, ownership: Int) async throws {
+        struct Params: Encodable { var taskId: String; var sessionIds: [String]; var released: Bool; var ownership: Int }
+        _ = try await request(.taskSetWorkerSessions, params: Params(taskId: taskId, sessionIds: sessionIds,
+                              released: released, ownership: ownership), as: Empty.self)
     }
     public func activate(windowId: String) async throws { _ = try await request(.windowActivate, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
     public func activate(sessionId: String) async throws { _ = try await request(.sessionActivate, params: SessionParams(sessionId: sessionId), as: Empty.self) }

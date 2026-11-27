@@ -152,7 +152,7 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         await iterm.settle()
         events[protocol.SESSION_OPENED] = await app.event(protocol.SESSION_OPENED, mark)
         # An Operator's extra worker tab: its key comes back on its session in sessions.list and the snapshot.
-        replies["tab.create"] = await app.call("tab.create", {"windowId": task_window, "cwd": WORKTREE, "tabKey": "review",
+        replies["tab.create"] = await app.call("tab.create", {"windowId": task_window, "cwd": WORKTREE, "tabKey": "review", "worker": True,
                                                               "background": True})
         replies["window.createTerminal"] = await app.call("window.createTerminal", {
             "projectId": PROJECT_ID, "cwd": "/repo", "title": "Logs", "frame": FRAME})
@@ -188,6 +188,8 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["sessions.setTitles"] = await app.call("sessions.setTitles", {"titles": [{"sessionId": pi, "title": "feat/wire"}]})
         replies["sessions.markSeen"] = await app.call("sessions.markSeen", {"taskId": TASK_ID})
         worker = replies["tab.create"]["result"]["sessionId"]
+        # The protected worker accepts its hooks by Claude’s conversation-to-process evidence.
+        monkeypatch.setattr(svc.claude_files, "indexed_pid", lambda conversation: 4243 if conversation == "claude-wire" else None)
         await iterm.user_runs(worker, "claude", job_pid=4243)
         await svc.tick()
         iterm.screens[worker] = "❯ "
@@ -273,6 +275,8 @@ async def emitted(make_service, monkeypatch, tmp_path) -> dict[str, str]:
         replies["session.inputState"] = await app.call("session.inputState", {"sessionId": worker})
 
         mark = app.mark()
+        replies["task.setWorkerSessions"] = await app.call("task.setWorkerSessions", {
+            "taskId": TASK_ID, "sessionIds": [], "released": True, "ownership": 2})
         await iterm.disconnect()
         events[protocol.ITERM_DISCONNECTED] = await app.event(protocol.ITERM_DISCONNECTED, mark)
         methods = svc.rpc.methods

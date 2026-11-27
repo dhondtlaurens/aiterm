@@ -54,6 +54,7 @@ public struct SessionContexts: Equatable, Sendable {
     /// The sidebar row a tab is drawn under: its task, the Operator's stable row, or its terminal.
     /// A terminal's tabs carry no task tag, so the window ties an agent back to its row and avatars.
     static func row(for session: SessionInfo, in state: AppState) -> UUID? {
+        guard !session.isHelper else { return nil }
         if session.taskId != nil {
             if session.taskUUID == state.operatorSession?.id { return OperatorSession.rowID }
             return session.taskUUID.flatMap(state.task(id:))?.id

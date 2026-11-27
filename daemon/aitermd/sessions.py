@@ -3,7 +3,7 @@ from __future__ import annotations
 from bisect import insort
 from dataclasses import dataclass, field, fields
 
-from .models import (PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession,
+from .models import (PROJECT_TAG, ROLE_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession,
                      SessionInfo, State, StoppedOn, TranscriptWork, classify_agent)
 
 
@@ -91,7 +91,7 @@ class SessionRegistry:
             project_id=r.user_vars.get(PROJECT_TAG) or self._window_project.get(r.window_id),
             terminal_id=r.user_vars.get(TERMINAL_TAG) or self._window_terminal.get(r.window_id),
             # The tab's own: a tab beside an extra worker's is not that worker.
-            tab_key=r.user_vars.get(TAB_TAG),
+            tab_key=r.user_vars.get(TAB_TAG), tab_role=r.user_vars.get(ROLE_TAG) or None,
             agent=classify_agent(r.command_line), state="idle",
             title=r.title or "", cwd=r.cwd or "", job_pid=r.job_pid,
             # Read back from the map rather than from `r`, so a snapshot in which iTerm2

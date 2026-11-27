@@ -158,6 +158,7 @@ class Service:
         r("session.deliver", self._h_deliver)
         r("session.closeIdle", self._h_close_idle)
         r("session.inputState", self._h_input_state)
+        r("task.setWorkerSessions", self._h_set_worker_sessions)
         r("session.setOwnership", self._h_set_ownership)
         r("delivery.policy", self._h_delivery_policy)
         r("operator.register", self.operators.register)
@@ -232,6 +233,9 @@ class Service:
 
     async def _h_input_state(self, p: Any) -> dict[str, Any]:
         return {"input": await self.deliverer.input_state(param(p, "sessionId", str))}
+
+    async def _h_set_worker_sessions(self, p: Any) -> dict[str, Any]:
+        return await self.windows.set_worker_sessions(p, self.deliverer.set_ownership)
 
     async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
         self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))
@@ -326,6 +330,7 @@ class Service:
         # Tick owns structural registry changes. Keep one ordered view for this pass;
         # hooks and status updates still mutate the same SessionInfo values.
         sessions = self.registry.all()
+        self.windows.staged.sweep({s.session_id for s in sessions})
         since = self._initial_snapshot_since if self._initial_snapshot_since is not None else self.clock()
         self._initial_snapshot_since = None
         new_processes = set(diff.opened + diff.replaced)

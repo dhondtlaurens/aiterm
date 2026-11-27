@@ -120,6 +120,7 @@ TERMINAL_TAG = "aiterm_terminal"
 # The key of an Operator's extra worker tab (open_tab), on that one tab beside its task tag: it tells
 # the tab apart from its task's first worker and from the task's other extra tabs. Never inherited.
 TAB_TAG = "aiterm_tab"
+ROLE_TAG = "aiterm_role"
 CODEX_THREAD_TAG = "aiterm_codex_thread"
 # The tab's user variable an AiTerm branch title is kept in; the tab's title interpolates it.
 TITLE_TAG = "aiterm_title"
@@ -386,6 +387,7 @@ class SessionInfo:
     cli_version: str | None = field(default=None, compare=False, metadata={"process": True})
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
+    tab_role: str | None = None
     # What its agent's last Stop listed as still running (Claude's `background_tasks`, or what an Antigravity Stop's
     # transcript names when it says work runs), which wakes it again: a turn ended with
     # this is paused, not finished. Empty once a new turn starts. A subagent stays on it while the status engine counts it.
@@ -418,6 +420,7 @@ class SessionInfo:
             "active": self.active, "contextPercent": self.context_percent,
             "contextTokens": self.context_tokens,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
+            "tabRole": self.tab_role,
             "work": [item.to_json() for item in work_items(self)], "yourPrompt": self.your_prompt,
             "stoppedOn": self.stopped_on.to_json() if self.stopped_on else None,
             "testActivity": self.test_activity.to_json() if self.test_activity else None,

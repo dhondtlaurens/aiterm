@@ -90,7 +90,7 @@ import Testing
             switch method {
             // The liveness check: any answer is a helper that is there, so nothing in it is read.
             case .itermStatus, .windowActivate, .sessionActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
-                 .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
+                 .taskSetWorkerSessions, .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
                 _ = try read(DaemonClient.Empty.self)
             case .sessionDeliver, .sessionCloseIdle:
                 let delivery = try read(Delivery.self)
@@ -120,7 +120,7 @@ import Testing
             case .sessionsList:
                 try Self.expectSame(read([SessionInfo].self), #require(result["result"]))
                 // The Operator's extra worker tab the daemon's script opened: its key comes back on its session.
-                #expect(try read([SessionInfo].self).contains { $0.tabKey == "review" && $0.taskId != nil })
+                #expect(try read([SessionInfo].self).contains { $0.tabKey == "review" && $0.tabRole == .worker && $0.taskId != nil })
             case .usageGet: try Self.expectSame(read(UsageSnapshot.self), #require(result["result"]))
             }
         }

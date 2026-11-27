@@ -54,6 +54,50 @@ import Testing
         #expect(WorkerGuardLaunch.recordedScope(task: scope.task, home: home)?.ownership == 1)
     }
 
+    @Test(arguments: ["claude", "codex", "agy", "pi"])
+    func nestedCLIReceivesWholeArgumentsAndStreams(_ tool: String) throws {
+        let f = try Fixture()
+        let parent = f.folder.appendingPathComponent("outer-agent")
+        let receiver = f.folder.appendingPathComponent("receive")
+        let payload = String(repeating: "q'\n ", count: 25_000)
+        let argument = f.folder.appendingPathComponent("argument")
+        try Data(payload.utf8).write(to: argument)
+        let options: [String] = switch tool {
+        case "claude": ["--settings", "{\"permissions\":{}}", "--permission-mode", "plan", "--tools", "Read", "--allowedTools", "Read", "--output-format", "stream-json", "-p"]
+        case "codex": ["exec", "-s", "read-only"]
+        case "agy": ["--sandbox", "--disable-slash-commands", "--output-format", "stream-json", "-p"]
+        default: ["-p"]
+        }
+        let check = """
+        #!/usr/bin/python3
+        import json, os, sys
+        from pathlib import Path
+        options = json.loads(Path(__file__).with_name("options").read_text())
+        assert sys.argv[-len(options)-2:-2] == options
+        assert sys.argv[-2] == Path(__file__).with_name("argument").read_text()
+        assert sys.argv[-1] == ""
+        assert os.environ["ITERM_SESSION_ID"] == "aiterm-headless-helper"
+        assert sys.stdin.buffer.read() == b"stream\\x00input"
+        print("output")
+        print("diagnostic", file=sys.stderr)
+        sys.exit(23)
+        """
+        try JSONEncoder().encode(options).write(to: f.folder.appendingPathComponent("options"))
+        try Data(check.utf8).write(to: receiver)
+        let run = "#!/bin/sh\nprintf 'stream\\000input' | " + tool + " " + options.map(AgentCommand.shellQuote).joined(separator: " ")
+            + " \"$(cat " + AgentCommand.shellQuote(argument.path) + ")\" ''\n"
+        try Data(run.utf8).write(to: parent)
+        for file in [receiver, parent] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
+        }
+        // Give the outer CLI and nested receiver separate executables.
+        let outer = tool == "pi" ? "codex" : "pi"
+        let script = "export AITERM_REAL_" + outer.uppercased() + "=" + AgentCommand.shellQuote(parent.path)
+            + " AITERM_REAL_" + tool.uppercased() + "=" + AgentCommand.shellQuote(receiver.path) + "\n" + outer
+        let result = try f.run("#!/bin/sh\n" + script + "\n")
+        #expect(result.status == 23 && result.stdout.contains("output") && result.stderr.contains("diagnostic"), "\(result.stderr)")
+    }
+
     private struct Fixture {
         let folder: URL, config: URL, path: String, origin: String, sha: String
         let git = GitRunner.hermetic()

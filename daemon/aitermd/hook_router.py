@@ -13,7 +13,7 @@ from .hook_events import HookEvent, TickState
 from .models import AgentKind
 from .offload import run_detached
 from .publisher import Publisher
-from .resolver import SessionResolver
+from .resolver import HELPER_SESSION_ID, SessionResolver
 from .status import Evidence, StatusEngine
 from .usage import UsageStore
 
@@ -88,6 +88,8 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
+            if tick.iterm_session_id == HELPER_SESSION_ID:
+                return None
             if (tick.context_percent is not None or "context_window" in body or tick.state is not None or tick.version
                     or tick.task_count is not None):
                 async with self._in_order:
@@ -107,7 +109,7 @@ class HookRouter:
         # Hooks report the agent's state; checkout removal belongs to the app.
         parser = HOOK_PARSERS.get(path)
         ev = parser(body) if parser else None
-        if ev is None:
+        if ev is None or ev.iterm_session_id == HELPER_SESSION_ID:
             return None
         loop = asyncio.get_running_loop()
         source, done = self._source(ev), loop.create_future()

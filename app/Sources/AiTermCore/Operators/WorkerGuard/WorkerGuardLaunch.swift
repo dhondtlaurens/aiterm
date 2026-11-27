@@ -50,7 +50,10 @@ public enum WorkerGuardLaunch {
                                slot: String = "main", executable: URL) throws -> Prepared {
         let folder = folder(task: scope.task, home: home, slot: slot)
         let manager = FileManager.default
-        for path in [folder, folder.appendingPathComponent("bin"), folder.appendingPathComponent("hooks")] {
+        let plugin = folder.appendingPathComponent("claude-guard")
+        let agyPolicy = folder.appendingPathComponent("agy-policy/.agents")
+        for path in [folder, folder.appendingPathComponent("bin"), folder.appendingPathComponent("hooks"),
+                     plugin.appendingPathComponent(".claude-plugin"), plugin.appendingPathComponent("hooks"), agyPolicy] {
             try manager.createDirectory(at: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
         }
@@ -62,13 +65,20 @@ public enum WorkerGuardLaunch {
            old.ownership > scope.ownership || (old.ownership == scope.ownership && (old.stage ?? 0) > (scope.stage ?? 0)) {
             throw CocoaError(.fileWriteNoPermission)
         }
-        let config = folder.appendingPathComponent("scope.json"), settings = folder.appendingPathComponent("settings.json")
+        let config = folder.appendingPathComponent("scope.json"), settings = plugin.appendingPathComponent("hooks/hooks.json")
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         try PrivateFile.write(encoder.encode(scope), to: config)
         let check = AgentCommand.shellQuote(executable.path) + " --worker-guard hook " + AgentCommand.shellQuote(config.path)
         let hooks: JSONValue = ["hooks": ["PreToolUse": [["matcher": "Bash", "hooks": [["type": "command", "command": .string(check), "timeout": 30]]]]]]
         try PrivateFile.write(encoder.encode(hooks), to: settings)
-        for tool in ["git", "gh", "glab", "claude", "codex", "agy"] {
+        // Explicit plugins compose with Claude's caller-supplied settings and permission mode.
+        try PrivateFile.write(Data(#"{"name":"aiterm-worker-guard"}"#.utf8), to: plugin.appendingPathComponent(".claude-plugin/plugin.json"))
+        // Antigravity 1.5 loads workspace hooks from --add-dir, including in an interactive resumed worker.
+        let deny = #"printf '%s' '{"decision":"deny","reason":"End your turn with a Question: paragraph."}'"#
+        let question: JSONValue = ["aiterm-worker": ["PreToolUse": [["matcher": "^ask_question$",
+            "hooks": [["type": "command", "command": .string(deny), "timeout": 5]]]]]]
+        try PrivateFile.write(encoder.encode(question), to: agyPolicy.appendingPathComponent("hooks.json"))
+        for tool in ["git", "gh", "glab", "claude", "codex", "agy", "pi"] {
             let path = folder.appendingPathComponent("bin/" + tool)
             try PrivateFile.write(Data(shim(tool, folder: folder, executable: executable).utf8), to: path)
             try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
@@ -80,16 +90,25 @@ public enum WorkerGuardLaunch {
     }
     private static func shim(_ tool: String, folder: URL, executable: URL) -> String {
         let variable = "AITERM_REAL_" + tool.uppercased()
-        if tool == "codex" || tool == "claude" || tool == "agy" {
-            // Codex exec_command defaults to a login shell, which resets PATH and loses the guard.
-            // A per-launch setting preserves the shims without changing personal CLI settings.
-            // Antigravity's commands inherit its PATH, so its own shim only passes the launch on.
-            let options = switch tool {
-            case "codex": "-c allow_login_shell=false "
-            case "claude": "--settings " + AgentCommand.shellQuote(folder.appendingPathComponent("settings.json").path) + " "
-            default: ""
+        if ["codex", "claude", "agy", "pi"].contains(tool) {
+            let options: String
+            switch tool {
+            case "codex": options = "-c allow_login_shell=false "
+            case "claude": options = "--plugin-dir " + AgentCommand.shellQuote(folder.appendingPathComponent("claude-guard").path) + " "
+            default: options = ""
             }
-            return "#!/bin/sh\nset -eu\nexec \"$\(variable)\" " + options + "\"$@\"\n"
+            let workerOptions = tool == "agy" ? "--add-dir " + AgentCommand.shellQuote(folder.appendingPathComponent("agy-policy").path) + " " : options
+            return """
+            #!/bin/sh
+            set -eu
+            if [ "${AITERM_WORKER_ENTRY:-}" = 1 ]; then
+                unset AITERM_WORKER_ENTRY
+                exec "$\(variable)" \(workerOptions)"$@"
+            fi
+            export ITERM_SESSION_ID=aiterm-headless-helper
+            exec "$\(variable)" \(options)"$@"
+
+            """
         }
         let exec = tool == "git"
             ? "exec \"$\(variable)\" -c " + AgentCommand.shellQuote("core.hooksPath=" + folder.appendingPathComponent("hooks").path) + " \"$@\""
@@ -132,7 +151,9 @@ public enum WorkerGuardLaunch {
         AITERM_REAL_CLAUDE=${AITERM_REAL_CLAUDE:-$(/usr/bin/which claude 2>/dev/null || true)}
         AITERM_REAL_CODEX=${AITERM_REAL_CODEX:-$(/usr/bin/which codex 2>/dev/null || true)}
         AITERM_REAL_AGY=${AITERM_REAL_AGY:-$(/usr/bin/which agy 2>/dev/null || true)}
-        export AITERM_REAL_GIT AITERM_REAL_GH AITERM_REAL_GLAB AITERM_REAL_CLAUDE AITERM_REAL_CODEX AITERM_REAL_AGY
+        AITERM_REAL_PI=${AITERM_REAL_PI:-$(/usr/bin/which pi 2>/dev/null || true)}
+        export AITERM_REAL_GIT AITERM_REAL_GH AITERM_REAL_GLAB AITERM_REAL_CLAUDE AITERM_REAL_CODEX AITERM_REAL_AGY AITERM_REAL_PI
+        export AITERM_WORKER_ENTRY=1
         aiterm_guard_previous=$("$AITERM_REAL_GIT" rev-parse --git-path hooks/pre-push)
         if [ "$aiterm_guard_previous" != \(AgentCommand.shellQuote(folder.appendingPathComponent("hooks/pre-push").path)) ]; then
             AITERM_PREVIOUS_PRE_PUSH=$aiterm_guard_previous

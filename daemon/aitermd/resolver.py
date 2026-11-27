@@ -10,6 +10,7 @@ from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry
 
 
+HELPER_SESSION_ID = "aiterm-headless-helper"
 SCAN_SECONDS = 1.0
 log = logging.getLogger(__name__)
 
@@ -33,11 +34,20 @@ class SessionResolver:
         by inference -- a pin, the directory -- goes only to a tab that runs no other conversation: one
         from another Claude in the worktree (a review tab not listed yet, a headless review) stays
         unplaced until its own tab is, rather than move a sibling's turn."""
+        if iterm_session_id == HELPER_SESSION_ID:
+            return None, None
         if (direct := await self.resolve_directly(agent, session_id, iterm_session_id)) is not None:
             return direct, direct
+        if agent == "claude" and session_id:
+            # An already established conversation survives a transient PID-file read failure.
+            # The registry clears it on process replacement.
+            owner = next((s for s in self.registry.all() if s.tab_role == "worker" and s.agent == agent
+                          and s.conversation_id == session_id), None)
+            if owner is not None:
+                return owner.session_id, owner.session_id
         if session_id and (pinned := self._pins.get((agent, session_id))):
             s = self.registry.get(pinned)
-            if s is not None and s.agent == agent and _may_run(s, session_id):
+            if s is not None and s.tab_role != "worker" and s.agent == agent and _may_run(s, session_id):
                 return pinned, None
         return self._by_cwd(cwd, agent, session_id), None
 
@@ -64,7 +74,7 @@ class SessionResolver:
                             pid = scan.result()
                         except Exception:  # noqa: BLE001 - the completion callback reports the failure
                             pass
-                if pid and (s := self.registry.by_job_pid(pid)):
+                if pid and (s := self.registry.by_job_pid(pid)) and (s.tab_role != "worker" or s.agent == agent):
                     return s.session_id
         elif iterm_session_id:
             # $ITERM_SESSION_ID includes a pane prefix (`w1t0p0:<uuid>`), while iTerm2's Python API
@@ -86,7 +96,8 @@ class SessionResolver:
     def _by_cwd(self, cwd: str | None, agent: AgentKind, session_id: str | None) -> str | None:
         if not cwd:
             return None
-        s = self.registry.most_recent([s for s in self.registry.by_cwd_and_agent(cwd, agent) if _may_run(s, session_id)])
+        candidates = self.registry.by_cwd_and_agent(cwd, agent)
+        s = self.registry.most_recent([s for s in candidates if s.tab_role != "worker" and _may_run(s, session_id)])
         return s.session_id if s else None
 
 

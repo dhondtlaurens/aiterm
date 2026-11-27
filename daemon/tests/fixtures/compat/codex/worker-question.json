@@ -1,0 +1,9 @@
+{
+  "mechanism": "tools.experimental_request_user_input.enabled=false",
+  "question": "Question: Red or green?",
+  "tools": [
+    "request_user_input",
+    "request_user_input_async"
+  ],
+  "version": "0.171.0"
+}

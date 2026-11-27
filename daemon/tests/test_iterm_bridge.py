@@ -1083,7 +1083,7 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
         if status == "OK":
             values = {"commandLine": "-zsh", "jobPid": 123, "autoName": session_id, "path": "/x",
                       "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None,
-                      "user.aiterm_tab": None, "user.aiterm_codex_thread": None}
+                      "user.aiterm_tab": None, "user.aiterm_codex_thread": None, "user.aiterm_role": None}
             values.update((session_values or {}).get(session_id, {}))
             reply.variable_response.values.extend(json.dumps(values[name]) for name in gets)
         return reply

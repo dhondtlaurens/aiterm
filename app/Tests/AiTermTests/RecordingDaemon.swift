@@ -76,9 +76,10 @@ final class RecordingDaemon: DaemonCommands {
         return sessionsValue
     }
 
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> Opening {
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool, worker: Bool) async throws -> Opening {
         var params: [String: Any] = ["taskId": taskId, "cwd": cwd, "title": title, "frame": Self.frame(frame)]
         params["agentCommand"] = agentCommand
+        if worker { params["worker"] = true }
         params["background"] = background
         let id = try await answer("window.createTask", params, id: "reopened")
         return Opening(id: id, commandError: commandErrors["window.createTask"])
@@ -89,15 +90,19 @@ final class RecordingDaemon: DaemonCommands {
                                                    "frame": Self.frame(frame)], id: "terminal-window")
     }
 
-    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening {
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool, worker: Bool) async throws -> Opening {
         var params: [String: Any] = ["windowId": windowId, "cwd": cwd]
         params["agentCommand"] = agentCommand
         params["tabKey"] = tabKey
+        if worker { params["worker"] = true }
         params["background"] = background
         let id = try await answer("tab.create", params, id: "s-review")
         return Opening(id: id, commandError: commandErrors["tab.create"])
     }
 
+    func setWorkerSessions(taskId: String, sessionIds: [String], released: Bool, ownership: Int) async throws {
+        try await answer("task.setWorkerSessions", ["taskId": taskId, "sessionIds": sessionIds, "released": released, "ownership": ownership])
+    }
     func activate(windowId: String) async throws { try await answer("window.activate", ["windowId": windowId]) }
 
     func activate(sessionId: String) async throws { try await answer("session.activate", ["sessionId": sessionId]) }

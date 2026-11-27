@@ -315,14 +315,17 @@ public enum SidebarModel {
     /// A row's work card: every tab's whole work list in tab order, whatever holds a turn, each job naming its tab's
     /// vendor, then the active test runs of the tabs that ended their turn, as in `backgroundJobs`.
     public static func displayJobs(of tabs: [SessionInfo]) -> [BackgroundJob] {
-        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { tab in
-            tab.work.map { item in
+        let jobs = tabs.sorted { $0.tabIndex < $1.tabIndex }.flatMap { tab -> [BackgroundJob] in
+            if tab.isHelper {
+                return [BackgroundJob(kind: .agent, text: tab.tabKey ?? "Background task", agent: tab.agent)]
+            }
+            return tab.work.map { item in
                 var job = item.displayJob
                 job.agent = tab.agent
                 return job
             }
         }
-        let tests = tabs.filter(\.state.turnEnded).compactMap(\.testActivity).filter(\.isActive)
+        let tests = tabs.filter { !$0.isHelper && $0.state.turnEnded }.compactMap(\.testActivity).filter(\.isActive)
         return jobs + tests.map { BackgroundJob(kind: .shell, text: $0.detail) }
     }
 
@@ -515,12 +518,13 @@ public enum SidebarModel {
     /// task's line, status, mark and "needs you" are `TaskRow.presentingOperator`'s to set over these.
     static func taskRow(_ task: TaskItem, tabs: Tabs, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat], signalNames: [UUID: String] = [:]) -> TaskRow {
-        let own = tabs.byTask[task.id] ?? []
+        let all = tabs.byTask[task.id] ?? []
+        let own = all.filter { !$0.isHelper }
         var row = TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                        branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                        avatars: avatars(for: own), status: aggregate(tabs: own),
                        diff: baseDiff(task: task, stat: diffByTask[task.id]),
-                       background: displayJobs(of: own))
+                       background: displayJobs(of: all))
         row.ticketIsGitLabIssue = task.jira?.isGitLabIssue ?? false
         row.mark = TaskRowMark(status: row.status, line: nil)
         row.needsYou = row.status.needsAttention
@@ -611,7 +615,7 @@ public enum SidebarModel {
     /// window is closed shows its own `agent`, with its last fill.
     public static func usageTaskRow(taskId: UUID, agent: AgentKind, sessions: [SessionInfo],
                                     contexts: [AgentKind: Int]) -> UsageTaskRow {
-        usageRow(sessions.filter { $0.taskUUID == taskId }, fallback: agent.session, contexts: contexts)
+        usageRow(sessions.filter { $0.taskUUID == taskId && !$0.isHelper }, fallback: agent.session, contexts: contexts)
     }
 
     /// The selected terminal as the footer's first row, on the same rules as ``usageTaskRow``. Its

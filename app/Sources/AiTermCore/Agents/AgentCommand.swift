@@ -60,8 +60,10 @@ public enum AgentCommand {
             let denials = (publishing ? publishingClaudeDenials : workerClaudeDenials) + (readOnly ? reviewClaudeDenials : [])
             return harness.launchWords(model: model, reasoning: reasoning) + ["--disallowedTools"] + denials + ["--permission-mode", "auto"]
         default:
-            if readOnly, let words = harness.readOnlyLaunchWords(model: model, reasoning: reasoning) { return words }
-            return harness.launchWords(model: model, reasoning: reasoning)
+            let ordinary = harness.launchWords(model: model, reasoning: reasoning)
+            let words = readOnly ? harness.readOnlyLaunchWords(model: model, reasoning: reasoning) ?? ordinary : ordinary
+            // Codex 0.171 gates registration of both request_user_input tools on this setting in every mode.
+            return agent == .codex ? words + ["-c", "tools.experimental_request_user_input.enabled=false"] : words
         }
     }
 

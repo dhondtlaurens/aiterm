@@ -6,6 +6,19 @@ import Synchronization
 @testable import AiTermTestSupport
 
 @Suite @MainActor struct SignalWorkerIOTests {
+    private func expectQuestionInstruction(_ request: RecordingDaemon.Request?, in folder: URL) throws {
+        let request = try #require(request)
+        #expect(request.params["worker"] as? Bool == true)
+        let launch = try #require(try guardedWorkerCommand(request.params["agentCommand"] as? String))
+        let prompt: String
+        if let file = launch.range(of: #"\.aiterm/signal-[0-9A-Fa-f-]+\.md"#, options: .regularExpression) {
+            prompt = try String(contentsOf: folder.appendingPathComponent(String(launch[file])), encoding: .utf8)
+        } else {
+            prompt = launch
+        }
+        #expect(prompt.contains(WorkerPrompt.askLine))
+    }
+
     @Test func aNativeStageCanStartANewTaskBeforeItsFirstHookArrives() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.updateSignalTask(id) { $0.phase = .launching }
@@ -19,6 +32,7 @@ import Synchronization
             workerIsWorking: io.busy, prepare: { task, _ in task }, launch: { try await io.launch($0, prompt: $1) }, restore: { $0 }))
         await stages.run(id)
         #expect(daemon.requests("window.createTask").count == 1)
+        try expectQuestionInstruction(daemon.requests("window.createTask").first, in: h.folder)
         #expect(h.workspace.state.task(id: id)?.signalTask?.phase == .working)
         #expect(io.busy(id), "After the RPC, the first hook must arrive before finish or Then.")
         await stages.run(id)
@@ -73,6 +87,31 @@ import Synchronization
         await io.refreshTurns()
         #expect(wakes == [id])
     }
+    @Test(arguments: AgentKind.allCases)
+    func aHelperTabIsCardWorkAndCannotWakeTheOperator(agent: AgentKind) async throws {
+        var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
+        let h = try SignalHarness(world); defer { h.cleanUp() }
+        let live = LiveSessions(workspace: h.workspace), ports = OperatorPorts.scratch()
+        defer { try? FileManager.default.removeItem(at: ports.home) }
+        let io = SignalWorkerIO(workspace: h.workspace, live: live, work: WorkInFlight(), ports: ports,
+            daemon: { nil }, frame: { Frame(x: 0, y: 0, w: 400, h: 400) })
+        var wakes: [UUID] = []; io.onTurn = { wakes.append($0) }
+        var worker = OperatorServiceFixtures.session("primary", tag: id, state: .done, conversation: "primary")
+        worker.tabRole = .worker
+        var helper = OperatorServiceFixtures.session("helper", tag: id, state: .working, conversation: "helper")
+        helper.tabRole = .helper; helper.tabKey = "review"; helper.agent = agent.session
+        live.sessions = [worker, helper]
+        await io.refreshTurns()
+        let digest = OperatorDigest(state: h.workspace.state, at: world.now, oracleOn: false, sessions: live.sessions)
+        #expect(digest.workers.map(\.session) == [worker.sessionId])
+        #expect(h.workspace.state.task(id: id)?.firstWorker(in: live.sessions) == worker)
+        #expect(SidebarModel.displayJobs(of: live.sessions).map(\.label) == ["review"])
+        #expect(!io.busy(id))
+        live.sessions = [worker]
+        await io.refreshTurns()
+        #expect(wakes.isEmpty && SidebarModel.displayJobs(of: live.sessions).isEmpty)
+    }
+
     enum ActiveWorker: CaseIterable { case primary, companion, companionPrompt }
     @Test(arguments: ActiveWorker.allCases) func aSignalWaitsForAnOrdinaryTasksTurnThenContinuesItsConversation(active: ActiveWorker) async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
@@ -99,6 +138,7 @@ import Synchronization
         await stages.run(id)
         #expect(daemon.requests("session.closeIdle").count == 1)
         let opened = daemon.requests("window.createTask") + daemon.requests("tab.create")
+        try expectQuestionInstruction(opened.first, in: h.folder)
         let command = try #require(opened.first?.params["agentCommand"] as? String)
         #expect(try guardedWorkerCommand(command)?.contains("manual-conversation") == true)
         #expect(h.workspace.state.tasks.count == 1 && h.workspace.state.tasks[0].id == id)
@@ -406,6 +446,7 @@ import Synchronization
         let replay = try await io.openTab(current, key: "check", choice: SignalWorld.agent, prompt: "Inspect the failure.", why: "Second task", allowed: { true })
         #expect(opened == replay)
         #expect(daemon.requests("tab.create").count == 1)
+        try expectQuestionInstruction(daemon.requests("tab.create").first, in: h.folder)
         #expect(current.signalTask?.extraTabs.first?.key == "check")
         #expect(current.signalTask?.pendingReplies?["check"] != nil)
         try? FileManager.default.removeItem(at: io.ports.home)

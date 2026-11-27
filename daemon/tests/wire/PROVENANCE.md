@@ -58,3 +58,5 @@ On 25 Nov 2026 the project signals' Archive added `session.inputState`, a read-o
 session's input holds (`empty`, `unsent`, `unknown`). Only its reply frame (the last request, so no
 earlier request id moved) and the manifest's method list were captured, with the same scripted run;
 every other frame kept its bytes.
+
+On 27 Nov 2026 the Service/FakeIterm capture added the reply for `task.setWorkerSessions`, which adopts worker sessions and releases them on Take Over. Its request follows the existing script so earlier frames keep their request IDs. Session frames gained the nullable tabRole field. The capture marks the Operator’s keyed extra tab as a worker and leaves the ordinary sessions unmarked.

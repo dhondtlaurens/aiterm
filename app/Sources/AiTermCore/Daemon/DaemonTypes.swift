@@ -29,6 +29,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// The key of the Operator's extra worker tab this is (`open_tab`): it tells that tab apart from its task's
     /// first worker and from the task's other extra tabs, all tagged with the task. Nil for any other tab.
     public var tabKey: String? = nil
+    public enum TabRole: String, Codable, Sendable { case worker, helper }
+    public var tabRole: TabRole?
+    public var isHelper: Bool { tabRole == .helper }
     /// The work running beside its agent's turn, in the order the daemon gives it: what the last Stop listed first,
     /// then the subagents and shells read live that it did not list. Only an item that `holdsTurn` wakes the agent
     /// again; a turn ended with one is paused, not finished.

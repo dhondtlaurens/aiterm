@@ -74,6 +74,7 @@ final class RowWindows {
         switch event {
         case .snapshot(let snapshot):
             itermSynced = snapshot.connected
+            if snapshot.connected { reconcileWorkerRoles(snapshot.sessions) }
             // Each row whose window the snapshot lacks is left without one, and each task's conversations
             // are as its window shows them (`AppState.rememberingConversations`): what a later open resumes.
             let next = state.reconciled(with: snapshot).rememberingConversations(from: snapshot.sessions)
@@ -97,6 +98,23 @@ final class RowWindows {
             if live.rowSessions != passedSessions { pass() }
         case .itermCookieRequested, .windowActivated, .sessionClosed, .usageChanged, .operatorRequest, .unknown:
             break // the app's, `live`'s, the operators', or nobody's
+        }
+    }
+
+    /// Restore session tags for workers already running at upgrade, and finish a Take Over
+    /// whose daemon was offline. A delayed adoption loses to the daemon's task release.
+    private func reconcileWorkerRoles(_ sessions: [SessionInfo]) {
+        guard let daemon = daemon() else { return }
+        for task in state.tasks {
+            let own = sessions.filter { $0.taskUUID == task.id }
+            if task.takenOver, own.contains(where: { $0.tabRole != nil }) {
+                Task { try? await daemon.setWorkerSessions(taskId: task.id.uuidString, sessionIds: [], released: true, ownership: Int.max) }
+            } else if let record = task.signalTask {
+                let workers = task.workerTabs(in: own).compactMap(\.session).filter { $0.tabRole == nil }
+                guard !workers.isEmpty else { continue }
+                Task { try? await daemon.setWorkerSessions(taskId: task.id.uuidString, sessionIds: workers.map(\.sessionId),
+                                                          released: false, ownership: record.ownership) }
+            }
         }
     }
 

@@ -9,10 +9,11 @@ from typing import Any
 
 from . import protocol
 from .iterm_port import ItermPort, ItermUnavailable
-from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG
+from .models import PROJECT_TAG, ROLE_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError
 from .sessions import SessionRegistry
+from .staged_command import StagedCommands
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ class WindowManager:
         # Whether the keystroke monitor saw a key in a session (TypingGuard.typed_in).
         self.typed_in = typed_in
         self._creation_lock = asyncio.Lock()
+        self.staged = StagedCommands()
+        self._released_tasks: set[str] = set()
         # Sessions the daemon created and has not yet seen iTerm2 announce, and how many tab.creates
         # are still opening a tab in each window: neither is a user's tab to tag and redirect.
         self._self_created: set[str] = set()
@@ -52,6 +55,7 @@ class WindowManager:
 
     def forget_session(self, session_id: str) -> None:
         """A closed session's title and creation mark."""
+        self.staged.forget(session_id)
         self.forget_title(session_id)
         self._self_created.discard(session_id)
         self._startup_sessions.discard(session_id)
@@ -105,13 +109,42 @@ class WindowManager:
             existing = next((s for s in self.registry.all() if s.task_id == task_id), None)
             if existing:
                 return {"windowId": existing.window_id}
-            return await self._create(p, {TASK_TAG: task_id}, title or task_id, background=background)
+            tags = {TASK_TAG: task_id}
+            if optional_param(p, "worker", bool) and task_id not in self._released_tasks:
+                tags[ROLE_TAG] = "worker"
+            return await self._create(p, tags, title or task_id, background=background)
 
     async def create_terminal(self, p: Any) -> dict[str, Any]:
         project_id, title = param(p, "projectId", str), optional_param(p, "title", str)
         terminal_id = optional_param(p, "terminalId", str)
         tags = {PROJECT_TAG: project_id} | ({TERMINAL_TAG: terminal_id} if terminal_id else {})
         return await self._create(p, tags, title or "terminal")
+
+    async def set_worker_sessions(self, p: Any, set_ownership: Callable[[str, int], None]) -> dict[str, Any]:
+        """Adopt known worker sessions on reconnect, or release the whole task permanently on Take Over."""
+        task, generation = param(p, "taskId", str), param(p, "ownership", int)
+        released, ids = param(p, "released", bool), param(p, "sessionIds", list)
+        if not all(isinstance(sid, str) for sid in ids):
+            raise RpcError(protocol.BAD_PARAMS, "sessionIds must contain session IDs")
+        async with self._creation_lock:
+            if released:
+                self._released_tasks.add(task)
+            elif task in self._released_tasks:
+                return {}
+            require_iterm(self.iterm)
+            await guard(self.tick())
+            for session in self.registry.all():
+                if session.task_id != task:
+                    continue
+                if released and session.tab_role:
+                    await guard(self.iterm.set_session_tags(session.session_id, {ROLE_TAG: ""}))
+                elif not released and session.tab_role is None and session.session_id in ids:
+                    await guard(self.iterm.set_session_tags(session.session_id, {ROLE_TAG: "worker"}))
+                else:
+                    continue
+                set_ownership(session.session_id, generation)
+            await guard(self.tick())
+        return {}
 
     async def create_tab(self, p: Any) -> dict[str, Any]:
         wid, cmd = param(p, "windowId", str), optional_param(p, "agentCommand", str)
@@ -122,18 +155,28 @@ class WindowManager:
         tab_key = optional_param(p, "tabKey", str)
         background = bool(optional_param(p, "background", bool))
         require_iterm(self.iterm)
-        if not tab_key:
+        worker = optional_param(p, "worker", bool)
+        if not tab_key and not worker:
             return await self._create_tab(wid, cmd, cwd, {}, background)
         # A request whose answer was lost is asked again: the tab already tagged with this key in its
         # task, or in this window when the window has no task, is the answer, never a second one.
         async with self._creation_lock:
             await guard(self.tick())
             task = self.registry.task_for_window(wid)
+            role = None
+            if task not in self._released_tasks:
+                if worker:
+                    role = "worker"
+                elif task and any(s.task_id == task and s.tab_role in ("worker", "helper") for s in self.registry.all()):
+                    role = "helper"
+            own = {ROLE_TAG: role} if role else {}
+            if not tab_key:
+                return await self._create_tab(wid, cmd, cwd, own, background)
             existing = next((s for s in self.registry.all()
-                             if s.tab_key == tab_key and (s.task_id == task if task else s.window_id == wid)), None)
+                             if s.tab_role == role and s.tab_key == tab_key and (s.task_id == task if task else s.window_id == wid)), None)
             if existing:
                 return {"sessionId": existing.session_id}
-            return await self._create_tab(wid, cmd, cwd, {TAB_TAG: tab_key}, background)
+            return await self._create_tab(wid, cmd, cwd, own | {TAB_TAG: tab_key}, background)
 
     async def _create_tab(self, wid: str, cmd: str | None, cwd: str | None, own: dict[str, str], background: bool) -> dict[str, Any]:
         tags = self._window_tags(wid) | own
@@ -173,7 +216,12 @@ class WindowManager:
             # A background window was asked for unselected; keys that landed in its new shell anyway, meant for
             # the window you were in, would garble the command (T3's launch): ⌃U clears the line first.
             clear = "\x15" if background and self.typed_in(sid) else ""
-            failure = await self._after_create("sending the agent command", self.iterm.send_text(sid, clear + " " + cmd + "\n"))
+            async def send_command() -> None:
+                line = self.staged.line(sid, cmd)
+                await self.iterm.send_text(sid, clear + " " + line + "\n")
+            failure = await self._after_create("sending the agent command", send_command())
+            if failure:
+                self.staged.forget(sid)
         else:
             failure = None
         await self._after_create("tick", self.tick())

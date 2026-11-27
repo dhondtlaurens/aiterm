@@ -8,6 +8,6 @@ enum WorkerPrompt {
             + "Keep each background command's handle/PID, log and exit status." + (asks ? " " + askLine : "")
     }
 
-    nonisolated static let askLine = "When you stop to ask, end your last message with a paragraph starting Question:, "
+    nonisolated static let askLine = "Use workflow options named in the signal and use a workflow’s default for any unspecified option. Never open your agent’s question tool. If you need an answer to continue, end your last message with a paragraph starting Question:, "
         + "its choices under it, and nothing after them."
 }

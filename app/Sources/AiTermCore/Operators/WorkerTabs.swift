@@ -82,7 +82,9 @@ public extension TaskItem {
     /// Its first worker as `sessions` list it: the first tab tagged with the task that runs an agent and is none of the
     /// Operator's extra tabs.
     func firstWorker(in sessions: [SessionInfo]) -> SessionInfo? {
-        sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil && $0.tabKey == nil }.min { $0.tabIndex < $1.tabIndex }
+        let candidates = sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil && $0.tabKey == nil && !$0.isHelper }
+        return candidates.filter { $0.tabRole == .worker }.min { $0.tabIndex < $1.tabIndex }
+            ?? candidates.min { $0.tabIndex < $1.tabIndex }
     }
 
     /// The conversation its first worker last named, as its window last showed it (`conversations`): the first of its own
@@ -107,7 +109,7 @@ public extension TaskItem {
     func tabToBring(sessions: [SessionInfo]) -> SessionInfo? {
         let tabs = workerTabs(in: sessions)
         return tabs.compactMap(\.session).first { $0.state == .needsInput }
-            ?? sessions.first { $0.taskUUID == id && $0.active } ?? tabs.first?.session
+            ?? sessions.first { $0.taskUUID == id && !$0.isHelper && $0.active } ?? tabs.first?.session
     }
 
     /// Its worker tabs: its first worker, then each extra tab in the order asked for, all but one the daemon refused.
@@ -119,7 +121,7 @@ public extension TaskItem {
         let first = WorkerTab(key: nil, agent: worker?.agent.agentKind ?? agent, model: model, session: worker,
                               isOpening: conversation == nil && isLaunching(worker, now: now), conversation: conversation)
         return [first] + (signalTask?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
-            let session = sessions.first { $0.taskUUID == id && $0.tabKey == tab.key }
+            let session = sessions.first { $0.taskUUID == id && !$0.isHelper && $0.tabKey == tab.key }
             let opening = session.map { $0.agent.agentKind == nil } ?? (tab.sessionId == nil && tab.launch.openedAt == nil)
             return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
                              conversation: session?.conversationId ?? tab.conversation)

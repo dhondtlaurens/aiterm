@@ -111,6 +111,9 @@
       "tab.create": [
         "reply.tab.create.json"
       ],
+      "task.setWorkerSessions": [
+        "reply.task.setWorkerSessions.json"
+      ],
       "usage.get": [
         "reply.usage.get.json"
       ],
@@ -154,6 +157,7 @@
     "sessions.markSeen",
     "sessions.setTitles",
     "tab.create",
+    "task.setWorkerSessions",
     "usage.get",
     "window.activate",
     "window.close",

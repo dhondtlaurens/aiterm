@@ -93,6 +93,22 @@ import Testing
         try Self.check("drivers/agy-hooks.json", hooks + Data("\n".utf8))
     }
 
+    @Test func antigravityWorkersLaunchWithTheCapturedQuestionDenial() throws {
+        let home = try ScratchFolder.make("aiterm-agy-question-")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let prepared = try WorkerGuardLaunch.prepare(scope: .init(task: UUID(), worktree: home.path, branch: "task",
+                                                                  remote: "", allowsPush: false),
+                                                     home: home, executable: URL(fileURLWithPath: "/usr/bin/false"))
+        let directory = prepared.folder.appendingPathComponent("agy-policy")
+        let shim = try String(contentsOf: prepared.folder.appendingPathComponent("bin/agy"), encoding: .utf8)
+        #expect(shim.contains("--add-dir " + AgentCommand.shellQuote(directory.path)))
+        let hook = try Data(contentsOf: directory.appendingPathComponent(".agents/hooks.json"))
+        let template = try Data(contentsOf: Self.compat.appendingPathComponent("drivers/agy-worker-hooks.json"))
+        #expect(try Self.json(Self.object(hook)) == Self.json(Self.object(template)))
+        let capture = Self.object(try Self.captured(.agy, "worker-question.json"))
+        #expect(capture["tools"] as? [String] == ["ask_question"])
+    }
+
     // -- the captures, read as the app reads the CLI --
 
     static let captures = repo.appendingPathComponent("daemon/tests/fixtures/compat")

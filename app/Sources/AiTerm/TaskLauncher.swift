@@ -328,7 +328,7 @@ final class TaskLauncher {
         guard mayOpen() else { return false }
         if let windowId = ready.windowId {
             do {
-                let tab = try await daemon.createTab(windowId: windowId, cwd: ready.worktreePath, agentCommand: command, tabKey: nil, background: true)
+                let tab = try await daemon.createTab(windowId: windowId, cwd: ready.worktreePath, agentCommand: command, tabKey: nil, background: true, worker: ready.isUnderOperator)
                 if let failure = tab.commandError { throw ActionUnavailable("Opened a tab, but its agent didn’t start: \(failure)") }
                 guard state.task(id: id) != nil else { throw removed }
                 workspace.mutate(saving)
@@ -347,7 +347,7 @@ final class TaskLauncher {
         if let resumed { others.conversations.removeAll { $0 == resumed } }
         for resume in others.resumeCommands {
             do {
-                let tab = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: resume, tabKey: nil, background: true)
+                let tab = try await daemon.createTab(windowId: opened.id, cwd: ready.worktreePath, agentCommand: resume, tabKey: nil, background: true, worker: ready.isUnderOperator)
                 if let failure = tab.commandError {
                     notices.report(OperationIssue(title: "Opened the window, but not every conversation.", reason: failure, subject: id))
                     break
@@ -482,6 +482,10 @@ final class TaskLauncher {
         workspace.mutate { removed = $0.takeOver(id) }
         guard let record = removed, workspace.flush() else { return }
         let home = home, executable = workerGuardExecutable, ownership = record.ownership + 1
+        if let daemon = daemon() {
+            do { try await daemon.setWorkerSessions(taskId: id.uuidString, sessionIds: [], released: true, ownership: ownership) }
+            catch { notices.report(OperationIssue(title: "Couldn’t release the worker tabs.", error: error, subject: id)) }
+        }
         let slots = ["main"] + record.extraTabs.map(\.key)
         do {
             try await BackgroundWork.run {
@@ -580,7 +584,7 @@ final class TaskLauncher {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
         defer { if let opening { work.end(opening) } }
         let opened = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
-                                                       agentCommand: command, frame: tiling.taskFrame(), background: background)
+                                                       agentCommand: command, frame: tiling.taskFrame(), background: background, worker: task.isUnderOperator)
         guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
             try? await daemon.closeWindowIfOpen(opened.id)
             return nil

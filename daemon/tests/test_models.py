@@ -81,7 +81,7 @@ def test_session_info_json_is_camel_case_and_drops_job_pid():
         "agent": "claude",
         "state": "working", "cwd": "/repo",
         "agentCwd": "/repo/.worktrees/x", "active": False, "contextPercent": None, "contextTokens": None,
-        "conversationId": None, "terminalId": None, "tabKey": None, "work": [], "yourPrompt": None,
+        "conversationId": None, "terminalId": None, "tabKey": None, "tabRole": None, "work": [], "yourPrompt": None,
         "stoppedOn": {"error": "rate_limit", "resetsAt": 1793017200},
         "testActivity": None,
     }

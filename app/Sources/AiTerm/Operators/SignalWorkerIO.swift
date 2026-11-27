@@ -54,7 +54,8 @@ import AiTermCore
             })
     }
     private func isLiveWork(_ session: SessionInfo) -> Bool {
-        session.state == .working || session.state == .needsInput
+        guard !session.isHelper else { return false }
+        return session.state == .working || session.state == .needsInput
             || session.work.contains(where: \.holdsTurn) || session.testActivity?.isActive == true
     }
     /// Whether the task's main worker is listed: a live agent in its first tab, not only the placeholder
@@ -74,7 +75,7 @@ import AiTermCore
             guard !effects.holds(task.id), SignalClaim(task) != nil,
                   let record = task.signalTask, let launch = record.launch, launch.workerPending == true,
                   launch.openedAt == nil, record.phase == .launching || record.phase == .blocked,
-                  live.sessions.contains(where: { $0.taskUUID == task.id }) else { continue }
+                  live.sessions.contains(where: { $0.taskUUID == task.id && !$0.isHelper }) else { continue }
             if let worker = task.firstWorker(in: live.sessions), worker.agent.agentKind == task.agent {
                 guard let adopted = try? SignalTransitions.apply(.adopted, to: record, at: ports.now()) else { continue }
                 workspace.mutate { $0.updateSignalItem(task.id) { value in
@@ -205,7 +206,7 @@ import AiTermCore
         if let window {
             try savePending(task, tab: "main", baseline: baseline, saving: saving)
             _ = try require(task)
-            let opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: nil, background: true)
+            let opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: nil, background: true, worker: true)
             guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
             return window
         }
@@ -227,7 +228,7 @@ import AiTermCore
                     saving(&record)
                 })
                 let opening = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.title,
-                                                                agentCommand: command, frame: frame(), background: true)
+                                                                agentCommand: command, frame: frame(), background: true, worker: true)
                 guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
                 return opening.id
             }
@@ -366,7 +367,7 @@ import AiTermCore
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
         try await markPending(launched, tab: key, conversation: nil, workRequested: true)
         guard allowed() else { throw ActionUnavailable("The task changed before its work tab opened.") }
-        let opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: key, background: true)
+        let opening = try await daemon.createTab(windowId: window, cwd: task.worktreePath, agentCommand: command, tabKey: key, background: true, worker: true)
         guard opening.commandError == nil else { throw ActionUnavailable(opening.commandError!) }
         let session = opening.id
         _ = try require(task)
