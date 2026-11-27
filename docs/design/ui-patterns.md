@@ -175,7 +175,8 @@ explains behavior; only the Oracle's disabled fields fade, with their values kep
 `SettingsSwitch`, `SettingsTone` and native controls remain the shared settings vocabulary.
 
 `ListSheet` is the one list sheet: the title, a search field that keeps the keyboard, rows under optional group
-headings (`SidebarHeading`), the empty and no-match lines, and the footer; ↑ ↓ move the highlight, ⌘⌫ asks the row's
+headings (`SidebarHeading`), the empty and no-match lines, and the footer; ↑ ↓ move the highlight, ↩ opens the
+highlighted row's gear menu below the gear with its first enabled item highlighted, ⌘⌫ asks the row's
 Remove question, ⎋ clears a search then closes, a double-click runs the row's first command, ⌘↩ the footer's primary.
 `ListSheetRow` is the task row's grid: the leading mark, the title over one `Size.chip` line, both cut at the end; an
 optional state column, a glyph centred on the row whose words rise in a trailing `HoverChip`; and the trailing column
