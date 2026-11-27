@@ -210,11 +210,23 @@ Readers apply labels only to current counted children, under the same process/co
 resumed IDs whose assignment cannot be correlated use their existing fallback. Label caches are
 bounded independently of shell evidence. PI retains its existing labels until its optional
 background extension's payload is verified. Codex and PI send no Stop list, so their work is their
-counted children. The reader
-follows the parent transcript of a Claude process whose SessionStart this daemon observed: a Bash
-result must confirm `backgroundTaskId`, native completion notices and verified TaskStop results end
-a shell, and it is unavailable during replay catch-up, partial writes, failed reads, when a Stop
-names a shell it has not seen, and for a changed process, conversation or time its work began. Test runs
+counted children.
+
+The Claude reader follows the parent transcript from SessionStart. For an already-open conversation,
+it uses the matching PID file’s process start when available. Its fallback is daemon startup for a
+Claude process in the first iTerm snapshot, or the time the daemon first saw a later process. Learning
+the transcript path and conversation ID in either order allows adoption. A directly placed Claude
+status line can supply both together. When it names a different conversation than the one already
+known, its transcript waits for a parent hook to identify the new conversation. A change of conversation
+retires that boundary, and a genuine clear or resume establishes a fresh one. If iTerm reclassifies
+a process to or from Claude on the same PID, the daemon resets its turn and counted children just
+as it does when the tab’s foreground PID changes.
+
+A Bash result must confirm `backgroundTaskId`. Native completion notices and verified TaskStop
+results end a shell. While the reader catches up, encounters a partial write or fails to read, the
+live inventory is unavailable. A Stop can list a shell launched before the fallback boundary. If the
+reader cannot account for its ID, it withholds the whole live shell list until it reads the launch
+or end, or a later valid Stop omits the ID. Test runs
 are not in the list; the app appends the active ones of ended tabs to the card.
 
 ### Teammates: running, idle, ended

@@ -233,6 +233,8 @@ class ClaudeSessionFile:
     # The Claude Code version that writes the file: the running process's own, from its start, even
     # in a conversation an older version began. None when the file names none.
     version: str | None = None
+    # Process start in wall-clock seconds. Older session files omit startedAt.
+    started_at: float | None = None
 
 
 # A session file as last parsed, keyed by (st_mtime_ns, st_size): only a file Claude has rewritten
@@ -308,8 +310,10 @@ class ClaudeSessionFiles:
             if not isinstance(d, dict):
                 return None
             version = d.get("version")
+            millis = d.get("startedAt")
+            started_at = millis / 1000 if type(millis) is int and 0 < millis < 2**63 else None
             return ClaudeSessionFile(int(d["pid"]), str(d["sessionId"]), str(d.get("cwd", "")), str(d.get("status", "")),
-                                     written_at, version if isinstance(version, str) and version else None)
+                                     written_at, version if isinstance(version, str) and version else None, started_at)
         except (ValueError, KeyError, TypeError, OverflowError):
             return None
 
@@ -858,8 +862,11 @@ def session_file_plan(registry: SessionRegistry, status: StatusEngine, files: Cl
                     if (evidence := file_evidence(file.status, file.written_at)) is not None:
                         changed += status.apply_evidence(sid, evidence)
                     changed += status.apply_metadata(sid, cwd=file.cwd)
-                    if (current := registry.get(sid)) is not None and current.conversation_id is None:
-                        changed += status.apply_metadata(sid, conversation=file.session_id)
+                    if (current := registry.get(sid)) is not None:
+                        if current.conversation_id is None:
+                            changed += status.apply_metadata(sid, conversation=file.session_id)
+                        if current.job_pid == file.pid and current.conversation_id == file.session_id and file.started_at is not None:
+                            changed += status.confirm_claude_start(sid, file.started_at)
                     registry.set_cli_version(sid, file.version)
                 elif session.job_pid and (session.state == "idle" or status.showing_trust_prompt(sid)):
                     screens.append(sid)

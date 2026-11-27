@@ -80,7 +80,7 @@ class Turn:
     # prompt over another, so how many are open is counted.
     before_prompt: State | None = None
     prompts_open: int = 0
-    # Display provenance, not turn readiness. A genuine start establishes when this process began work.
+    # Earliest transcript evidence belonging to this run, from SessionStart or process adoption.
     work_since: float | None = None
     shell_snapshot: tuple[BackgroundJob, ...] | None = None
     shell_snapshot_at: float = float("-inf")
@@ -102,6 +102,9 @@ class StatusEngine:
         # `monotonic` orders SubagentStop against the transcript read's start.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
+        # First observation of a Claude process still eligible for adoption. A SessionStart or a switch
+        # away from its initial conversation retires this fallback.
+        self._claude_observed_at: dict[str, float] = {}
         # When the subagents' transcripts were last asked for (subagent_transcripts), on the monotonic clock: the read
         # that answers began then, and cannot say a SubagentStop that came after it stands.
         self._asked_at = float("-inf")
@@ -123,6 +126,21 @@ class StatusEngine:
         if (turn := self._turns.get(session_id)) is None:
             turn = self._turns[session_id] = Turn()
         return turn
+
+    def observe_claude_process(self, session_id: str, since: float) -> None:
+        """Remember the fallback boundary until Claude names its own transcript."""
+        self._claude_observed_at[session_id] = since
+
+    def confirm_claude_start(self, session_id: str, started_at: float) -> list[str]:
+        """Use the matching PID file's start once, while the initial conversation still owns the fallback."""
+        if session_id not in self._claude_observed_at or started_at > self._clock():
+            return []
+        del self._claude_observed_at[session_id]
+        turn = self._turn(session_id)
+        if turn.work_since == started_at:
+            return []
+        turn.work_since = started_at
+        return [session_id] if self._hide_work(session_id) else []
 
     def apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
         if ev.kind is None:
@@ -262,14 +280,19 @@ class StatusEngine:
         if s is None:
             return []
         self.reg.set_transcript(session_id, transcript)
+        previous_conversation = s.conversation_id
         changed: list[str] = []
         if self.reg.set_agent_cwd(session_id, cwd):
             changed.append(session_id)
         if self.reg.set_conversation(session_id, conversation):
-            if (turn := self._turns.get(session_id)) is not None:
-                turn.work_since, turn.shell_snapshot = None, None
-                self._hide_work(session_id)
+            if s.agent != "claude" or previous_conversation is not None:
+                self._claude_observed_at.pop(session_id, None)
+                if (turn := self._turns.get(session_id)) is not None:
+                    turn.work_since, turn.shell_snapshot = None, None
+            self._hide_work(session_id)
             changed.append(session_id)
+        if transcript and (since := self._claude_observed_at.get(session_id)) is not None:
+            self._turn(session_id).work_since = since
         if (context_tokens is not None or clear_context_tokens) and self.reg.set_context_tokens(session_id, context_tokens):
             changed.append(session_id)
         if context is not None:
@@ -323,6 +346,7 @@ class StatusEngine:
         session started, or another process took over the tab. A child whose SubagentStop was lost
         would otherwise hold the row at working for good."""
         self._turns.pop(session_id, None)
+        self._claude_observed_at.pop(session_id, None)
         self._hide_work(session_id)
 
     def _hide_work(self, session_id: str) -> bool:

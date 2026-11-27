@@ -178,11 +178,19 @@ class HookRouter:
         # by evidence: another agent in the same worktree, a headless review there, is placed by the
         # directory alone.
         own = sid == direct
+        conversation = ev.conversation_id if own and not statusline else None
+        transcript = ev.transcript if own else None
+        if statusline and transcript and ev.agent == "claude" and tab is not None and tab.agent == "claude":
+            # The PID-placed status line can name the first parent. Across a resume it can arrive
+            # before the parent's hook, so never pair its path with a different known conversation.
+            if tab.conversation_id is None:
+                conversation = ev.session_id
+            elif tab.conversation_id != ev.session_id:
+                transcript = None
         changed = self.status.apply_metadata(sid, context=ev.context_percent, cwd=ev.cwd if not statusline else None,
                                              context_tokens=ev.context_tokens if own and statusline else None,
                                              clear_context_tokens=statusline and own,
-                                             conversation=ev.conversation_id if own and not statusline else None,
-                                             transcript=ev.transcript if own else None)
+                                             conversation=conversation, transcript=transcript)
         # The version the CLI says it is, which delivery checks its verdict against, for its own tab only.
         if cli_version is not None and own:
             self.status.reg.set_cli_version(sid, cli_version)
