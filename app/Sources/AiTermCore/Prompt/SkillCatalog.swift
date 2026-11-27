@@ -47,12 +47,12 @@ public enum SkillCatalog {
     /// path it found missing — which a `stat` of each tells.
     private static let discoveries = KeyedStates<Discovery?>(nil)
 
-    public static func discover(agent: AgentKind, projectPath: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig()) -> [AgentCompletion] {
-        let key = [agent.rawValue, home.path, projectPath ?? "", agent == .claude ? claudeConfig.directory(home: home).path : ""].joined(separator: "\u{0}")
+    public static func discover(agent: AgentKind, projectPath: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig(), piDirectory: URL? = nil) -> [AgentCompletion] {
+        let key = [agent.rawValue, home.path, projectPath ?? "", piDirectory?.path ?? "", agent == .claude ? claudeConfig.directory(home: home).path : ""].joined(separator: "\u{0}")
         return discoveries.withState(for: key) { known in
             if let known, known.stamps.areCurrent { return known.found }
             let walk = Walk()
-            let found = discover(agent: agent, projectPath: projectPath, home: home, claudeConfig: claudeConfig, walk: walk)
+            let found = discover(agent: agent, projectPath: projectPath, home: home, claudeConfig: claudeConfig, piDirectory: piDirectory, walk: walk)
             known = Discovery(stamps: walk.stamps, found: found)
             return found
         }
@@ -73,9 +73,13 @@ public enum SkillCatalog {
         var stamps: FileStamps { FileStamps(files: paths, stamps: taken, followingSymlinks: true) }
     }
 
-    private static func discover(agent: AgentKind, projectPath: String?, home: URL, claudeConfig: ClaudeConfig, walk: Walk) -> [AgentCompletion] {
+    private static func discover(agent: AgentKind, projectPath: String?, home: URL, claudeConfig: ClaudeConfig, piDirectory: URL?, walk: Walk) -> [AgentCompletion] {
         var found: [AgentCompletion] = []
-        for root in agent.harness(claudeConfig: claudeConfig).skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
+        let project = projectPath.map(URL.init(fileURLWithPath:))
+        let roots = if agent == .pi, let piDirectory {
+            Harness.piSkillRoots(home: home, project: project, agentDirectory: piDirectory)
+        } else { agent.harness(claudeConfig: claudeConfig).skillRoots(home, project) }
+        for root in roots {
             switch root.kind {
             case .skills(let namespace, let hidingNonInvocable):
                 found += skills(in: root.url, namespace: namespace, source: root.source, hidingNonInvocable: hidingNonInvocable, walk: walk)
@@ -88,6 +92,10 @@ public enum SkillCatalog {
 
         // First writer wins, so a project command does not shadow the user one it shares a name
         // with — and the list is sorted, because the popup shows it in order.
+        return ordered(found)
+    }
+
+    static func ordered(_ found: [AgentCompletion]) -> [AgentCompletion] {
         var seen = Set<String>()
         return found.filter { seen.insert($0.name).inserted }.sorted { $0.name < $1.name }
     }

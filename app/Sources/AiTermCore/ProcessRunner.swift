@@ -74,13 +74,23 @@ public enum ProcessRunner {
     }
 
     public static func run(_ executable: URL, _ arguments: [String], environment: [String: String]? = nil,
-                           in directory: URL? = nil, timeout: TimeInterval? = nil, limit: Int? = nil) throws -> ProcessOutput {
+                           in directory: URL? = nil, input: Data? = nil, timeout: TimeInterval? = nil, limit: Int? = nil) throws -> ProcessOutput {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment ?? inheritedEnvironment
         if let directory { process.currentDirectoryURL = directory }
-        process.standardInput = FileHandle.nullDevice
+        // A short RPC request fits in an empty pipe before launch, so no writer can block on a
+        // child that exits early or never reads stdin. Closing the writer delivers EOF after it.
+        if let input {
+            guard input.count <= PIPE_BUF else { throw POSIXError(.EMSGSIZE) }
+            let pipe = Pipe()
+            try pipe.fileHandleForWriting.write(contentsOf: input)
+            try pipe.fileHandleForWriting.close()
+            process.standardInput = pipe.fileHandleForReading
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err

@@ -1,4 +1,5 @@
 import Testing
+import Synchronization
 import AiTermTestSupport
 import Foundation
 @testable import AiTermCore
@@ -11,6 +12,110 @@ import Foundation
     func write(_ text: String, to url: URL) {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    @Test func enabledPluginSkillsUseTheirInteractiveNames() {
+        let home = tempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let plugin = home.appendingPathComponent("plugin")
+        write("---\ndescription: First plan\n---\n", to: plugin.appendingPathComponent("skills/plan/SKILL.md"))
+        let json = """
+        [{"name":"demo","enabled":true,"path":"\(plugin.path)","skills":["plan","demo:debug"]},
+         {"name":"other","enabled":true,"skills":["plan"]},{"name":"gone","enabled":false,"skills":["ship"]}]
+        """
+        let listing = Mutex(json)
+        let reader = NativeSkills { _, _, _ in listing.withLock { $0 } }
+        let found = reader.discover(agent: .agy, projectPath: nil, home: home)
+        #expect(found.map(\.name) == ["demo:debug", "demo:plan", "other:plan"])
+        #expect(found.first { $0.name == "demo:plan" }?.detail == "First plan")
+        #expect(SkillCatalog.matches(found, query: "plan").map(\.source) == [.plugin("demo"), .plugin("other")])
+        listing.withLock { $0 = "[]" }
+        #expect(reader.discover(agent: .agy, projectPath: nil, home: home).isEmpty)
+    }
+
+    @Test func piNativeReplyAndTrustControlFirstPromptSuggestions() throws {
+        let home = tempDir(), project = tempDir()
+        defer { try? FileManager.default.removeItem(at: home); try? FileManager.default.removeItem(at: project) }
+        let destination = CanonicalPath.of(project.path) + "/.worktrees/new"
+        write("Loose", to: project.appendingPathComponent(".agents/skills/loose/SKILL.md"))
+        write("Template", to: project.appendingPathComponent(".pi/prompts/template.md"))
+        let reader = NativeSkills { _, _, _ in
+            #"{"type":"response","command":"get_commands","id":"aiterm-skills","success":true,"data":{"commands":[{"name":"skill:demo","source":"skill","sourceInfo":{"scope":"user"}},{"name":"skill:repo","source":"skill","sourceInfo":{"scope":"project"}}]}}"#
+        }
+        func names() -> [String] {
+            reader.discover(agent: .pi, projectPath: project.path, prospectivePath: destination, home: home).map(\.name)
+        }
+        #expect(names() == ["skill:demo", "skill:loose", "template"])
+        let trust = home.appendingPathComponent(".pi/agent/trust.json")
+        write(#"{"\#(CanonicalPath.of(project.path))":true}"#, to: trust)
+        #expect(names() == ["skill:demo", "skill:repo", "template"])
+        write(#"{"\#(CanonicalPath.of(project.path))":true,"\#(destination)":false}"#, to: trust)
+        #expect(names() == ["skill:demo", "template"])
+        let settings = home.appendingPathComponent(".pi/agent/settings.json")
+        // Trusting a sibling does not answer for this prospective checkout.
+        write(#"{"\#(destination)-sibling":true}"#, to: trust)
+        #expect(names() == ["skill:demo", "skill:loose", "template"])
+        write(#"{"defaultProjectTrust":"never"}"#, to: settings)
+        #expect(names() == ["skill:demo", "template"])
+        write(#"{"defaultProjectTrust":"always"}"#, to: settings)
+        #expect(names() == ["skill:demo", "skill:repo", "template"])
+        write(#"{"skills":{"enableSkillCommands":false}}"#, to: settings)
+        #expect(names() == ["template"])
+    }
+
+    @Test func piUsesTheFutureWorktreesCanonicalPathAndInheritsPastNullEntries() throws {
+        let home = tempDir(), project = tempDir()
+        let alias = home.appendingPathComponent("linked-repo")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: project)
+        write("Loose", to: project.appendingPathComponent(".agents/skills/loose/SKILL.md"))
+        let future = alias.appendingPathComponent(".worktrees/next")
+        let canonical = CanonicalPath.of(project.path) + "/.worktrees"
+        let store = home.appendingPathComponent(".pi/agent/trust.json")
+        let reader = NativeSkills { _, _, _ in nil }
+        func names() -> [String] {
+            reader.discover(agent: .pi, projectPath: alias.path, prospectivePath: future.path, home: home).map(\.name)
+        }
+        #expect(names() == ["skill:loose"])
+        write(#"{"enableSkillCommands":false}"#, to: project.appendingPathComponent(".pi/settings.json"))
+        write(#"{"\#(canonical)":true}"#, to: store)
+        #expect(names().isEmpty, "a grant on the worktree parent enables the project preference")
+        write(#"{"enableSkillCommands":true}"#, to: project.appendingPathComponent(".pi/settings.json"))
+        write(#"{"\#(canonical)":false}"#, to: store)
+        #expect(names().isEmpty)
+        write(#"{"\#(canonical)":false,"\#(canonical)/next":null}"#, to: store)
+        #expect(names().isEmpty)
+    }
+
+    @Test func piFallsBackToConfiguredDirectoryAndRetriesIncludingEmptyReplies() {
+        let home = tempDir(), project = tempDir()
+        defer { try? FileManager.default.removeItem(at: home); try? FileManager.default.removeItem(at: project) }
+        let profile = home.appendingPathComponent("alternate")
+        write("Local", to: profile.appendingPathComponent("skills/local/SKILL.md"))
+        write("Wrong", to: home.appendingPathComponent(".pi/agent/skills/wrong/SKILL.md"))
+        let reply = Mutex<String?>(nil)
+        let reader = NativeSkills(piDirectory: { profile.path }) { _, cwd, env in
+            #expect(cwd?.path == project.path && env["PI_CODING_AGENT_DIR"] == profile.path)
+            return reply.withLock { $0 }
+        }
+        func names() -> [String] { reader.discover(agent: .pi, projectPath: project.path, home: home).map(\.name) }
+        #expect(names() == ["skill:local"])
+        write(#"{"enableSkillCommands":false}"#, to: profile.appendingPathComponent("settings.json"))
+        #expect(names().isEmpty)
+        write("{}", to: profile.appendingPathComponent("settings.json"))
+        reply.withLock { $0 = #"{"type":"response","command":"get_commands","id":"other","success":true,"data":{"commands":[]}}"# }
+        #expect(names() == ["skill:local"])
+        reply.withLock { $0 = #"{"type":"response","command":"get_commands","id":"aiterm-skills","success":true,"data":{"commands":[]}}"# }
+        #expect(names().isEmpty)
+    }
+
+    @Test func piAgentDirectoryCanBeTheHomeDirectory() {
+        let home = tempDir(), project = tempDir()
+        write("Local", to: home.appendingPathComponent("skills/local/SKILL.md"))
+        let reader = NativeSkills(piDirectory: { "~" }) { _, _, env in
+            #expect(env["PI_CODING_AGENT_DIR"] == home.path)
+            return nil
+        }
+        #expect(reader.discover(agent: .pi, projectPath: project.path, home: home).map(\.name) == ["skill:local"])
     }
 
     @Test func aSymlinkedSkillManifestIsStampedThroughItsTarget() throws {

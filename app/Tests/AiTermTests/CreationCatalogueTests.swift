@@ -63,6 +63,53 @@ struct CreationCatalogueTests {
         #expect(model.catalogueFailure == "PI couldn’t be launched.")
     }
 
+    @Test func slowSkillsDoNotHoldModelReadinessOrPublishAfterSwitchingHarness() async throws {
+        let home = try ScratchFolder.make(), entered = AsyncStream<Void>.makeStream()
+        let release = DispatchSemaphore(value: 0)
+        var context = CreationContext.scratch(home: home, catalogue: { _ in [AgentModel(id: "demo", label: "Demo", detail: nil, efforts: [], defaultEffort: nil)] })
+        context.nativeSkills = NativeSkills { _, _, _ in
+            entered.continuation.yield()
+            entered.continuation.finish()
+            _ = release.wait(timeout: .now() + 10)
+            return #"[{"name":"example","enabled":true,"skills":["debug"]}]"#
+        }
+        let model = TaskCreationModel(project: .make(name: "Repo", path: home.path, addedAt: Date()),
+                                     draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .agy, model: "demo", reasoning: nil),
+                                     context: context, searchIssues: { _ in [] }, createTask: { _ in })
+        let pending = Task { await model.loadSkills() }
+        for await _ in entered.stream { break }
+        await model.loadAgentCatalogue()
+        #expect(model.agentIsReady)
+        model.selectAgent(.codex)
+        release.signal()
+        await pending.value
+        #expect(model.completions.all.isEmpty)
+    }
+
+    @Test func aSlowReviewReadCannotReplaceTheCurrentCheckoutsSuggestions() async throws {
+        let home = try ScratchFolder.make(), first = try ScratchFolder.make(), second = try ScratchFolder.make()
+        let release = DispatchSemaphore(value: 0), started = Mutex(false)
+        var context = CreationContext.scratch(home: home)
+        context.nativeSkills = NativeSkills { _, cwd, _ in
+            if cwd?.path == first.path {
+                started.withLock { $0 = true }
+                _ = release.wait(timeout: .now() + 60)
+            }
+            let name = cwd?.path == second.path ? "current" : "previous"
+            return #"{"type":"response","command":"get_commands","id":"aiterm-skills","success":true,"data":{"commands":[{"name":"skill:\#(name)","source":"skill","sourceInfo":{"scope":"user"}}]}}"#
+        }
+        let model = ReviewCreationModel(project: .make(name: "Repo", path: home.path, addedAt: Date()),
+                                        draft: ReviewDraft(mr: nil, agent: .pi, model: "demo", reasoning: nil), context: context,
+                                        searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
+        let previous = Task { await model.loadSkills(existingWorktree: first.path) }
+        defer { release.signal() }
+        try #require(await eventually { started.withLock { $0 } })
+        await model.loadSkills(existingWorktree: second.path)
+        release.signal()
+        await previous.value
+        #expect(model.completions.all.map(\.name) == ["skill:current"])
+    }
+
     private func sheet(catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
                        initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil) -> TaskCreationModel {
         let project = Project.make(name: "Repo", path: "/tmp/repo", addedAt: Date())

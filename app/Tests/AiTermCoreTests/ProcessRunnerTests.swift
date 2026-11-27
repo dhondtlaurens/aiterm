@@ -29,6 +29,12 @@ import Testing
         #expect(whole.stdout == "hi\n" && !whole.stdoutTruncated, "exactly the limit is not truncated")
     }
 
+    @Test func aRequestIsDeliveredAndEndsAtEOF() throws {
+        let request = Data("one request\n".utf8)
+        let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/cat"), [], input: request, timeout: 3)
+        #expect(result.status == 0 && !result.timedOut && result.stdout == "one request\n")
+    }
+
     @Test func standardInputIsClosed() throws {
         let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/cat"), [], timeout: 5)
         #expect(!result.timedOut)

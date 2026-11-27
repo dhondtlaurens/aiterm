@@ -251,7 +251,7 @@ final class SheetCoordinator {
 
     private func creationContext(project: Project, catalogue: [AgentModel]?, failure: String?) -> CreationContext {
         let models = agents.catalogue
-        return CreationContext(home: harnessHome, claudeConfig: agents.claudeConfig,
+        return CreationContext(home: harnessHome, claudeConfig: agents.claudeConfig, nativeSkills: agents.nativeSkills,
             availableAgents: { [agents] in agents.availableAgents }, rememberedModels: state.lastModelByAgent,
             catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue, initialCatalogueFailure: failure,
             defaults: defaults, git: git, reservedSlugs: state.reservedWorktreeSlugs(projectId: project.id),

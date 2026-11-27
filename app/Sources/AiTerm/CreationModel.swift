@@ -104,6 +104,7 @@ extension CreationKind {
 struct CreationContext {
     var home: URL
     var claudeConfig = ClaudeConfig()
+    var nativeSkills: NativeSkills = .filesystem
     var availableAgents: @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) }
     var rememberedModels: [AgentKind: String] = [:]
     var catalogue: @Sendable (AgentKind) throws -> [AgentModel]
@@ -176,6 +177,7 @@ final class CreationModel<Kind: CreationKind> {
     var git: any GitRunning { context.git }
     private let submit: @MainActor (Draft) async throws -> Void
     @ObservationIgnored private var catalogueGeneration = 0
+    @ObservationIgnored private var skillGeneration = 0
     @ObservationIgnored private var resetModel = false
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
@@ -249,6 +251,9 @@ final class CreationModel<Kind: CreationKind> {
     func selectAgent(_ agent: AgentKind) {
         guard agent != draft.agent else { return }
         draft.agent = agent
+        skillGeneration += 1
+        completions.all = []
+        completions.close()
         models = []
         catalogueLoaded = false
         catalogueFailure = nil
@@ -258,7 +263,7 @@ final class CreationModel<Kind: CreationKind> {
 
     func loadAgentCatalogue() async {
         catalogueGeneration += 1
-        let generation = catalogueGeneration, agent = draft.agent, path = project.path, home = context.home, claudeConfig = context.claudeConfig
+        let generation = catalogueGeneration, agent = draft.agent
         let remembered = context.rememberedModels[agent], catalogueProvider = context.catalogue
         // UserDefaults is documented as thread-safe; the SDK just does not mark it `Sendable`.
         nonisolated(unsafe) let defaults = context.defaults
@@ -270,15 +275,12 @@ final class CreationModel<Kind: CreationKind> {
                 do { models = try catalogueProvider(agent) } catch { failure = error.localizedDescription }
             }
             return (models: models, failure: failure,
-                    completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home, claudeConfig: claudeConfig),
                     resolution: ModelSettings.resolution(for: agent, catalog: models, remembered: remembered, defaults: defaults))
         }
         guard !Task.isCancelled, generation == catalogueGeneration, agent == draft.agent else { return }
         models = catalogue.models
         catalogueFailure = catalogue.failure
         catalogueLoaded = true
-        completions.all = catalogue.completions
-        completions.close()
         let preference: ModelPreference
         let savedModelIsMissing: Bool
         switch catalogue.resolution {
@@ -291,6 +293,24 @@ final class CreationModel<Kind: CreationKind> {
             draft.reasoning = preference.reasoning
             resetModel = false
         }
+    }
+
+    /// The prompt step knows the destination after the branch and agent steps. A review can
+    /// already have a checkout; a new worktree uses its repository's files for a preview.
+    func loadSkills(existingWorktree: String? = nil) async {
+        skillGeneration += 1
+        let generation = skillGeneration
+        let agent = draft.agent, skills = context.nativeSkills, home = context.home, config = context.claudeConfig
+        let projectPath = existingWorktree ?? project.path
+        let prospective = existingWorktree == nil ? project.path + "/" + Worktree.directoryName + "/" + worktreeSlug : nil
+        completions.all = []
+        completions.close()
+        let found = await BackgroundWork.run {
+            skills.discover(agent: agent, projectPath: projectPath, prospectivePath: prospective, home: home, claudeConfig: config)
+        }
+        guard !Task.isCancelled, generation == skillGeneration, agent == draft.agent else { return }
+        completions.all = found
+        completions.refreshSkills?()
     }
 
     /// Filter only when the typed query or branch list changes, preserving the repository’s order.

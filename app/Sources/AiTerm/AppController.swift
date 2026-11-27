@@ -126,7 +126,7 @@ final class AppController {
                              activateIterm: activateIterm, isRemoving: { teardown.isLeaving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent },
-                                       defaults: preferences.defaults, claudeConfig: claudeConfig)
+                                       defaults: preferences.defaults, claudeConfig: claudeConfig, nativeSkills: ports.nativeSkills)
         // The agents, model lists and Operator profile come from Settings › Agents unless the caller supplied ports.
         let operatorPorts = ports.operatorPorts ?? .live(home: harnessHome, git: git, jiraSettings: jiraSettings, claudeConfig: claudeConfig,
                                                     agents: agents, preferences: preferences.defaults)
@@ -560,6 +560,7 @@ extension AppController {
     /// replaces; everything else is what the app does.
     static func live(store: StateStore = StateStore(url: StateStore.defaultURL),
                      preferences: InterfacePreferences = InterfacePreferences(defaults: .standard),
+                     nativeSkills: NativeSkills = .live,
                      harnessHome: URL = FileManager.default.homeDirectoryForCurrentUser,
                      claudeConfig: ClaudeConfig = .loginShell,
                      bundledResourcesURL: URL? = Bundle.main.resourceURL,
@@ -586,7 +587,7 @@ extension AppController {
                      }) -> AppController {
         // git with the login shell's PATH, so the hooks it runs (a lefthook pre-push) find Homebrew's node.
         let git = GitRunner(searchPath: { LoginShellLocator.shared.knownPath })
-        let ports = AppPorts(store: store, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
+        let ports = AppPorts(store: store, nativeSkills: nativeSkills, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
                              locateAgents: locateAgents, findPython: { PythonLocator.find() },
                              jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                              gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
