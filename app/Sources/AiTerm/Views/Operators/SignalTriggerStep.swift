@@ -6,8 +6,9 @@ import AiTermUI
 /// matches · The Operator decides, or You decide on a project signal). An item's or a query's trigger is the source it
 /// reads, the person's description with its Write button on the label's row, and the query that runs, in short mono
 /// editors; a schedule's is the description, its cron, its project and its next runs; the Operator's Done is an optional
-/// description of done, You decide a line of help. ⇥ in an empty query writes its example in. The help under a query
-/// names the syntax, says Claude wrote it, or, in warning ink, why the write failed or why AiTerm refuses it.
+/// description of done, You decide a line of help. ⇥ in an empty Describe it or query editor writes its example in.
+/// The help under a query names the syntax, says Claude wrote it, or, in warning ink, why the write failed or why
+/// AiTerm refuses it.
 struct SignalTriggerStep: View {
     @Bindable var model: SignalModel
     let start: Bool
@@ -79,16 +80,18 @@ struct SignalTriggerStep: View {
         }
     }
     private func describeField(_ trigger: Binding<SignalTrigger>, source: SignalTrigger.Source) -> some View {
-        FormField("Describe it") {
+        let placeholder = Self.describePlaceholder(source, start: start)
+        return FormField("Describe it") {
             writeButton(source)
         } content: {
             ZStack(alignment: .topLeading) {
                 PromptEditor(text: trigger.description, agent: .claude,
                              completions: start ? model.startDescribeCompletions : model.doneDescribeCompletions,
-                             onFocusChange: { if describeFocused != $0 { describeFocused = $0 } }, focusOnAppear: true)
+                             onFocusChange: { if describeFocused != $0 { describeFocused = $0 } }, focusOnAppear: true,
+                             tabFill: placeholder)
                     .frame(height: Sheet.queryEditorHeight)
                     .fieldBox(focused: describeFocused)
-                PromptPlaceholder(text: trigger.description, placeholder: Self.describePlaceholder(source, start: start))
+                PromptPlaceholder(text: trigger.description, placeholder: placeholder)
             }
         }
     }

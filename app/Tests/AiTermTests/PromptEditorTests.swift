@@ -392,25 +392,44 @@ import AiTermTestSupport
         #expect(text.value == typed)
     }
 
-    /// In the Signal sheet only the query editor fills on ⇥, with its own example: the Start JQL, and a schedule's
-    /// cron. The description beside it is the person's own words and keeps its ⇥.
-    @Test(arguments: [false, true]) func aSignalQueryFillsItsExampleOnTab(scheduled: Bool) throws {
+    /// Describe it and query editors fill their examples on ⇥; the optional Operator hint keeps its usual ⇥.
+    @Test(arguments: [
+        (SignalTrigger.Source.jira, true, "My tickets in my open sprints that nobody started yet", "assignee = currentUser() AND sprint in openSprints()"),
+        (.jira, false, "When it’s handed to someone else", "status = Done"),
+        (.gitLab, true, "Merge requests where I’m a reviewer and haven’t reviewed yet, no drafts", "reviewer:@me review-state:unreviewed draft:no"),
+        (.gitLab, false, "When I’ve approved it", "reviewer:@me review-state:approved"),
+        (.gitHub, true, "Pull requests where my review is requested, no drafts", "is:open user-review-requested:@me"),
+        (.gitHub, false, "When I’ve reviewed it", "-user-review-requested:@me"),
+        (.schedule, true, "Every Monday at 9am", "0 9 * * 1"),
+        (.operator, false, "", "")
+    ])
+    func signalEditorsFillTheirExamplesOnTab(source: SignalTrigger.Source, start: Bool,
+                                            description: String, query: String) throws {
         let agent = AgentChoice(agent: .claude, model: "claude-opus-5-5", reasoning: "high")
         let context = SignalContext(models: [.claude: [AgentModel(id: agent.model, label: "Opus", detail: nil,
                                                                   efforts: ["high"], defaultEffort: "high")]],
                                     defaults: [.claude: agent])
         let model = SignalModel(projects: [], context: context, save: { _ in })
-        if scheduled { model.startKind = .schedule }
-        let host = testHost(VStack { SignalTriggerStep(model: model, start: true) }.frame(width: Sheet.width),
+        if source == .schedule { model.startKind = .schedule }
+        else if start { model.start.source = source } else { model.done.source = source }
+        let host = testHost(VStack { SignalTriggerStep(model: model, start: start) }.frame(width: Sheet.width),
                             size: CGSize(width: Sheet.width, height: 600))
         host.layoutSubtreeIfNeeded()
         let editors = host.descendants(NSScrollView.self).compactMap { $0.documentView as? NSTextView }
-        #expect(editors.count == 2, "the description and the query")
+        #expect(editors.count == (source == .operator ? 1 : 2), "the description and, when applicable, the query")
 
         let filled = editors.filter { $0.delegate?.textView?($0, doCommandBy: #selector(NSResponder.insertTab(_:))) == true }
-        #expect(filled.count == 1)
-        #expect(model.start.query == (scheduled ? "0 9 * * 1" : "assignee = currentUser() AND sprint in openSprints()"))
-        #expect(model.start.description.isEmpty)
+        #expect(filled.count == (source == .operator ? 0 : editors.count))
+        let trigger = start ? model.start : model.done
+        #expect(trigger.query == query)
+        #expect(trigger.description == description)
+        #expect(Set(editors.map(\.string)) == Set([description, query]))
+
+        // Once filled, another ⇥ must leave the person's text alone.
+        for editor in editors {
+            #expect(editor.delegate?.textView?(editor, doCommandBy: #selector(NSResponder.insertTab(_:))) == false)
+        }
+        #expect((start ? model.start : model.done) == trigger)
     }
 
     private final class TextBox { var value = "" }
