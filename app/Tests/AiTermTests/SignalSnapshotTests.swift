@@ -5,7 +5,7 @@ import Testing
 @MainActor struct SignalSnapshotTests {
     @Test func everyStepOfAJiraAndAGitLabSignalIsDrawnAndTheDrawingsStayStill() throws {
         let snapshots = SignalSnapshots.all
-        #expect(snapshots.count == 14)
+        #expect(snapshots.count == 15)
         #expect(Set(snapshots.map(\.file)).count == snapshots.count)
         let registered = Set(Snapshots.regressionSet.map(\.file))
         for snapshot in snapshots {

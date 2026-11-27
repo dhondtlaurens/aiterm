@@ -26,7 +26,7 @@ Findings: `docs/research/2026-11-26-antigravity-cli.md`.
   whose screen AiTerm reads: the app's `Harness.messagingChecked`, the daemon's `MESSAGING_CHECKED`
   (a harness row with an input-box marker). The full tier is a subset of them: an agent is checked
   before it is full, and a pass is what makes it full. A contract test keeps the Swift and daemon
-  tiers, and the two messaging lists, equal. `ModelChoice.pair` stays
+  tiers, and the two messaging lists, equal. `ModelChoice.weeklySwitchPair` stays
   `[claude, codex]`: it is about weekly usage, and agy reports none on the account tested, so agy
   never takes part in the 80% switch.
 - Every agy launch uses `--dangerously-skip-permissions`, as Codex tasks use their bypass flag. The

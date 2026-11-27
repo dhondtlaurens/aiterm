@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTerm
 @testable import AiTermCore
@@ -113,11 +114,82 @@ import Testing
         #expect(saved?.id == original.id && saved?.createdAt == original.createdAt)
         #expect(saved?.finish.deletesMergedBranch == true && saved?.finish.mergesWhenReady == false)
     }
+    @Test func anInstalledWorkerWhoseCatalogueThrowsKeepsItsSavedRowAndStaysInNewSignals() async throws {
+        let runner = HarnessCommandRunner(locate: { _ in "/bin/echo" }, run: { _, _, _, _ in throw HarnessProcessError.launchFailed("offline") })
+        let service = HarnessService(home: ScratchHome.bare, daemonPort: 0, runner: runner,
+                                     resources: HarnessResources([:], installationAllowed: false, unavailableReason: nil))
+        let harness = HarnessSettingsModel(service: service, rememberedModels: { [:] }, defaults: ScratchDefaults.make())
+        await harness.load([.agy])
+        let read = SignalContext(installed: { [.agy] }, harness: harness)
+        let agy = AgentChoice(agent: .agy, model: "saved-model", reasoning: "high")
+        var world = SignalWorld()
+        let id = world.signal(agents: [agy])
+        var saved: Signal?
+        let edit = SignalModel(signal: world.state.signal(id: id), projects: [], context: read, save: { saved = $0 })
+        edit.name = "Renamed"
+        #expect(await edit.create())
+        #expect(saved?.name == "Renamed" && saved?.agents == [agy])
+        let new = SignalModel(projects: [], context: read, save: { _ in })
+        #expect(new.agentRows.map(\.choice.agent) == [.agy])
+        #expect(new.agentsWhyNot?.contains("couldn’t be launched") == true)
+    }
+
+    @Test func aFailedRefreshKeepsCachedChoicesAndAllowsAnUnchangedSavedRowOutsideTheCache() async throws {
+        let fail = Mutex(false)
+        let runner = HarnessCommandRunner(locate: { _ in "/bin/echo" }, run: { _, _, _, _ in
+            if fail.withLock({ $0 }) { return ProcessOutput(status: 1, stdout: "", stderr: "Signed out", timedOut: false) }
+            return ProcessOutput(status: 0, stdout: "gemini-high\tGemini (High)", stderr: "", timedOut: false)
+        })
+        let service = HarnessService(home: ScratchHome.bare, daemonPort: 0, runner: runner,
+                                     resources: HarnessResources([:], installationAllowed: false, unavailableReason: nil))
+        let harness = HarnessSettingsModel(service: service, rememberedModels: { [:] }, defaults: ScratchDefaults.make())
+        await harness.load([.agy])
+        fail.withLock { $0 = true }
+        await harness.load([.agy])
+        let context = SignalContext(installed: { [.agy] }, harness: harness)
+        #expect(context.worker(.agy)?.help?.contains("Signed out") == true)
+        #expect(context.worker(.agy)?.reading?.stale == true)
+        let new = SignalModel(projects: [], context: context, save: { _ in })
+        #expect(new.agents == [.init(agent: .agy, model: "gemini", reasoning: "high")])
+        #expect(new.agentsWhyNot == nil)
+        let original = AgentChoice(agent: .agy, model: "previous", reasoning: "medium")
+        var world = SignalWorld()
+        let id = world.signal(agents: [original])
+        let edit = SignalModel(signal: world.state.signal(id: id), projects: [], context: context, save: { _ in })
+        #expect(edit.agents == [original] && edit.agentsWhyNot == nil)
+        let row = try #require(edit.agentRows.first)
+        edit.setReasoning("high", of: row.id)
+        #expect(!edit.canAdvance(step: SignalModel.agentsStep))
+        let cached = try #require(edit.models(for: .agy).first)
+        edit.setModel(cached, of: row.id)
+        #expect(edit.canAdvance(step: SignalModel.agentsStep))
+    }
+
+    @Test func theColdLaunchInstallationProbeCanRemoveAnUninstalledDefaultWhileTheSheetIsOpen() {
+        var installed: Set<AgentKind> = [.claude, .agy]
+        let context = SignalContext(installed: { installed }, harness: .preview(snapshots: [:]))
+        let model = SignalModel(projects: [], context: context, save: { _ in })
+        #expect(model.agentRows.map(\.choice.agent) == [.claude, .agy])
+        installed = [.claude]
+        #expect(model.agentRows.map(\.choice.agent) == [.claude])
+        #expect(model.offeredAgents == [.claude])
+    }
+
+    @Test func aSuccessfulEmptyCatalogueStillRequiresAValidModel() {
+        let snapshot = HarnessSnapshot.reduce(agent: .agy, cliAvailable: true, integrationState: .current, models: [])
+        let context = SignalContext(installed: { [.agy] }, harness: .preview(snapshots: [.agy: snapshot]))
+        var world = SignalWorld()
+        let id = world.signal(agents: [.init(agent: .agy, model: "old", reasoning: nil)])
+        let edit = SignalModel(signal: world.state.signal(id: id), projects: [], context: context, save: { _ in })
+        #expect(edit.offeredAgents == [.agy])
+        #expect(!edit.canAdvance(step: SignalModel.agentsStep))
+    }
+
     @Test func readinessNeverDisablesCreate() async {
         let model = SignalModel(projects: [], context: context, save: { _ in })
         model.name = "Tickets"; model.start.query = "labels = ready"; model.done.query = "status = Done"; model.prompt = "Fix it."
         for readiness in [SignalReadiness.checking, .ready, .notReady(["Messaging needs attention"])] {
-            model.readiness = { _ in readiness }
+            model.readiness = { _, _ in readiness }
             #expect(model.canAdvance(step: SignalModel.doneStep))
             #expect(await model.create())
         }
@@ -139,7 +211,7 @@ import Testing
     }
 
     @Test func anUninstalledRowExplainsWhyContinueIsDisabled() {
-        let missing = SignalContext(models: context.models, defaults: [.codex: AgentChoice(agent: .codex, model: "m", reasoning: nil)])
+        let missing = SignalContext(models: [:], defaults: [.codex: AgentChoice(agent: .codex, model: "m", reasoning: nil)])
         var world = SignalWorld(); let id = world.signal()
         let model = SignalModel(signal: world.state.signal(id: id), projects: [], context: missing, save: { _ in })
         #expect(model.agentsWhyNot == "Claude Code isn’t installed. Choose another agent for its row, or remove it.")
@@ -321,9 +393,10 @@ import Testing
             .agy: [agyModel],
             .pi: [AgentModel(id: "pi-model", label: "PI", detail: nil, efforts: [], defaultEffort: nil)],
         ]
-        let read = SignalContext.read(installed: [.claude, .codex, .agy, .pi], models: { catalog[$0] ?? [] },
-                                      remembered: [:], preferences: ScratchDefaults.make())
-        #expect(Set(read.defaults.keys) == [.claude, .codex, .agy], "every full-support worker with a model is read, never PI")
+        let cards = catalog.map { agent, models in
+            (agent, HarnessSnapshot.reduce(agent: agent, cliAvailable: true, integrationState: .current, models: models))
+        }
+        let read = SignalContext(installed: { Set(catalog.keys) }, harness: .preview(snapshots: Dictionary(uniqueKeysWithValues: cards)))
         var saved: [Signal] = []
         let model = SignalModel(projects: [], context: read, save: { saved.append($0) })
         #expect(model.offeredAgents == [.claude, .codex, .agy])

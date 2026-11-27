@@ -295,6 +295,14 @@ import Foundation
         #expect(try AgyModelCatalog.parse("").isEmpty)
     }
 
+    @Test func aTimedOutModelListExplainsTheTimeout() {
+        let runner = HarnessCommandRunner(locate: { _ in "/bin/echo" }, run: { _, _, _, _ in
+            ProcessOutput(status: 15, stdout: "", stderr: "Fetching available models...", timedOut: true)
+        })
+        let reading = ModelCatalogue(home: FileManager.default.temporaryDirectory, runner: runner).read(.agy)
+        #expect(reading.failure?.localizedDescription.contains("timed out") == true)
+    }
+
     @Test func agyDiscoveryRunsModelsAndWordsItsFailures() throws {
         let listed = HarnessCommandRunner(locate: { _ in "/usr/local/bin/agy" }, run: { _, arguments, _, timeout in
             #expect(arguments == ["models"])

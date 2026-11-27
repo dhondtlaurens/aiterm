@@ -50,6 +50,9 @@ public struct HarnessCheck: Equatable, Sendable {
     /// cannot: both report on the Run check, which Install does not run.
     public var repairable: Bool
 
+    /// A Models check can also report a successful, empty catalogue.
+    public var modelListFailure: ModelListError?
+
     public var label: String { id.label }
 
     public init(_ id: HarnessCheckID, passed: Bool, explanation: String?, repairable: Bool = true) {

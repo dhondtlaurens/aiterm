@@ -35,6 +35,18 @@ import Testing
         #expect(readiness() == .ready)
     }
 
+    @Test func aCatalogueFailureShownWithItsRowLeavesTheOtherFooterWarnings() {
+        let failed = HarnessSnapshot.reduce(agent: .agy, cliAvailable: true, integrationState: .current, models: [],
+            checks: [HarnessCheck(.models, passed: false, explanation: "The catalogue is offline.")])
+        func check(_ messaging: DeliveryReadiness, showingModels: Bool) -> SignalReadiness {
+            SignalReadiness.of(agents: [.agy], installed: [.claude, .agy], snapshots: [.agy: failed],
+                               messaging: { _ in messaging }, iterm: itermPassed, showingModels: showingModels)
+        }
+        #expect(check(.ready("Ready"), showingModels: true) == .ready)
+        #expect(check(.ready("Ready"), showingModels: false) == .notReady(["Antigravity: The catalogue is offline"]))
+        #expect(check(.needsAttention("Messaging failed"), showingModels: true) == .notReady(["Antigravity: Messaging failed"]))
+    }
+
     @Test func eachMissingPieceIsALineInItsCardsWords() {
         #expect(readiness(messaging: [.claude: .needsAttention("Messaging not checked for 2.1"), .codex: ready[.codex]!])
                 == .notReady(["Claude Code: Messaging not checked for 2.1"]))

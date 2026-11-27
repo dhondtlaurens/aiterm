@@ -24,7 +24,12 @@ import AiTermCore
     var prompt = ""
     var ticketDescription = true
     var requestDescription = true
-    private(set) var agentRows: [AgentChoiceRow]
+    /// Empty models on new rows follow the worker's default as its probe arrives.
+    private var draftRows: [AgentChoiceRow]
+    var agentRows: [AgentChoiceRow] {
+        let rows = draftRows.filter { !$0.initialDefault || context.worker($0.choice.agent) != nil }
+        return (isProject ? Array(rows.prefix(1)) : rows).map(resolved)
+    }
     var mergeWhenReady = false
     var then = SignalFinish.Then.archive
     var deleteMergedBranch = false
@@ -39,7 +44,7 @@ import AiTermCore
     /// The query and description editors offer no completions.
     let startCompletions = PromptCompletions(), doneCompletions = PromptCompletions()
     let startDescribeCompletions = PromptCompletions(), doneDescribeCompletions = PromptCompletions()
-    @ObservationIgnored var readiness: @MainActor ([AgentKind]) -> SignalReadiness = { _ in .ready }
+    @ObservationIgnored var readiness: @MainActor ([AgentKind], Bool) -> SignalReadiness = { _, _ in .ready }
     @ObservationIgnored private var previewKey: UUID?
     @ObservationIgnored private let readPreview: @MainActor (SignalTrigger) async throws -> SignalRead
     @ObservationIgnored private let save: @MainActor (Signal) async throws -> Void
@@ -70,15 +75,8 @@ import AiTermCore
         let kind = signal?.kind ?? kind
         self.kind = kind
         // A project signal runs one agent: the first row.
-        let choices = signal?.agents ?? AgentCommand.workerAgents.compactMap { context.defaults[$0] }
-        agentRows = (kind == .project ? Array(choices.prefix(1)) : choices).map { choice in
-            var choice = choice
-            if let model = context.models[choice.agent]?.first(where: { $0.id == choice.model }) {
-                var preference = ModelPreference(model: choice.model, reasoning: choice.reasoning)
-                preference.select(model); choice.reasoning = preference.reasoning
-            }
-            return AgentChoiceRow(choice: choice)
-        }
+        let choices = signal?.agents ?? AgentCommand.workerAgents.map { AgentChoice(agent: $0, model: "", reasoning: nil) }
+        draftRows = choices.map { AgentChoiceRow(choice: $0, initialDefault: signal == nil) }
         guard let signal else { return }
         name = signal.name; prompt = signal.work.prompt; start = signal.start; done = signal.done
         ticketDescription = signal.work.ticketDescription; requestDescription = signal.work.requestDescription
@@ -196,52 +194,77 @@ import AiTermCore
                                        ticketDescription: ticketDescription && !isScheduled, requestDescription: requestDescription && !isScheduled),
                       agents: agents, finish: finish, scheduledFrom: original?.scheduledFrom, kind: kind)
     }
-    var offeredAgents: [AgentKind] { AgentCommand.workerAgents.filter { context.defaults[$0] != nil } }
-    func models(for agent: AgentKind) -> [AgentModel] { context.models[agent] ?? [] }
+    var offeredAgents: [AgentKind] { context.offeredAgents }
+    func models(for agent: AgentKind) -> [AgentModel] { context.worker(agent)?.reading?.models ?? [] }
     var agents: [AgentChoice] { var found = Set<AgentChoice>(); return agentRows.map(\.choice).filter { found.insert($0).inserted } }
+
+    /// Only an untouched default or an existing row's freshly verified effort needs resolving. A
+    /// failed read leaves the saved row exactly as it was, even when the cached efforts differ.
+    private func resolved(_ row: AgentChoiceRow) -> AgentChoiceRow {
+        guard let worker = context.worker(row.choice.agent) else { return row }
+        var row = row
+        if row.choice.model.isEmpty {
+            row.choice = worker.choice
+        } else if let reading = worker.reading, reading.failure == nil, !worker.refreshing,
+                  original?.agents.contains(row.choice) == true,
+                  let model = reading.models.first(where: { $0.id == row.choice.model }) {
+            var preference = ModelPreference(model: row.choice.model, reasoning: row.choice.reasoning)
+            preference.select(model)
+            row.choice.reasoning = preference.reasoning
+        }
+        return row
+    }
+
     var agentsWhyNot: String? {
-        // A project signal's one row has no Add: with no agent installed, its step says where to install one.
         guard !agentRows.isEmpty else { return isProject ? "Install an agent in Settings › Agents." : "Add an agent." }
         for row in agentRows {
             let choice = row.choice
-            if !offeredAgents.contains(choice.agent) {
+            guard let worker = context.worker(choice.agent) else {
                 return "\(choice.agent.displayName) isn’t installed. " + (isProject ? "Choose another agent." : "Choose another agent for its row, or remove it.")
             }
-            if !models(for: choice.agent).contains(where: { $0.id == choice.model }) {
-                return ModelReasoningFields.unavailableHelp
+            if worker.reading == nil || worker.reading?.failure != nil,
+               !choice.model.isEmpty, original?.agents.contains(choice) == true { continue }
+            guard let model = worker.reading?.models.first(where: { $0.id == choice.model }),
+                  choice.reasoning.map(model.efforts.contains) ?? true else {
+                return worker.help ?? ModelReasoningFields.unavailableHelp
             }
         }
         return nil
     }
     func addAgent() {
-        guard !isProject || agentRows.isEmpty, let agent = offeredAgents.first(where: { agent in !agentRows.contains { $0.choice.agent == agent } }) ?? offeredAgents.first,
-              let choice = context.defaults[agent] else { return }
-        agentRows.append(AgentChoiceRow(choice: choice))
+        guard !isProject || agentRows.isEmpty,
+              let agent = offeredAgents.first(where: { agent in !draftRows.contains { $0.choice.agent == agent } }) ?? offeredAgents.first else { return }
+        draftRows.append(AgentChoiceRow(choice: AgentChoice(agent: agent, model: "", reasoning: nil)))
     }
-    func removeAgent(_ id: UUID) { agentRows.removeAll { $0.id == id } }
+    func removeAgent(_ id: UUID) { draftRows.removeAll { $0.id == id } }
     func setAgent(_ agent: AgentKind, of id: UUID) {
-        guard let choice = context.defaults[agent], let index = agentRows.firstIndex(where: { $0.id == id }),
-              agentRows[index].choice.agent != agent else { return }
-        agentRows[index].choice = choice
+        guard offeredAgents.contains(agent), let index = draftRows.firstIndex(where: { $0.id == id }),
+              draftRows[index].choice.agent != agent else { return }
+        draftRows[index].initialDefault = false
+        draftRows[index].choice = AgentChoice(agent: agent, model: "", reasoning: nil)
     }
     func setModel(_ model: AgentModel, of id: UUID) {
-        guard let index = agentRows.firstIndex(where: { $0.id == id }) else { return }
-        var preference = ModelPreference(model: agentRows[index].choice.model, reasoning: agentRows[index].choice.reasoning)
-        preference.select(model); agentRows[index].choice.model = preference.model; agentRows[index].choice.reasoning = preference.reasoning
+        guard let index = draftRows.firstIndex(where: { $0.id == id }) else { return }
+        let choice = resolved(draftRows[index]).choice
+        guard models(for: choice.agent).contains(model) else { return }
+        var preference = ModelPreference(model: choice.model, reasoning: choice.reasoning)
+        preference.select(model)
+        draftRows[index].initialDefault = false
+        draftRows[index].choice = AgentChoice(agent: choice.agent, model: preference.model, reasoning: preference.reasoning)
     }
     func setReasoning(_ reasoning: String?, of id: UUID) {
-        guard let index = agentRows.firstIndex(where: { $0.id == id }) else { return }; agentRows[index].choice.reasoning = reasoning
+        guard let index = draftRows.firstIndex(where: { $0.id == id }) else { return }
+        var choice = resolved(draftRows[index]).choice
+        choice.reasoning = reasoning
+        draftRows[index].initialDefault = false
+        draftRows[index].choice = choice
     }
     func canAdvance(step: Int) -> Bool {
         guard !starting, TaskCreator.isNamed(name) else { return false }
         if step == Self.nameStep { return true }
         guard start.isValid(start: true) else { return false }
         if step == Self.startStep { return true }
-        guard !agents.isEmpty, agents.allSatisfy({ choice in
-            offeredAgents.contains(choice.agent) && models(for: choice.agent).contains { model in
-                model.id == choice.model && (choice.reasoning == nil || model.efforts.contains(choice.reasoning!))
-            }
-        }) else { return false }
+        guard agentsWhyNot == nil else { return false }
         if step == Self.agentsStep { return true }
         guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         return step == Self.promptStep || signal.isValid

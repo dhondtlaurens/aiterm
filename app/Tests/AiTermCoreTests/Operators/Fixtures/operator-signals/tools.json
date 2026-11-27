@@ -121,7 +121,8 @@
           "type": "string",
           "enum": [
             "claude",
-            "codex"
+            "codex",
+            "agy"
           ],
           "description": "A permitted agent row from run_status."
         },
@@ -286,7 +287,8 @@
           "type": "string",
           "enum": [
             "claude",
-            "codex"
+            "codex",
+            "agy"
           ],
           "description": "A permitted agent row from run_status."
         },
@@ -344,7 +346,8 @@
           "type": "string",
           "enum": [
             "claude",
-            "codex"
+            "codex",
+            "agy"
           ],
           "description": "An agent from the task's choosableRows."
         },

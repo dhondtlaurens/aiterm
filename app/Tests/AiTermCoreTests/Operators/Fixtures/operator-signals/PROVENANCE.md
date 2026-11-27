@@ -222,3 +222,10 @@ tools. A deliberate contract and format change, not a refactor.
 - `Update2_0_0Tests.the150GoldenBecomesTheCurrentGolden` proves the steps agree: the frozen 1.5.0
   file, updated through 2.0.0 and 2.1.0, loads as `SignalSavedFormatTests.state()` and saves this
   file's bytes.
+
+## Antigravity signal workers
+
+26 Nov 2026. A deliberate Operator tool contract change. The worker enums for `choose_agent`,
+`open_tab` and `resume_task` include `agy`. Their source is the daemon’s full-support worker list.
+`tools.json` is a byte copy of `daemon/aitermd/signal_tools.json`. The existing brief already
+instructs the Operator to choose an exact permitted row.

@@ -95,8 +95,9 @@ public actor HarnessService {
     private func readCatalogue(_ agent: AgentKind, executable: String) async -> Catalogue {
         let catalogue = self.catalogue
         let reading = await BackgroundWork.run { catalogue.read(agent, executable: executable, refreshing: true) }
-        return Catalogue(models: reading.models, stale: reading.stale,
-                         check: reading.explanation.map { HarnessCheck(.models, passed: false, explanation: $0) })
+        var check = reading.explanation.map { HarnessCheck(.models, passed: false, explanation: $0) }
+        check?.modelListFailure = reading.failure
+        return Catalogue(models: reading.models, stale: reading.stale, check: check)
     }
 
     /// A missing CLI is installed first, with its vendor's installer, and then its driver — one

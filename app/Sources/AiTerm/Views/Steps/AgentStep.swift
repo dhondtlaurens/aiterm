@@ -54,7 +54,7 @@ struct AgentStep: View {
     var selectedModel: AgentModel? { models.first { $0.id == model } }
     var fields: ModelReasoningFields {
         ModelReasoningFields(models: models, model: model, reasoning: $reasoning,
-                             selectModel: { setModel($0.id) })
+                             unverified: !catalogueLoaded || catalogueFailure != nil, selectModel: { setModel($0.id) })
     }
 
     var body: some View {
@@ -72,7 +72,8 @@ struct AgentStep: View {
                 } else { fields.modelField; fields.reasoningField }
             }
             if availableAgents.isEmpty { HelpText(Self.noAgentNote, tone: .warning) }
-            if selectedModel == nil, !model.isEmpty { HelpText(ModelReasoningFields.unavailableHelp, tone: .warning) }
+            if let catalogueFailure, !models.isEmpty || !model.isEmpty { HelpText(catalogueFailure, tone: .warning) }
+            else if catalogueLoaded, selectedModel == nil, !model.isEmpty { HelpText(ModelReasoningFields.unavailableHelp, tone: .warning) }
             if let detail = selectedModel?.detail, !detail.isEmpty { HelpText(detail) }
         }
     }

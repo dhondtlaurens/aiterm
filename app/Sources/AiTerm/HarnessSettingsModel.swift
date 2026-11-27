@@ -21,6 +21,8 @@ final class HarnessSettingsModel {
     private(set) var snapshots: [AgentKind: HarnessSnapshot] = [:]
     private(set) var preferences: [AgentKind: ModelPreference] = [:]
     private(set) var running: Set<AgentKind> = []
+    /// The Agents sheet may display an earlier snapshot until this fresh catalogue arrives.
+    private(set) var probing: Set<AgentKind> = []
 
     private let service: any HarnessServicing
     /// The last model used with each agent, read whenever a card resolves its default: the model
@@ -69,7 +71,9 @@ final class HarnessSettingsModel {
         // `.task` runs once per Settings presentation. Re-resolve persisted defaults here so
         // reopening after Cancel drops unsaved picker edits; explicit actions within the same
         // presentation use the current preference below and therefore do not reset the form.
+        probing.insert(agent)
         let probed = await service.probe(agent)
+        probing.remove(agent)
         accept(probed, resolveStoredPreference: true)
         guard probed.health != .unavailable, probed.integrationState == .current else { return }
         accept(await service.test(probed), resolveStoredPreference: false)
