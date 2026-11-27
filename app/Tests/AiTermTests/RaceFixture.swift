@@ -23,7 +23,8 @@ struct RaceFixture {
          launchIterm: @escaping @MainActor () -> Void = {},
          itermRunning: @escaping @MainActor () -> Bool = { true }, scan: CheckoutMonitor.Scanner? = nil,
          checkoutPollInterval: Duration = .seconds(2),
-         provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil) async throws {
+         provider: Provider = .git, remoteUrl: String? = nil, controllerGit: (any GitRunning)? = nil,
+         operatorPorts: OperatorPorts? = nil) async throws {
         root = try await BackgroundWork.run {
             let raw = try ScratchFolder.make("controller-").path
             return URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
@@ -39,7 +40,7 @@ struct RaceFixture {
                                    checkoutPollInterval: checkoutPollInterval,
                                    git: controllerGit ?? GitRunner.hermetic(), scan: scan ?? {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5)
-                                   })
+                                   }, operatorPorts: operatorPorts)
         try controller.workspace.load()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())

@@ -51,8 +51,17 @@ reasoning; run `agy` once to sign in.
 `~/.gemini/config/hooks.json` and sets its status line in `~/.gemini/antigravity-cli/settings.json`,
 keeping your own status line running beneath it. As the Oracle, Antigravity runs with rules that deny
 commands, file writes, MCP servers and fetches; it can still search the web. The New Task sheet summarises
-the destination before launch. An ordinary **New Review…** uses the normal agent launch command;
-signal workers also use the task-branch publishing guard. See the
+the destination before launch.
+
+**New Review…** runs the chosen model and effort once against the pinned commit and its diff.
+The tab prints the commit and findings or a failure, then returns to its shell. The sidebar can
+show a shell during this run. An MR uses its target branch and a branch-only review uses the
+default branch. Projects with an origin need it reachable to verify the target. Local-only
+repositories use the local target. The Antigravity file reader requires CLI 1.5.18, the version
+verified to enforce AiTerm’s file-only tool policy. It uses your existing Antigravity sign-in
+in a disposable home. AiTerm removes that home and the review inputs when the helper exits.
+
+Signal workers use the task-branch publishing guard. See the
 [Operator guide](operators.md#publishing-done-and-merging) for publishing and merge boundaries.
 
 ## Operator

@@ -61,7 +61,9 @@ final class TaskLauncher {
             return try await openReview(draft, in: owner, project: project)
         }
         let reserved = state.reservedWorktreeSlugs(projectId: project.id)
-        try await create(draft, kind: .review, in: project) { [workflow] in try await workflow.createReview(draft: draft, project: project, reserved: reserved) }
+        try await create(draft, kind: .review, in: project) { [workflow, workerGuardExecutable] in
+            try await workflow.createManualReview(draft: draft, project: project, reserved: reserved, executable: workerGuardExecutable)
+        }
     }
 
     /// The recovery a creation footer offered for a refused branch, run before its create is tried
@@ -81,11 +83,9 @@ final class TaskLauncher {
         checkouts.refresh()
     }
 
-    /// The review as a tab in `owner`'s window, running the reviewer in the task's worktree — or
-    /// the window itself, reopened with the reviewer, when the task has none. Nothing is written
-    /// to disk and no row is added, so closing the tab ends the review and there is nothing whose
-    /// removal could reach the task's worktree or branch. For the same reason every failure is the
-    /// sheet's: the draft is still there to retry.
+    /// Deliver the pinned review to a tab in the owner's window, reopening the window when
+    /// needed. The existing row keeps its checkout, and the helper runs the reviewer on a
+    /// private copy of the committed files. Delivery errors go back to the sheet.
     private func openReview(_ draft: ReviewDraft, in owner: TaskItem, project: Project) async throws {
         guard canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before opening a review.") }
         guard await FolderCheck.exists(owner.worktreePath) else {
@@ -96,7 +96,10 @@ final class TaskLauncher {
         defer { work.end(reviewing) }
         let opening = work.begin(.openingTaskWindow, onProject: owner.projectId)
         defer { if let opening { work.end(opening) } }
-        let command = try await workflow.reviewCommand(draft: draft, in: owner)
+        let request = try await workflow.reviewCommand(draft: draft, in: owner, project: project)
+        var attemptedDelivery = false
+        defer { if !attemptedDelivery { request.discard() } }
+        let command = request.command(executable: workerGuardExecutable)
         guard let current = state.task(id: owner.id) else { throw ActionUnavailable("“\(owner.title)” was removed.") }
         // Checked again last thing: a checkout in the task's own tab can have moved it meanwhile.
         // Its worktree is never switched back — the review would take over someone's checkout.
@@ -106,14 +109,29 @@ final class TaskLauncher {
         var opened = false
         if let wid = current.windowId {
             do {
-                _ = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command, tabKey: nil, background: false)
+                attemptedDelivery = true
+                let tab = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command, tabKey: nil, background: false)
+                if let failure = tab.commandError {
+                    request.discard()
+                    throw ActionUnavailable("The review command could not start: " + failure)
+                }
                 opened = true
                 try? await daemon.activate(windowId: wid)
             }
             // Closed since the last poll: reopened below, as a task with no window is.
             catch let error as DaemonError where error.isNotFound {}
         }
-        if !opened { try await openWindow(for: current, command: command, with: daemon) }
+        if !opened {
+            attemptedDelivery = true
+            guard let window = try await openWindow(for: current, command: command, with: daemon) else {
+                request.discard()
+                throw ActionUnavailable("The task was removed while opening its review.")
+            }
+            if let failure = window.commandError {
+                request.discard()
+                throw ActionUnavailable("The review command could not start: " + failure)
+            }
+        }
         workspace.mutate { state in
             if let i = state.tasks.firstIndex(where: { $0.id == owner.id }) {
                 if let mr = draft.mr { state.tasks[i].mr = MergeRequestRef(iid: mr.iid, title: mr.title, url: mr.url) }
@@ -148,6 +166,8 @@ final class TaskLauncher {
         defer { work.end(creating) }
         let result = try await checkout()
         let task = result.task
+        var attemptedDelivery = false
+        defer { if !attemptedDelivery { result.manualReview?.discard() } }
         // The row is in the workspace before its window: until this create has opened it — or given
         // up — the row is this work's, and choosing it opens no second window (`RowWindows`).
         let opening = work.begin(.opening, onTask: task.id)
@@ -159,14 +179,18 @@ final class TaskLauncher {
         checkouts.refresh()
         focus.browse(.task(task.id))
         // A row that could not be saved gets no window: a relaunch would not know the window was its.
-        guard workspace.flush(), let say = reportMade(result, noun: noun) else { return }
+        guard workspace.flush(), let say = reportMade(result, noun: noun, manual: kind == .review) else { return }
         guard let daemon = daemon() else {
-            say(OperationIssue(title: "\(noun) created. Choose it to open its window once AiTerm reconnects, then start the agent there."))
+            let detail = kind == .review ? "Open New Review again once AiTerm reconnects."
+                : "Choose it to open its window once AiTerm reconnects, then start the agent there."
+            say(OperationIssue(title: "\(noun) created. " + detail))
             return
         }
         do {
             // The window is there, but its agent command was never typed: a plain shell, said on the row.
+            attemptedDelivery = true
             if let failure = try await openWindow(for: task, command: result.command, with: daemon)?.commandError {
+                result.manualReview?.discard()
                 say(OperationIssue(title: "Opened the window, but its agent didn’t start.", reason: failure, subject: task.id))
             }
         } catch {
@@ -190,7 +214,7 @@ final class TaskLauncher {
     /// the agent must be started by hand. Returns how a later report carries the copy's sentence on, as the banner holds
     /// one report and a window report replaces it; nil once the launch warning was said. `subject` is the row the
     /// warning is said on: none for a sheet's create, whose row is the selection.
-    private func reportMade(_ result: TaskWorkflow.Created, noun: String, subject: UUID? = nil) -> ((OperationIssue) -> Void)? {
+    private func reportMade(_ result: TaskWorkflow.Created, noun: String, subject: UUID? = nil, manual: Bool = false) -> ((OperationIssue) -> Void)? {
         let copyNote = Self.report(result.worktreeInclude, of: result.task, to: notices)
         let notices = notices
         let say = { (issue: OperationIssue) in
@@ -199,7 +223,9 @@ final class TaskLauncher {
             notices.report(issue)
         }
         guard let warning = result.launchWarning else { return say }
-        say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Start it manually in its window.",
+        let title = manual ? "Review created. The review command could not be prepared."
+            : "\(noun) created, but the agent couldn’t start. Start it manually in its window."
+        say(OperationIssue(title: title,
                            reason: warning, subject: subject))
         return nil
     }

@@ -19,7 +19,7 @@ import Testing
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
         #expect(tab.params["windowId"] as? String == "alive")
         #expect(tab.params["cwd"] as? String == fixture.task.worktreePath, "in the task's worktree, whatever the active tab is doing")
-        #expect((tab.params["agentCommand"] as? String)?.hasSuffix("'/code-review'") == true)
+        #expect((tab.params["agentCommand"] as? String)?.contains(" --manual-review ") == true)
         #expect(server.requests.contains { $0.method == "window.activate" && $0.params["windowId"] as? String == "alive" })
         #expect(!server.requests.contains { $0.method == "window.createTask" })
 
@@ -47,7 +47,12 @@ import Testing
         try await fixture.controller.launcher.createReview(draft: draft, project: fixture.project)
 
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
-        #expect((tab.params["agentCommand"] as? String)?.contains("Use frozen constraints") == true)
+        let command = try #require(tab.params["agentCommand"] as? String)
+        let quoted = try #require(command.components(separatedBy: " --manual-review ").last)
+        let request = URL(fileURLWithPath: String(quoted.dropFirst().dropLast()))
+        let review = try await ManualReview.withClaim(at: request) { review, _ in review }
+        #expect(review.context?.contains("Use frozen constraints") == true)
+        #expect(review.model == draft.model)
         let saved = try #require(try fixture.controller.savedWorkspace().tasks.first)
         #expect(saved.jira == JiraRef(key: "#53", summary: "Constraints file", url: "https://gitlab/x/-/issues/53",
                                       source: .gitLab(project: "x")))
@@ -65,7 +70,7 @@ import Testing
         let window = try #require(server.requests.first { $0.method == "window.createTask" })
         #expect(window.params["taskId"] as? String == fixture.task.id.uuidString)
         #expect(window.params["cwd"] as? String == fixture.task.worktreePath)
-        #expect((window.params["agentCommand"] as? String)?.hasSuffix("'/code-review'") == true)
+        #expect((window.params["agentCommand"] as? String)?.contains(" --manual-review ") == true)
         #expect(!server.requests.contains { $0.method == "tab.create" })
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["reopened"])
     }
@@ -83,6 +88,22 @@ import Testing
         #expect(server.requests.map(\.method).filter { $0 != "sessions.setTitles" }
                 == ["tab.create", "window.createTask"])
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["reopened"])
+    }
+
+    @Test(arguments: [true, false]) func failedDeliveryIsShownAndTheRequestDiscarded(open: Bool) async throws {
+        let fixture = try await TaskFixture(windowOpen: open)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let server = RecordingDaemon()
+        let method = open ? "tab.create" : "window.createTask"
+        server.commandErrors[method] = "Session closed before command delivery."
+        fixture.controller.helper.setDaemonClient(server)
+        let failure = await #expect(throws: ActionUnavailable.self) {
+            try await fixture.controller.launcher.createReview(draft: fixture.draft, project: fixture.project)
+        }
+        #expect(failure?.message.contains("Session closed") == true)
+        let command = try #require(server.requests.first { $0.method == method }?.params["agentCommand"] as? String)
+        let path = try #require(command.components(separatedBy: " --manual-review ").last)
+        #expect(!FileManager.default.fileExists(atPath: String(path.dropFirst().dropLast())))
     }
 
     /// The task was created on `feat/work`, then its worktree moved to another branch. A review of
