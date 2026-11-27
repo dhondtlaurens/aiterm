@@ -21,7 +21,7 @@ import Testing
     /// the error poses come after them, then the disc and its cards (step 11), then the status line's poses (step 12).
     @Test func aProjectSignalsStepsAreDrawnAtTheSheetsSize() throws {
         let snapshots = SignalSnapshots.project
-        #expect(snapshots.map(\.file) == (1...5).map { "signal-project-gitLab-\($0).png" } + ["signal-project-schedule-5.png"])
+        #expect(snapshots.map(\.file) == (1...5).map { "signal-project-gitLab-\($0).png" } + ["signal-project-schedule-5.png", "signal-project-remove-done.png"])
         let registered = Snapshots.regressionSet.map(\.file), errors = SignalSidebarSnapshots.errors.map(\.file)
         let cards = SignalSidebarSnapshots.cards.map(\.file), line = SignalSidebarSnapshots.line.map(\.file)
         #expect(errors == ["signals-heading-issue.png", "signals-sheet-issues.png", "issue-signal-read.png"])

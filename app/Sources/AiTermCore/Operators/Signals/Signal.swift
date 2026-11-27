@@ -34,8 +34,8 @@ public struct Signal: Codable, Equatable, Identifiable, Sendable {
     public var isRunnable: Bool { enabled && isValid }
     /// Whether the signal can run as configured, switched on or not: both queries can run, the branch is deleted only
     /// by a removal, and a merge only where the Start trigger offers one.
-    /// A project signal runs one agent row, merges nothing, keeps or archives its task, and has no Operator to decide
-    /// Done; only a project signal leaves Done to the person.
+    /// A project signal runs one agent row, merges nothing and has no Operator to decide Done; only a project signal
+    /// leaves Done to the person.
     public var isValid: Bool {
         guard start.isValid(start: true), done.isValid(start: false) else { return false }
         if finish.deletesMergedBranch && finish.then != .remove { return false }
@@ -43,8 +43,7 @@ public struct Signal: Codable, Equatable, Identifiable, Sendable {
         // A run has no ticket for a Jira query to match.
         if isScheduled && done.source == .jira { return false }
         if isProject {
-            guard agents.count == 1, !finish.mergesWhenReady, !finish.deletesMergedBranch,
-                  finish.then == .keep || finish.then == .archive, done.source != .operator else { return false }
+            guard agents.count == 1, !finish.mergesWhenReady, done.source != .operator else { return false }
         } else if done.source == .person {
             return false
         }

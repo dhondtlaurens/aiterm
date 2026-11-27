@@ -153,6 +153,54 @@ import Testing
         #expect(git.calls.contains { $0.args == ["rev-parse", "--verify", "refs/heads/work"] }, "the branch is checked against the merged head")
         #expect(stub.requests.filter { $0.url!.path.hasSuffix("/merge_requests/7") }.count == 1)
     }
+    /// A project signal's removed task: its live signal says whether its merged branch goes, under the same proof as the
+    /// Operator's, and the Operator's pause does not hold it, as it holds none of a project signal's work.
+    @Test func aProjectTasksMergedBranchIsCheckedAgainstItsMergedHeadAlsoWhileTheOperatorIsPaused() async throws {
+        let (h, io, git, task) = try Self.removedProjectTask()
+        defer { h.cleanUp() }
+        h.workspace.mutate { $0.operatorSession = OperatorSession(createdAt: Date()); $0.operatorSession?.paused = true }
+        await io.deleteMergedBranch(ofProjectTask: task)
+        #expect(git.calls.contains { $0.args == ["rev-parse", "--verify", "refs/heads/work"] }, "the branch is checked against the merged head")
+    }
+    enum ProjectBranchKept: String, CaseIterable { case review, switchedOff, noToggle, rowStillThere, signalGone }
+    /// No check, so nothing deleted: a review's branch is the request's, a switched-off or removed signal does nothing,
+    /// a signal without the toggle keeps it, and a row still there keeps its branch.
+    @Test(arguments: ProjectBranchKept.allCases) func aProjectTasksBranchIsKept(_ why: ProjectBranchKept) async throws {
+        let (h, io, git, removed) = try Self.removedProjectTask()
+        defer { h.cleanUp() }
+        var task = removed
+        switch why {
+        case .review: task.kind = .review
+        case .switchedOff: h.workspace.mutate { $0.signals[0].enabled = false }
+        case .noToggle: h.workspace.mutate { $0.signals[0].finish.deletesMergedBranch = false }
+        case .rowStillThere: h.workspace.mutate { $0.tasks.append(task) }
+        case .signalGone: h.workspace.mutate { $0.signals.removeAll() }
+        }
+        await io.deleteMergedBranch(ofProjectTask: task)
+        #expect(!git.calls.contains { $0.args.first == "rev-parse" })
+    }
+    /// A project signal with Remove and the toggle on, and its task on branch `work`, merged at `merged-head` as request
+    /// 7, already gone from the workspace.
+    static func removedProjectTask() throws -> (SignalHarness, SignalHostIO, RecordingGitRunner, TaskItem) {
+        var world = SignalWorld(); let signal = world.projectSignal(then: .remove)
+        world.state.signals[0].finish.deletesMergedBranch = true
+        world.markedTask(signal: signal)
+        world.state.tasks[0].branch = "work"; world.state.tasks[0].mr = .init(iid: 7, title: "Work", url: "https://git.example/shop/web/-/merge_requests/7")
+        let task = world.state.tasks[0]; world.state.tasks.removeAll()
+        let h = try SignalHarness(world)
+        let stub = StubSession { request in
+            let path = request.url!.path
+            if path.hasSuffix("approvals") { return (200, Data(#"{"approved_by":[]}"#.utf8)) }
+            if path.hasSuffix("/merge_requests/7") {
+                return (200, Data(#"{"iid":7,"title":"Work","source_branch":"work","target_branch":"main","web_url":"https://git.example/shop/web/-/merge_requests/7","state":"merged","sha":"merged-head","merge_commit_sha":"merge"}"#.utf8))
+            }
+            return (200, Data(#"{"default_branch":"main"}"#.utf8))
+        }
+        let links = SignalConnections(gitLab: GitLabConfig(hostURL: URL(string: "https://git.example")!, token: "fake"), session: stub.session)
+        let git = RecordingGitRunner(), io = SignalHostIO(workspace: h.workspace, git: git, connections: { links })
+        io.remote = { _, _ in "git@git.example:shop/web.git" }
+        return (h, io, git, task)
+    }
     @Test func repeatedStatusDetailsReuseTheHostReadButAChangedAuthorityDoesNot() async throws {
         var world = SignalWorld(); let signal = world.signal(), id = world.workingTask(signal: signal)
         world.state.tasks[0].jira = world.ticket().ticket.map(JiraRef.init)

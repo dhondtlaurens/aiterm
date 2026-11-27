@@ -308,6 +308,91 @@ import Testing
         #expect(script.archives == [id] && rig.state.archived(id: id) != nil && Self.origin(rig, id)?.thenNote == nil)
     }
 
+    /// Remove goes through the app's teardown, told the task may still go while it is unchanged and idle: the row is
+    /// gone, not archived, and nothing is left to mark.
+    @Test func removeRemovesThroughTheScriptedTeardown() async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(done: Self.jiraDone, then: .remove)
+        let id = world.launched(signal: signal)
+        let rig = try PickupRig(world); defer { rig.cleanUp() }
+        let script = DoneScript(); script.install(rig); script.facts.doneMatches = true
+        await rig.start()
+
+        #expect(script.removes == [id] && script.allowedAtRemove == [true] && script.archives.isEmpty)
+        #expect(rig.state.task(id: id) == nil && rig.state.archived(id: id) == nil)
+        await Self.tick(rig)
+        #expect(script.removes == [id], "Nothing is left to remove again.")
+    }
+
+    /// A turn under way when the removal starts (`ClosingWait`) leaves Then pending; the next pass removes.
+    @Test func removeIsRetriedAfterAClosingWait() async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(done: Self.jiraDone, then: .remove)
+        let id = world.launched(signal: signal, matched: true, doneAt: world.now)
+        let rig = try PickupRig(world); defer { rig.cleanUp() }
+        let script = DoneScript(); script.install(rig); script.removeFailures = [ClosingWait.turn]
+        await rig.start()
+        #expect(Self.origin(rig, id)?.thenApplied == nil && Self.origin(rig, id)?.thenNote == nil && rig.state.task(id: id) != nil)
+
+        await Self.tick(rig)
+        #expect(script.removes == [id, id] && rig.state.task(id: id) == nil)
+    }
+
+    /// A removal refused for good, unsaved work, lands in `thenNote` with Then finished, is said once, and is not tried
+    /// again: the task stays.
+    @Test func aRefusedRemovalLandsInThenNoteAndIsNotRetried() async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(done: Self.jiraDone, then: .remove)
+        let id = world.launched(signal: signal, matched: true, doneAt: world.now)
+        let rig = try PickupRig(world); defer { rig.cleanUp() }
+        let script = DoneScript(); script.install(rig); script.removeFailures = [ActionUnavailable(TaskTeardown.unsavedWork)]
+        var said: [String] = []
+        rig.root.projectWatch.changed = { _, line in said.append(line) }
+        await rig.start()
+
+        #expect(Self.origin(rig, id)?.thenNote == TaskTeardown.unsavedWork && Self.origin(rig, id)?.thenApplied == true)
+        #expect(rig.state.task(id: id) != nil && said.filter { $0.hasPrefix("Couldn’t remove ") }.count == 1)
+        await Self.tick(rig)
+        #expect(script.removes == [id], "Not tried again.")
+    }
+
+    /// A signal switched off, or its Then edited, while the teardown checks the worktree takes nothing away: the teardown
+    /// is told the task may no longer go, and a refusal then marks nothing.
+    @Test(arguments: [false, true]) func aSignalSwitchedOffOrEditedDuringRemovalStopsIt(edited: Bool) async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(done: Self.jiraDone, then: .remove)
+        let id = world.launched(signal: signal, matched: true, doneAt: world.now)
+        let rig = try PickupRig(world); defer { rig.cleanUp() }
+        let script = DoneScript(); script.install(rig)
+        script.removeFailures = [ActionUnavailable("Its finished record couldn’t be saved, so nothing was removed.")]
+        script.duringRemove = { [unowned rig] in
+            rig.workspace.mutate { state in
+                if edited { state.signals[0].finish.then = .keep } else { state.signals[0].enabled = false }
+            }
+        }
+        await rig.start()
+
+        #expect(script.allowedAtRemove == [false] && rig.state.task(id: id) != nil)
+        #expect(Self.origin(rig, id)?.thenApplied == nil && Self.origin(rig, id)?.thenNote == nil)
+    }
+
+    /// Remove waits as Archive does: a session at work, then an agent's unsent input, hold it; once both are gone it
+    /// removes.
+    @Test func workAndUnsentInputHoldRemove() async throws {
+        var world = SignalWorld(); let signal = world.projectSignal(done: Self.jiraDone, then: .remove)
+        let id = world.launched(signal: signal, matched: true, doneAt: world.now)
+        let rig = try PickupRig(world); defer { rig.cleanUp() }
+        rig.live.sessions = [OperatorServiceFixtures.session("agent", window: "task-window", tag: id, state: .working)]
+        rig.daemon.inputStates = ["agent": .unsent]
+        let script = DoneScript(); script.install(rig)
+        await rig.start()
+        #expect(script.removes.isEmpty && rig.state.task(id: id) != nil)
+
+        rig.live.sessions = [OperatorServiceFixtures.session("agent", window: "task-window", tag: id, state: .idle)]
+        await Self.tick(rig)
+        #expect(script.removes.isEmpty && Self.origin(rig, id)?.thenApplied == nil)
+
+        rig.daemon.inputStates["agent"] = .empty
+        await Self.tick(rig)
+        #expect(script.removes == [id] && rig.state.task(id: id) == nil)
+    }
+
     /// The Operator's pause does not stop a project signal's watch.
     @Test func aPausedOperatorDoesNotStopThePass() async throws {
         var world = SignalWorld(); let signal = world.projectSignal(done: Self.jiraDone)
@@ -448,17 +533,24 @@ import Testing
     }
 }
 
-/// A project signal's Done reads and the app's archive, scripted on a rig's controller: a read answers `facts` (or throws
-/// the next of `failures`); an archive throws the next of `archiveFailures`, or moves the row into the archive.
+/// A project signal's Done reads and the app's archive and removal, scripted on a rig's controller: a read answers `facts`
+/// (or throws the next of `failures`); an archive throws the next of `archiveFailures`, or moves the row into the
+/// archive; a removal throws the next of `removeFailures`, or drops the row.
 @MainActor final class DoneScript {
     var facts = DoneCheck.Facts()
     var failures: [any Error] = []
     var archiveFailures: [any Error] = []
+    var removeFailures: [any Error] = []
+    /// Runs as a removal begins, before it asks whether it is still allowed: the person's change meanwhile.
+    var duringRemove: (() -> Void)?
     /// Every read, and whether its task still owed a prompt then.
     private(set) var reads: [(task: UUID, done: SignalTrigger, item: ItemRef, owing: Bool)] = []
     /// Every archive asked for, and whether it was still allowed as it began.
     private(set) var archives: [UUID] = []
     private(set) var allowedAtArchive: [Bool] = []
+    /// Every removal asked for, and whether it was still allowed as it began.
+    private(set) var removes: [UUID] = []
+    private(set) var allowedAtRemove: [Bool] = []
 
     func install(_ rig: PickupRig) {
         rig.root.doneFacts = { [unowned self] task, done, item in
@@ -474,6 +566,13 @@ import Testing
                 var archived = task; archived.windowId = nil
                 state.archive.append(ArchivedTask(task: archived, archivedAt: rig.clock.now))
             }
+            rig.workspace.flush()
+        }
+        rig.root.remove = { [unowned self, unowned rig] task, allowed in
+            self.duringRemove?()
+            self.removes.append(task.id); self.allowedAtRemove.append(allowed())
+            if !self.removeFailures.isEmpty { throw self.removeFailures.removeFirst() }
+            rig.workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
             rig.workspace.flush()
         }
     }

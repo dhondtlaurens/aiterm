@@ -12,7 +12,7 @@ struct SignalDoneStep: View {
                               help: "AiTerm merges through the host once it’s approved, its checks pass and its threads are resolved, unless the Oracle vetoes. Offered when the merge request is yours.")
         }
         FormField("Then") {
-            SegmentedControl(values: model.thenValues, selection: $model.then) { value, _ in
+            SegmentedControl(values: SignalFinish.Then.allCases, selection: $model.then) { value, _ in
                 Text(Self.thenLabel(value))
             }
             HelpText(thenHelp)

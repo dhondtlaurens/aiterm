@@ -303,9 +303,29 @@ import AiTermCore
         }
         return SignalWork(prompt: "", ticketDescription: needsTicket, requestDescription: needsRequest).workerPrompt(ticket: ticketText, request: requestText)
     }
+    /// After an Operator signal's Remove: the branch goes when the stage's signal asked for it, not while the Operator
+    /// is paused or the signal is switched off.
     func deleteMergedBranch(of task: TaskItem) async {
-        guard enabled(), let record = task.signalTask, record.current.configuration.finish.deletesMergedBranch,
-              task.kind != .review, workspace.state.signalItem(id: task.id) == nil,
+        guard let record = task.signalTask, record.current.configuration.finish.deletesMergedBranch else { return }
+        await deleteMerged(task) { [workspace] in
+            workspace.state.operatorSession?.paused != true && workspace.state.signal(id: record.current.signal)?.enabled != false
+        }
+    }
+    /// After a project signal's Remove: the branch goes when its live signal, switched on, asks for it. The Operator's
+    /// pause does not hold it, as it holds none of a project signal's work.
+    func deleteMergedBranch(ofProjectTask task: TaskItem) async {
+        guard task.signalTask == nil, let id = task.signalOrigin?.signal else { return }
+        let asks: @MainActor () -> Bool = { [workspace] in
+            workspace.state.signal(id: id).map { $0.isProject && $0.enabled && $0.finish.deletesMergedBranch } == true
+        }
+        guard asks() else { return }
+        await deleteMerged(task, still: asks)
+    }
+    /// The removed task's local branch deleted once the host says its request merged at the branch's exact tip, never a
+    /// review's, the default branch or a branch another task holds; `still` is the caller's own gate, checked again
+    /// just before the deletion is saved.
+    private func deleteMerged(_ task: TaskItem, still: @escaping @MainActor () -> Bool) async {
+        guard enabled(), task.kind != .review, workspace.state.signalItem(id: task.id) == nil,
               let project = workspace.state.project(id: task.projectId) else { return }
         do {
             let links = await connections(), (_, host) = try await binding(task, links: links)
@@ -315,8 +335,7 @@ import AiTermCore
                   !workspace.state.tasks.contains(where: { $0.projectId == task.projectId && $0.branch == task.branch }) else { return }
             _ = await MergedBranchCheck.delete(branch: task.branch, acceptedSHA: head, mergedHead: head,
                 kind: task.kind, path: project.path, git: git, saveDeletion: { [workspace] in
-                    self.enabled() && workspace.canChangeWorkspace && workspace.state.operatorSession?.paused != true
-                        && workspace.state.signal(id: record.current.signal)?.enabled != false
+                    self.enabled() && workspace.canChangeWorkspace && still()
                         && workspace.state.signalItem(id: task.id) == nil
                         && !workspace.state.tasks.contains { $0.projectId == task.projectId && $0.branch == task.branch }
                         && workspace.flush()

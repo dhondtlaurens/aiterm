@@ -9,10 +9,11 @@ import AiTermCore
 /// nothing.
 ///
 /// Once done, `doneAt` is saved and Then is pending until `thenApplied`, retried every pass, after a restart too: Keep
-/// finishes at once; Archive goes through the app's teardown, refusing rather than asking, once no session of the task
-/// works, asks, holds a turn or may hold unsent input (`inputHeld`): closing its tab would lose the person's words. That,
-/// a turn that started meanwhile, or the helper gone (`ClosingWait`), leaves it pending;
-/// any other refusal (unsaved work) is kept in `thenNote` and not tried again, as `ThenRunner` does.
+/// finishes at once; Archive and Remove go through the app's teardown, refusing rather than asking, once no session of
+/// the task works, asks, holds a turn or may hold unsent input (`inputHeld`): closing its tab would lose the person's
+/// words. That, a turn that started meanwhile, or the helper gone (`ClosingWait`), leaves it pending;
+/// any other refusal (unsaved work) is kept in `thenNote` and not tried again, as `ThenRunner` does. A removed task's row
+/// is gone, so nothing is marked; its item does not start again while it matches (`SignalSeen.pruned`).
 ///
 /// Only a live, switched-on project signal's tasks are read: a switched-off signal's wait, and the first read once it is
 /// back compares with the last, so a Done reached meanwhile counts; a removed signal's are never read again.
@@ -22,6 +23,8 @@ import AiTermCore
         var facts: @MainActor (TaskItem, SignalTrigger, ItemRef) async throws -> DoneCheck.Facts
         /// The task archived without asking (`TaskTeardown.archive(_, consent: .refuse(stillAllowed:))`).
         var archive: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void
+        /// The task removed without asking (`TaskTeardown.remove(_, consent: .refuse(stillAllowed:))`).
+        var remove: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void
         /// Whether a session of the task may hold unsent input (`ProjectSignalWatch.inputHeld`).
         var inputHeld: @MainActor (TaskItem) async -> Bool
     }
@@ -95,34 +98,48 @@ import AiTermCore
         if reached { changed(signal.id, task.title + " is done.") }
     }
 
-    /// Then for a done task: Keep finishes it; Archive archives it once nothing of it is at work. A turn started meanwhile
-    /// or the helper gone leaves it for the next pass; any other refusal is kept in `thenNote`, for good.
+    /// Then for a done task: Keep finishes it; Archive and Remove take it away once nothing of it is at work. A turn
+    /// started meanwhile or the helper gone leaves it for the next pass; any other refusal is kept in `thenNote`, for good.
     private func then(_ task: TaskItem, signal: Signal) async {
-        guard let origin = task.signalOrigin else { return }
         switch signal.finish.then {
         case .keep: finish(task.id, note: nil)
         case .archive:
-            // The input read awaits: the task is taken afresh after it, as the teardown refuses a task changed since.
-            guard !atWork(task), !holdsTurn(task), !(await ports.inputHeld(task)), let current = watched(task.id)?.task,
-                  Self.same(current.signalOrigin, origin), !atWork(current), !holdsTurn(current) else { return }
-            let allowed: @MainActor () -> Bool = { [weak self] in
-                guard let self, let current = self.workspace.state.task(id: task.id) else { return false }
-                return Self.same(current.signalOrigin, origin) && !self.atWork(current) && !self.holdsTurn(current)
+            // Archived, the row carries its finished Then into the Archive.
+            await takeAway(task, signal: signal, verb: "archive", by: ports.archive) { [workspace] origin in
+                workspace.state.archived(id: task.id).map { Self.same($0.task.signalOrigin, origin) } == true
             }
-            do {
-                try await ports.archive(current, allowed)
-                guard let archived = workspace.state.archived(id: task.id)?.task, Self.same(archived.signalOrigin, origin) else { return }
-                finish(task.id, note: nil)
-            } catch is ClosingWait {
-                // A turn under way or the helper away: tried again next pass.
-            } catch {
-                guard allowed() else { return }
-                let note = OperationIssue.reason(of: error)
-                finish(task.id, note: note)
-                changed(signal.id, "Couldn’t archive " + task.title + ": " + note)
-            }
-        // A project signal never saves Remove.
-        case .remove: return
+        case .remove:
+            // Removed, the row is gone and nothing is left to mark.
+            await takeAway(task, signal: signal, verb: "remove", by: ports.remove) { _ in false }
+        }
+    }
+
+    /// Archive's or Remove's teardown of `task`, refusing rather than asking, once nothing of it is at work. `marks` says,
+    /// once it succeeded, whether the row it left gets its Then marked finished.
+    private func takeAway(_ task: TaskItem, signal: Signal, verb: String,
+                          by teardown: @MainActor (TaskItem, @escaping @MainActor () -> Bool) async throws -> Void,
+                          marks: (SignalOrigin) -> Bool) async {
+        guard let origin = task.signalOrigin else { return }
+        // The input read awaits: the task is taken afresh after it, as the teardown refuses a task changed since.
+        guard !atWork(task), !holdsTurn(task), !(await ports.inputHeld(task)), let current = watched(task.id)?.task,
+              Self.same(current.signalOrigin, origin), !atWork(current), !holdsTurn(current) else { return }
+        // Still its signal's, switched on and asking for this Then, while the teardown checks the worktree: a signal
+        // switched off or edited meanwhile takes nothing away.
+        let then = signal.finish.then
+        let allowed: @MainActor () -> Bool = { [weak self] in
+            guard let self, let (current, live) = self.watched(task.id), live.finish.then == then else { return false }
+            return Self.same(current.signalOrigin, origin) && !self.atWork(current) && !self.holdsTurn(current)
+        }
+        do {
+            try await teardown(current, allowed)
+            if marks(origin) { finish(task.id, note: nil) }
+        } catch is ClosingWait {
+            // A turn under way or the helper away: tried again next pass.
+        } catch {
+            guard allowed() else { return }
+            let note = OperationIssue.reason(of: error)
+            finish(task.id, note: note)
+            changed(signal.id, "Couldn’t " + verb + " " + task.title + ": " + note)
         }
     }
 

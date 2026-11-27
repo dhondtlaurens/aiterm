@@ -118,6 +118,9 @@ import AiTermCore
         }, archive: { [weak self] task, allowed in
             guard let self else { throw ActionUnavailable("The Operator stopped.") }
             try await self.archive(task, allowed)
+        }, remove: { [weak self] task, allowed in
+            guard let self else { throw ActionUnavailable("The Operator stopped.") }
+            try await self.remove(task, allowed); await self.host.deleteMergedBranch(ofProjectTask: task)
         }, inputHeld: { [weak self] task in
             guard let self else { return true }
             return await ProjectSignalWatch.inputHeld(task, sessions: self.live.sessions, daemon: self.daemon())
