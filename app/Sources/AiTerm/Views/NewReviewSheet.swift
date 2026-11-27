@@ -52,7 +52,9 @@ struct NewReviewSheet: View {
         case 1: NewReviewFirstStep(model: model, mrOpen: $mrOpen, branchOpen: $branchOpen, ticketsOpen: $ticketsOpen)
         case ReviewCreation.agentStep: AgentStep(model: model)
         default:
-            PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions) {
+            PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions,
+                       placeholder: "What should the reviewer focus on?",
+                       help: "Use plain text. Type @ to reference a file.") {
                 if model.draft.mr?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                     DescriptionToggle("Add the merge request’s description", isOn: $model.draft.appendRequest,
                                       help: "It goes to the agent under your prompt.")
@@ -62,7 +64,6 @@ struct NewReviewSheet: View {
                                       help: "When it has one, under the merge request’s.")
                 }
             }
-            .task(id: model.owningTask?.worktreePath) { await model.loadSkills(existingWorktree: model.owningTask?.worktreePath) }
         }
     }
     /// Every step needs a name and a branch, which the first step asks for: a review derives neither.

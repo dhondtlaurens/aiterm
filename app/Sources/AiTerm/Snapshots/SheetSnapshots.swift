@@ -55,7 +55,7 @@ enum SheetSnapshots {
                 reviewSheet(step: ReviewCreation.promptStep) {
                     $0.draft.apply(ticket: reviewTicket)
                     $0.draft.found(mr: mergeRequests[1], from: reviewTicket.key)
-                    $0.promptText = "/code-review"
+                    $0.promptText = "Check how callers handle an empty result."
                 }
             },
             Snapshot("review-step2.png") { reviewSheet(step: ReviewCreation.agentStep) { $0.draft.apply(mr: mergeRequests[0]) } },

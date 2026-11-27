@@ -7,7 +7,7 @@ import AiTermCore
 @MainActor
 final class AiTermApp: NSObject, NSApplicationDelegate {
     static func main() {
-        if WorkerGuardEntry.runIfRequested() { return }
+        if ManualReviewEntry.runIfRequested() || WorkerGuardEntry.runIfRequested() { return }
         // What `scripts/release.sh` asks a built bundle: the workspace format it saves.
         if CommandLine.arguments.dropFirst().first == "--workspace-format" { print(UpdateScripts.current); return }
         let app = NSApplication.shared

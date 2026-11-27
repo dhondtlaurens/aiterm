@@ -9,6 +9,7 @@ public struct TaskWorkflow: Sendable {
     public struct Created: Sendable {
         public let task: TaskItem
         public let command: String?
+        public internal(set) var manualReview: ManualReview.Pending? = nil
         public let launchWarning: String?
         /// What copying the project's `.worktreeinclude` came to, for the app to say when something
         /// was left out.
@@ -98,15 +99,25 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
-    /// The reviewer's command for a review that opens in `task`, which already has the branch
-    /// checked out: no checkout is made, so nothing exists that a failure here would have to keep,
-    /// and it is thrown rather than turned into a launch warning.
-    public func reviewCommand(draft: ReviewDraft, in task: TaskItem) async throws -> String {
-        let prompt = Self.prompt(of: draft)
-        let git = git
-        return try await BackgroundWork.run(on: GitLanes.shared.lane(for: task.worktreePath)) {
-            try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                                   prompt: prompt, worktreePath: task.worktreePath, git: git)
+    /// Manual New Review owns a one-shot request. The unattended entry point above still owns its own launch.
+    public func reviewCommand(draft: ReviewDraft, in task: TaskItem, project: Project) async throws -> ManualReview.Pending {
+        let git = self.git
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
+            try Repository(project.path, git: git).manualReview(draft: draft, checkout: task.worktreePath)
+        }
+    }
+
+    public func createManualReview(draft: ReviewDraft, project: Project, reserved: Set<String>, executable: URL) async throws -> Created {
+        let git = self.git
+        return try await BackgroundWork.run(on: Self.lane(of: project)) {
+            let made = try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: git)
+            do {
+                let request = try Repository(project.path, git: git).manualReview(draft: draft, checkout: made.task.worktreePath)
+                return Created(task: made.task, command: request.command(executable: executable), manualReview: request,
+                               launchWarning: nil, worktreeInclude: made.worktreeInclude)
+            } catch {
+                return Created(task: made.task, command: nil, launchWarning: error.localizedDescription, worktreeInclude: made.worktreeInclude)
+            }
         }
     }
 

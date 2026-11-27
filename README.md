@@ -67,7 +67,7 @@ Requires **macOS 26+**, **iTerm2** and **Python 3.11+**. Enable
    account or API access.
 
 **Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The task sheet summarises the
-destination before launch. Ordinary **New Review…** uses the normal agent command. Signal workers also run with publishing
+destination before launch. **New Review…** runs the selected reviewer once on a committed snapshot and leaves the commit and findings in the tab. Signal workers also run with publishing
 guards on their own task branch. [Agent configuration](docs/configuration.md#agents).
 
 Use **AiTerm › Check for Updates…** for subsequent versions. To have a coding agent install it,
