@@ -25,6 +25,7 @@ final class AgentIntegrations {
     /// land after a later one: only a read newer than the last one applied may assign.
     @ObservationIgnored private var statusLineReadsStarted = 0
     @ObservationIgnored private var statusLineReadsApplied = 0
+    let nativeSkills: NativeSkills
     /// Every agent's model list, kept until its files change: what the creation sheets offer and
     /// what Settings' cards show, read through one catalogue so the two agree, and so a sheet opened
     /// again does not read `~/.claude.json` or launch PI again.
@@ -47,9 +48,9 @@ final class AgentIntegrations {
     /// Settings › Operator's staged edits, over these defaults and this catalogue: a new one for each
     /// opening of Settings, so Cancel drops it.
     func operatorSettings() -> OperatorSettingsModel {
-        let home = harnessHome, claudeConfig = self.claudeConfig
+        let home = harnessHome, claudeConfig = self.claudeConfig, skills = nativeSkills
         return .live(defaults: defaults, catalogue: catalogue, installed: { [weak self] in self?.availableAgents ?? [] },
-                     skills: { SkillCatalog.discover(agent: $0, projectPath: nil, home: home, claudeConfig: claudeConfig) })
+                     skills: { skills.discover(agent: $0, projectPath: nil, home: home, claudeConfig: claudeConfig) })
     }
 
     /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
@@ -83,7 +84,8 @@ final class AgentIntegrations {
     init(harnessHome: URL, bundledResourcesURL: URL?, locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
          rememberedModels: @escaping @MainActor () -> [AgentKind: String],
          statusLineIsInstalled: (@Sendable (_ home: URL, _ shimPath: String) -> Bool)? = nil,
-         defaults: UserDefaults = .standard, claudeConfig: ClaudeConfig = ClaudeConfig()) {
+         defaults: UserDefaults = .standard, claudeConfig: ClaudeConfig = ClaudeConfig(), nativeSkills: NativeSkills = .filesystem) {
+        self.nativeSkills = nativeSkills
         self.defaults = defaults
         self.claudeConfig = claudeConfig
         self.harnessHome = harnessHome

@@ -1,9 +1,10 @@
 import AppKit
 import Observation
+import Synchronization
 import SwiftUI
 import AiTermUI
 import Testing
-import AiTermCore
+@testable import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
 
@@ -293,10 +294,10 @@ import AiTermCore
         var isOpen: Bool { presented.isOn }
     }
 
-    private func presenting(step: Int, mrOpen: Bool = false) throws -> Shown {
+    private func presenting(step: Int, mrOpen: Bool = false, model supplied: ReviewCreationModel? = nil) throws -> Shown {
         let project = Project.make(name: "acme-web", path: "/tmp/p", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git",
                                    addedAt: Date())
-        let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
+        let model = supplied ?? ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                         context: .scratch(availableAgents: { [.claude] }, git: NoPickerGit()),
                                         searchMergeRequests: { _ in [Self.first, Self.second] },
                                         createReview: { _ in throw Refused() }, recover: { _ in })
@@ -360,12 +361,35 @@ import AiTermCore
     /// next one cancels the sheet. The footer's hidden ⎋ button hears the key before the text view
     /// does, so the popup is the frame's to close (docs/keyboard.md).
     @Test func escapeClosesTheCompletionPopupBeforeCancelling() async throws {
-        let s = try presenting(step: ReviewCreation.promptStep)
-        defer { s.window.orderOut(nil) }
-        s.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
-        settle(s.content)
-        #expect(!s.content.descendants(NSTextView.self).isEmpty, "step 3: Prompt")
-        try #require(s.model.completions.isOpen, "the popup is open before ⎋")
+        let home = try ScratchFolder.make(), calls = Mutex(0)
+        let release = DispatchSemaphore(value: 0)
+        let project = Project.make(name: "Repo", path: home.path, addedAt: Date())
+        let owner = TaskItem.make(project: project.id, title: "Existing", branch: "main",
+                                  worktreePath: home.appendingPathComponent("existing").path,
+                                  model: "demo", appendTicket: true, createdAt: Date())
+        var context = CreationContext.scratch(home: home, catalogue: { _ in
+            [AgentModel(id: "demo", label: "Demo", detail: nil, efforts: [], defaultEffort: nil)]
+        }, git: NoPickerGit())
+        context.nativeSkills = NativeSkills { _, cwd, _ in
+            #expect(cwd?.path == owner.worktreePath)
+            calls.withLock { $0 += 1 }
+            _ = release.wait(timeout: .now() + 60)
+            return #"{"type":"response","command":"get_commands","id":"aiterm-skills","success":true,"data":{"commands":[{"name":"skill:review","source":"skill","sourceInfo":{"scope":"user"}}]}}"#
+        }
+        let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .pi, model: "demo", reasoning: nil),
+                                        context: context, owningTask: { branch, _ in branch == "main" ? owner : nil },
+                                        searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
+        let s = try presenting(step: ReviewCreation.promptStep, model: model)
+        defer { release.signal(); s.window.orderOut(nil) }
+        try #require(await eventually { calls.withLock { $0 } == 1 && model.agentIsReady })
+        let editor = try #require(s.content.firstDescendant(PromptTextView.self))
+        editor.insertText("/rev", replacementRange: editor.selectedRange())
+        #expect(!model.completions.isOpen)
+        release.signal()
+        try #require(await eventually { model.completions.isOpen })
+        editor.insertText("i", replacementRange: editor.selectedRange())
+        #expect(model.completions.visible.map(\.name) == ["skill:review"])
+        #expect(calls.withLock { $0 } == 1)
 
         pressEscape(s)
         #expect(!s.model.completions.isOpen, "⎋ closed the popup")

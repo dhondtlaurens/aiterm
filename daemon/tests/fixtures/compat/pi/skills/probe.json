@@ -1,0 +1,12 @@
+{
+  "version": "1.6.1",
+  "arguments": [
+    "--offline",
+    "--mode",
+    "rpc",
+    "--no-session",
+    "--no-extensions",
+    "--no-mcp"
+  ],
+  "request": "{\"type\":\"get_commands\",\"id\":\"aiterm-skills\"}\n"
+}

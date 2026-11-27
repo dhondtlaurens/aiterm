@@ -1,0 +1,11 @@
+[
+  {
+    "name": "fixture-pack",
+    "enabled": true,
+    "version": "1.0.0",
+    "path": "/SCRATCH/skill-catalogue/home/.gemini/config/plugins/fixture-pack",
+    "skills": [
+      "fixture-check"
+    ]
+  }
+]

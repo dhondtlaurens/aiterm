@@ -93,6 +93,7 @@ import Testing
             project: project, draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil), jira: nil)
 
         await model.loadAgentCatalogue()
+        await model.loadSkills()
         #expect(model.models.contains { $0.id == "model-only-in-this-home" })
         #expect(model.completions.all.contains { $0.name == "only-in-this-home" })
     }

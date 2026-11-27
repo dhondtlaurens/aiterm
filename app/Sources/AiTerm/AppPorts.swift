@@ -17,6 +17,7 @@ import AiTermCore
 /// `harnessHome`, `git`, `jiraSettings` and Settings › Agents.
 struct AppPorts {
     var store: StateStore
+    var nativeSkills: NativeSkills = .filesystem
     var harnessHome: URL
     var claudeConfig: ClaudeConfig
     var bundledResourcesURL: URL?

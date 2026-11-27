@@ -24,6 +24,7 @@ public final class LoginShellLocator: Sendable {
         public let executables: [String: String]
         public let pythonOutput: String
         public var claudeConfigDirectory: String? = nil
+        public var piAgentDirectory: String? = nil
         /// The login shell's `PATH`; nil when it printed none.
         public var path: String? = nil
     }
@@ -50,10 +51,12 @@ public final class LoginShellLocator: Sendable {
     var query: String {
         LoginShell.locateQuery(names) + "; print -r -- \(Self.claudeMarker); "
             + #"print -r -- "${CLAUDE_CONFIG_DIR-}"; "#
+            + "print -r -- \(Self.piMarker); " + #"print -r -- "${PI_CODING_AGENT_DIR-}"; "#
             + "print -r -- \(Self.pathMarker); " + #"print -r -- "$PATH"; "#
             + "print -r -- \(Self.pythonMarker); " + PythonLocator.candidateQuery
     }
 
+    static let piMarker = "--aiterm-pi-agent-dir--"
     static let claudeMarker = "--aiterm-claude-config-dir--"
     static let pathMarker = "--aiterm-path--"
     static let pythonMarker = "--aiterm-python-candidates--"
@@ -109,6 +112,7 @@ public final class LoginShellLocator: Sendable {
         return Answers(executables: LoginShell.located(names, in: located.joined(separator: "\n"), isExecutable: isExecutable),
                        pythonOutput: python.joined(separator: "\n"),
                        claudeConfigDirectory: after(claudeMarker),
+                       piAgentDirectory: after(piMarker).nonEmpty,
                        path: after(pathMarker).nonEmpty)
     }
 }

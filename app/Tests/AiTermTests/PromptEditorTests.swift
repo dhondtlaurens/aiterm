@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 import AiTermUI
-import AiTermCore
+@testable import AiTermCore
 import Testing
-import AiTermTestSupport
+@testable import AiTermTestSupport
 @testable import AiTerm
 
 /// A sheet model's prompt, as the sheets bind it: an `@Observable` property, whose setter compares.
@@ -149,6 +149,55 @@ import AiTermTestSupport
                                               fieldWidth: completions.fieldWidth)
         #expect(leading >= 0)
         #expect(leading + popupWidth <= completions.fieldWidth)
+    }
+
+    /// A native catalogue can arrive while the user is typing. The open field should
+    /// complete the current token immediately and insert precisely the harness's invocation.
+    @Test func nativeSkillsCompleteTheTypedLeaf() throws {
+        let reader = NativeSkills { agent, _, _ in
+            if agent == .agy { return #"[{"name":"example","enabled":true,"skills":["debug"]}]"# }
+            return #"{"type":"response","id":"aiterm-skills","command":"get_commands","success":true,"data":{"commands":[{"name":"skill:debug","source":"skill","sourceInfo":{"scope":"user"}}]}}"#
+        }
+        let home = try ScratchFolder.make()
+        for (agent, expected) in [(AgentKind.agy, "/example:debug "), (.pi, "/skill:debug ")] {
+            let items = reader.discover(agent: agent, projectPath: home.path, home: home)
+            #expect(try acceptSkill(from: items, agent: agent, query: "deb", name: String(expected.dropFirst().dropLast())) == expected)
+        }
+    }
+
+    @Test(.blocking, .enabled(if: ProcessInfo.processInfo.environment["AITERM_PROBE_NAMES"] != nil))
+    func installedSkillInvocations() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let path = try #require(env["AITERM_PROBE_PATH"])
+        let skills = try #require(env["AITERM_PROBE_NAMES"]).split(separator: ",").map(String.init)
+        let plugin = try #require(env["AITERM_PROBE_PLUGIN"])
+        for agent in AgentKind.allCases {
+            let items = await BackgroundWork.run {
+                NativeSkills.live.discover(agent: agent, projectPath: path, home: FileManager.default.homeDirectoryForCurrentUser, claudeConfig: .loginShell)
+            }
+            for leaf in skills {
+                let name = (agent == .pi ? "skill" : plugin) + ":" + leaf
+                let value = try acceptSkill(from: items, agent: agent, query: leaf, name: name)
+                #expect(value == (agent == .codex ? "$" : "/") + name + " ")
+            }
+            print("INSTALLED PROBE: \(agent.rawValue) selected \(skills.count) of \(skills.count)")
+        }
+    }
+
+    private func acceptSkill(from items: [AgentCompletion], agent: AgentKind, query: String, name: String) throws -> String {
+        let text = TextBox(), completions = PromptCompletions()
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }), agent: agent, completions: completions)
+            .frame(width: 420, height: 150)
+        let host = testHost(editor, size: CGSize(width: 420, height: 150))
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(host.firstDescendant(NSScrollView.self)?.documentView as? NSTextView)
+        view.insertText("/" + query, replacementRange: view.selectedRange())
+        completions.all = items
+        completions.refreshSkills?()
+        completions.index = try #require(completions.visible.firstIndex { $0.name == name && $0.kind == .skill })
+        let delegate = try #require(view.delegate)
+        #expect(delegate.textView?(view, doCommandBy: #selector(NSResponder.insertNewline(_:))) == true)
+        return text.value
     }
 
     /// ↩ is the one key that accepts a suggestion; ⇥ is left to the text view.

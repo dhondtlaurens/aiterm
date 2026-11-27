@@ -1,0 +1,9 @@
+{
+  "version": "1.5.18",
+  "arguments": [
+    "plugin",
+    "list",
+    "--json"
+  ],
+  "request": null
+}

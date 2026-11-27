@@ -26,6 +26,8 @@ public struct Harness: Sendable {
     public let noModelsExplanation: String
     /// What a picked skill is written with in the prompt; a command is always written with `/`.
     let skillSigil: Character
+    /// CLI arguments for listing installed skills when the harness supports discovery.
+    var skillListArguments: [String]? = nil
     /// The daemon's path for this agent's events, which a driver's Test posts to.
     let hookEndpoint: String
     /// What the driver installs from the app bundle, when it installs anything from there.

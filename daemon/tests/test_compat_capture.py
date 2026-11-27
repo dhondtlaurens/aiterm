@@ -232,3 +232,37 @@ def test_antigravitys_own_data_folders_are_named_apart_and_nothing_else_of_the_h
     named = agy_data_paths(text, home)
     assert "/AGY_HOME/antigravity-cli/brain/c1/" in named and "/AGY_HOME/antigravity/brain/c1/" in named
     assert f"{home}/.gemini/config/hooks.json" in named
+
+
+def test_focused_skill_capture_uses_the_synthetic_pack_only(tmp_path, monkeypatch):
+    from tools import skill_capture
+
+    seen = []
+    def invoke(argv, **kwargs):
+        import subprocess
+        env = kwargs["env"]
+        assert Path(env["HOME"]).is_relative_to(tmp_path)
+        assert (Path(env["HOME"]) / ".gemini/config/plugins/fixture-pack/skills/fixture-check/SKILL.md").is_file()
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '[{"name":"fixture-pack","enabled":true,"skills":["fixture-check"]}]', "")
+    monkeypatch.setattr(skill_capture.subprocess, "run", invoke)
+    files = skill_capture.capture_skills("agy", tmp_path, "1.2.3")
+    assert list(files.keys()) == ["probe.json", "commands.jsonl"]
+    assert json.loads(files["probe.json"])["version"] == "1.2.3"
+    assert seen[0][-3:] == ["plugin", "list", "--json"]
+
+
+def test_failed_skill_probe_allows_the_next_harness_to_be_captured(tmp_path, monkeypatch):
+    from tools import compat_capture
+
+    def probe(agent, scratch, version):
+        if agent == "agy":
+            raise RuntimeError("menu unavailable")
+        return {"commands.jsonl": "[]"}
+
+    monkeypatch.setattr(compat_capture, "capture_skills", probe)
+    monkeypatch.setattr(compat_capture, "cli_version", lambda agent: "1.0.0")
+    monkeypatch.setattr(compat_capture, "private_values", lambda *args: [])
+    assert compat_capture.main(["capture-skills", "--agents", "agy,pi", "--into", str(tmp_path)]) == 1
+    assert (tmp_path / "pi/skills/commands.jsonl").read_text() == "[]"
+    assert not (tmp_path / "agy").exists()

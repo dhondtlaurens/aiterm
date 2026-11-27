@@ -51,6 +51,7 @@ struct NewTaskSheet: View {
                                       help: "It goes to the agent under your prompt.")
                 }
             }
+            .task { await model.loadSkills() }
         }
     }
     /// Every step needs a name and a branch, which the first step asks for; the agent's step and

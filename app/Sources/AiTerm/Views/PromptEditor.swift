@@ -28,6 +28,8 @@ final class PromptCompletions {
     /// field's right edge when the token starts near the end of a line.
     var fieldWidth: CGFloat = 0
     var isOpen: Bool { !visible.isEmpty }
+    /// Refilter the current token when a background skill read finishes.
+    @ObservationIgnored var refreshSkills: (() -> Void)?
     /// Set by the editor so the popup's rows can be clicked as well as typed through.
     @ObservationIgnored var accept: ((AgentCompletion) -> Void)?
 
@@ -106,6 +108,7 @@ struct PromptEditor: NSViewRepresentable {
         scroll.borderType = .noBorder
         context.coordinator.textView = textView
         context.coordinator.written = text
+        completions.refreshSkills = { [weak coordinator = context.coordinator] in coordinator?.refresh() }
         completions.accept = { [weak coordinator = context.coordinator] item in coordinator?.accept(item) }
         return scroll
     }

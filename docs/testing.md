@@ -157,6 +157,14 @@ card shows. Review the capture's diff, which is what the CLI changed, and commit
 | `daemon/tests/fixtures/compat/<agent>/` | `test_compat_captures.py`: the daemon's hook, status-line, session, transcript, rollout and title readers. `CompatContractTests`: model lists against the raw files (never the fallback), headless answers, every flag the app passes in the CLI's `--help` or a probe. `CompatTranscriptTests`: the Operator's transcript reader. |
 | `compat/verified.json` | `CompatVerifiedTests` for its reading; the bundle check for its copy in the app. |
 
+Antigravity and Pi skill fixtures can be refreshed independently with `.venv/bin/python -m tools.compat_capture capture-skills`
+from the repository's `daemon/` directory. The capture uses unsigned-in scratch homes and a synthetic
+plugin or package. For Pi it also types a partial skill name in a local terminal to record menu visibility under the captured trust
+and preference settings. Each `skills/probe.json` records the CLI version and query used. The full capture includes these inputs too.
+To exercise an installed pack through the hosted editor, set `AITERM_PROBE_PLUGIN` to its plugin name, `AITERM_PROBE_NAMES`
+to its comma-separated skill names and `AITERM_PROBE_PATH` to the project, then run
+`scripts/test.sh swift -- --filter installedSkillInvocations`. The test runs only when explicitly configured.
+
 A contract failure after a new capture is a CLI change AiTerm must follow: fix the reader, or decide
 the change on purpose. Never edit or regenerate a capture to make a suite pass.
 

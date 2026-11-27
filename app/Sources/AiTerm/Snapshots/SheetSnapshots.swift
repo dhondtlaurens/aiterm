@@ -299,28 +299,12 @@ enum SheetSnapshots {
             AgentCompletion(name: "security-review", kind: .skill, detail: "Review the pending changes", source: .user),
             AgentCompletion(name: "statusline", kind: .command, detail: "Set up the status line", source: .user),
         ]
-        let completions = model.completions
-        func open() {
-            completions.visible = skills
-            completions.anchor = CGPoint(x: Space.snug, y: 64)
-            completions.fieldWidth = Sheet.width - 2 * Space.margin
-        }
-        return CompletingSheet(model: model, open: open)
-    }
-
-    /// New Task on its prompt step with the popup opened as the sheet appears, after the editor is
-    /// made — setting its text moves the caret, which closes the popup — and that is what
-    /// `ImageRenderer` draws. Hosted, opened again once the sheet's catalogue load, which runs on
-    /// appear and closes the popup, has landed: a view of its own, so its body reads the flag.
-    private struct CompletingSheet: View {
-        let model: TaskCreationModel
-        let open: () -> Void
-
-        var body: some View {
-            NewTaskSheet(model: model).seeded(step: TaskCreation.promptStep)
-                .onAppear(perform: open)
-                .onChange(of: model.catalogueLoaded) { _, loaded in if loaded { open() } }
-        }
+        // The screenshot illustrates these eight rows regardless of the renderer's checkout or caret.
+        let example = PromptCompletions()
+        example.visible = skills
+        example.anchor = CGPoint(x: Space.snug, y: 64)
+        example.fieldWidth = Sheet.width - 2 * Space.margin
+        return NewTaskSheet(model: model).seeded(step: TaskCreation.promptStep).environment(example)
     }
 
     /// New Review on `step`, its merge request search answered with `mergeRequests`, and `prepare`
