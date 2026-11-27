@@ -23,6 +23,8 @@ from tests.fake_iterm import FakeIterm
 
 from tests.builders import (
     append_transcript as _append,
+    shell_completed,
+    shell_launch,
     write_claude_session,
 )
 
@@ -151,6 +153,133 @@ async def background_session(make_service, tmp_path):
     svc.status.apply_event(sid, HookEvent("claude", "sessionStart", "conversation", "/wt"))
     svc.status.apply_event(sid, HookEvent("claude", "working", "conversation", "/wt"))
     return svc, sid, path
+
+
+@pytest.fixture
+async def adopted_claude(make_service, tmp_path):
+    now = [100]
+    svc = make_service(clock=lambda: now[0])
+    _, sid = await svc.iterm.create_window("/wt", "background", {"aiterm_task": "task"}, Frame(0, 0, 10, 10))
+    await svc.iterm.user_runs(sid, "claude", job_pid=400)
+    now[0] = 104
+    await svc.tick()
+    # The PID file places the following posts directly. Older files can omit startedAt.
+    svc.claude_files.root.mkdir()
+    write_claude_session(svc.claude_files.root, 400, cwd="/wt")
+    path = tmp_path / "sid-400.jsonl"
+    base = {"session_id": "sid-400", "cwd": "/wt", "transcript_path": str(path)}
+
+    async def post(name, **fields):
+        await svc.hook_router.handle_hook("/hook/claude", {**base, "hook_event_name": name, **fields})
+
+    # Exercise the RPC and its tick without a competing poll between the hooks in these tests.
+    await svc.rpc.start()
+    r, w = await asyncio.open_unix_connection(svc.rpc.path)
+
+    async def listed():
+        [row] = (await call(r, w, "sessions.list"))["result"]
+        return row["state"], row["work"]
+
+    try:
+        yield svc, sid, now, path, post, listed
+    finally:
+        w.close()
+        await w.wait_closed()
+
+
+ACTIVE_SHELL = {"kind": "shell", "text": "npm run test", "holdsTurn": False, "idle": False}
+
+
+async def test_adopted_claude_shows_a_shell_during_its_working_turn(adopted_claude):
+    svc, sid, now, path, post, listed = adopted_claude
+    await post("UserPromptSubmit")
+    _append(path, *shell_launch(at=105))
+    assert await listed() == ("working", [ACTIVE_SHELL])
+    _append(path, shell_completed())
+    assert await listed() == ("working", [])
+
+
+async def test_adopted_claude_recovers_a_shell_listed_before_the_current_prompt(adopted_claude):
+    svc, sid, now, path, post, listed = adopted_claude
+    # Both launches follow daemon startup and precede the first hook. The Stop confirms only job1.
+    _append(path, *shell_launch(at=101), *shell_launch("omitted", "c2", at=104, command="other"))
+    now[0] = 107
+    await post("Stop", background_tasks=[{"type": "shell", "id": "job1", "status": "running", "command": "npm run test"}])
+    assert [job.task_id for job in svc.registry.get(sid).stop_work] == ["job1"]
+    now[0] = 108
+    await post("UserPromptSubmit")
+    assert svc.registry.get(sid).stop_work == ()
+    assert await listed() == ("working", [ACTIVE_SHELL])
+
+
+async def test_adopted_claude_refines_the_boundary_after_its_status_line_names_the_transcript(adopted_claude):
+    svc, sid, now, path, _, listed = adopted_claude
+    _append(path, *shell_launch("previous", "c0", at=85, command="previous process"), *shell_launch(at=95))
+    await svc.hook_router.handle_hook("/statusline", {"session_id": "sid-400", "transcript_path": str(path),
+                                                      "context_window": {"used_percentage": 10}})
+    assert svc.registry.get(sid).transcript == str(path)
+    assert svc.registry.get(sid).conversation_id == "sid-400"
+    assert await listed() == ("working", [])
+    # A stale session file or an impossible timestamp cannot widen the boundary.
+    for fields in ({"sessionId": "different", "startedAt": 80_000}, {"startedAt": 120_000}):
+        write_claude_session(svc.claude_files.root, 400, **fields)
+        assert await listed() == ("working", [])
+    # The filename matches the tab, but the record belongs to a different process.
+    write_claude_session(svc.claude_files.root, 401, sessionId="sid-400", startedAt=80_000)
+    (svc.claude_files.root / "401.json").replace(svc.claude_files.root / "400.json")
+    assert await listed() == ("working", [])
+    write_claude_session(svc.claude_files.root, 400, startedAt=90_000)
+    assert await listed() == ("working", [ACTIVE_SHELL])
+
+
+async def test_a_resumed_claude_status_line_cannot_lend_its_shells_to_the_previous_conversation(adopted_claude):
+    svc, sid, now, original, post, listed = adopted_claude
+    await post("UserPromptSubmit")
+    _append(original, *shell_launch(at=101))
+    assert await listed() == ("working", [ACTIVE_SHELL])
+    resumed = original.with_name("resumed.jsonl")
+    _append(resumed, *shell_launch("earlier", "c1", at=101, command="past run"))
+    write_claude_session(svc.claude_files.root, 400, sessionId="resumed")
+    await svc.hook_router.handle_hook("/statusline", {"session_id": "resumed", "transcript_path": str(resumed),
+                                                      "context_window": {"used_percentage": 10}})
+    assert svc.registry.get(sid).conversation_id == "sid-400"
+    assert await listed() == ("working", [ACTIVE_SHELL])
+    now[0] = 110
+    await post("SessionStart", source="resume", session_id="resumed", transcript_path=str(resumed))
+    await post("UserPromptSubmit", session_id="resumed", transcript_path=str(resumed))
+    _append(resumed, *shell_launch("new", "c2", at=111, command="new run"))
+    assert await listed() == ("working", [{**ACTIVE_SHELL, "text": "new run"}])
+
+
+async def test_adopted_claude_keeps_an_unresolved_stop_inventory_unavailable_until_completion(adopted_claude):
+    _, _, now, path, post, listed = adopted_claude
+    _append(path, *shell_launch("older", "c0", at=95))
+    await post("Stop", background_tasks=[{"type": "shell", "id": "older", "status": "running", "command": "npm run test"}])
+    now[0] = 106
+    await post("UserPromptSubmit")
+    _append(path, *shell_launch(at=107))
+    assert await listed() == ("working", [])
+    _append(path, shell_completed("older", at=110))
+    assert await listed() == ("working", [ACTIVE_SHELL])
+
+
+@pytest.mark.parametrize("new_pid", [401, 400], ids=["new-pid", "same-pid-shell-exec"])
+async def test_a_replacement_claude_process_gets_its_own_fallback(adopted_claude, new_pid):
+    svc, sid, now, path, post, listed = adopted_claude
+    await post("UserPromptSubmit")
+    _append(path, *shell_launch("old", "c0", at=101, command="old process"))
+    assert (await listed())[1][0]["text"] == "old process"
+    now[0] = 110
+    if new_pid == 400:
+        await svc.iterm.user_runs(sid, "zsh", job_pid=400)
+        await svc.tick()
+    await svc.iterm.user_runs(sid, "claude", job_pid=new_pid)
+    (svc.claude_files.root / "400.json").unlink()
+    write_claude_session(svc.claude_files.root, new_pid, sessionId="sid-400", cwd="/wt")
+    await svc.tick()
+    await post("UserPromptSubmit")
+    _append(path, *shell_launch(at=111))
+    assert await listed() == ("working", [ACTIVE_SHELL])
 
 
 async def test_background_shell_lifecycle_is_published_without_changing_state(make_service, tmp_path, monkeypatch):

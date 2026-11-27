@@ -24,6 +24,13 @@ def test_read_reports_when_claude_last_wrote_the_file(tmp_path):
     assert ClaudeSessionFiles(tmp_path).read(42).written_at == 1_700_000_000.25
 
 
+@pytest.mark.parametrize("value,expected", [(1_795_464_427_545, 1_795_464_427.545), (None, None), (True, None),
+                                            ("yesterday", None), (-1, None), (10**400, None)])
+def test_optional_process_start_is_in_epoch_milliseconds(tmp_path, value, expected):
+    write(tmp_path, 42, startedAt=value)
+    assert ClaudeSessionFiles(tmp_path).read(42).started_at == expected
+
+
 def test_read_parses_a_file_again_only_once_it_changes(tmp_path, monkeypatch):
     write(tmp_path, 42, status="busy")
     files = ClaudeSessionFiles(tmp_path)

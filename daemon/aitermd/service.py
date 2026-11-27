@@ -57,6 +57,8 @@ class Service:
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
         self.claude_files, self.codex_files, self.clock = claude_files, codex_files, clock
+        # A Claude already present on the first successful snapshot may have launched work since daemon startup.
+        self._initial_snapshot_since: float | None = clock()
         # Claude's folder as the app last named it, which a snapshot echoes as it was sent: the app compares
         # the strings, and pathlib would spell some paths otherwise ("a/./b" as "a/b").
         self._claude_directory: str | None = None
@@ -301,8 +303,7 @@ class Service:
             log.exception("reading Codex usage failed")
         if not self.iterm.is_connected():
             return
-        positions_before = {s.session_id: (s.window_id, s.tab_index) for s in self.registry.all()}
-        windows_before = {window for window, _ in positions_before.values()}
+        before = {s.session_id: s for s in self.registry.all()}
         raw = await self.iterm.snapshot()
         diff = self.registry.apply_snapshot(raw)
         # A session.changed from the snapshot diff is deliberately *not* broadcast as it is found:
@@ -314,28 +315,37 @@ class Service:
         # diffing nothing, and the app stale for that session until something else moved it.
         changed = list(diff.changed)
         try:
-            await self._after_snapshot(raw, diff, windows_before, positions_before, changed)
+            await self._after_snapshot(raw, diff, before, changed)
         finally:
             await self.publisher.session_changed(changed)
 
-    async def _after_snapshot(self, raw: list[RawSession], diff: SnapshotDiff, windows_before: set[str],
-                              positions_before: dict[str, tuple[str, int]], changed: list[str]) -> None:
+    async def _after_snapshot(self, raw: list[RawSession], diff: SnapshotDiff, before: dict[str, SessionInfo],
+                              changed: list[str]) -> None:
         """Announces what the snapshot opened and closed, then reads the corroborating signals, each
         step guarded so one that raises costs only its own changes. Appends to `changed` as it goes."""
         # Tick owns structural registry changes. Keep one ordered view for this pass;
         # hooks and status updates still mutate the same SessionInfo values.
         sessions = self.registry.all()
-        # A session moved to another tab or window keeps its id but not its tab's title.
+        since = self._initial_snapshot_since if self._initial_snapshot_since is not None else self.clock()
+        self._initial_snapshot_since = None
+        new_processes = set(diff.opened + diff.replaced)
         for s in sessions:
-            if positions_before.get(s.session_id, (s.window_id, s.tab_index)) != (s.window_id, s.tab_index):
+            old = before.get(s.session_id)
+            # Reclassification can reveal Claude on the same PID (a shell exec). Its transcript belongs to this process.
+            claude_changed = old is not None and old.agent != s.agent and "claude" in (old.agent, s.agent)
+            if s.session_id in new_processes or claude_changed:
+                with _logged(f"observing the new process of session {s.session_id}"):
+                    if old is not None:
+                        self.status.reset_turn(s.session_id)
+                    if s.agent == "claude":
+                        self.status.observe_claude_process(s.session_id, since)
+            # A session moved to another tab or window keeps its id but not its tab's title.
+            if old is not None and (old.window_id, old.tab_index) != (s.window_id, s.tab_index):
                 with _logged(f"forgetting the title of moved session {s.session_id}"):
                     self.windows.forget_title(s.session_id)
         # Before opened sessions are announced, so that each one's first payload names its conversation.
         with _logged("restoring the Codex threads after the snapshot"):
             changed += self.codex_threads.restore(raw)
-        for sid in diff.replaced:
-            with _logged(f"resetting the turn of replaced session {sid}"):
-                self.status.reset_turn(sid)
         for sid in diff.opened:
             with _logged(f"announcing opened session {sid}"):
                 if opened := self.registry.get(sid):
@@ -345,6 +355,7 @@ class Service:
             with _logged(f"announcing closed session {sid}"):
                 await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
         windows_after = {s.window_id for s in sessions}
+        windows_before = {s.window_id for s in before.values()}
         for wid in windows_before - windows_after:
             self.windows.forget_window(wid)
             with _logged(f"announcing closed window {wid}"):

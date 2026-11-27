@@ -126,6 +126,42 @@ def test_a_new_conversation_does_not_show_old_counted_children(eng):
     assert reg.get("s1").state == "working"  # What is shown does not rewrite the status engine's decisions.
 
 
+def test_first_claude_conversation_binding_hides_work_from_an_unidentified_parent(eng):
+    engine, reg = eng
+    engine.observe_claude_process("s1", 90)
+    engine.apply_metadata("s1", transcript="/parent.jsonl")
+    engine.apply_event("s1", hook("subagentStart", "unplaced"))
+    assert work(reg) == [item("subagent", "Subagent", False)]
+    engine.apply_metadata("s1", conversation="first")
+    assert work(reg) == []
+    assert engine.turn("s1").work_since == 90
+
+
+@pytest.mark.parametrize("source", ["clear", "resume"])
+def test_claude_adoption_only_applies_to_the_initial_conversation(eng, clock, source):
+    engine, reg = eng
+    engine.observe_claude_process("s1", 90)
+    engine.apply_metadata("s1", conversation="first", transcript="/parent.jsonl")
+    reader = claude.BackgroundTranscripts()
+    pending = claude.background_plan(engine, reader, reg.all())
+    engine.confirm_claude_start("s1", 80)
+    # A background read that began with the fallback can no longer publish its result.
+    assert pending.current_key(reg.get("s1")) != pending.keys["s1"]
+    engine.apply_event("s1", parse_claude_hook({"hook_event_name": "SessionStart", "source": "compact"}))
+    engine.apply_metadata("s1", conversation="first", transcript="/parent.jsonl")
+    engine.confirm_claude_start("s1", 70)
+    assert engine.turn("s1").work_since == 80
+    engine.apply_metadata("s1", conversation="second", transcript="/second.jsonl")
+    engine.apply_event("s1", hook("working"))
+    engine.apply_metadata("s1", transcript="/second.jsonl")
+    engine.confirm_claude_start("s1", 80)
+    assert engine.turn("s1").work_since is None
+    clock.now = 110
+    engine.apply_event("s1", parse_claude_hook({"hook_event_name": "SessionStart", "source": source}))
+    engine.confirm_claude_start("s1", 80)
+    assert engine.turn("s1").work_since == 110
+
+
 def test_a_reader_shell_is_shown_and_the_stop_listing_it_holds_the_turn(eng, clock):
     engine, reg = eng
     engine.apply_event("s1", hook("sessionStart"))
