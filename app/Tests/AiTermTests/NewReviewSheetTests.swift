@@ -362,7 +362,7 @@ import AiTermCore
     @Test func escapeClosesTheCompletionPopupBeforeCancelling() async throws {
         let s = try presenting(step: ReviewCreation.promptStep)
         defer { s.window.orderOut(nil) }
-        s.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .user)]
+        s.model.completions.visible = [AgentCompletion(name: "README.md", kind: .file, detail: nil, source: .project)]
         settle(s.content)
         #expect(!s.content.descendants(NSTextView.self).isEmpty, "step 3: Prompt")
         try #require(s.model.completions.isOpen, "the popup is open before ⎋")

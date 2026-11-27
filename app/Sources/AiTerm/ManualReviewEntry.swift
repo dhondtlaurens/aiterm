@@ -64,7 +64,8 @@ enum ManualReviewEntry {
         case .success(let output):
             guard !output.stdoutTruncated else { throw ManualReviewError("Could not capture the complete reviewer output within the capture limit.") }
             guard output.status == 0 else {
-                throw ManualReviewError("\(review.agent.displayName) exited with status \(output.status). " + String(output.stderr.suffix(1000)))
+                let detail = review.agent.manualReviewFailure(events: events) ?? output.stderr
+                throw ManualReviewError("\(review.agent.displayName) exited with status \(output.status). " + String(detail.suffix(1000)))
             }
             line(try review.agent.manualReviewAnswer(events: events, answerFile: invocation.answerFile))
         }

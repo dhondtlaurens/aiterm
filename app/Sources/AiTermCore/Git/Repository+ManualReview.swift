@@ -43,7 +43,7 @@ public extension Repository {
             try git.run(args, in: store.path, timeout: GitRunner.checkoutTimeout, environment: isolated)
         }
         func fileList(_ flags: [String]) throws -> String {
-            let output = try git.output(["ls-files"] + flags, in: store.path, timeout: GitRunner.checkoutTimeout,
+            let output = try git.output(["-c", "core.quotePath=false", "ls-files"] + flags, in: store.path, timeout: GitRunner.checkoutTimeout,
                                         environment: isolated, limit: 128 << 20)
             guard !output.truncated else { throw ManualReviewError("The committed file list exceeds the capture limit.") }
             return output.text
@@ -60,6 +60,8 @@ public extension Repository {
                 try git.run(GitRunner.stallGuard + ["fetch", "--no-write-fetch-head", "--refmap=", "--no-tags", "--no-prune",
                     "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph", "origin", targetRef],
                     in: path, timeout: GitRunner.remoteTimeout, environment: env)
+                do { _ = try privateGit(["cat-file", "-e", target + "^{commit}"]) }
+                catch { throw ManualReviewError("Could not obtain the advertised target " + target + " from origin/" + targetName + ". Retry the review.") }
             }
         } else {
             guard let local = try commit(targetRef) else { throw ManualReviewError("Missing review target " + targetName) }

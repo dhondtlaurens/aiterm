@@ -11,6 +11,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: repo); try? FileManager.default.removeItem(at: scratch) }
         try git.run(["checkout", "-qb", "topic"], in: repo)
         let root = URL(fileURLWithPath: repo)
+        try Data().write(to: root.appendingPathComponent("café.swift"))
         try Data("exact\r\n$Id$\n".utf8).write(to: root.appendingPathComponent("caller"))
         try Data("caller export-ignore ident\n".utf8).write(to: root.appendingPathComponent(".gitattributes"))
         try FileManager.default.createSymbolicLink(atPath: repo + "/link", withDestinationPath: "/outside")
@@ -22,6 +23,8 @@ import Testing
         let input = try Repository(repo, git: git).prepareManualReview(head: head, target: nil, in: scratch)
         #expect(input.base == (try git.run(["rev-parse", "main"], in: repo)))
         #expect(try Data(contentsOf: input.workspace.appendingPathComponent("source/caller")) == Data("exact\r\n$Id$\n".utf8))
+        let paths = try String(contentsOf: input.workspace.appendingPathComponent("paths.txt"), encoding: .utf8)
+        #expect(paths.split(separator: "\n").contains("café.swift"))
         let link = input.workspace.appendingPathComponent("source/link")
         #expect(try link.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == false)
         #expect(try String(contentsOf: link, encoding: .utf8) == "/outside")
@@ -172,12 +175,19 @@ extension ManualReviewTests {
         defer { other.discard() }
         let claimed = try await ManualReview.withClaim(at: first.request) { request, _ in
             first.discard()
+            let past = Date(timeIntervalSinceNow: -90000)
+            for folder in [first.folder, other.folder] {
+                try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: folder.path)
+            }
+            let next = try review.stage()
+            defer { next.discard() }
+            #expect(!FileManager.default.fileExists(atPath: other.folder.path))
             #expect(FileManager.default.fileExists(atPath: first.folder.path))
             return request.head
         }
         #expect(claimed == review.head)
         #expect(!FileManager.default.fileExists(atPath: first.folder.path))
-        #expect(FileManager.default.fileExists(atPath: other.request.path))
+        #expect(!FileManager.default.fileExists(atPath: other.request.path))
         await #expect(throws: ManualReviewError.self) {
             try await ManualReview.withClaim(at: first.request) { _, _ in }
         }

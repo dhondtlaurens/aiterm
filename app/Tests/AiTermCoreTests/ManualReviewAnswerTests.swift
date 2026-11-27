@@ -18,18 +18,32 @@ import Foundation
 }
 
 extension ManualReviewAnswerTests {
-    @Test func allEventsIncludingALateDenialAreRead() throws {
+    @Test func allEventsIncludingALateDenialAreRead() async throws {
         let folder = try ScratchFolder.make("review-stream-")
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appendingPathComponent("events")
         let progress = "{\"event\":\"progress\",\"text\":\"" + String(repeating: "x", count: 4096) + "\"}\n"
         let prefix = String(repeating: progress, count: 1100)
         let success = #"{"event":"result","result":{"status":"SUCCESS","response":"No findings."}}"#
-        try Data((prefix + success).utf8).write(to: file)
-        #expect(try AgentKind.agy.manualReviewAnswer(events: file, answerFile: nil) == "No findings.")
         let refusal = #"{"step_update":{"state":"ERROR","tool_info":{"name":"read_file","error":{"message":"Permission denied for read_file"}}}}"#
-        try Data((prefix + refusal + "\n" + success).utf8).write(to: file)
-        #expect(throws: ManualReviewError.self) { try AgentKind.agy.manualReviewAnswer(events: file, answerFile: nil) }
+        let input = folder.appendingPathComponent("input")
+        for (tail, overflow) in [(success, false), (refusal + "\n" + success, false), (success, true)] {
+            let data = Data((prefix + tail).utf8)
+            try data.write(to: input)
+            try Data().write(to: file)
+            let capture = try FileHandle(forWritingTo: file)
+            defer { try? capture.close() }
+            let budget = data.count - (overflow ? 1 : 0)
+            let output = try await AgentProcess.run("/bin/cat", [input.path], environment: [:], in: folder.path,
+                                                    timeout: .seconds(30), outputLimit: budget, capture: capture)
+            #expect(output.status == 0 && output.stdoutTruncated == overflow)
+            #expect(try Data(contentsOf: file) == data.prefix(budget))
+            if tail == success && !overflow {
+                #expect(try AgentKind.agy.manualReviewAnswer(events: file, answerFile: nil) == "No findings.")
+            } else {
+                #expect(throws: (any Error).self) { try AgentKind.agy.manualReviewAnswer(events: file, answerFile: nil) }
+            }
+        }
     }
 
     @Test func capturedVendorFailuresAndOrdinaryMisses() throws {

@@ -57,6 +57,20 @@ import Foundation
                             searchMergeRequests: search, createReview: create, recover: recover)
     }
 
+    @Test func manualReviewOffersNoInstalledSkillCompletions() async throws {
+        let home = try ScratchFolder.make("review-skill-")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let commands = home.appendingPathComponent(".claude/commands")
+        try FileManager.default.createDirectory(at: commands, withIntermediateDirectories: true)
+        try Data("Fixture command".utf8).write(to: commands.appendingPathComponent("fixture-review.md"))
+        #expect(SkillCatalog.discover(agent: .claude, projectPath: nil, home: home).contains { $0.name == "fixture-review" })
+        let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
+                                        context: .scratch(home: home), searchMergeRequests: { _ in [] },
+                                        createReview: { _ in }, recover: { _ in })
+        await model.loadAgentCatalogue()
+        #expect(model.completions.all.isEmpty)
+    }
+
     /// The GitLab connection and the project's remote are read once, when the sheet is prepared —
     /// a Keychain read and a look at the checkout — and every query uses what was read then.
     @Test func aSearchUsesTheConnectionAndRemoteItWasPreparedWith() async {

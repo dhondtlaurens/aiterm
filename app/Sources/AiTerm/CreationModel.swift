@@ -270,7 +270,8 @@ final class CreationModel<Kind: CreationKind> {
                 do { models = try catalogueProvider(agent) } catch { failure = error.localizedDescription }
             }
             return (models: models, failure: failure,
-                    completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home, claudeConfig: claudeConfig),
+                    completions: Kind.self == TaskCreation.self
+                        ? SkillCatalog.discover(agent: agent, projectPath: path, home: home, claudeConfig: claudeConfig) : [],
                     resolution: ModelSettings.resolution(for: agent, catalog: models, remembered: remembered, defaults: defaults))
         }
         guard !Task.isCancelled, generation == catalogueGeneration, agent == draft.agent else { return }

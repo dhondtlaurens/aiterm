@@ -54,6 +54,7 @@ commands, file writes, MCP servers and fetches; it can still search the web. The
 the destination before launch.
 
 **New Review…** runs the chosen model and effort once against the pinned commit and its diff.
+Enter the review focus as plain text. Slash commands and installed skills are disabled for manual reviews.
 The tab prints the commit and findings or a failure, then returns to its shell. The sidebar can
 show a shell during this run. An MR uses its target branch and a branch-only review uses the
 default branch. Projects with an origin need it reachable to verify the target. Local-only

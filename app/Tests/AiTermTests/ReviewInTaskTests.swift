@@ -109,10 +109,11 @@ import Testing
     /// The task was created on `feat/work`, then its worktree moved to another branch. A review of
     /// `feat/work` must not open in that worktree — the reviewer would be looking at the other
     /// branch — and the worktree is not switched back under the task: the review gets its own.
-    @Test func aReviewOfTheBranchADriftedTaskLeftGetsAWorktreeOfItsOwn() async throws {
+    @Test(arguments: [true, false]) func aReviewOfTheBranchADriftedTaskLeftGetsAWorktreeOfItsOwn(deliveryFails: Bool) async throws {
         let fixture = try await TaskFixture(windowOpen: true, provider: .gitlab)
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        if deliveryFails { server.commandErrors["window.createTask"] = "Delivery failed" }
         fixture.controller.helper.setDaemonClient(server)
         try fixture.git.run(["switch", "-q", "-c", "feat/other"], in: fixture.task.worktreePath)
 
@@ -122,6 +123,12 @@ import Testing
         let window = try #require(server.requests.first { $0.method == "window.createTask" })
         let review = try #require(fixture.controller.state.tasks.first { $0.kind == .review })
         #expect(review.branch == "feat/work" && review.worktreePath != fixture.task.worktreePath)
+        if deliveryFails {
+            #expect(fixture.controller.issue?.reason == "Delivery failed")
+            let command = try #require(window.params["agentCommand"] as? String)
+            let request = try #require(command.components(separatedBy: " --manual-review ").last)
+            #expect(!FileManager.default.fileExists(atPath: String(request.dropFirst().dropLast())))
+        }
         #expect(window.params["cwd"] as? String == review.worktreePath)
         #expect(try fixture.git.run(["branch", "--show-current"], in: fixture.task.worktreePath) == "feat/other",
                 "the task's worktree stays on the branch it moved to")

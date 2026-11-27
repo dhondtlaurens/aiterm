@@ -97,7 +97,7 @@ private final class ManualReviewTestBundle {}
 }
 
 extension ManualReviewRunTests {
-    @Test(arguments: ["missing", "timeout", "exit", "empty", "overflow"])
+    @Test(arguments: ["missing", "timeout", "exit", "stdoutError", "empty", "overflow"])
     func reviewerFailuresAreVisibleThroughTheEntryPoint(_ failure: String) async throws {
         let fixture = try await RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -111,17 +111,96 @@ extension ManualReviewRunTests {
         let pending = try Repository(fixture.repo.path, git: fixture.git).manualReview(draft: draft, checkout: task.worktreePath)
         let error = await #expect(throws: ManualReviewError.self) {
             try await ManualReview.withClaim(at: pending.request) { review, folder in
-                try await ManualReviewEntry.run(review, folder: folder, makeRunner: { _, _ in
+                try await ManualReviewEntry.run(review, folder: folder, makeRunner: { _, capture in
                     if failure == "missing" { return .unavailable }
                     return HeadlessRun(locate: { _ in "/fixture" }, run: { _, _, _, _, _ in
-                        ProcessOutput(status: failure == "exit" ? 7 : 0, stdout: "", stderr: "fixture diagnostic",
+                        if failure == "stdoutError" {
+                            try capture.write(contentsOf: Data(#"{"type":"result","is_error":true,"result":"Sign-in expired"}"#.utf8))
+                        }
+                        return ProcessOutput(status: ["exit", "stdoutError"].contains(failure) ? 7 : 0, stdout: "", stderr: "fixture diagnostic",
                                       timedOut: failure == "timeout", stdoutTruncated: failure == "overflow")
                     })
                 })
             }
         }
-        let expected = ["missing": "installed", "timeout": "minutes", "exit": "status 7", "empty": "complete answer", "overflow": "capture limit"]
+        let expected = ["missing": "installed", "timeout": "minutes", "exit": "status 7", "stdoutError": "Sign-in expired", "empty": "complete answer", "overflow": "capture limit"]
         #expect(error?.localizedDescription.contains(expected[failure]!) == true)
         #expect(!FileManager.default.fileExists(atPath: pending.folder.path))
+    }
+}
+
+extension ManualReviewRunTests {
+    @Test(arguments: [SIGINT, SIGHUP])
+    func interruptingTheHelperReapsTheReviewerAndItsChild(_ sig: Int32) async throws {
+        let fixture = try await RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let task = try await fixture.addTask(windowId: nil)
+        let work = URL(fileURLWithPath: task.worktreePath)
+        try Data("change".utf8).write(to: work.appendingPathComponent("feature"))
+        try fixture.git.run(["add", "feature"], in: work.path)
+        try fixture.git.run(["commit", "-qm", "feature"], in: work.path)
+        var draft = ReviewDraft(mr: nil, agent: .claude, model: "fixture", reasoning: nil)
+        draft.setBranch(task.branch)
+        let pending = try Repository(fixture.repo.path, git: fixture.git).manualReview(draft: draft, checkout: work.path)
+        defer { pending.discard() }
+
+        let ids = fixture.root.appendingPathComponent("reviewer-pids")
+        let cli = fixture.root.appendingPathComponent("claude")
+        let script = """
+        #!/bin/sh
+        /bin/sleep 90 &
+        echo "$$ $!" > \(AgentCommand.shellQuote(ids.path))
+        wait
+        """
+        try Data(script.utf8).write(to: cli)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
+        let helper = Process()
+        helper.executableURL = Bundle(for: ManualReviewTestBundle.self).bundleURL.deletingLastPathComponent().appendingPathComponent("AiTerm")
+        helper.arguments = ["--manual-review", pending.request.path]
+        helper.environment = ProcessRunner.inheritedEnvironment.merging(["PATH": fixture.root.path + ":/usr/bin:/bin"]) { _, new in new }
+        helper.currentDirectoryURL = work
+        helper.standardInput = FileHandle.nullDevice
+        helper.standardOutput = FileHandle.nullDevice
+        helper.standardError = FileHandle.nullDevice
+        try helper.run()
+        defer { if helper.isRunning { helper.terminate() } }
+        guard await eventually(describing: "the reviewer's child", timeout: 30, { FileManager.default.fileExists(atPath: ids.path) }) else { return }
+        let pids = try String(contentsOf: ids, encoding: .utf8).split(whereSeparator: \.isWhitespace).compactMap { Int32($0) }
+        try #require(pids.count == 2)
+        #expect(kill(helper.processIdentifier, sig) == 0)
+        guard await eventually(describing: "the interrupted review to exit", timeout: 30, { !helper.isRunning }) else { return }
+        #expect(helper.terminationStatus != 0)
+        #expect(!FileManager.default.fileExists(atPath: pending.folder.path))
+        await eventually(describing: "both reviewer processes to be reaped", timeout: 10) { pids.allSatisfy { kill($0, 0) != 0 && errno == ESRCH } }
+    }
+
+    @Test func unsupportedAntigravityStopsBeforeReview() async throws {
+        let root = try ScratchFolder.make("review-version-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("workspace"), home = root.appendingPathComponent("source-home")
+        let credential = home.appendingPathComponent(".gemini/antigravity-cli/antigravity-oauth-token")
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: credential.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("fixture".utf8).write(to: credential)
+        let cli = root.appendingPathComponent("agy"), marker = root.appendingPathComponent("unexpected-turn")
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+            [ -z "$UNRELATED" ] && [ "$HOME" = \(AgentCommand.shellQuote(root.appendingPathComponent("agy-home").path)) ] || exit 2
+            touch \(AgentCommand.shellQuote(root.appendingPathComponent("checked-version").path))
+            echo unsupported
+        else
+            touch \(AgentCommand.shellQuote(marker.path))
+        fi
+        """
+        try Data(script.utf8).write(to: cli)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
+        let runner = HeadlessRun.manualReview(agent: .agy, capture: .nullDevice)
+        let reason = await #expect(throws: ManualReviewError.self) {
+            try await runner.run(cli.path, ["--agent", "fixture"], ["HOME": home.path, "UNRELATED": "fixture"], workspace.path, .seconds(30))
+        }
+        #expect(reason?.localizedDescription.contains(ManualReviewAgy.verifiedVersion) == true)
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("checked-version").path))
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 }

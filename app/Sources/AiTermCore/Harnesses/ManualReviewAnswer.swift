@@ -32,6 +32,28 @@ private func denied(_ reason: String) -> ManualReviewError {
 }
 
 extension AgentKind {
+    /// Some print-mode CLIs report a failed turn entirely on stdout. Read just their error
+    /// fields, so a successful-looking assistant message cannot become the reason for an exit.
+    public func manualReviewFailure(events: URL) -> String? {
+        var detail: String?
+        try? records(in: events) { event in
+            switch self {
+            case .claude where event["type"] as? String == "result" && event["is_error"] as? Bool == true:
+                detail = (event["errors"] as? [String])?.last ?? event["result"] as? String
+            case .agy where event["event"] as? String == "result":
+                if let result = event["result"] as? Event, result["status"] as? String != "SUCCESS" {
+                    detail = result["error"] as? String ?? (result["error"] as? Event)?["message"] as? String
+                }
+            case .codex where event["type"] as? String == "error" || event["type"] as? String == "turn.failed":
+                detail = event["message"] as? String ?? (event["error"] as? Event)?["message"] as? String
+            case .pi where event["type"] as? String == "agent_end":
+                detail = (event["messages"] as? [Event])?.last?["errorMessage"] as? String
+            default: break
+            }
+        }
+        return detail
+    }
+
     public func manualReviewAnswer(events: URL, answerFile: String?) throws -> String {
         var answer: String?, complete = false, codexThread: String?
         try records(in: events) { event in
