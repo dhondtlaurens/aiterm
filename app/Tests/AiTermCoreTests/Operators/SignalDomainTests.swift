@@ -120,8 +120,9 @@ import Testing
             project("merge when ready", valid: false) {
                 $0.start = SignalTrigger(source: .gitLab, query: "author:@me"); $0.finish.mergesWhenReady = true
             },
-            project("removed when done", valid: false) { $0.finish.then = .remove },
-            project("its merged branch deleted", valid: false) { $0.finish = SignalFinish(then: .remove, deletesMergedBranch: true) },
+            project("removed when done", valid: true) { $0.finish.then = .remove },
+            project("its merged branch deleted", valid: true) { $0.finish = SignalFinish(then: .remove, deletesMergedBranch: true) },
+            project("its branch deleted though archived", valid: false) { $0.finish = SignalFinish(then: .archive, deletesMergedBranch: true) },
             project("done when the Operator decides", valid: false) { $0.done = SignalTrigger(source: .operator, query: "") },
             KindValidity(name: "an Operator signal done when you decide", signal: operatorSignal, valid: false),
         ]

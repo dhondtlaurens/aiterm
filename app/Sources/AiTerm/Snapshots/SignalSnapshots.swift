@@ -78,8 +78,9 @@ import AiTermUI
         ]
         return values
     }
-    /// A project signal's sheets: a GitLab review signal at each step, and a weekly schedule's Done when on You decide.
-    /// Drawn after every other signal image so none of those moves.
+    /// A project signal's sheets: a GitLab review signal at each step, a weekly schedule's Done when on You decide, and
+    /// the review signal's Done when on You decide, removing its task with its merged branch. Drawn after every other
+    /// signal image so none of those moves.
     static var project: [Snapshot] {
         var values: [Snapshot] = []
         for step in SignalModel.stepNames.indices.map({ $0 + 1 }) {
@@ -90,6 +91,10 @@ import AiTermUI
         }
         values.append(Snapshot("signal-project-schedule-5.png") {
             SignalSheet(model: scheduleModel(kind: .project)).seeded(step: SignalModel.doneStep)
+        })
+        values.append(Snapshot("signal-project-remove-done.png") {
+            let model = model(.gitLab, kind: .project); model.doneKind = .youDecide; model.then = .remove; model.deleteMergedBranch = true
+            return SignalSheet(model: model).seeded(step: SignalModel.doneStep)
         })
         return values
     }

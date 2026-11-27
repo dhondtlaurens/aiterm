@@ -18,9 +18,9 @@ Operator.
 A **project signal** picks an item up and starts an ordinary task or review in its project with
 your prompt and one agent, then leaves it to you. It keeps the Start trigger with its Write buttons
 and preview, schedules, the prompt with its description checkboxes, a Done query AiTerm checks
-itself, **Then** Keep or Archive, switching off, source back-off and skipped items. It drops several
-agent rows, **The Operator decides** (it has **You decide** instead), **Merge it when it's ready**,
-**Then** Remove, the Operator's chat, the Oracle, journals and pending stages. Its task launches as
+itself, **Then** with **Delete its branch once merged**, switching off, source back-off and skipped
+items. It drops several agent rows, **The Operator decides** (it has **You decide** instead), **Merge
+it when it's ready**, the Operator's chat, the Oracle, journals and pending stages. Its task launches as
 one you make: its agent asks you directly in its own window, and no branch guard applies, also on
 the first turn, which runs with nobody watching. Operator signals never continue or adopt a task a
 project signal started.
@@ -158,8 +158,8 @@ signal** or **New project signal**, and editing keeps the kind. Its five steps a
    signal a Done query reads
    GitLab or GitHub against the merge request its run opens; Jira is off, since a run has no ticket.
    On an Operator signal, **Merge it when it's ready** is offered where the Start trigger reads Jira,
-   names you as author or assignee, or is a schedule. **Then** keeps, archives or removes the task
-   (Keep or Archive on a project signal); with remove, **Delete its branch once merged** is offered.
+   names you as author or assignee, or is a schedule. **Then** keeps, archives or removes the task;
+   with remove, **Delete its branch once merged** is offered.
    The closing box states what your choices do; a project signal's says that its agent asks you
    directly and no branch guard applies.
 
@@ -312,10 +312,13 @@ holds the prompt, with the reason in the signals sheet, and is tried again after
 then on it reads the query each minute, skipping an agent at work or asking, and the task is done
 when its item starts to match. With **You decide** there is no query: you archive the task when you are
 done with it. Either way a merge request that is merged or closed ends it. **Keep** leaves the task;
-**Archive** archives it once none of its agents works, asks or holds a turn, and no tab's input may hold
-words you have not sent (an agent's input AiTerm cannot read counts as holding them). Unsaved work keeps it,
-and its card says `Done · kept` with why. Editing the Done query makes the next read a new
-baseline. A later match makes the task the signal's again, and Done and Then run again.
+**Archive** archives it, and **Remove** removes it, once none of its agents works, asks or holds a turn,
+and no tab's input may hold words you have not sent (an agent's input AiTerm cannot read counts as holding
+them). Unsaved work keeps it, and its card says `Done · kept` with why. With **Delete its branch once
+merged**, a removed task's branch goes under the same proof as an Operator signal's, also while the
+Operator is paused; a review's branch never does. A removed task's item does not start again while it
+still matches. Editing the Done query makes the next read a new baseline. A later match makes a kept
+or archived task the signal's again, and Done and Then run again.
 
 ## One item keeps one task
 

@@ -10,7 +10,7 @@ import AiTermCore
     static let nameStep = 1, startStep = 2, agentsStep = 3, promptStep = 4, doneStep = 5
     let projects: [Project], context: SignalContext
     /// Who runs its tasks: set by where New Signal… was chosen for a new signal, read from the signal when editing. A
-    /// project signal has one agent row, You decide in place of the Operator, keeps or archives its task and merges nothing.
+    /// project signal has one agent row, You decide in place of the Operator, and merges nothing.
     let kind: Signal.Kind
     private let original: Signal?, createdAt: Date
     private let seen: [SignalSeen]
@@ -110,8 +110,6 @@ import AiTermCore
     var doneKinds: [DoneKind] { [.query, decides] }
     /// Who decides Done without a query: the Operator, or, on a project signal, you.
     private var decides: DoneKind { isProject ? .youDecide : .operatorDecides }
-    /// The Then choices its kind offers: a project signal keeps or archives its task.
-    var thenValues: [SignalFinish.Then] { isProject ? [.keep, .archive] : SignalFinish.Then.allCases }
     var isScheduled: Bool { startKind == .schedule }
     private func setStartKind(_ kind: StartKind) {
         guard kind != startKind else { return }
@@ -179,7 +177,7 @@ import AiTermCore
     var offersMerge: Bool { !isProject && start.offersMerge }
     var finish: SignalFinish {
         SignalFinish(then: then, mergesWhenReady: offersMerge && mergeWhenReady,
-                     deletesMergedBranch: !isProject && then == .remove && deleteMergedBranch)
+                     deletesMergedBranch: then == .remove && deleteMergedBranch)
     }
     private var signal: Signal {
         func trimmed(_ trigger: SignalTrigger) -> SignalTrigger {
