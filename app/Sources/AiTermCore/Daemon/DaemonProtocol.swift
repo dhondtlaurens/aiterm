@@ -26,6 +26,7 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     case sessionActivate = "session.activate"
     case windowSetFrame = "window.setFrame"
     case windowClose = "window.close"
+    case taskSetWorkerSessions = "task.setWorkerSessions"
     case tabCreate = "tab.create"
     /// The app's fresh query for the tabs, without a snapshot event.
     case sessionsList = "sessions.list"

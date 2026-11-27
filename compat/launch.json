@@ -316,7 +316,9 @@
       "-m",
       "{model}",
       "-c",
-      "model_reasoning_effort={reasoning}"
+      "model_reasoning_effort={reasoning}",
+      "-c",
+      "tools.experimental_request_user_input.enabled=false"
     ],
     "task" : [
       "codex",
@@ -332,7 +334,9 @@
       "-m",
       "{model}",
       "-c",
-      "model_reasoning_effort={reasoning}"
+      "model_reasoning_effort={reasoning}",
+      "-c",
+      "tools.experimental_request_user_input.enabled=false"
     ]
   },
   "pi" : {

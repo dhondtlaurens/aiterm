@@ -111,7 +111,7 @@ public struct OperatorDigest: Encodable, Equatable, Sendable {
         standingInstructions = instructions
         let ids = Set(state.allSignalTasks.filter { task == nil || $0.id == task }.map(\.id))
         workers = sessions.compactMap { session in
-            guard let id = session.taskUUID, ids.contains(id) else { return nil }
+            guard !session.isHelper, let id = session.taskUUID, ids.contains(id) else { return nil }
             return WorkerLine(task: id, session: session.sessionId, tab: session.tabKey ?? "main", agent: session.agent, state: session.state,
                               conversation: session.conversationId, contextTokens: session.contextTokens, contextPercent: session.contextPercent,
                               backgroundJobs: session.work.filter(\.holdsTurn).count)

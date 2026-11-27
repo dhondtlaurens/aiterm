@@ -149,3 +149,12 @@ async def settle(resolver):
     """Drain this test resolver's own worker after releasing its read latch."""
     if resolver._scan is not None:
         await asyncio.gather(asyncio.shield(resolver._scan), return_exceptions=True)
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex", "agy", "pi"])
+async def test_a_worker_cannot_take_an_unplaced_helper_event(tmp_path, agent):
+    reg = SessionRegistry()
+    reg.apply_snapshot([RawSession("worker", "w", 0, agent, 201, "", "/repo", {"aiterm_role": "worker"})])
+    resolver = SessionResolver(reg, ClaudeSessionFiles(tmp_path))
+    for reported_tab in [None, "aiterm-headless-helper", "w0t1p0:closed-helper"]:
+        assert await resolver.resolve_with_evidence(agent, "helper-question", "/repo", reported_tab) == (None, None)

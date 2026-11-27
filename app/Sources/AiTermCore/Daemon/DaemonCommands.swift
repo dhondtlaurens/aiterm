@@ -7,12 +7,13 @@ public protocol DaemonCommands: Sendable {
     func sessions() async throws -> [SessionInfo]
     /// `background` opens it behind the person's work: an operator's worker windows do. Its window id, and why its agent
     /// command could not be typed, when the daemon could not type it: the window is there either way.
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> Opening
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool, worker: Bool) async throws -> Opening
     func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String
     /// A tab in an existing window, carrying that window's task or project tag. `tabKey` tags it as the Operator's
     /// extra worker tab of that key (`open_tab`), and a repeat returns the tab already tagged so; `background` opens
     /// it behind the person's work.
-    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool, worker: Bool) async throws -> Opening
+    func setWorkerSessions(taskId: String, sessionIds: [String], released: Bool, ownership: Int) async throws
     func activate(windowId: String) async throws
     /// One tab selected in its window, and that window brought forward: a task's worker tab among several, which
     /// `activate(windowId:)` would leave as its window last showed it.
@@ -41,6 +42,15 @@ public protocol DaemonCommands: Sendable {
 }
 
 public extension DaemonCommands {
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame,
+                          background: Bool) async throws -> Opening {
+        try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
+                                   frame: frame, background: background, worker: false)
+    }
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> Opening {
+        try await createTab(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: tabKey, background: background, worker: false)
+    }
+
     /// An unguarded delivery, as every caller but a project signal's makes it.
     func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery {
         try await deliver(sessionId: sessionId, text: text, ownership: ownership, wake: wake, guardInput: false, worktree: worktree)

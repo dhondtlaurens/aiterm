@@ -1,0 +1,16 @@
+{
+  "aiterm-worker": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "printf '%s' '{\"decision\":\"deny\",\"reason\":\"End your turn with a Question: paragraph.\"}'",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "^ask_question$"
+      }
+    ]
+  }
+}

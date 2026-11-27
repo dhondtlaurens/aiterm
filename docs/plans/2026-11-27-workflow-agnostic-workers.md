@@ -44,10 +44,26 @@ Claude, Codex and Antigravity are the three signal workers. PI stays basic-tier 
 
 ## To-dos
 
-- [ ] Verify and apply the worker question policy per supported CLI; update the worker and Operator instructions, docs, launch tests and compat evidence.
-- [ ] Prove helper shim fidelity and guard composition, fixing the failing cases.
-- [ ] Carry long commands intact through a real keyed tab, including its exit and cleanup.
-- [ ] Mark every driven worker creation, distinguish workflow tabs at creation, and prove same-key worker and helper requests in both orders. Carry the tab roles through the row, saved conversations, digest, wakes and card.
-- [ ] Isolate nested Codex, Antigravity and PI helpers through their existing terminal-ID transports and the next poll.
-- [ ] Require positive process and conversation ownership for Claude state changes on protected workers, including retry, the next tick and already-installed hooks.
+- [x] Verify and apply the worker question policy per supported CLI; update the worker and Operator instructions, docs, launch tests and compat evidence.
+- [x] Prove helper shim fidelity and guard composition, fixing the failing cases.
+- [x] Carry long commands intact through a real keyed tab, including its exit and cleanup.
+- [x] Mark every driven worker creation, distinguish workflow tabs at creation, and prove same-key worker and helper requests in both orders. Carry the tab roles through the row, saved conversations, digest, wakes and card.
+- [x] Isolate nested Codex, Antigravity and PI helpers through their existing terminal-ID transports and the next poll.
+- [x] Require positive process and conversation ownership for Claude state changes on protected workers, including retry, the next tick and already-installed hooks.
 - [ ] Run the gate and record the three real question rounds and eight real helper runs.
+
+## Verification on 27 November
+
+| Worker | CLI observation |
+|---|---|
+| Claude 2.1.330 | The print session’s initial tool list omitted `AskUserQuestion`. It returned “Question: Do you want red or green?” |
+| Codex 0.171.0 | The real app-server sent its tool list to a local Responses endpoint with a model catalog advertising async questions and the personal default-mode feature enabled. Both `request_user_input` and `request_user_input_async` appeared in Default and Plan with the control setting. Both disappeared in both modes with the worker setting. The fixture’s question was the scripted model reply. |
+| Antigravity 1.5.18 | The interactive CLI called `ask_question`. The extra directory’s pre-tool hook received the call and denied it. The CLI transcript ended with “Question: Red or green?” |
+
+A Claude 2.1.332 print worker launched all four real helper CLIs through its shell and keyed tabs on iTerm2 3.7.9. The branch daemon used an isolated socket. Claude 2.1.332, Codex 0.172.0, Antigravity 1.5.18 and PI 1.6.1 each returned the requested marker and exit status zero in both placements. Both Antigravity invocations received a single 100,000-byte prompt. The snapshots showed all four distinct helper keys while their tabs existed and a single working Claude conversation throughout their overlap. A real keyed Codex tab given an invalid sandbox argument returned the CLI diagnostic and exit status 2. Separate shim tests checked binary stdin, stderr and exit status 23. A real Claude print run retained caller file settings, plan mode and the Bash and Read tool selection while the AiTerm pre-tool guard rejected a dry-run push in a disposable local repository.
+
+In separate interactive Claude 2.1.332, Codex 0.172.0 and Antigravity 1.5.18 worker windows, all three ended with a final `Question:` paragraph about red or green. The branch delivery adapter returned `delivered` for “Use green.” and each worker replied `GREEN` in the same window. The test supplied that answer.
+
+The repository gate passed, including 1,728 daemon tests, the Swift suites, snapshots and all nine capped Operator evaluations. The branch bundle passed resource and signature verification.
+
+The desktop acceptance still requires the three Operator signal question-and-answer rounds and observation of the task card and Operator wake history on the branch app.

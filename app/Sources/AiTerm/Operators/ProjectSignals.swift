@@ -474,7 +474,7 @@ import AiTermCore
     /// A task's launch already happened: an agent of its own is listed, or it has a saved conversation.
     private func launched(_ task: TaskItem) -> Bool {
         !task.conversations.isEmpty
-            || (context.ready() && live.sessions.contains { $0.taskUUID == task.id && $0.agent.agentKind != nil })
+            || (context.ready() && live.sessions.contains { $0.taskUUID == task.id && !$0.isHelper && $0.agent.agentKind != nil })
     }
 
     /// Its signal exists and is switched off: the launch waits until it is on.
@@ -580,7 +580,7 @@ extension ProjectSignals {
     /// running your own prompt waits; a first worker whose turn ended is typed into; no agent listed opens one.
     private func route(_ id: UUID) -> Route {
         guard let task = workspace.state.task(id: id) else { return .wait }
-        let agents = live.sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil }
+        let agents = live.sessions.filter { $0.taskUUID == id && !$0.isHelper && $0.agent.agentKind != nil }
         if agents.contains(where: { $0.state == .working || $0.state == .needsInput || $0.work.contains(where: \.holdsTurn)
             || $0.yourPrompt != nil || $0.testActivity?.isActive == true }) { return .wait }
         if let worker = task.firstWorker(in: live.sessions) { return worker.state.turnEnded ? .type(worker) : .wait }
@@ -688,7 +688,7 @@ extension ProjectSignals {
             guard task.signalTask == nil, !task.takenOver, let origin = task.signalOrigin, origin.owed == nil, origin.notifiedAt == nil,
                   let turn = origin.turn, turn.sentAt != nil || turn.pastedAt != nil,
                   state.signal(id: origin.signal)?.isProject != false else { continue }
-            let agents = live.sessions.filter { $0.taskUUID == task.id && $0.agent.agentKind != nil }
+            let agents = live.sessions.filter { $0.taskUUID == task.id && !$0.isHelper && $0.agent.agentKind != nil }
             if turn.seenWorking != true {
                 guard agents.contains(where: { $0.state == .working }) else { continue }
                 workspace.mutate { $0.updateSignalItem(task.id) { $0.signalOrigin?.turn?.seenWorking = true } }

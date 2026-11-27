@@ -299,7 +299,9 @@ class StatusEngine:
             # Context is presented per provider within a task. Updating sibling tabs for the same
             # agent keeps its last value stable across tab changes without letting a Claude and a
             # Codex conversation overwrite each other.
-            own = [other for other in self.reg.for_task(s.task_id) if other.agent == s.agent] if s.task_id else [s]
+            own = [s]
+            if s.task_id and s.tab_role != "helper":
+                own = [other for other in self.reg.for_task(s.task_id) if other.agent == s.agent and other.tab_role != "helper"]
             changed += [other.session_id for other in own if self.reg.set_context(other.session_id, context)]
         return changed
 

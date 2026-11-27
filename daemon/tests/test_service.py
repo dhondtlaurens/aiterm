@@ -2773,3 +2773,123 @@ def test_optional_hook_fields_are_keyword_only():
     with pytest.raises(TypeError):
         HookEvent("claude", "subagentStart", "conversation", "/wt", "child")
     assert HookEvent("claude", "subagentStart", "conversation", "/wt", subagent_id="child").subagent_id == "child"
+
+
+@pytest.mark.parametrize("helper_first", [False, True])
+async def test_worker_and_helper_can_retry_the_same_tab_key(stack, helper_first):
+    svc, it, files, r, w = stack
+    window = await call(r, w, "window.createTask", {"taskId": "one", "cwd": "/wt", "frame": FRAME, "worker": True})
+    wid = window["result"]["windowId"]
+    common = {"windowId": wid, "tabKey": "review", "background": True, "agentCommand": "echo called"}
+    params = [common, common | {"worker": True}] if helper_first else [common | {"worker": True}, common]
+    sessions = [(await call(r, w, "tab.create", p))["result"]["sessionId"] for p in params]
+    assert len(set(sessions)) == 2
+    for p, sid in zip(params, sessions, strict=True):
+        assert (await call(r, w, "tab.create", p))["result"]["sessionId"] == sid
+        assert svc.registry.get(sid).tab_role == ("worker" if p.get("worker") else "helper")
+        assert [cmd for session, cmd in it.sent if session == sid] == [" echo called\n"]
+
+
+async def test_concurrent_helper_and_worker_retries_execute_once_per_role(stack):
+    svc, it, _, reader, writer = stack
+    window = await call(reader, writer, "window.createTask", {"taskId": "task", "cwd": "/wt", "frame": FRAME, "worker": True})
+    common = {"windowId": window["result"]["windowId"], "tabKey": "review", "agentCommand": "echo once"}
+    replies = await asyncio.gather(*(svc.windows.create_tab(common | {"worker": worker}) for worker in [False, True] * 2))
+    ids = [r["sessionId"] for r in replies]
+    assert ids == ids[:2] * 2 and ids[0] != ids[1]
+    assert [cmd for session, cmd in it.sent if session in ids] == [" echo once\n"] * 2
+
+
+def test_staged_command_survives_a_delayed_shell_and_reclaims_only_its_files(tmp_path):
+    from aitermd.staged_command import StagedCommands
+
+    initial = StagedCommands()
+    initial.folder = tmp_path
+    initial.line("live", "printf '\t'")
+    initial.line("closed", "x" * 1024)
+    original, abandoned = initial.pending["live"], initial.pending["closed"]
+    unrelated = tmp_path / "other"
+    unrelated.touch()
+    recovered = StagedCommands()
+    recovered.folder = tmp_path
+    recovered.sweep({"live"})
+    assert original.is_file() and original.stat().st_mode & 0o777 == 0o600
+    assert not abandoned.exists() and unrelated.exists()
+    recovered.forget("live")
+    assert not original.exists()
+
+
+async def test_long_helper_command_runs_in_its_shell_and_closes_it(stack, tmp_path):
+    svc, it, files, r, w = stack
+    window = await call(r, w, "window.createTask", {"taskId": "one", "cwd": "/wt", "frame": FRAME})
+    import shlex
+    arg = "a' b\n" * 20480
+    result = tmp_path / "received"
+    cmd = "printf '%s' " + shlex.quote(arg) + " > " + shlex.quote(str(result)) + "; exit 23"
+    tab = await call(r, w, "tab.create", {"windowId": window["result"]["windowId"], "tabKey": "review",
+                                        "agentCommand": cmd})
+    typed = next(text for session, text in it.sent if session == tab["result"]["sessionId"])
+    assert len(typed.encode()) < 1000
+    assert subprocess.run(["/bin/zsh", "-c", typed + "\nexit 0"]).returncode == 23
+    assert result.read_text() == arg
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex", "agy", "pi"])
+@pytest.mark.parametrize("placement", ["tab", "child"])
+async def test_helper_events_leave_the_working_conversation_alone(stack, agent, placement):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t", "cwd": "/wt", "worker": True, "frame": FRAME}))["result"]["windowId"]
+    worker = it.windows[wid]["sessions"][0]
+    parent = "claude" if agent == "pi" else agent
+    await it.user_runs(worker, parent, job_pid=101)
+    if parent == "claude":
+        files.root.mkdir(exist_ok=True)
+        write_claude_session(files.root, 101, sessionId="outer", cwd="/wt", status="busy")
+    await svc.tick()
+    svc.registry.set_conversation(worker, "outer")
+    svc.registry.set_state(worker, "working")
+    if placement == "tab":
+        sid = (await call(r, w, "tab.create", {"windowId": wid, "tabKey": "review", "background": True}))["result"]["sessionId"]
+        await it.user_runs(sid, agent, job_pid=102)
+        await svc.tick()
+    else:
+        sid = "aiterm-headless-helper"
+    if agent == "claude":
+        write_claude_session(files.root, 102, sessionId="child", cwd="/wt", status="idle")
+    body = {"session_id": "child", "cwd": "/wt", "_aiterm_iterm_session_id": sid}
+    if agent == "agy":
+        body.update({"hookEventName": "Stop", "conversationId": "child", "fullyIdle": True, "lastUserInput": "help"})
+        await svc.hook_router.handle_hook("/statusline/agy", body | {"agent_state": "idle", "task_count": 9})
+    else:
+        body["hook_event_name"] = "agent_settled" if agent == "pi" else "Stop"
+        if agent == "claude":
+            body.pop("_aiterm_iterm_session_id")
+            await svc.hook_router.handle_hook("/statusline", body | {"context_window": {"used_percentage": 87}})
+    await svc.hook_router.handle_hook("/hook/" + agent, body)
+    await svc.tick()
+    outer = svc.registry.get(worker)
+    assert (outer.agent, outer.state, outer.conversation_id, outer.job_pid) == (parent, "working", "outer", 101)
+    assert outer.context_percent != 87
+    if placement == "tab":
+        await it.user_closes_session(sid)
+        await svc.tick()
+    await svc.hook_router.handle_hook("/hook/" + agent, body)
+    assert svc.registry.get(worker).state == "working"
+    # The positive control uses the installed driver’s own event and placement, including Claude’s PID.
+    own = {"session_id": "outer", "cwd": "/wt", "_aiterm_iterm_session_id": worker, "hook_event_name": "Stop"}
+    if parent == "agy":
+        own.update({"hookEventName": "Stop", "conversationId": "outer", "fullyIdle": True, "lastUserInput": "task"})
+    await svc.hook_router.handle_hook("/hook/" + parent, own)
+    assert svc.registry.get(worker).state == "done"
+    assert svc.registry.get(worker).conversation_id == "outer"
+
+
+async def test_take_over_retires_worker_roles_and_a_late_adoption(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "one", "cwd": "/wt", "worker": True, "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    task = {"taskId": "one", "sessionIds": [sid], "ownership": 2}
+    await call(r, w, "task.setWorkerSessions", task | {"released": True})
+    await call(r, w, "task.setWorkerSessions", task | {"released": False, "ownership": 1})
+    tab = (await call(r, w, "tab.create", {"windowId": wid, "tabKey": "review"}))["result"]["sessionId"]
+    assert svc.registry.get(sid).tab_role is None and svc.registry.get(tab).tab_role is None

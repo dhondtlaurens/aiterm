@@ -62,13 +62,13 @@ import AiTermCore
 
     /// Whether a session of the task is at work, asking, or holding the person's turn.
     private func atWork(_ task: TaskItem) -> Bool {
-        live.sessions.contains { $0.taskUUID == task.id && ($0.state == .working || $0.state == .needsInput || $0.yourPrompt != nil) }
+        live.sessions.contains { $0.taskUUID == task.id && !$0.isHelper && ($0.state == .working || $0.state == .needsInput || $0.yourPrompt != nil) }
     }
 
     /// Whether a session of the task left work running that holds its turn (`WorkItem.holdsTurn`, an active test run),
     /// as `ProjectSignals.watchTurns` reads a turn that has not ended: Archive would close it mid-way.
     private func holdsTurn(_ task: TaskItem) -> Bool {
-        live.sessions.contains { $0.taskUUID == task.id && ($0.work.contains(where: \.holdsTurn) || $0.testActivity?.isActive == true) }
+        live.sessions.contains { $0.taskUUID == task.id && !$0.isHelper && ($0.work.contains(where: \.holdsTurn) || $0.testActivity?.isActive == true) }
     }
 
     /// The task's Done read: a baseline when its `doneKey` no longer names the signal's Done, otherwise an edge against
@@ -148,7 +148,7 @@ import AiTermCore
     /// plain shell's input it cannot tell about counts as empty, so a task whose agent has quit can still be archived.
     static func inputHeld(_ task: TaskItem, sessions: [SessionInfo], daemon: (any DaemonCommands)?) async -> Bool {
         guard let daemon else { return true }
-        for session in sessions where session.taskUUID == task.id {
+        for session in sessions where session.taskUUID == task.id && !session.isHelper {
             guard let input = try? await daemon.inputState(sessionId: session.sessionId) else { return true }
             if input == .unsent || (input == .unknown && session.agent != .shell) { return true }
         }

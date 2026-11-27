@@ -1,0 +1,8 @@
+{
+  "mechanism": "--add-dir with PreToolUse deny",
+  "question": "Question: Red or green?",
+  "tools": [
+    "ask_question"
+  ],
+  "version": "1.5.18"
+}

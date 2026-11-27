@@ -147,7 +147,9 @@ signal** or **New project signal**, and editing keeps the kind. Its five steps a
    The row and its reason go into the task's journal. The choice never comes to you. A later stage
    and another work tab are chosen the same way; an existing conversation keeps its agent.
 4. **Prompt:** say what each task's agent does, including its checks. For example, `/psg:plan, then
-   /psg:implement and /psg:review`. Description checkboxes add only the ticket and/or merge request
+   /psg:implement and /psg:review`. Name workflow choices such as reviewers in the signal prompt because a
+   worker has no question dialog and a skill that would ask uses its default. Description checkboxes
+   add only the ticket and/or merge request
    description, quoted as data beneath your prompt; a scheduled signal has none, since a run has no
    ticket or merge request. `/` offers installed skills, following the agents the step before chose.
 5. **Done when:** the Done trigger. **Done when** picks **A query matches**, with its own **Reads**,
@@ -380,7 +382,7 @@ A missing or revoked Operator token always refuses the gated call.
 
 ## Publishing, done and merging
 
-Workers run the requested skills, including their own adversarial review and publication. They
+The signal prompt can ask a worker to run a skill, obtain a review or publish its work. They
 may commit, push their own task branch, open a draft request and perform host actions authorised
 through Operator/Oracle judgment. AiTerm's worker guard, for Claude, Codex and Antigravity, refuses a push that
 forces or replaces remote history, skips the push hook (`--no-verify`, a `core.hooksPath` override),

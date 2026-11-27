@@ -18,7 +18,7 @@ public extension AppState {
             let task = next.tasks[index]
             guard let window = task.windowId, only?.contains(task.id) ?? true else { continue }
             let agentTabs = sessions
-                .filter { $0.windowId == window && $0.agent.agentKind != nil }
+                .filter { $0.windowId == window && $0.agent.agentKind != nil && !$0.isHelper }
                 .sorted { ($0.tabIndex, $0.sessionId) < ($1.tabIndex, $1.sessionId) }
             let shown = agentTabs.compactMap { tab -> TaskConversation? in
                 guard let agent = tab.agent.agentKind, let id = tab.conversationId, TaskConversation.isResumable(id) else { return nil }

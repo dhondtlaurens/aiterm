@@ -1,0 +1,8 @@
+{
+  "mechanism": "--disallowedTools AskUserQuestion",
+  "question": "Question: Do you want red or green?",
+  "tools": [
+    "AskUserQuestion"
+  ],
+  "version": "2.1.330"
+}

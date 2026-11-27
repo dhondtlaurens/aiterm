@@ -229,3 +229,7 @@ tools. A deliberate contract and format change, not a refactor.
 `open_tab` and `resume_task` include `agy`. Their source is the daemon’s full-support worker list.
 `tools.json` is a byte copy of `daemon/aitermd/signal_tools.json`. The existing brief already
 instructs the Operator to choose an exact permitted row.
+
+## Workflow-neutral worker questions
+
+On 27 November 2026 the brief was edited for the workflow-agnostic workers plan. The signal prompt determines whether the worker runs skills, seeks review or publishes. Each worker ends a question with a final `Question:` paragraph, and the Operator uses its chat to ask the person. The capped evaluation passed all nine runs on `claude-sonnet-5-5` at high effort. After the final publishing wording change all nine passed on `claude-opus-5-5` at high effort.

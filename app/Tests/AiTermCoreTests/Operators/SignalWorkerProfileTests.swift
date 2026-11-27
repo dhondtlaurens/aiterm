@@ -4,6 +4,16 @@ import AiTermCore
 @testable import AiTermTestSupport
 
 @Suite struct SignalWorkerProfileTests {
+    @Test func codexWorkersRemoveBothNativeQuestionTools() {
+        for readOnly in [false, true] {
+            for publishing in [false, true] {
+                let words = AgentCommand.workerWords(agent: .codex, model: "test", reasoning: nil,
+                                                     readOnly: readOnly, publishing: publishing)
+                #expect(words.suffix(2) == ["-c", "tools.experimental_request_user_input.enabled=false"])
+            }
+        }
+    }
+
     @Test func publishingWorkersKeepQuestionAndMergeLimitsWhileOperatorRemainsReadOnly() {
         let words = AgentCommand.workerWords(agent: .claude, model: "test", reasoning: nil, publishing: true)
         #expect(words.contains("AskUserQuestion"))

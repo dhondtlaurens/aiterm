@@ -35,6 +35,15 @@ def note(agent: str) -> dict[str, Any]:
     return found
 
 
+@pytest.mark.parametrize(("agent", "tools"), [("claude", ["AskUserQuestion"]), ("agy", ["ask_question"]),
+                                            ("codex", ["request_user_input", "request_user_input_async"])])
+def test_worker_question_capture(agent, tools):
+    observed = json.loads((CAPTURES / agent / "worker-question.json").read_text())
+    assert observed["version"] == note(agent)["version"]
+    assert observed["tools"] == tools and observed["mechanism"]
+    assert observed["question"].startswith("Question:") and observed["question"].endswith("?")
+
+
 @cache
 def posts(agent: str) -> tuple[tuple[str, dict[str, Any]], ...]:
     note(agent)

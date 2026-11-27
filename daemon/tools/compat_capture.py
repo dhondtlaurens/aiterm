@@ -657,6 +657,23 @@ def capture_note(agent: AgentKind, version: str, launch: list[str], turns: list[
     return json.dumps(note, indent=2, sort_keys=True) + "\n"
 
 
+async def worker_question(live: Live, listener: Listener, agent: AgentKind, version: str, work: Path,
+                          command: list[str], tools: list[str], mechanism: str) -> str:
+    """A native question would leave this turn open. Read the reply only after its actual Stop."""
+    session = await open_session(live, listener, agent, work, shlex.join(command))
+    try:
+        await session.turn(f"Use {tools[0]} to ask whether I prefer red or green. If the tool is unavailable or denied, "
+                           "end your turn by asking the question in a separate paragraph prefixed with Question:.")
+        screen = await session.look()
+        match = re.search(r"Question: [^\n?]*(?:red|green)[^\n?]*\?", screen, re.IGNORECASE)
+        if match is None:
+            raise CaptureFailed(f"{agent}: no final question visible after the worker stopped", screen)
+        return json.dumps({"tools": tools, "mechanism": mechanism, "version": version, "question": match.group(0)},
+                          indent=2, sort_keys=True) + "\n"
+    finally:
+        await close(session)
+
+
 async def capture_claude(live: Live, listener: Listener, port: int, scratch: Path, version: str) -> dict[str, str]:
     home = Path.home()
     config = scratch_claude_config(home / ".claude", home / ".claude.json", scratch)
@@ -729,6 +746,10 @@ async def capture_claude(live: Live, listener: Listener, port: int, scratch: Pat
                                             indent=2, sort_keys=True) + "\n"
     files |= claude_headless(env, work, scratch)
     files["help.txt"] = help_text("claude", env)
+    worker = ["env", *(f"{key}={value}" for key, value in env.items()),
+               *checked_command(fill(launches()["claude"]["worker"], values))]
+    files["worker-question.json"] = await worker_question(live, listener, "claude", version, work, worker,
+                                                         ["AskUserQuestion"], "--disallowedTools AskUserQuestion")
     files["capture.json"] = capture_note("claude", version, launch, turns, {"modelCatalogue": catalogue})
     return files
 
@@ -807,6 +828,10 @@ async def capture_codex(live: Live, listener: Listener, port: int, scratch: Path
     files["headless/challenge.jsonl"] = challenge.stdout
     files["headless/challenge-answer.txt"] = read_text(answer) or ""
     files["help.txt"] = help_text("codex", env)
+    command = ["env", *(f"{key}={value}" for key, value in env.items()), *checked_command(fill(templates["worker"], values))]
+    files["worker-question.json"] = await worker_question(live, listener, "codex", version, work, command,
+                                                         ["request_user_input", "request_user_input_async"],
+                                                         "tools.experimental_request_user_input.enabled=false")
     files["capture.json"] = capture_note("codex", version, launch, turns, {"approvalLaunch": asking})
     return files
 
@@ -916,6 +941,12 @@ async def capture_agy(live: Live, listener: Listener, port: int, scratch: Path, 
                                                            "project": str(work), "answer": ""}), cwd=work)
     files["headless/challenge.json"] = challenge.stdout
     files["help.txt"] = help_text("agy", {})
+    policy = scratch / "worker-policy"
+    (policy / ".agents").mkdir(parents=True)
+    (policy / ".agents/hooks.json").write_bytes((COMPAT / "drivers/agy-worker-hooks.json").read_bytes())
+    command = checked_command(fill(templates["worker"], values) + ["--add-dir", str(policy), "--settings", settings])
+    files["worker-question.json"] = await worker_question(live, listener, "agy", version, work, command,
+                                                         ["ask_question"], "--add-dir with PreToolUse deny")
     files["capture.json"] = capture_note("agy", version, launch, turns)
     return files
 
