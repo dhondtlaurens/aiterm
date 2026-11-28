@@ -19,13 +19,12 @@ public enum AgentProcess {
     static let strippedEnvironment = ["ITERM_SESSION_ID", "TERM_SESSION_ID", "ITERM_PROFILE"]
 
     public static func run(_ executable: String, _ arguments: [String], environment: [String: String],
-                           in directory: String, timeout: Duration, outputLimit: Int = 4 << 20,
-                           capture: FileHandle? = nil, inheritEnvironment: Bool = true) async throws -> ProcessOutput {
-        var env = inheritEnvironment ? ProcessRunner.inheritedEnvironment : [:]
+                           in directory: String, timeout: Duration, outputLimit: Int = 4 << 20) async throws -> ProcessOutput {
+        var env = ProcessRunner.inheritedEnvironment
         // A hook that still fires must not name the tab AiTerm itself was started from (spikes).
         for key in strippedEnvironment { env.removeValue(forKey: key) }
         for (k, v) in environment { env[k] = v }
-        let child = try Spawned(executable, arguments, environment: env, directory: directory, outputLimit: outputLimit, capture: capture)
+        let child = try Spawned(executable, arguments, environment: env, directory: directory, outputLimit: outputLimit)
         // Not a child of the call: nothing awaits it, so a child that exits at once leaves nothing
         // to wait for; it is cancelled as soon as the run is over.
         let deadline = Task {
@@ -60,15 +59,13 @@ private final class Spawned: Sendable {
     }
 
     let pid: pid_t
-    private let capturesEvents: Bool
     private let exit = AsyncLatch()
     private let drains = Countdown(2)
     private let stdout: PipeDrain, stderr: PipeDrain
     private let state = Mutex(State())
 
     init(_ executable: String, _ arguments: [String], environment: [String: String], directory: String,
-         outputLimit: Int, capture: FileHandle?) throws {
-        capturesEvents = capture != nil
+         outputLimit: Int) throws {
         var outPipe: [Int32] = [0, 0], errPipe: [Int32] = [0, 0]
         guard pipe(&outPipe) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EMFILE) }
         guard pipe(&errPipe) == 0 else {
@@ -97,7 +94,7 @@ private final class Spawned: Sendable {
         posix_spawnattr_setsigdefault(&attributes, &everySignal)
         posix_spawnattr_setsigmask(&attributes, &noSignal)
         // CLOEXEC_DEFAULT: nothing but 0, 1 and 2 reaches the child.
-        posix_spawnattr_setflags(&attributes, Int16((capture == nil ? POSIX_SPAWN_SETPGROUP : POSIX_SPAWN_SETSID) | POSIX_SPAWN_CLOEXEC_DEFAULT
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT
                                                     | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
         posix_spawnattr_setpgroup(&attributes, 0)
         let argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
@@ -113,8 +110,8 @@ private final class Spawned: Sendable {
         pid = spawned
         let onEnd: @Sendable () -> Void = { [drains] in drains.countOne() }
         let outFD = outPipe[0], errFD = errPipe[0]
-        stdout = PipeDrain(fd: outPipe[0], limit: outputLimit, file: capture, onEnd: { close(outFD); onEnd() })
-        stderr = PipeDrain(fd: errPipe[0], limit: capture == nil ? outputLimit : 64 * 1024, onEnd: { close(errFD); onEnd() })
+        stdout = PipeDrain(fd: outPipe[0], limit: outputLimit, onEnd: { close(outFD); onEnd() })
+        stderr = PipeDrain(fd: errPipe[0], limit: outputLimit, onEnd: { close(errFD); onEnd() })
 
         let source = DispatchSource.makeProcessSource(identifier: spawned, eventMask: .exit, queue: .global(qos: .utility))
         let held = Mutex<(any DispatchSourceProcess)?>(source)
@@ -177,7 +174,7 @@ private final class Spawned: Sendable {
 
     func output() -> ProcessOutput {
         let (status, timedOut) = state.withLock { ($0.status, $0.timedOut) }
-        return ProcessOutput(status: status, stdout: stdout.text(), stderr: stderr.text(), timedOut: timedOut, stdoutTruncated: stdout.truncated || (capturesEvents && !stdout.isFinished))
+        return ProcessOutput(status: status, stdout: stdout.text(), stderr: stderr.text(), timedOut: timedOut, stdoutTruncated: stdout.truncated)
     }
 }
 

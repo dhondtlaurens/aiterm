@@ -19,7 +19,7 @@ import Testing
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
         #expect(tab.params["windowId"] as? String == "alive")
         #expect(tab.params["cwd"] as? String == fixture.task.worktreePath, "in the task's worktree, whatever the active tab is doing")
-        #expect((tab.params["agentCommand"] as? String)?.contains(" --manual-review ") == true)
+        #expect((tab.params["agentCommand"] as? String)?.hasPrefix("claude --model sonnet ") == true)
         #expect(server.requests.contains { $0.method == "window.activate" && $0.params["windowId"] as? String == "alive" })
         #expect(!server.requests.contains { $0.method == "window.createTask" })
 
@@ -48,11 +48,9 @@ import Testing
 
         let tab = try #require(server.requests.first { $0.method == "tab.create" })
         let command = try #require(tab.params["agentCommand"] as? String)
-        let quoted = try #require(command.components(separatedBy: " --manual-review ").last)
-        let request = URL(fileURLWithPath: String(quoted.dropFirst().dropLast()))
-        let review = try await ManualReview.withClaim(at: request) { review, _ in review }
-        #expect(review.context?.contains("Use frozen constraints") == true)
-        #expect(review.model == draft.model)
+        #expect(command.hasPrefix("claude --model sonnet "))
+        let carried = (try? String(contentsOfFile: fixture.task.worktreePath + "/.aiterm/first-prompt.md", encoding: .utf8)) ?? command
+        #expect(carried.contains("Use frozen constraints"))
         let saved = try #require(try fixture.controller.savedWorkspace().tasks.first)
         #expect(saved.jira == JiraRef(key: "#53", summary: "Constraints file", url: "https://gitlab/x/-/issues/53",
                                       source: .gitLab(project: "x")))
@@ -70,7 +68,7 @@ import Testing
         let window = try #require(server.requests.first { $0.method == "window.createTask" })
         #expect(window.params["taskId"] as? String == fixture.task.id.uuidString)
         #expect(window.params["cwd"] as? String == fixture.task.worktreePath)
-        #expect((window.params["agentCommand"] as? String)?.contains(" --manual-review ") == true)
+        #expect((window.params["agentCommand"] as? String)?.hasPrefix("claude --model sonnet ") == true)
         #expect(!server.requests.contains { $0.method == "tab.create" })
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["reopened"])
     }
@@ -90,7 +88,7 @@ import Testing
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["reopened"])
     }
 
-    @Test(arguments: [true, false]) func failedDeliveryIsShownAndTheRequestDiscarded(open: Bool) async throws {
+    @Test(arguments: [true, false]) func failedInteractiveDeliveryIsShown(open: Bool) async throws {
         let fixture = try await TaskFixture(windowOpen: open)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let server = RecordingDaemon()
@@ -102,8 +100,7 @@ import Testing
         }
         #expect(failure?.message.contains("Session closed") == true)
         let command = try #require(server.requests.first { $0.method == method }?.params["agentCommand"] as? String)
-        let path = try #require(command.components(separatedBy: " --manual-review ").last)
-        #expect(!FileManager.default.fileExists(atPath: String(path.dropFirst().dropLast())))
+        #expect(command.hasPrefix("claude --model sonnet "))
     }
 
     /// The task was created on `feat/work`, then its worktree moved to another branch. A review of
@@ -126,8 +123,7 @@ import Testing
         if deliveryFails {
             #expect(fixture.controller.issue?.reason == "Delivery failed")
             let command = try #require(window.params["agentCommand"] as? String)
-            let request = try #require(command.components(separatedBy: " --manual-review ").last)
-            #expect(!FileManager.default.fileExists(atPath: String(request.dropFirst().dropLast())))
+            #expect(command.hasPrefix("claude --model sonnet "))
         }
         #expect(window.params["cwd"] as? String == review.worktreePath)
         #expect(try fixture.git.run(["branch", "--show-current"], in: fixture.task.worktreePath) == "feat/other",
@@ -163,6 +159,30 @@ import Testing
         #expect(fixture.controller.state.tasks == [fixture.task])
         #expect(try fixture.controller.savedWorkspace().tasks == [fixture.task])
     }
+
+    @Test(arguments: [false, true]) func newCheckoutExplainsInteractiveRecovery(commandBuildFails: Bool) async throws {
+        let fixture = try await RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        if commandBuildFails {
+            // A tracked file blocks the prompt directory in the new checkout.
+            try Data("not a directory".utf8).write(to: fixture.repo.appendingPathComponent(".aiterm"))
+            try fixture.git.run(["add", ".aiterm"], in: fixture.repo.path)
+            try fixture.git.run(["commit", "-qm", "block prompt directory"], in: fixture.repo.path)
+        }
+        try fixture.git.run(["branch", "topic"], in: fixture.repo.path)
+        var draft = ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: "high")
+        draft.setBranch("topic"); draft.setTitle("Review topic")
+        draft.promptText = "Start now\twith this prompt"
+        try await fixture.controller.launcher.createReview(draft: draft, project: fixture.project)
+        let review = try #require(fixture.controller.state.tasks.first)
+        #expect(review.kind == .review)
+        #expect(FileManager.default.fileExists(atPath: review.worktreePath))
+        let title = try #require(fixture.controller.issue?.title)
+        #expect(title == (commandBuildFails
+            ? "Review created, but the agent couldn’t start. Start it manually in its window."
+            : "Review created. Choose it to open its window once AiTerm reconnects, then start the agent there."))
+    }
+
 }
 
 private extension TaskFixture {

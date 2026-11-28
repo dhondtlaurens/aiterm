@@ -85,6 +85,30 @@ import Testing
         #expect(!command.contains("--disallowedTools") && !command.contains("--permission-mode"))
     }
 
+    @Test(arguments: [true, false]) func checkoutPreparesTheBranchBeforeTheReview(localBranch: Bool) async throws {
+        let git = GitRunner.hermetic(), fm = FileManager.default
+        let root = try ScratchFolder.make("review-prepare-")
+        defer { try? fm.removeItem(at: root) }
+        let upstream = root.appendingPathComponent("origin"), clone = root.appendingPathComponent("project")
+        try GitFixture.initRepo(at: upstream.path)
+        try git.run(["branch", "topic"], in: upstream.path)
+        try git.run(["clone", "-q", upstream.path, clone.path], in: root.path)
+        if localBranch { try git.run(["branch", "topic", "origin/topic"], in: clone.path) }
+        try git.run(["switch", "topic"], in: upstream.path)
+        try Data("new revision".utf8).write(to: upstream.appendingPathComponent("file"))
+        try git.run(["add", "file"], in: upstream.path)
+        try git.run(["commit", "-qm", "posted change"], in: upstream.path)
+        let head = try git.run(["rev-parse", "HEAD"], in: upstream.path)
+        let project = Project.make(name: "Demo", path: clone.path)
+        var draft = ReviewDraft(mr: nil, agent: .codex, model: "sample-model", reasoning: "low")
+        draft.setBranch("topic")
+        draft.setTitle("Read the change")
+        let made = try await TaskWorkflow(git: git).createReview(draft: draft, project: project)
+        #expect(try git.run(["rev-parse", "refs/heads/topic"], in: clone.path) == head)
+        #expect(try git.run(["rev-parse", "HEAD"], in: made.task.worktreePath) == head)
+        #expect(made.command?.hasPrefix("codex --dangerously-bypass-approvals-and-sandbox -m sample-model -c model_reasoning_effort=low") == true)
+    }
+
     /// Not agreed to lose its commits, an unmerged branch is kept and the removal says why, in
     /// AiTerm's words for git's "not fully merged"; agreed, it is deleted with them.
     @Test func anUnmergedBranchIsKeptAndSaidSoAgreedItIsDeleted() async throws {

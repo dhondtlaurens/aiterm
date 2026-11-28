@@ -2819,19 +2819,32 @@ def test_staged_command_survives_a_delayed_shell_and_reclaims_only_its_files(tmp
     assert not original.exists()
 
 
-async def test_long_helper_command_runs_in_its_shell_and_closes_it(stack, tmp_path):
+@pytest.mark.parametrize("driven", [False, True])
+@pytest.mark.parametrize("exit_status", [0, 23])
+async def test_long_helper_command_runs_in_its_shell_and_closes_it(stack, tmp_path, driven, exit_status):
     svc, it, files, r, w = stack
-    window = await call(r, w, "window.createTask", {"taskId": "one", "cwd": "/wt", "frame": FRAME})
+    window = await call(r, w, "window.createTask", {"taskId": "one", "cwd": "/wt", "frame": FRAME, "worker": driven})
     import shlex
     arg = "a' b\n" * 20480
     result = tmp_path / "received"
-    cmd = "printf '%s' " + shlex.quote(arg) + " > " + shlex.quote(str(result)) + "; exit 23"
+    status = tmp_path / "status"
+    cmd = ("printf '%s' " + shlex.quote(arg) + " > " + shlex.quote(str(result))
+           + "; printf '%s' " + str(exit_status) + " > " + shlex.quote(str(status)) + "; exit " + str(exit_status))
+    send = it.send_text
+
+    async def send_after_role_is_known(session_id, text):
+        # The callback can emit hooks immediately: ownership must already exist at delivery.
+        assert it.sessions[session_id].user_vars.get("aiterm_role") == ("helper" if driven else None)
+        await send(session_id, text)
+
+    it.send_text = send_after_role_is_known
     tab = await call(r, w, "tab.create", {"windowId": window["result"]["windowId"], "tabKey": "review",
-                                        "agentCommand": cmd})
+                                        "background": True, "agentCommand": cmd})
     typed = next(text for session, text in it.sent if session == tab["result"]["sessionId"])
     assert len(typed.encode()) < 1000
-    assert subprocess.run(["/bin/zsh", "-c", typed + "\nexit 0"]).returncode == 23
+    assert subprocess.run(["/bin/zsh", "-f", "-c", typed + "\nexit 99"]).returncode == exit_status
     assert result.read_text() == arg
+    assert status.read_text() == str(exit_status)
 
 
 @pytest.mark.parametrize("agent", ["claude", "codex", "agy", "pi"])

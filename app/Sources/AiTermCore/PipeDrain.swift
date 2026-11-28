@@ -7,27 +7,14 @@ import Darwin
 final class PipeDrain: Sendable {
     private let data = Mutex(Data())
     private let dropped = Mutex(false)
-    private let finished = Mutex(false)
 
-    init(fd: Int32, limit: Int, file: FileHandle? = nil, onEnd: @escaping @Sendable () -> Void) {
+    init(fd: Int32, limit: Int, onEnd: @escaping @Sendable () -> Void) {
         let thread = Thread { [self] in
-            var written = 0
             var buffer = [UInt8](repeating: 0, count: 64 * 1024)
             while true {
                 let n = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
                 if n < 0, errno == EINTR { continue }
-                if n < 0, file != nil { dropped.withLock { $0 = true } }
                 guard n > 0 else { break }
-                if let file {
-                    let count = min(n, limit - written)
-                    if count > 0 {
-                        do { try file.write(contentsOf: Data(buffer.prefix(count))) }
-                        catch { dropped.withLock { $0 = true } }
-                        written += count
-                    }
-                    if count < n { dropped.withLock { $0 = true } }
-                    continue
-                }
                 let kept = data.withLock { d in
                     let room = limit - d.count
                     if room > 0 { d.append(contentsOf: buffer[..<min(n, room)]) }
@@ -35,7 +22,6 @@ final class PipeDrain: Sendable {
                 }
                 if kept < n { dropped.withLock { $0 = true } }
             }
-            finished.withLock { $0 = true }
             onEnd()
         }
         thread.stackSize = 512 * 1024
@@ -46,5 +32,4 @@ final class PipeDrain: Sendable {
 
     /// Whether anything past `limit` was read and dropped.
     var truncated: Bool { dropped.withLock { $0 } }
-    var isFinished: Bool { finished.withLock { $0 } }
 }
