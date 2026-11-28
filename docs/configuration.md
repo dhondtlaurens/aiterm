@@ -46,21 +46,24 @@ signed-in providers; run `/login` in PI if none are available. Antigravity lists
 signed-in account offers (`agy models`), and AiTerm offers each model's effort levels as its
 reasoning; run `agy` once to sign in.
 
-**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`, and Antigravity tasks with
+**Codex manual tasks and reviews run with `--dangerously-bypass-approvals-and-sandbox`,
+and Antigravity manual tasks and reviews with
 `--dangerously-skip-permissions`.** Antigravity's driver adds a named hook, `aiterm`, to
 `~/.gemini/config/hooks.json` and sets its status line in `~/.gemini/antigravity-cli/settings.json`,
 keeping your own status line running beneath it. As the Oracle, Antigravity runs with rules that deny
 commands, file writes, MCP servers and fetches; it can still search the web. The New Task sheet summarises
 the destination before launch.
 
-**New Review…** runs the chosen model and effort once against the pinned commit and its diff.
-Enter the review focus as plain text. Slash commands and installed skills are disabled for manual reviews.
-The tab prints the commit and findings or a failure, then returns to its shell. The sidebar can
-show a shell during this run. An MR uses its target branch and a branch-only review uses the
-default branch. Projects with an origin need it reachable to verify the target. Local-only
-repositories use the local target. The Antigravity file reader requires CLI 1.5.18, the version
-verified to enforce AiTerm’s file-only tool policy. It uses your existing Antigravity sign-in
-in a disposable home. AiTerm removes that home and the review inputs when the helper exits.
+**New Review…** starts an interactive agent with the selected vendor, model, effort and prompt,
+using the same launch permissions as **New Task…**, including the flags above. Type `/` to choose
+an installed skill or command, or `@`
+to reference a file. You can include the ticket and merge/pull request descriptions. The agent
+starts on your prompt and stays available for follow-up messages in the same conversation.
+
+When a task already has the branch checked out, the reviewer opens in that task’s window,
+reopening it if necessary. Otherwise AiTerm prepares a review checkout and opens the agent there.
+A workflow can separately request background helper tabs and supply its own read-only, one-shot
+command; that workflow controls the helper’s output and exit.
 
 Signal workers use the task-branch publishing guard. See the
 [Operator guide](operators.md#publishing-done-and-merging) for publishing and merge boundaries.

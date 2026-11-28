@@ -72,25 +72,7 @@ import Darwin
         let out = try await AgentProcess.run("/bin/sh", ["-c", "head -c 3000000 /dev/zero | tr '\\0' x"],
                                              environment: [:], in: "/", timeout: .seconds(20), outputLimit: 1_000_000)
         #expect(out.stdout.utf8.count == 1_000_000)
-    }
-
-    @Test func anIncompleteCaptureIsReportedWhenStdoutStaysOpen() async throws {
-        let root = try ScratchFolder.make("review-drain-")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let ids = root.appendingPathComponent("writer.pid")
-        defer {
-            if let writer = pid(in: ids.path), alive(writer) { kill(writer, SIGTERM) }
-        }
-        // An independent writer holds the inherited stdout beyond the reviewer's exit.
-        let script = """
-        import pathlib, subprocess
-        writer = subprocess.Popen(['/bin/sleep', '60'], start_new_session=True)
-        pathlib.Path('writer.pid').write_text(str(writer.pid))
-        """
-        let result = try await AgentProcess.run("/usr/bin/python3", ["-c", script], environment: [:], in: root.path,
-                                                timeout: .seconds(30), capture: .nullDevice)
-        #expect(result.status == 0 && !result.timedOut)
-        #expect(result.stdoutTruncated)
+        #expect(out.stdoutTruncated)
     }
 
     @Test func aJobLeftInTheBackgroundDoesNotOutliveANormalExit() async throws {

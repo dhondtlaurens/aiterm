@@ -60,6 +60,12 @@ source checkout. Its caller script is byte-identical to the installed copy used 
 challenge. No related marketplace source fix was found; background API compatibility proof stays
 in the AiTerm implementation. No marketplace files were changed.
 
+The implementation review exposed a separate marketplace runner limitation: a diff above
+Antigravity's argument budget is omitted from its brief, and the fallback git reads can fail when
+the worktree's shared git directory lies outside its sandbox. This review used a full patch and
+reference files exported into an ignored build directory. That runner limitation is a separate
+follow-up; the marketplace's one-shot/background command ownership needs no change for this fix.
+
 ## Files
 
 - Modify app/Sources/AiTerm/TaskLauncher.swift: restore both manual interactive launch paths and
@@ -67,8 +73,8 @@ in the AiTerm implementation. No marketplace files were changed.
   fallback, persistence and delivery-error behavior.
 - Modify app/Sources/AiTermCore/Tasks/TaskWorkflow.swift: restore the ordinary review command and
   remove the manual-only creation path and pending-request field.
-- Modify app/Sources/AiTerm/Views/NewReviewSheet.swift and
-  app/Sources/AiTerm/Snapshots/SheetSnapshots.swift: restore shared prompt help and installed skills.
+- Modify app/Sources/AiTerm/Views/NewReviewSheet.swift: restore shared prompt help and installed
+  skills. Existing SheetSnapshots fixtures already exercise the affected states and stay unchanged.
 - Remove app/Sources/AiTerm/ManualReviewEntry.swift,
   app/Sources/AiTermCore/Tasks/ManualReview.swift,
   app/Sources/AiTermCore/Git/Repository+ManualReview.swift,
@@ -79,21 +85,23 @@ in the AiTerm implementation. No marketplace files were changed.
 - Modify app/Sources/AiTermCore/Process/AgentProcess.swift and app/Sources/AiTermCore/PipeDrain.swift
   only as justified by the caller audit, preserving common process cancellation, draining and
   truncation behavior.
-- Modify app/Tests/AiTermTests/ReviewInTaskTests.swift, ReviewCreationModelTests.swift,
-  NewReviewSheetTests.swift and RaceFixture.swift, plus
-  app/Tests/AiTermCoreTests/TaskWorkflowTests.swift and AgentProcessTests.swift where applicable.
+- Modify app/Tests/AiTermTests/ReviewInTaskTests.swift,
+  app/Tests/AiTermTests/ReviewCreationModelTests.swift, app/Tests/AiTermTests/NewReviewSheetTests.swift,
+  app/Tests/AiTermCoreTests/TaskWorkflowTests.swift and app/Tests/AiTermCoreTests/AgentProcessTests.swift.
   Replace one-shot assumptions with interactive launch, skill and delivery-error coverage.
+  Reuse RaceFixture.swift without modifying it.
 - Remove obsolete app/Tests/AiTermTests/ManualReviewRunTests.swift,
   app/Tests/AiTermCoreTests/ManualReviewTests.swift and
   app/Tests/AiTermCoreTests/ManualReviewAnswerTests.swift after mapping any still-relevant assertions
   to surviving tests.
-- Create a focused isolated launch-boundary test/support fixture under app/Tests/ if existing
-  support cannot execute the captured command and prove a same-session follow-up.
+- Create app/Tests/AiTermTests/ReviewLaunchTests.swift for hosted form submission, native skill/file
+  selection, agent-switch discovery, and captured command execution with a same-session follow-up.
 - Modify daemon/tests/test_service.py where needed to demonstrate an explicitly requested
   background helper's command, result and exit using the unchanged tab API. Preserve existing
   worker/helper identity, idempotency and isolation tests.
-- Modify README.md and docs/configuration.md to describe interactive manual reviews and ordinary
-  permissions. Historical plans remain historical; do not replace the current README image.
+- Modify README.md and docs/configuration.md to describe interactive manual reviews and the same
+  launch permissions as manual tasks, including Codex/Antigravity's explicit bypass flags.
+  Historical plans remain historical; do not replace the current README image.
 
 ## Proof
 
@@ -135,19 +143,19 @@ in the AiTerm implementation. No marketplace files were changed.
 
 ## To-dos
 
-- [ ] Restore existing-task interactive review submission with red/green boundary tests; retain both
+- [x] Restore existing-task interactive review submission with red/green boundary tests; retain both
   closed-window fallbacks, metadata and command-delivery errors.
-- [ ] Restore new-checkout interactive submission and prove normal checkout preparation plus the
+- [x] Restore new-checkout interactive submission and prove normal checkout preparation plus the
   selected settings/prompt through the same boundary, including a same-session follow-up and both
   recovery-message regressions. Rewire TaskLauncher to the existing workflow.createReview in this
   slice; keep createManualReview and Created.manualReview until the cleanup slice removes their
   callers and obsolete tests together, so each slice still compiles.
-- [ ] Restore installed skill/command and @ completion in the hosted sheet, including Antigravity
+- [x] Restore installed skill/command and @ completion in the hosted sheet, including Antigravity
   and Pi native discovery and submission of the selected invocation.
-- [ ] Complete the helper caller audit, remove obsolete manual-only machinery and assertions, and
+- [x] Complete the helper caller audit, remove obsolete manual-only machinery and assertions, and
   prove explicit background result/exit and unchanged Operator worker/helper routing. Delete
   createManualReview, Created.manualReview and their obsolete tests in this same compiling slice.
-- [ ] Correct user documentation, record the marketplace audit/test outcome, compare snapshots and
+- [x] Correct user documentation, record the marketplace audit/test outcome, compare snapshots and
   run the gate. Record maintainer acceptance separately from isolated proof.
 - [x] Challenge this plan with the selected external reviewer(s), triage every finding and record
   the review outcome before implementation handoff.
@@ -164,3 +172,70 @@ No findings remain open. The review's verdict was ready with these fixes.
 The reviewer could not inspect git history or the separate marketplace checkout from its sandbox.
 The primary agent verified the reference/merge/current-main history and the marketplace caller
 directly, and ran the 21 marketplace tests recorded above. Native app acceptance remains unrun.
+
+## Implementation proof on 28 November
+
+The existing-task/recovery regressions first failed with nine issues on the released implementation.
+The new command-boundary regression then failed in all eight vendor/destination combinations:
+the submitted command was the manual-review helper rather than the selected interactive CLI.
+
+ReviewLaunchTests now passes 19 cases: two real SheetCoordinator/form submissions with Command-Return
+and disabled descriptions, eight hosted skill/file selection submissions (including native
+Antigravity plugins and Pi packages), one agent-switch reload in the open review prompt, and eight
+submitted commands executed on isolated PTYs.
+Each PTY receiver records the selected model/effort, exact argv and composed prompt, then answers a
+follow-up from the same process on the same terminal. Both inline and staged long prompts are
+exercised. These are synthetic CLI receivers, not real vendor model conversations.
+
+The focused existing-task, closed-window, delivery-error and recovery tests passed. The migrated
+branch-preparation tests pass for local and remote-only branches. The common process tests pass,
+including cancellation, process-group cleanup and truncation reporting. The restored keyboard test
+proves a late Pi catalogue refreshes the open editor in the owner's checkout. ReviewLaunchTests is
+serialized because its form submissions exercise native window keyboard handling.
+
+All 16 focused daemon helper/routing cases passed. The explicit background command carries a long
+quoted argument, writes its result and status, and exits with either 0 or 23 in ordinary and driven
+windows. It verifies the role on the iTerm session before delivery. The complete daemon gate then
+passed with 1,733 tests, one opt-in live test skipped, and clean type checking/lint.
+
+Native hosted captures were taken before and after and inspected for review-step3, review-in-task
+and review-step3-ticket. The shared prompt placeholder and slash/@ hint are restored; destination,
+description controls and layout remain intact. Existing SheetSnapshots fixtures already cover these
+states and needed no source edit. The current README image is unchanged.
+
+The caller audit removed only the obsolete ManualReview request/snapshot/answer/profile pipeline,
+its app entry point, its HeadlessRun factory and the capture-only AgentProcess/PipeDrain branches.
+Common output truncation reporting remains. Harness read-only/headless support still serves the
+Oracle, query writer and workers; generic background-tab command staging and Operator worker/helper
+routing are untouched. Signal goldens, native skill compatibility captures and saved-workspace
+format are unchanged. No marketplace files were modified.
+
+The initial repository gate scripts/test.sh passed: 1,733 daemon tests, all 3,145 selected Swift tests
+(UI, app, core and Signal snapshots), type checking and lint. The Swift summaries include four
+deliberate known issues from existing test-harness self-checks; there were no unexpected failures.
+All test and snapshot processes have ended. Implementation remains uncommitted for review.
+
+Native real-agent desktop acceptance remains a maintainer check under docs/workflow/verify.md;
+no live app was launched or replaced and no real agent was exercised. This manual acceptance is
+separate from the completed isolated launch-boundary proof.
+
+## Implementation review corrections
+
+Antigravity · gemini-4-neon · high found one Important documentation issue and two Minor findings.
+The permission warning now explicitly includes manual reviews for both Codex and Antigravity,
+and New Review is described as using New Task's launch permissions rather than the CLI's defaults.
+The Files list names the actual new test and omits unused fixture edits. A hosted regression now
+switches Antigravity to Pi while the prompt is open and proves the newly discovered skill is
+accepted with Pi's syntax. Redundant before/after git assertions left over from the removed pinned
+snapshot test were deleted. The focused launch/workflow suites passed after these corrections;
+the repeated full gate also passed with 1,733 daemon tests, 3,146 selected Swift tests, type checking,
+lint and Signal snapshots. A second Antigravity pass confirmed all three findings settled and
+reported no remaining findings. Its verdict was Ready. One earlier attempt was superseded before
+findings because the full patch needed to be supplied as a local artifact; it is not counted as a
+completed review round. No Critical, Important or Minor findings remain open.
+
+The reviewer read the exported full patch, new tests and referenced source files. Its sandbox could
+not run repository-wide git queries or inspect the separate marketplace checkout; the primary
+agent performed the status/reference/caller audits and test/snapshot verification. All review
+processes have stopped. The implementation is ready for local commit approval; there is no PR in
+this repository's workflow.

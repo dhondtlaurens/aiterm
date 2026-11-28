@@ -66,8 +66,10 @@ Requires **macOS 26+**, **iTerm2** and **Python 3.11+**. Enable
    CLI and AiTerm's driver. Sign in through the chosen agent's CLI as needed; you use your own agent
    account or API access.
 
-**Codex tasks run with `--dangerously-bypass-approvals-and-sandbox`.** The task sheet summarises the
-destination before launch. **New Review…** runs the selected reviewer once on a committed snapshot and leaves the commit and findings in the tab. Signal workers also run with publishing
+**Codex manual tasks and reviews run with `--dangerously-bypass-approvals-and-sandbox`;
+Antigravity manual tasks and reviews use `--dangerously-skip-permissions`.** Both creation sheets
+summarise the destination before launch. **New Review…** starts the selected agent interactively,
+ready for your prompt and follow-up messages. Signal workers also run with publishing
 guards on their own task branch. [Agent configuration](docs/configuration.md#agents).
 
 Use **AiTerm › Check for Updates…** for subsequent versions. To have a coding agent install it,
